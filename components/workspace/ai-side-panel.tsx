@@ -51,6 +51,11 @@ interface RightSidePanelProps {
   workspaceRootPath: string | null;
   onToggleDocumentReadOnly?: () => void;
   onClearSelectedTextContext?: () => void;
+  onMarkdownDocumentApplied?: (document: {
+    content: string;
+    modifiedAt: number | null;
+    path: string;
+  }) => void;
   onOpenSettings: () => void;
 }
 
@@ -73,6 +78,7 @@ export function RightSidePanel({
   workspaceRootPath,
   onToggleDocumentReadOnly,
   onClearSelectedTextContext,
+  onMarkdownDocumentApplied,
   onOpenSettings,
 }: RightSidePanelProps) {
   if (!mode) {
@@ -93,6 +99,7 @@ export function RightSidePanel({
           settingsVersion={settingsVersion}
           workspaceRootPath={workspaceRootPath}
           onClearSelectedTextContext={onClearSelectedTextContext}
+          onMarkdownDocumentApplied={onMarkdownDocumentApplied}
           onOpenSettings={onOpenSettings}
         />
       ) : (

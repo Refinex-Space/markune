@@ -49,6 +49,7 @@ import {
   readAiConversation,
   respondAiPermission,
   saveAiConversation,
+  saveMarkdownDocument,
   sendAiPrompt,
   startAiSession,
 } from '@/components/workspace/workspace-api';
@@ -96,7 +97,14 @@ interface AiPanelContentProps {
   settingsVersion?: number;
   workspaceRootPath: string | null;
   onClearSelectedTextContext?: () => void;
+  onMarkdownDocumentApplied?: (document: AiAppliedMarkdownDocument) => void;
   onOpenSettings?: () => void;
+}
+
+interface AiAppliedMarkdownDocument {
+  content: string;
+  modifiedAt: number | null;
+  path: string;
 }
 
 type AiMentionKind = 'agent' | 'command' | 'file' | 'mcp-tool' | 'skill';
@@ -129,6 +137,7 @@ export function AiPanelContent({
   settingsVersion = 0,
   workspaceRootPath,
   onClearSelectedTextContext,
+  onMarkdownDocumentApplied,
   onOpenSettings,
 }: AiPanelContentProps) {
   const [state, dispatch] = React.useReducer(
@@ -1009,9 +1018,11 @@ export function AiPanelContent({
             />
             <MessageList messages={state.messages} />
             <RuntimeActivity
+              onMarkdownDocumentApplied={onMarkdownDocumentApplied}
               permissions={state.permissions}
               sessionId={state.session?.sessionId ?? null}
               tools={state.tools}
+              workspaceRootPath={workspaceRootPath}
             />
           </div>
         )}
@@ -1904,13 +1915,17 @@ function MessageContextImageChip({ image }: { image: AiContextImage }) {
 }
 
 function RuntimeActivity({
+  onMarkdownDocumentApplied,
   permissions,
   sessionId,
   tools,
+  workspaceRootPath,
 }: {
+  onMarkdownDocumentApplied?: (document: AiAppliedMarkdownDocument) => void;
   permissions: AiPanelPermissionRequest[];
   sessionId: string | null;
   tools: AiPanelToolCall[];
+  workspaceRootPath: string | null;
 }) {
   if (tools.length === 0 && permissions.length === 0) {
     return null;
@@ -1930,8 +1945,10 @@ function RuntimeActivity({
         <RuntimeActivityGroup
           group={group}
           key={group.kind}
+          onMarkdownDocumentApplied={onMarkdownDocumentApplied}
           permissionByToolId={permissionByToolId}
           sessionId={sessionId}
+          workspaceRootPath={workspaceRootPath}
         />
       ))}
       {standalonePermissions.map((permission) => (
@@ -1971,12 +1988,16 @@ const runtimeToolGroupOrder: RuntimeToolGroupKind[] = [
 
 function RuntimeActivityGroup({
   group,
+  onMarkdownDocumentApplied,
   permissionByToolId,
   sessionId,
+  workspaceRootPath,
 }: {
   group: RuntimeToolGroup;
+  onMarkdownDocumentApplied?: (document: AiAppliedMarkdownDocument) => void;
   permissionByToolId: Map<string, AiPanelPermissionRequest>;
   sessionId: string | null;
+  workspaceRootPath: string | null;
 }) {
   const hasRunningTool = group.tools.some((tool) => tool.status === 'running');
   const [expanded, setExpanded] = React.useState(true);
@@ -2012,9 +2033,11 @@ function RuntimeActivityGroup({
             <RuntimeToolItem
               groupKind={group.kind}
               key={tool.id}
+              onMarkdownDocumentApplied={onMarkdownDocumentApplied}
               permission={permissionByToolId.get(tool.id) ?? null}
               sessionId={sessionId}
               tool={tool}
+              workspaceRootPath={workspaceRootPath}
             />
           ))}
         </div>
@@ -2025,21 +2048,27 @@ function RuntimeActivityGroup({
 
 function RuntimeToolItem({
   groupKind,
+  onMarkdownDocumentApplied,
   permission,
   sessionId,
   tool,
+  workspaceRootPath,
 }: {
   groupKind: RuntimeToolGroupKind;
+  onMarkdownDocumentApplied?: (document: AiAppliedMarkdownDocument) => void;
   permission: AiPanelPermissionRequest | null;
   sessionId: string | null;
   tool: AiPanelToolCall;
+  workspaceRootPath: string | null;
 }) {
   if (groupKind === 'edit') {
     return (
       <EditToolActivity
+        onMarkdownDocumentApplied={onMarkdownDocumentApplied}
         permission={permission}
         sessionId={sessionId}
         tool={tool}
+        workspaceRootPath={workspaceRootPath}
       />
     );
   }
@@ -2570,16 +2599,25 @@ function WebToolActivity({
 }
 
 function EditToolActivity({
+  onMarkdownDocumentApplied,
   permission,
   sessionId,
   tool,
+  workspaceRootPath,
 }: {
+  onMarkdownDocumentApplied?: (document: AiAppliedMarkdownDocument) => void;
   permission: AiPanelPermissionRequest | null;
   sessionId: string | null;
   tool: AiPanelToolCall;
+  workspaceRootPath: string | null;
 }) {
+  const [applyState, setApplyState] = React.useState<
+    'idle' | 'applying' | 'applied' | 'error'
+  >('idle');
+  const [applyError, setApplyError] = React.useState<string | null>(null);
   const diff = extractDiffText(tool.output) ?? extractDiffText(tool.input);
   const fileChanges = extractToolFileChanges(tool);
+  const applicableEdit = getApplicableMarkdownEdit(tool, fileChanges);
   const stats = calculateEditToolStats(tool, diff, fileChanges);
   const filePath = getToolFilePath(tool);
   const displayPath =
@@ -2621,6 +2659,54 @@ function EditToolActivity({
           tool={tool}
         />
       )}
+      {applicableEdit ? (
+        <div className="mt-2 rounded-md border bg-muted/20 p-2">
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <div className="min-w-0 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">可应用修改</span>
+              <span className="ml-1">
+                {compactWorkspacePath(applicableEdit.path)}
+              </span>
+            </div>
+            <Button
+              aria-label="应用到文档"
+              disabled={
+                !workspaceRootPath ||
+                applyState === 'applying' ||
+                applyState === 'applied'
+              }
+              size="sm"
+              type="button"
+              variant={applyState === 'applied' ? 'outline' : 'default'}
+              onClick={() => {
+                if (!workspaceRootPath) {
+                  return;
+                }
+
+                void applyMarkdownEditSuggestion({
+                  edit: applicableEdit,
+                  onApplied: onMarkdownDocumentApplied,
+                  rootPath: workspaceRootPath,
+                  setError: setApplyError,
+                  setState: setApplyState,
+                });
+              }}
+            >
+              {applyState === 'applying' ? (
+                <LoaderCircle className="animate-spin" size={13} />
+              ) : applyState === 'applied' ? (
+                <Check size={13} />
+              ) : null}
+              {applyState === 'applied' ? '已应用' : '应用到文档'}
+            </Button>
+          </div>
+          {applyError ? (
+            <div className="mt-2 rounded-md bg-destructive/10 px-2 py-1.5 text-xs text-destructive">
+              {applyError}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       {fileChanges.length > 0 && permission ? (
         <div className="mt-2">
           <PermissionCard permission={permission} sessionId={sessionId} />
@@ -3030,6 +3116,23 @@ interface PlanningPlan {
   title: string;
 }
 
+interface ApplicableMarkdownEdit {
+  fullContent?: string;
+  newString?: string;
+  oldString?: string;
+  path: string;
+}
+
+interface ApplyMarkdownEditInput {
+  edit: ApplicableMarkdownEdit;
+  onApplied?: (document: AiAppliedMarkdownDocument) => void;
+  rootPath: string;
+  setError: React.Dispatch<React.SetStateAction<string | null>>;
+  setState: React.Dispatch<
+    React.SetStateAction<'idle' | 'applying' | 'applied' | 'error'>
+  >;
+}
+
 function extractToolTodos(tool: AiPanelToolCall): PlanningTodoItem[] {
   return (
     extractTodosFromValue(tool.output?.newTodos) ||
@@ -3208,6 +3311,109 @@ function formatDuration(ms: number) {
   const remainder = seconds % 60;
 
   return remainder === 0 ? `${minutes}m` : `${minutes}m ${remainder}s`;
+}
+
+function getApplicableMarkdownEdit(
+  tool: AiPanelToolCall,
+  fileChanges: AiFileChangePreview[],
+): ApplicableMarkdownEdit | null {
+  if (fileChanges.length > 1) {
+    return null;
+  }
+
+  const path = getToolFilePath(tool);
+
+  if (!path || !isMarkdownDocumentPath(path)) {
+    return null;
+  }
+
+  const fullContent =
+    getStringRecordValue(tool.output, 'content') ||
+    getStringRecordValue(tool.output, 'markdown') ||
+    getStringRecordValue(tool.output, 'newContent') ||
+    getStringRecordValue(tool.output, 'new_content');
+
+  if (fullContent) {
+    return { fullContent, path };
+  }
+
+  const oldString = getStringRecordValue(tool.input, 'old_string');
+  const newString = getStringRecordValue(tool.input, 'new_string');
+
+  if (!oldString && !newString) {
+    return null;
+  }
+
+  return {
+    newString,
+    oldString,
+    path,
+  };
+}
+
+async function applyMarkdownEditSuggestion({
+  edit,
+  onApplied,
+  rootPath,
+  setError,
+  setState,
+}: ApplyMarkdownEditInput) {
+  setState('applying');
+  setError(null);
+
+  try {
+    const current = await readMarkdownDocument(rootPath, edit.path);
+    const nextContent = buildAppliedMarkdownEditContent(
+      current.content,
+      edit,
+    );
+    const meta = await saveMarkdownDocument(
+      rootPath,
+      edit.path,
+      nextContent,
+      current.modifiedAt ?? null,
+    );
+
+    onApplied?.({
+      content: nextContent,
+      modifiedAt: meta.modifiedAt,
+      path: meta.path,
+    });
+    setState('applied');
+  } catch (error) {
+    setState('error');
+    setError(
+      error instanceof Error
+        ? error.message
+        : '无法应用 AI 生成的文档修改',
+    );
+  }
+}
+
+function buildAppliedMarkdownEditContent(
+  currentContent: string,
+  edit: ApplicableMarkdownEdit,
+) {
+  if (typeof edit.fullContent === 'string') {
+    return edit.fullContent;
+  }
+
+  const oldString = edit.oldString ?? '';
+  const newString = edit.newString ?? '';
+
+  if (!oldString) {
+    throw new Error('缺少可匹配的原文片段，无法安全应用修改');
+  }
+
+  if (!currentContent.includes(oldString)) {
+    throw new Error('当前文档已变化，找不到 AI 修改对应的原文片段');
+  }
+
+  return currentContent.replace(oldString, newString);
+}
+
+function isMarkdownDocumentPath(path: string) {
+  return /\.(md|markdown)$/i.test(path);
 }
 
 interface RuntimeMcpToolInfo {

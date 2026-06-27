@@ -2157,6 +2157,9 @@ export function WorkspaceLayout({
                         : undefined
                     }
                     onClearSelectedTextContext={() => setSelectedTextContext(null)}
+                    onMarkdownDocumentApplied={(document) => {
+                      void workspace.syncAppliedMarkdownDocument(document);
+                    }}
                     onOpenSettings={() => openSettingsPage('ai')}
                   />
                 </div>

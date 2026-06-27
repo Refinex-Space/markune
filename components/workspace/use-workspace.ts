@@ -304,6 +304,34 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     }
   }, [currentDocument, openDocument]);
 
+  const syncAppliedMarkdownDocument = React.useCallback(
+    async (document: {
+      content: string;
+      modifiedAt: number | null;
+      path: string;
+    }) => {
+      if (currentDocument?.absolutePath === document.path) {
+        const content: MarkdownDocumentContent = {
+          content: document.content,
+          modifiedAt: document.modifiedAt,
+          path: document.path,
+        };
+
+        setDocumentContent(content);
+        setDraftDocument(createMarkdownDraft(content, currentDocument.name));
+        lastSavedMarkdownRef.current = document.content;
+        setDocumentVersion((version) => version + 1);
+        setSaveState('saved');
+        setSaveError(null);
+        setLastSavedAt(document.modifiedAt);
+        clearPendingSave();
+      }
+
+      await refreshWorkspaceTree();
+    },
+    [clearPendingSave, currentDocument, refreshWorkspaceTree],
+  );
+
   const selectDirectory = React.useCallback(
     async (node: WorkspaceNode) => {
       if (!snapshot || node.kind !== 'directory') {
@@ -845,6 +873,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     setRightPanelMode,
     setSearchQuery,
     setSidebarCollapsed,
+    syncAppliedMarkdownDocument,
     clearPendingRenameNode,
     snapshot,
     switchWorkspace: loadWorkspace,

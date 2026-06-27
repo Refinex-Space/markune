@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   requestAiChat: vi.fn(),
   respondAiPermission: vi.fn(),
   saveAiConversation: vi.fn(),
+  saveMarkdownDocument: vi.fn(),
   sendAiPrompt: vi.fn(),
   startAiSession: vi.fn(),
   stopAiSession: vi.fn(),
@@ -64,6 +65,8 @@ vi.mock('@/components/workspace/workspace-api', () => ({
   respondAiPermission: (...args: unknown[]) =>
     mocks.respondAiPermission(...args),
   saveAiConversation: (...args: unknown[]) => mocks.saveAiConversation(...args),
+  saveMarkdownDocument: (...args: unknown[]) =>
+    mocks.saveMarkdownDocument(...args),
   sendAiPrompt: (...args: unknown[]) => mocks.sendAiPrompt(...args),
   startAiSession: (...args: unknown[]) => mocks.startAiSession(...args),
   stopAiSession: (...args: unknown[]) => mocks.stopAiSession(...args),
@@ -192,6 +195,7 @@ describe('AiPanelContent', () => {
     mocks.requestAiChat.mockReset();
     mocks.respondAiPermission.mockReset();
     mocks.saveAiConversation.mockReset();
+    mocks.saveMarkdownDocument.mockReset();
     mocks.startAiSession.mockReset();
     mocks.sendAiPrompt.mockReset();
     mocks.cancelAiTurn.mockReset();
@@ -1549,6 +1553,120 @@ describe('AiPanelContent', () => {
         .map((line) => line.textContent)
         .join('\n'),
     ).toContain('new b');
+  });
+
+  it('applies a single-file edit tool suggestion to the workspace document', async () => {
+    const user = userEvent.setup();
+    const onMarkdownDocumentApplied = vi.fn();
+
+    mocks.readMarkdownDocument.mockResolvedValueOnce({
+      content: '# 旧指南\n\n正文',
+      modifiedAt: 42,
+      path: '/repo/guide.md',
+    });
+    mocks.saveMarkdownDocument.mockResolvedValueOnce({
+      modifiedAt: 99,
+      path: '/repo/guide.md',
+    });
+
+    render(
+      <AiPanelContent
+        currentDocument={currentDocument}
+        documentPanelData={documentPanelData}
+        workspaceRootPath="/repo"
+        onMarkdownDocumentApplied={onMarkdownDocumentApplied}
+      />,
+    );
+
+    await waitFor(() => expect(mocks.aiHandlers).toHaveLength(1));
+    act(() => {
+      mocks.aiHandlers[0]({
+        input: {
+          file_path: '/repo/guide.md',
+          new_string: '# 指南',
+          old_string: '# 旧指南',
+        },
+        sessionId: 'ai-1',
+        toolCallId: 'tool-edit-apply',
+        toolName: 'Edit',
+        type: 'toolStarted',
+      });
+      mocks.aiHandlers[0]({
+        output: {
+          diff: '--- guide.md\n+++ guide.md\n@@\n-# 旧指南\n+# 指南',
+        },
+        sessionId: 'ai-1',
+        status: 'success',
+        toolCallId: 'tool-edit-apply',
+        toolName: 'Edit',
+        type: 'toolCompleted',
+      });
+    });
+
+    await user.click(await screen.findByRole('button', { name: '应用到文档' }));
+
+    await waitFor(() =>
+      expect(mocks.saveMarkdownDocument).toHaveBeenCalledWith(
+        '/repo',
+        '/repo/guide.md',
+        '# 指南\n\n正文',
+        42,
+      ),
+    );
+    expect(onMarkdownDocumentApplied).toHaveBeenCalledWith({
+      content: '# 指南\n\n正文',
+      modifiedAt: 99,
+      path: '/repo/guide.md',
+    });
+    expect(screen.getByText('已应用')).toBeTruthy();
+  });
+
+  it('does not apply an edit suggestion when the source text no longer matches', async () => {
+    const user = userEvent.setup();
+
+    mocks.readMarkdownDocument.mockResolvedValueOnce({
+      content: '# 已手动修改\n\n正文',
+      modifiedAt: 43,
+      path: '/repo/guide.md',
+    });
+
+    render(
+      <AiPanelContent
+        currentDocument={currentDocument}
+        documentPanelData={documentPanelData}
+        workspaceRootPath="/repo"
+      />,
+    );
+
+    await waitFor(() => expect(mocks.aiHandlers).toHaveLength(1));
+    act(() => {
+      mocks.aiHandlers[0]({
+        input: {
+          file_path: '/repo/guide.md',
+          new_string: '# 指南',
+          old_string: '# 旧指南',
+        },
+        sessionId: 'ai-1',
+        toolCallId: 'tool-edit-stale',
+        toolName: 'Edit',
+        type: 'toolStarted',
+      });
+      mocks.aiHandlers[0]({
+        output: {
+          diff: '--- guide.md\n+++ guide.md\n@@\n-# 旧指南\n+# 指南',
+        },
+        sessionId: 'ai-1',
+        status: 'success',
+        toolCallId: 'tool-edit-stale',
+        toolName: 'Edit',
+        type: 'toolCompleted',
+      });
+    });
+
+    await user.click(await screen.findByRole('button', { name: '应用到文档' }));
+
+    await screen.findByText('当前文档已变化，找不到 AI 修改对应的原文片段');
+    expect(mocks.saveMarkdownDocument).not.toHaveBeenCalled();
   });
 
   it('renders web search results and fetched page content as expandable previews', async () => {
