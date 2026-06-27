@@ -76,13 +76,48 @@ describe('reduceAiPanelState', () => {
     const state = reduceAiPanelState(createInitialAiPanelState(), {
       content: '总结此页面',
       id: 'user-1',
+      images: [
+        {
+          base64Data: 'aW1hZ2U=',
+          contentHash: 'fnv1a-image',
+          filename: 'diagram.png',
+          id: 'image-1',
+          mediaType: 'image/png',
+          size: 5,
+        },
+      ],
+      references: [
+        {
+          contentHash: 'fnv1a-ref',
+          markdown: '# 研究记录',
+          modifiedAt: null,
+          path: '/repo/notes/research.md',
+          relativePath: 'notes/research.md',
+          source: 'file',
+          title: '研究记录',
+        },
+      ],
+      selection: {
+        documentPath: '/repo/guide.md',
+        documentTitle: '指南',
+        from: 2,
+        markdown: '选区',
+        to: 4,
+      },
       type: 'userMessageSubmitted',
     });
 
     expect(state.status).toBe('streaming');
     expect(state.messages).toEqual([
-      { content: '总结此页面', id: 'user-1', role: 'user' },
+      expect.objectContaining({
+        content: '总结此页面',
+        id: 'user-1',
+        role: 'user',
+      }),
     ]);
+    expect(state.messages[0].references?.[0].title).toBe('研究记录');
+    expect(state.messages[0].images?.[0].filename).toBe('diagram.png');
+    expect(state.messages[0].selection?.markdown).toBe('选区');
   });
 
   it('appends assistant deltas and completes the message', () => {

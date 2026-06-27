@@ -63,7 +63,14 @@ export function reduceAiPanelState(
         error: null,
         messages: [
           ...state.messages,
-          { content: action.content, id: action.id, role: 'user' },
+          {
+            content: action.content,
+            id: action.id,
+            images: action.images,
+            references: action.references,
+            role: 'user',
+            selection: action.selection,
+          },
         ],
         status: 'streaming',
       };

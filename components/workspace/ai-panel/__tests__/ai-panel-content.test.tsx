@@ -950,6 +950,77 @@ describe('AiPanelContent', () => {
     );
   });
 
+  it('keeps sent context attachments visible on the user message', async () => {
+    const user = userEvent.setup();
+    const imageFile = new File(['image-bytes'], 'diagram.png', {
+      type: 'image/png',
+    });
+
+    render(
+      <AiPanelContent
+        currentDocument={currentDocument}
+        documentPanelData={documentPanelData}
+        selectedTextContext={{
+          documentPath: '/repo/guide.md',
+          documentTitle: '指南',
+          from: 4,
+          markdown: '需要重写的段落',
+          to: 11,
+        }}
+        workspaceRootPath="/repo"
+      />,
+    );
+
+    await user.type(
+      await screen.findByPlaceholderText('向 AI 询问当前工作区...'),
+      '@research',
+    );
+    await user.click(await screen.findByRole('option', { name: /研究记录/ }));
+    fireEvent.drop(screen.getByTestId('ai-composer'), {
+      dataTransfer: {
+        files: [imageFile],
+        types: ['Files'],
+      },
+    });
+    await screen.findByText('diagram.png');
+
+    await user.type(
+      screen.getByPlaceholderText('向 AI 询问当前工作区...'),
+      ' 用这些上下文改写',
+    );
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    expect(await screen.findByText('用这些上下文改写')).toBeTruthy();
+    expect(screen.getByTestId('ai-message-context-summary')).toBeTruthy();
+    expect(screen.getAllByText('研究记录').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('diagram.png').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Selection/).length).toBeGreaterThan(0);
+    await waitFor(() =>
+      expect(mocks.saveAiConversation).toHaveBeenCalledWith(
+        '/repo',
+        expect.objectContaining({
+          messages: expect.arrayContaining([
+            expect.objectContaining({
+              images: [
+                expect.objectContaining({
+                  filename: 'diagram.png',
+                }),
+              ],
+              references: [
+                expect.objectContaining({
+                  relativePath: 'notes/research.md',
+                }),
+              ],
+              selection: expect.objectContaining({
+                markdown: '需要重写的段落',
+              }),
+            }),
+          ]),
+        }),
+      ),
+    );
+  });
+
   it('sends selected editor text as structured selection context', async () => {
     const user = userEvent.setup();
 

@@ -77,6 +77,7 @@ import type {
   AiDetectedModel,
   AiContextImage,
   AiIntent,
+  AiPanelMessage,
   AiPanelPermissionRequest,
   AiSelectionContext,
   AiPanelThinkingBlock,
@@ -576,6 +577,9 @@ export function AiPanelContent({
         dispatch({
           content: trimmed,
           id: userMessageId,
+          images: context.images,
+          references: context.references,
+          selection: context.selection ?? null,
           type: 'userMessageSubmitted',
         });
 
@@ -1800,7 +1804,7 @@ function ThinkingCard({
 function MessageList({
   messages,
 }: {
-  messages: Array<{ content: string; id: string; role: 'user' | 'assistant' }>;
+  messages: AiPanelMessage[];
 }) {
   if (messages.length === 0) {
     return null;
@@ -1811,17 +1815,87 @@ function MessageList({
       {messages.map((message) => (
         <div
           className={cn(
-            'whitespace-pre-wrap rounded-md px-3 py-2 text-sm leading-6',
+            'rounded-md px-3 py-2 text-sm leading-6',
             message.role === 'user'
               ? 'ml-auto max-w-[88%] bg-primary text-primary-foreground'
               : 'mr-auto max-w-[92%] border bg-muted/20',
           )}
           key={message.id}
         >
-          {message.content}
+          <div className="whitespace-pre-wrap">{message.content}</div>
+          <MessageContextSummary message={message} />
         </div>
       ))}
     </div>
+  );
+}
+
+function MessageContextSummary({ message }: { message: AiPanelMessage }) {
+  if (
+    message.role !== 'user' ||
+    (!message.selection &&
+      (!message.references || message.references.length === 0) &&
+      (!message.images || message.images.length === 0))
+  ) {
+    return null;
+  }
+
+  return (
+    <div
+      className="mt-2 flex min-w-0 flex-wrap gap-1.5 border-t border-primary-foreground/20 pt-2"
+      data-testid="ai-message-context-summary"
+    >
+      {message.selection ? (
+        <MessageContextChip icon={<Pencil size={11} />}>
+          Selection
+          {message.selection.documentTitle
+            ? ` · ${message.selection.documentTitle}`
+            : ''}
+        </MessageContextChip>
+      ) : null}
+      {(message.references ?? []).map((reference) => (
+        <MessageContextChip
+          icon={<FileText size={11} />}
+          key={reference.relativePath}
+        >
+          {reference.title}
+        </MessageContextChip>
+      ))}
+      {(message.images ?? []).map((image) => (
+        <MessageContextImageChip image={image} key={image.contentHash} />
+      ))}
+    </div>
+  );
+}
+
+function MessageContextChip({
+  children,
+  icon,
+}: {
+  children: React.ReactNode;
+  icon: React.ReactNode;
+}) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-1 rounded-md bg-primary-foreground/15 px-1.5 py-0.5 text-[11px] text-primary-foreground/90">
+      {icon}
+      <span className="truncate">{children}</span>
+    </span>
+  );
+}
+
+function MessageContextImageChip({ image }: { image: AiContextImage }) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-1 rounded-md bg-primary-foreground/15 px-1.5 py-0.5 text-[11px] text-primary-foreground/90">
+      <span
+        aria-label={image.filename}
+        className="size-4 shrink-0 rounded bg-cover bg-center"
+        role="img"
+        style={{
+          backgroundImage: `url(data:${image.mediaType};base64,${image.base64Data})`,
+        }}
+      />
+      <span className="truncate">{image.filename}</span>
+    </span>
   );
 }
 

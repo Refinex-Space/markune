@@ -452,6 +452,12 @@ pub struct AiConversationMessage {
     pub id: String,
     pub role: String,
     pub content: String,
+    #[serde(default)]
+    pub references: Vec<AiContextReference>,
+    #[serde(default)]
+    pub images: Vec<AiContextImage>,
+    #[serde(default)]
+    pub selection: Option<AiContextSelection>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -4064,8 +4070,11 @@ mod tests {
             id: id.to_string(),
             messages: vec![AiConversationMessage {
                 content: title.to_string(),
+                images: Vec::new(),
                 id: format!("{id}-user"),
+                references: Vec::new(),
                 role: "user".to_string(),
+                selection: None,
             }],
             permissions: Vec::new(),
             profile_id: "codex:local".to_string(),
@@ -4095,13 +4104,32 @@ mod tests {
             messages: vec![
                 AiConversationMessage {
                     content: "总结".to_string(),
+                    images: vec![AiContextImage {
+                        base64_data: "aW1hZ2UtYnl0ZXM=".to_string(),
+                        content_hash: "fnv1a-image".to_string(),
+                        filename: "diagram.png".to_string(),
+                        id: "image-1".to_string(),
+                        media_type: "image/png".to_string(),
+                        size: 11,
+                    }],
                     id: "user-1".to_string(),
+                    references: Vec::new(),
                     role: "user".to_string(),
+                    selection: Some(AiContextSelection {
+                        document_path: Some("/repo/guide.md".to_string()),
+                        document_title: Some("指南".to_string()),
+                        from: 2,
+                        markdown: "选区".to_string(),
+                        to: 4,
+                    }),
                 },
                 AiConversationMessage {
                     content: "好的".to_string(),
+                    images: Vec::new(),
                     id: "assistant-1".to_string(),
+                    references: Vec::new(),
                     role: "assistant".to_string(),
+                    selection: None,
                 },
             ],
             permissions: Vec::new(),

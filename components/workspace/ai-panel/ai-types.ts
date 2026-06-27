@@ -298,12 +298,18 @@ export interface AiPanelMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  references?: AiContextReference[];
+  images?: AiContextImage[];
+  selection?: AiSelectionContext | null;
 }
 
 export interface AiConversationMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  references?: AiContextReference[];
+  images?: AiContextImage[];
+  selection?: AiSelectionContext | null;
 }
 
 export type AiPanelToolStatus =
@@ -426,7 +432,14 @@ export type AiPanelAction =
     }
   | { type: 'profileSelected'; profileId: string }
   | { type: 'connectRequested' }
-  | { type: 'userMessageSubmitted'; id: string; content: string }
+  | {
+      type: 'userMessageSubmitted';
+      id: string;
+      content: string;
+      references?: AiContextReference[];
+      images?: AiContextImage[];
+      selection?: AiSelectionContext | null;
+    }
   | { type: 'conversationRestored'; conversation: AiConversationRecord }
   | { type: 'runtimeEventReceived'; event: AiRuntimeEvent }
   | { type: 'errorRaised'; message: string }
