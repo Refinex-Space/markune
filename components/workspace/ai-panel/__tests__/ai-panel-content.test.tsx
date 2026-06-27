@@ -1212,6 +1212,82 @@ describe('AiPanelContent', () => {
     ).toContain('# 旧指南');
   });
 
+  it('renders web search results and fetched page content as expandable previews', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <AiPanelContent
+        currentDocument={currentDocument}
+        documentPanelData={documentPanelData}
+        workspaceRootPath="/repo"
+      />,
+    );
+
+    await waitFor(() => expect(mocks.aiHandlers).toHaveLength(1));
+    act(() => {
+      mocks.aiHandlers[0]({
+        input: { query: 'Madora AI workspace' },
+        sessionId: 'ai-1',
+        toolCallId: 'tool-web-search',
+        toolName: 'WebSearch',
+        type: 'toolStarted',
+      });
+      mocks.aiHandlers[0]({
+        output: {
+          results: [
+            {
+              content: [
+                {
+                  title: 'Madora AI Panel Notes',
+                  url: 'https://example.com/ai-panel',
+                },
+              ],
+            },
+          ],
+        },
+        sessionId: 'ai-1',
+        status: 'success',
+        toolCallId: 'tool-web-search',
+        toolName: 'WebSearch',
+        type: 'toolCompleted',
+      });
+      mocks.aiHandlers[0]({
+        input: { url: 'https://example.com/ai-panel' },
+        sessionId: 'ai-1',
+        toolCallId: 'tool-web-fetch',
+        toolName: 'WebFetch',
+        type: 'toolStarted',
+      });
+      mocks.aiHandlers[0]({
+        output: {
+          bytes: 2048,
+          code: 200,
+          result: 'Fetched markdown content for the AI panel.',
+        },
+        sessionId: 'ai-1',
+        status: 'success',
+        toolCallId: 'tool-web-fetch',
+        toolName: 'WebFetch',
+        type: 'toolCompleted',
+      });
+    });
+
+    expect(await screen.findByText('已联网')).toBeTruthy();
+    expect(screen.getByText(/Madora AI workspace/)).toBeTruthy();
+    expect(screen.queryByText('Madora AI Panel Notes')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: '展开 WebSearch 结果' }));
+    expect(
+      screen
+        .getByRole('link', { name: /Madora AI Panel Notes/ })
+        .getAttribute('href'),
+    ).toBe('https://example.com/ai-panel');
+
+    await user.click(screen.getByRole('button', { name: '展开 WebFetch 内容' }));
+    expect(screen.getByText('Fetched markdown content for the AI panel.')).toBeTruthy();
+    expect(screen.queryByText('"result"')).toBeNull();
+  });
+
   it('uses 1Code-style notification preferences for permission prompts and completion', async () => {
     const notificationSpy = vi.fn();
     class MockNotification {

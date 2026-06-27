@@ -1663,6 +1663,11 @@ function WebToolActivity({
   const url = getStringRecordValue(tool.input, 'url');
   const resultCount = countWebResults(tool.output);
   const subtitle = query || formatHostname(url) || getRuntimeToolMeta(tool).subtitle;
+  const normalizedName = normalizeToolName(tool.name);
+  const searchResults = extractWebSearchResults(tool.output);
+  const fetchContent = extractWebFetchContent(tool.output);
+  const hasStructuredPreview =
+    searchResults.length > 0 || Boolean(fetchContent?.content);
 
   return (
     <div className="px-3 py-2">
@@ -1681,7 +1686,21 @@ function WebToolActivity({
         </div>
         <ToolStatusBadge status={tool.status} />
       </div>
+      {normalizedName.includes('websearch') && searchResults.length > 0 ? (
+        <WebSearchResultsPreview
+          results={searchResults}
+          toolName={tool.name}
+        />
+      ) : null}
+      {normalizedName.includes('webfetch') && fetchContent ? (
+        <WebFetchContentPreview
+          content={fetchContent.content}
+          meta={fetchContent.meta}
+          toolName={tool.name}
+        />
+      ) : null}
       <ToolDetailPreview
+        hideOutput={hasStructuredPreview}
         permission={permission}
         sessionId={sessionId}
         tool={tool}
@@ -1738,16 +1757,18 @@ function EditToolActivity({
 }
 
 function ToolDetailPreview({
+  hideOutput = false,
   permission,
   sessionId,
   tool,
 }: {
+  hideOutput?: boolean;
   permission: AiPanelPermissionRequest | null;
   sessionId: string | null;
   tool: AiPanelToolCall;
 }) {
   const diff = extractDiffText(tool.output) ?? extractDiffText(tool.input);
-  const hasOutput = Boolean(tool.output && !diff);
+  const hasOutput = Boolean(tool.output && !diff && !hideOutput);
 
   if (!diff && !tool.partialJson && !hasOutput && !permission) {
     return null;
@@ -1766,6 +1787,110 @@ function ToolDetailPreview({
       ) : null}
       {permission ? (
         <PermissionCard permission={permission} sessionId={sessionId} />
+      ) : null}
+    </div>
+  );
+}
+
+interface WebSearchResultPreview {
+  title: string;
+  url: string;
+  snippet?: string;
+}
+
+function WebSearchResultsPreview({
+  results,
+  toolName,
+}: {
+  results: WebSearchResultPreview[];
+  toolName: string;
+}) {
+  const [expanded, setExpanded] = React.useState(false);
+
+  return (
+    <div className="mt-2 overflow-hidden rounded-md border bg-muted/20">
+      <button
+        aria-expanded={expanded}
+        aria-label={`${expanded ? '收起' : '展开'} ${toolName} 结果`}
+        className="flex w-full min-w-0 items-center gap-2 px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted/50"
+        type="button"
+        onClick={() => setExpanded((current) => !current)}
+      >
+        <span className="font-medium">搜索结果</span>
+        <span className="min-w-0 flex-1 truncate">
+          {results.length} result{results.length === 1 ? '' : 's'}
+        </span>
+        <ChevronDown
+          className={cn(
+            'shrink-0 transition-transform',
+            expanded && 'rotate-180',
+          )}
+          size={14}
+        />
+      </button>
+      {expanded ? (
+        <div className="space-y-1 border-t p-2">
+          {results.map((result) => (
+            <a
+              className="block rounded-md px-2 py-1 text-xs hover:bg-background"
+              href={result.url}
+              key={`${result.title}:${result.url}`}
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              <span className="block truncate font-medium text-foreground">
+                {result.title}
+              </span>
+              <span className="block truncate text-muted-foreground">
+                {result.url}
+              </span>
+              {result.snippet ? (
+                <span className="mt-1 line-clamp-2 block text-muted-foreground">
+                  {result.snippet}
+                </span>
+              ) : null}
+            </a>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function WebFetchContentPreview({
+  content,
+  meta,
+  toolName,
+}: {
+  content: string;
+  meta: string;
+  toolName: string;
+}) {
+  const [expanded, setExpanded] = React.useState(false);
+
+  return (
+    <div className="mt-2 overflow-hidden rounded-md border bg-muted/20">
+      <button
+        aria-expanded={expanded}
+        aria-label={`${expanded ? '收起' : '展开'} ${toolName} 内容`}
+        className="flex w-full min-w-0 items-center gap-2 px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted/50"
+        type="button"
+        onClick={() => setExpanded((current) => !current)}
+      >
+        <span className="font-medium">网页内容</span>
+        {meta ? <span className="min-w-0 flex-1 truncate">{meta}</span> : <span className="min-w-0 flex-1" />}
+        <ChevronDown
+          className={cn(
+            'shrink-0 transition-transform',
+            expanded && 'rotate-180',
+          )}
+          size={14}
+        />
+      </button>
+      {expanded ? (
+        <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words border-t px-2 py-2 text-xs leading-5">
+          {content}
+        </pre>
       ) : null}
     </div>
   );
@@ -1967,25 +2092,103 @@ function formatHostname(url: string) {
 }
 
 function countWebResults(output: Record<string, unknown> | undefined) {
+  return extractWebSearchResults(output).length;
+}
+
+function extractWebSearchResults(
+  output: Record<string, unknown> | undefined,
+): WebSearchResultPreview[] {
   const results = output?.results;
 
   if (!Array.isArray(results)) {
-    return 0;
+    return [];
   }
 
-  return results.reduce((count, result) => {
-    if (!result || typeof result !== 'object') {
-      return count;
+  return results.flatMap((result) => {
+    if (!isRecord(result)) {
+      return [];
     }
 
-    const content = (result as Record<string, unknown>).content;
+    const content = result.content;
 
     if (Array.isArray(content)) {
-      return count + content.filter((item) => item && typeof item === 'object').length;
+      return content.flatMap((item) => extractWebSearchResultItem(item));
     }
 
-    return count + 1;
-  }, 0);
+    return extractWebSearchResultItem(result);
+  });
+}
+
+function extractWebSearchResultItem(
+  value: unknown,
+): WebSearchResultPreview[] {
+  if (!isRecord(value)) {
+    return [];
+  }
+
+  const title = getStringRecordValue(value, 'title');
+  const url = getStringRecordValue(value, 'url');
+
+  if (!title || !url) {
+    return [];
+  }
+
+  return [
+    {
+      snippet:
+        getStringRecordValue(value, 'snippet') ||
+        getStringRecordValue(value, 'description') ||
+        getStringRecordValue(value, 'text'),
+      title,
+      url,
+    },
+  ];
+}
+
+function extractWebFetchContent(output: Record<string, unknown> | undefined) {
+  const content =
+    getStringRecordValue(output, 'result') ||
+    getStringRecordValue(output, 'content') ||
+    getStringRecordValue(output, 'text') ||
+    getStringRecordValue(output, 'markdown');
+
+  if (!content) {
+    return null;
+  }
+
+  const bytes = getNumberRecordValue(output, 'bytes');
+  const code = getNumberRecordValue(output, 'code');
+  const meta = [
+    code ? `${code}` : '',
+    bytes ? formatBytes(bytes) : '',
+  ].filter(Boolean).join(' · ');
+
+  return { content, meta };
+}
+
+function getNumberRecordValue(
+  value: Record<string, unknown> | undefined,
+  key: string,
+) {
+  const entry = value?.[key];
+
+  return typeof entry === 'number' ? entry : null;
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function calculateToolDiffStats(tool: AiPanelToolCall, diff: string | null) {
