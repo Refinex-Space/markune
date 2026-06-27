@@ -309,6 +309,12 @@ export interface AiPanelToolCall {
   partialJson?: string;
 }
 
+export interface AiPanelThinkingBlock {
+  id: string;
+  content: string;
+  parentToolCallId?: string;
+}
+
 export interface AiPanelPermissionRequest {
   requestId: string;
   toolCallId: string;
@@ -347,6 +353,7 @@ export interface AiConversationRecord {
   documentTitle?: string;
   references?: AiContextReference[];
   messages: AiConversationMessage[];
+  thinking?: AiPanelThinkingBlock[];
   tools: AiPanelToolCall[];
   permissions: AiPanelPermissionRequest[];
   usage?: AiPanelUsage | null;
@@ -383,6 +390,7 @@ export interface AiPanelState {
   selectedProfileId: string | null;
   session: AiSessionInfo | null;
   status: AiPanelStatus;
+  thinking: AiPanelThinkingBlock[];
   tools: AiPanelToolCall[];
   usage: AiPanelUsage | null;
 }

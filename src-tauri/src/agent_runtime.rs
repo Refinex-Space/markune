@@ -444,6 +444,8 @@ pub struct AiConversationRecord {
     pub references: Vec<AiContextReference>,
     pub messages: Vec<AiConversationMessage>,
     #[serde(default)]
+    pub thinking: Vec<serde_json::Value>,
+    #[serde(default)]
     pub tools: Vec<serde_json::Value>,
     #[serde(default)]
     pub permissions: Vec<serde_json::Value>,
@@ -4008,6 +4010,7 @@ mod tests {
             provider_label: "Codex".to_string(),
             references: Vec::new(),
             run_state: None,
+            thinking: Vec::new(),
             title: title.to_string(),
             tools: Vec::new(),
             updated_at,
@@ -4051,6 +4054,10 @@ mod tests {
                 title: "研究记录".to_string(),
             }],
             run_state: None,
+            thinking: vec![serde_json::json!({
+                "id": "thinking-1",
+                "content": "先检查当前文档"
+            })],
             title: "总结".to_string(),
             tools: Vec::new(),
             updated_at: 200,

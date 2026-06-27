@@ -319,6 +319,7 @@ describe('AiPanelContent', () => {
       profileLabel: 'Fake Echo',
       providerId: 'local',
       providerLabel: 'Local',
+      thinking: [{ content: '之前的思考', id: 'thinking-old' }],
       title: '真实会话',
       tools: [],
       updatedAt: 2,
@@ -647,6 +648,7 @@ describe('AiPanelContent', () => {
     );
     expect(await screen.findByText('之前的问题')).toBeTruthy();
     expect(screen.getByText('之前的回答')).toBeTruthy();
+    expect(screen.getByText('之前的思考')).toBeTruthy();
   });
 
   it('blocks prompts when no local AI profile is available', async () => {
@@ -972,6 +974,72 @@ describe('AiPanelContent', () => {
     });
 
     expect(await screen.findByText('Echo: hello')).toBeTruthy();
+  });
+
+  it('renders thinking deltas separately from assistant messages and saves them', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <AiPanelContent
+        currentDocument={currentDocument}
+        documentPanelData={documentPanelData}
+        workspaceRootPath="/repo"
+      />,
+    );
+
+    await user.type(
+      await screen.findByPlaceholderText('向 AI 询问当前工作区...'),
+      '分析当前文档',
+    );
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: '发送' }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() => expect(mocks.aiHandlers).toHaveLength(1));
+    act(() => {
+      mocks.aiHandlers[0]({
+        delta: '正在读取标题和正文结构',
+        messageId: 'thinking-1',
+        sessionId: 'ai-1',
+        type: 'thinkingDelta',
+      });
+      mocks.aiHandlers[0]({
+        delta: '最终回答',
+        messageId: 'assistant-1',
+        sessionId: 'ai-1',
+        type: 'messageDelta',
+      });
+    });
+
+    expect(await screen.findByText('思考中')).toBeTruthy();
+    const thinkingText = screen.getByText('正在读取标题和正文结构');
+    expect(thinkingText.closest('[data-testid="ai-thinking-card"]')).toBeTruthy();
+    expect(screen.getByText('最终回答').textContent).toBe('最终回答');
+    expect(screen.queryByText('正在读取标题和正文结构最终回答')).toBeNull();
+
+    await waitFor(() =>
+      expect(mocks.saveAiConversation).toHaveBeenCalledWith(
+        '/repo',
+        expect.objectContaining({
+          messages: expect.arrayContaining([
+            expect.objectContaining({
+              content: '最终回答',
+              role: 'assistant',
+            }),
+          ]),
+          thinking: [
+            expect.objectContaining({
+              content: '正在读取标题和正文结构',
+              id: 'thinking-1',
+            }),
+          ],
+        }),
+      ),
+    );
   });
 
   it('renders tool, permission, usage, and run state cards from runtime events', async () => {

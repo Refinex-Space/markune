@@ -14,6 +14,7 @@ export function createInitialAiPanelState(): AiPanelState {
     selectedProfileId: null,
     session: null,
     status: 'idle',
+    thinking: [],
     tools: [],
     usage: null,
   };
@@ -75,6 +76,7 @@ export function reduceAiPanelState(
         runState: action.conversation.runState ?? null,
         session: null,
         status: 'idle',
+        thinking: action.conversation.thinking ?? [],
         tools: action.conversation.tools,
         usage: action.conversation.usage ?? null,
       };
@@ -95,6 +97,7 @@ export function reduceAiPanelState(
         runState: null,
         session: null,
         status: 'idle',
+        thinking: [],
         tools: [],
         usage: null,
       };
@@ -135,12 +138,13 @@ function applyRuntimeEvent(
     case 'thinkingDelta':
       return {
         ...state,
-        messages: appendAssistantDelta(
-          state.messages,
+        status: 'streaming',
+        thinking: appendThinkingDelta(
+          state.thinking,
           event.messageId,
           event.delta,
+          event.parentToolCallId,
         ),
-        status: 'streaming',
       };
     case 'toolStarted':
       return {
@@ -300,6 +304,36 @@ function appendAssistantDelta(
     message.id === messageId
       ? { ...message, content: `${message.content}${delta}` }
       : message,
+  );
+}
+
+function appendThinkingDelta(
+  thinking: AiPanelState['thinking'],
+  blockId: string,
+  delta: string,
+  parentToolCallId?: string,
+) {
+  const existing = thinking.find((block) => block.id === blockId);
+
+  if (!existing) {
+    return [
+      ...thinking,
+      {
+        content: delta,
+        id: blockId,
+        parentToolCallId,
+      },
+    ];
+  }
+
+  return thinking.map((block) =>
+    block.id === blockId
+      ? {
+          ...block,
+          content: `${block.content}${delta}`,
+          parentToolCallId: block.parentToolCallId ?? parentToolCallId,
+        }
+      : block,
   );
 }
 

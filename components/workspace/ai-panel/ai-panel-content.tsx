@@ -3,6 +3,7 @@
 import * as React from 'react';
 import {
   AlertTriangle,
+  Brain,
   Check,
   ChevronDown,
   CircleCheck,
@@ -73,6 +74,7 @@ import type {
   AiDetectedModel,
   AiIntent,
   AiPanelPermissionRequest,
+  AiPanelThinkingBlock,
   AiPanelToolCall,
   AiPanelUsage,
 } from './ai-types';
@@ -271,6 +273,7 @@ export function AiPanelContent({
     !profileReady;
   const hasRuntimeActivity =
     state.messages.length > 0 ||
+    state.thinking.length > 0 ||
     state.tools.length > 0 ||
     state.permissions.length > 0 ||
     Boolean(state.usage) ||
@@ -800,6 +803,10 @@ export function AiPanelContent({
               status={state.status}
               usage={state.usage}
             />
+            <ThinkingActivity
+              status={state.status}
+              thinking={state.thinking}
+            />
             <MessageList messages={state.messages} />
             <RuntimeActivity
               permissions={state.permissions}
@@ -1011,6 +1018,7 @@ function buildConversationRecord({
     providerLabel: profileMetadata.providerLabel,
     references: conversationReferences,
     runState: state.runState,
+    thinking: state.thinking,
     title: buildConversationTitle(
       firstUserMessage?.content ??
         currentDocument?.title ??
@@ -1340,6 +1348,81 @@ function RuntimeSummary({
             ? ` · $${usage.totalCostUsd.toFixed(4)}`
             : null}
         </span>
+      ) : null}
+    </div>
+  );
+}
+
+function ThinkingActivity({
+  status,
+  thinking,
+}: {
+  status: string;
+  thinking: AiPanelThinkingBlock[];
+}) {
+  if (thinking.length === 0) {
+    return null;
+  }
+
+  const streaming = status === 'streaming' || status === 'connecting';
+
+  return (
+    <div className="space-y-2" data-testid="ai-thinking-activity">
+      {thinking.map((block) => (
+        <ThinkingCard block={block} key={block.id} streaming={streaming} />
+      ))}
+    </div>
+  );
+}
+
+function ThinkingCard({
+  block,
+  streaming,
+}: {
+  block: AiPanelThinkingBlock;
+  streaming: boolean;
+}) {
+  const [expanded, setExpanded] = React.useState(streaming);
+  const wasStreamingRef = React.useRef(streaming);
+  const preview = block.content.replace(/\s+/g, ' ').slice(0, 80);
+
+  React.useEffect(() => {
+    if (wasStreamingRef.current && !streaming) {
+      setExpanded(false);
+    }
+
+    wasStreamingRef.current = streaming;
+  }, [streaming]);
+
+  return (
+    <div className="rounded-md border bg-muted/20" data-testid="ai-thinking-card">
+      <button
+        aria-expanded={expanded}
+        className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-xs text-muted-foreground"
+        type="button"
+        onClick={() => setExpanded((current) => !current)}
+      >
+        <Brain size={14} />
+        <span className="font-medium">{streaming ? '思考中' : '思考'}</span>
+        {!expanded && preview ? (
+          <span className="min-w-0 flex-1 truncate text-muted-foreground/70">
+            {preview}
+          </span>
+        ) : (
+          <span className="min-w-0 flex-1" />
+        )}
+        <ChevronDown
+          className={cn(
+            'shrink-0 transition-transform',
+            expanded && 'rotate-180',
+          )}
+          size={14}
+        />
+      </button>
+      {expanded && block.content ? (
+        <div className="whitespace-pre-wrap border-t px-3 py-2 text-xs leading-5 text-muted-foreground">
+          {block.content}
+        </div>
       ) : null}
     </div>
   );
