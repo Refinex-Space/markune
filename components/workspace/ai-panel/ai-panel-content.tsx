@@ -6,11 +6,14 @@ import {
   Brain,
   Check,
   ChevronDown,
+  Circle,
   CircleCheck,
   Download,
+  FileCode2,
   FileText,
   Globe,
   History,
+  ListChecks,
   LoaderCircle,
   Paperclip,
   Pencil,
@@ -21,6 +24,7 @@ import {
   ShieldAlert,
   Sparkles,
   Square,
+  SkipForward,
   Terminal,
   Wrench,
   X,
@@ -2060,12 +2064,367 @@ function RuntimeToolItem({
     );
   }
 
+  if (groupKind === 'planning') {
+    return (
+      <PlanningToolActivity
+        permission={permission}
+        sessionId={sessionId}
+        tool={tool}
+      />
+    );
+  }
+
   return (
     <BasicToolActivity
       permission={permission}
       sessionId={sessionId}
       tool={tool}
     />
+  );
+}
+
+function PlanningToolActivity({
+  permission,
+  sessionId,
+  tool,
+}: {
+  permission: AiPanelPermissionRequest | null;
+  sessionId: string | null;
+  tool: AiPanelToolCall;
+}) {
+  const name = normalizeToolName(tool.name);
+
+  if (name === 'todowrite') {
+    return (
+      <TodoToolActivity
+        permission={permission}
+        sessionId={sessionId}
+        tool={tool}
+      />
+    );
+  }
+
+  if (name === 'planwrite') {
+    return (
+      <PlanToolActivity
+        permission={permission}
+        sessionId={sessionId}
+        tool={tool}
+      />
+    );
+  }
+
+  if (name.startsWith('task')) {
+    return (
+      <TaskToolActivity
+        permission={permission}
+        sessionId={sessionId}
+        tool={tool}
+      />
+    );
+  }
+
+  if (name === 'exitplanmode') {
+    return (
+      <div className="px-3 py-2" data-testid="ai-planning-tool">
+        <div className="flex min-w-0 items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <Sparkles className="shrink-0 text-muted-foreground" size={14} />
+              <span className="truncate text-sm font-medium">ExitPlanMode</span>
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              计划已确认，准备执行
+            </div>
+          </div>
+          <ToolStatusBadge status={tool.status} />
+        </div>
+        <ToolDetailPreview
+          permission={permission}
+          sessionId={sessionId}
+          tool={tool}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <BasicToolActivity
+      permission={permission}
+      sessionId={sessionId}
+      tool={tool}
+    />
+  );
+}
+
+function TodoToolActivity({
+  permission,
+  sessionId,
+  tool,
+}: {
+  permission: AiPanelPermissionRequest | null;
+  sessionId: string | null;
+  tool: AiPanelToolCall;
+}) {
+  const todos = extractToolTodos(tool);
+  const completed = todos.filter((todo) => todo.status === 'completed').length;
+  const inProgress = todos.filter((todo) => todo.status === 'in_progress').length;
+  const meta = getRuntimeToolMeta(tool);
+
+  return (
+    <div className="px-3 py-2" data-testid="ai-planning-tool">
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <ListChecks className="shrink-0 text-muted-foreground" size={14} />
+            <span className="truncate text-sm font-medium">{tool.name}</span>
+            {meta.subtitle ? (
+              <span className="truncate text-sm text-muted-foreground">
+                {meta.subtitle}
+              </span>
+            ) : null}
+          </div>
+          {todos.length > 0 ? (
+            <div className="mt-1 text-xs text-muted-foreground">
+              {completed}/{todos.length} completed
+              {inProgress > 0 ? ` · ${inProgress} in progress` : ''}
+            </div>
+          ) : null}
+        </div>
+        <ToolStatusBadge status={tool.status} />
+      </div>
+      {todos.length > 0 ? (
+        <div className="mt-2 space-y-1 rounded-md border bg-muted/20 p-2">
+          {todos.map((todo, index) => (
+            <TodoRow
+              key={`${todo.content}-${index}`}
+              running={tool.status === 'running'}
+              todo={todo}
+            />
+          ))}
+        </div>
+      ) : (
+        <ToolDetailPreview
+          permission={permission}
+          sessionId={sessionId}
+          tool={tool}
+        />
+      )}
+      {todos.length > 0 && permission ? (
+        <div className="mt-2">
+          <PermissionCard permission={permission} sessionId={sessionId} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function TodoRow({
+  running,
+  todo,
+}: {
+  running: boolean;
+  todo: PlanningTodoItem;
+}) {
+  return (
+    <div className="flex min-w-0 items-start gap-2 text-xs">
+      <PlanningStatusIcon running={running} status={todo.status} />
+      <div className="min-w-0 flex-1">
+        <div
+          className={cn(
+            'truncate font-medium',
+            todo.status === 'completed' && 'text-muted-foreground line-through',
+          )}
+        >
+          {todo.activeForm || todo.content}
+        </div>
+        <div className="mt-0.5 text-[11px] text-muted-foreground">
+          {formatPlanningStatus(todo.status)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PlanToolActivity({
+  permission,
+  sessionId,
+  tool,
+}: {
+  permission: AiPanelPermissionRequest | null;
+  sessionId: string | null;
+  tool: AiPanelToolCall;
+}) {
+  const plan = extractToolPlan(tool);
+
+  if (!plan) {
+    return (
+      <BasicToolActivity
+        permission={permission}
+        sessionId={sessionId}
+        tool={tool}
+      />
+    );
+  }
+
+  const steps = plan.steps;
+  const completed = steps.filter((step) => step.status === 'completed').length;
+  const progress = steps.length > 0 ? `${completed}/${steps.length}` : '';
+
+  return (
+    <div className="px-3 py-2" data-testid="ai-planning-tool">
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <Sparkles className="shrink-0 text-muted-foreground" size={14} />
+            <span className="truncate text-sm font-medium">{tool.name}</span>
+            <span className="truncate text-sm text-muted-foreground">
+              {plan.title}
+              {progress ? ` (${progress})` : ''}
+            </span>
+          </div>
+          {plan.summary ? (
+            <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+              {plan.summary}
+            </div>
+          ) : null}
+        </div>
+        <ToolStatusBadge status={tool.status} />
+      </div>
+      {steps.length > 0 ? (
+        <div className="mt-2 overflow-hidden rounded-md border bg-muted/20">
+          <div className="border-b px-2 py-1.5">
+            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+              <span>{formatPlanStatus(plan.status)}</span>
+              <span>{progress}</span>
+            </div>
+            <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full bg-muted-foreground/50 transition-all"
+                style={{
+                  width: `${Math.round((completed / steps.length) * 100)}%`,
+                }}
+              />
+            </div>
+          </div>
+          <div className="divide-y">
+            {steps.map((step, index) => (
+              <PlanStepRow
+                key={`${step.title || step.description}-${index}`}
+                running={tool.status === 'running'}
+                step={step}
+              />
+            ))}
+          </div>
+        </div>
+      ) : (
+        <ToolDetailPreview
+          permission={permission}
+          sessionId={sessionId}
+          tool={tool}
+        />
+      )}
+      {steps.length > 0 && permission ? (
+        <div className="mt-2">
+          <PermissionCard permission={permission} sessionId={sessionId} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function PlanStepRow({
+  running,
+  step,
+}: {
+  running: boolean;
+  step: PlanningPlanStep;
+}) {
+  return (
+    <div className="px-2 py-2">
+      <div className="flex min-w-0 items-start gap-2">
+        <PlanningStatusIcon running={running} status={step.status} />
+        <div className="min-w-0 flex-1">
+          <div
+            className={cn(
+              'text-xs font-medium',
+              step.status === 'completed' && 'text-muted-foreground line-through',
+              step.status === 'skipped' && 'text-muted-foreground/70 line-through',
+            )}
+          >
+            {step.title || step.description || 'Untitled step'}
+          </div>
+          {step.description && step.title ? (
+            <div className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
+              {step.description}
+            </div>
+          ) : null}
+          {step.files.length > 0 ? (
+            <div className="mt-1 flex min-w-0 flex-wrap gap-1">
+              {step.files.map((file) => (
+                <span
+                  className="inline-flex max-w-full items-center gap-1 rounded-md bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                  key={file}
+                >
+                  <FileCode2 size={10} />
+                  <span className="truncate">{basename(file)}</span>
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TaskToolActivity({
+  permission,
+  sessionId,
+  tool,
+}: {
+  permission: AiPanelPermissionRequest | null;
+  sessionId: string | null;
+  tool: AiPanelToolCall;
+}) {
+  const description =
+    getStringRecordValue(tool.input, 'description') ||
+    getStringRecordValue(tool.input, 'subject') ||
+    getStringRecordValue(tool.output, 'summary');
+  const durationMs =
+    getNumberRecordValue(tool.output, 'totalDurationMs') ??
+    getNumberRecordValue(tool.output, 'durationMs') ??
+    getNumberRecordValue(tool.output, 'duration_ms');
+
+  return (
+    <div className="px-3 py-2" data-testid="ai-planning-tool">
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <Sparkles className="shrink-0 text-muted-foreground" size={14} />
+            <span className="truncate text-sm font-medium">
+              {tool.status === 'running' ? 'Running Subagent' : 'Completed Subagent'}
+            </span>
+            {durationMs ? (
+              <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                {formatDuration(durationMs)}
+              </span>
+            ) : null}
+          </div>
+          {description ? (
+            <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+              {description}
+            </div>
+          ) : null}
+        </div>
+        <ToolStatusBadge status={tool.status} />
+      </div>
+      <ToolDetailPreview
+        permission={permission}
+        sessionId={sessionId}
+        tool={tool}
+      />
+    </div>
   );
 }
 
@@ -2649,6 +3008,206 @@ function isPlanningToolName(name: string) {
     name === 'exitplanmode' ||
     name.startsWith('task')
   );
+}
+
+interface PlanningTodoItem {
+  activeForm?: string;
+  content: string;
+  status: string;
+}
+
+interface PlanningPlanStep {
+  description: string;
+  files: string[];
+  status: string;
+  title: string;
+}
+
+interface PlanningPlan {
+  status: string;
+  steps: PlanningPlanStep[];
+  summary: string;
+  title: string;
+}
+
+function extractToolTodos(tool: AiPanelToolCall): PlanningTodoItem[] {
+  return (
+    extractTodosFromValue(tool.output?.newTodos) ||
+    extractTodosFromValue(tool.output?.todos) ||
+    extractTodosFromValue(tool.input.todos) ||
+    []
+  );
+}
+
+function extractTodosFromValue(value: unknown): PlanningTodoItem[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  return value.flatMap((entry) => {
+    if (!isRecord(entry)) {
+      return [];
+    }
+
+    const content =
+      getStringRecordValue(entry, 'content') ||
+      getStringRecordValue(entry, 'title') ||
+      getStringRecordValue(entry, 'text');
+
+    if (!content) {
+      return [];
+    }
+
+    return [
+      {
+        activeForm: getStringRecordValue(entry, 'activeForm') || undefined,
+        content,
+        status: getStringRecordValue(entry, 'status') || 'pending',
+      },
+    ];
+  });
+}
+
+function extractToolPlan(tool: AiPanelToolCall): PlanningPlan | null {
+  const planValue = isRecord(tool.output?.plan)
+    ? tool.output.plan
+    : isRecord(tool.input.plan)
+      ? tool.input.plan
+      : null;
+
+  if (!planValue) {
+    return null;
+  }
+
+  const title =
+    getStringRecordValue(planValue, 'title') ||
+    getStringRecordValue(planValue, 'name') ||
+    'Plan';
+  const stepsValue = planValue.steps;
+  const steps = Array.isArray(stepsValue)
+    ? stepsValue.flatMap((step) => extractPlanStep(step))
+    : [];
+
+  return {
+    status: getStringRecordValue(planValue, 'status'),
+    steps,
+    summary:
+      getStringRecordValue(planValue, 'summary') ||
+      getStringRecordValue(planValue, 'description'),
+    title,
+  };
+}
+
+function extractPlanStep(value: unknown): PlanningPlanStep[] {
+  if (!isRecord(value)) {
+    return [];
+  }
+
+  const title =
+    getStringRecordValue(value, 'title') ||
+    getStringRecordValue(value, 'name') ||
+    getStringRecordValue(value, 'content');
+  const description = getStringRecordValue(value, 'description');
+  const filesValue = value.files;
+  const files = Array.isArray(filesValue)
+    ? filesValue.filter((file): file is string => typeof file === 'string')
+    : [];
+
+  if (!title && !description && files.length === 0) {
+    return [];
+  }
+
+  return [
+    {
+      description,
+      files,
+      status: getStringRecordValue(value, 'status') || 'pending',
+      title,
+    },
+  ];
+}
+
+function PlanningStatusIcon({
+  running,
+  status,
+}: {
+  running: boolean;
+  status: string;
+}) {
+  const className = 'mt-0.5 shrink-0 text-muted-foreground';
+
+  if (running && status === 'in_progress') {
+    return <LoaderCircle className={cn(className, 'animate-spin')} size={14} />;
+  }
+
+  if (status === 'completed') {
+    return <Check className={className} size={14} />;
+  }
+
+  if (status === 'in_progress') {
+    return <LoaderCircle className={className} size={14} />;
+  }
+
+  if (status === 'skipped') {
+    return <SkipForward className={className} size={14} />;
+  }
+
+  return <Circle className={className} size={14} />;
+}
+
+function formatPlanningStatus(status: string) {
+  switch (status) {
+    case 'completed':
+      return '已完成';
+    case 'in_progress':
+      return '进行中';
+    case 'skipped':
+      return '已跳过';
+    case 'pending':
+      return '待处理';
+    default:
+      return status || '待处理';
+  }
+}
+
+function formatPlanStatus(status: string) {
+  switch (status) {
+    case 'awaiting_approval':
+      return '等待确认';
+    case 'approved':
+      return '已确认';
+    case 'completed':
+      return '计划完成';
+    case 'in_progress':
+      return '执行中';
+    case 'draft':
+      return '草稿';
+    default:
+      return status || '计划';
+  }
+}
+
+function basename(path: string) {
+  const normalized = path.replace(/\\/g, '/');
+
+  return normalized.split('/').filter(Boolean).at(-1) ?? path;
+}
+
+function formatDuration(ms: number) {
+  if (ms < 1000) {
+    return '';
+  }
+
+  const seconds = Math.floor(ms / 1000);
+
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+
+  return remainder === 0 ? `${minutes}m` : `${minutes}m ${remainder}s`;
 }
 
 interface RuntimeMcpToolInfo {

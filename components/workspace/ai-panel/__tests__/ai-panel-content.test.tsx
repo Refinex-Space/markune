@@ -1662,9 +1662,21 @@ describe('AiPanelContent', () => {
         input: {
           plan: {
             steps: [
-              { status: 'completed' },
-              { status: 'pending' },
+              {
+                description: '整理现有 AI 面板能力与缺口',
+                files: ['components/workspace/ai-panel/ai-panel-content.tsx'],
+                status: 'completed',
+                title: '梳理能力',
+              },
+              {
+                description: '加入可审阅的写作协作工具流',
+                files: ['components/workspace/ai-panel/__tests__/ai-panel-content.test.tsx'],
+                status: 'pending',
+                title: '落地协作流',
+              },
             ],
+            summary: '让计划工具在侧边栏内可读可跟踪',
+            status: 'in_progress',
             title: '写作协作升级',
           },
         },
@@ -1695,6 +1707,12 @@ describe('AiPanelContent', () => {
     expect(screen.getByText('TodoWrite')).toBeTruthy();
     expect(screen.getByText('2 items')).toBeTruthy();
     expect(screen.getByText('写作协作升级 (1/2)')).toBeTruthy();
+    expect(screen.getByText('梳理资料')).toBeTruthy();
+    expect(screen.getByText('改写正文')).toBeTruthy();
+    expect(screen.getByText('梳理能力')).toBeTruthy();
+    expect(screen.getByText('落地协作流')).toBeTruthy();
+    expect(screen.getByText('让计划工具在侧边栏内可读可跟踪')).toBeTruthy();
+    expect(screen.getByText('ai-panel-content.tsx')).toBeTruthy();
     expect(screen.getByText('context7')).toBeTruthy();
     expect(screen.getByText('Resolve Library Id')).toBeTruthy();
   });
