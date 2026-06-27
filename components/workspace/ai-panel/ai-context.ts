@@ -3,6 +3,7 @@ import type { WorkspaceNode } from '@/components/workspace/workspace-types';
 
 import type {
   AiContextPack,
+  AiContextImage,
   AiContextReference,
   AiIntent,
   AiSelectionContext,
@@ -12,6 +13,7 @@ interface BuildAiContextPackInput {
   currentDocument: WorkspaceNode | null;
   documentPanelData: DocumentPanelData | null;
   intent: AiIntent;
+  images?: AiContextImage[];
   references?: AiContextReference[];
   selection?: AiSelectionContext | null;
   workspaceRootPath: string;
@@ -21,11 +23,13 @@ export function buildAiContextPack({
   currentDocument,
   documentPanelData,
   intent,
+  images,
   references,
   selection,
   workspaceRootPath,
 }: BuildAiContextPackInput): AiContextPack {
   const context: AiContextPack = {
+    images,
     intent,
     references,
     selection: selection ?? undefined,

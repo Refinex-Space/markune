@@ -890,6 +890,66 @@ describe('AiPanelContent', () => {
     );
   });
 
+  it('adds dropped images as previewed context attachments for the next chat', async () => {
+    const user = userEvent.setup();
+    const imageFile = new File(['image-bytes'], 'diagram.png', {
+      type: 'image/png',
+    });
+
+    render(
+      <AiPanelContent
+        currentDocument={currentDocument}
+        documentPanelData={documentPanelData}
+        workspaceRootPath="/repo"
+      />,
+    );
+
+    fireEvent.drop(await screen.findByTestId('ai-composer'), {
+      dataTransfer: {
+        files: [imageFile],
+        types: ['Files'],
+      },
+    });
+
+    expect(await screen.findByText('diagram.png')).toBeTruthy();
+    expect(screen.getByRole('img', { name: 'diagram.png' })).toBeTruthy();
+
+    await user.type(
+      screen.getByPlaceholderText('向 AI 询问当前工作区...'),
+      '根据图片调整文章结构',
+    );
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() => expect(mocks.sendAiPrompt).toHaveBeenCalled());
+    expect(mocks.sendAiPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          images: [
+            expect.objectContaining({
+              base64Data: 'aW1hZ2UtYnl0ZXM=',
+              filename: 'diagram.png',
+              mediaType: 'image/png',
+            }),
+          ],
+        }),
+        prompt: '根据图片调整文章结构',
+      }),
+    );
+    await waitFor(() =>
+      expect(mocks.saveAiConversation).toHaveBeenCalledWith(
+        '/repo',
+        expect.objectContaining({
+          images: [
+            expect.objectContaining({
+              filename: 'diagram.png',
+              mediaType: 'image/png',
+            }),
+          ],
+        }),
+      ),
+    );
+  });
+
   it('sends selected editor text as structured selection context', async () => {
     const user = userEvent.setup();
 

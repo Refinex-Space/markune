@@ -263,6 +263,8 @@ pub struct AiContextPack {
     #[serde(default)]
     pub selection: Option<AiContextSelection>,
     #[serde(default)]
+    pub images: Vec<AiContextImage>,
+    #[serde(default)]
     pub references: Vec<AiContextReference>,
 }
 
@@ -287,6 +289,17 @@ pub struct AiContextSelection {
     pub document_path: Option<String>,
     #[serde(default)]
     pub document_title: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AiContextImage {
+    pub id: String,
+    pub filename: String,
+    pub media_type: String,
+    pub base64_data: String,
+    pub size: usize,
+    pub content_hash: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -456,6 +469,8 @@ pub struct AiConversationRecord {
     pub document_title: Option<String>,
     #[serde(default)]
     pub references: Vec<AiContextReference>,
+    #[serde(default)]
+    pub images: Vec<AiContextImage>,
     pub messages: Vec<AiConversationMessage>,
     #[serde(default)]
     pub thinking: Vec<serde_json::Value>,
@@ -3428,6 +3443,20 @@ fn build_assistant_prompt(input: &SendAiPromptInput) -> String {
         ));
     }
 
+    if !input.context.images.is_empty() {
+        prompt.push_str("\n\n用户附加的图片：");
+        for image in &input.context.images {
+            prompt.push_str(&format!(
+                "\n\n图片：{}\n媒体类型：{}\n大小：{} bytes\n内容哈希：{}\n\n```base64\n{}\n```",
+                image.filename,
+                image.media_type,
+                image.size,
+                image.content_hash,
+                image.base64_data
+            ));
+        }
+    }
+
     if !input.context.references.is_empty() {
         prompt.push_str("\n\n用户通过 @ 明确引用的工作区文件：");
         for reference in &input.context.references {
@@ -3522,6 +3551,7 @@ mod tests {
     fn test_context(root: &str) -> AiContextPack {
         AiContextPack {
             document: None,
+            images: Vec::new(),
             intent: "chat".to_string(),
             references: Vec::new(),
             selection: None,
@@ -4042,6 +4072,7 @@ mod tests {
             profile_label: "Codex".to_string(),
             provider_id: "codex".to_string(),
             provider_label: "Codex".to_string(),
+            images: Vec::new(),
             references: Vec::new(),
             run_state: None,
             thinking: Vec::new(),
@@ -4078,6 +4109,14 @@ mod tests {
             profile_label: "Claude Code".to_string(),
             provider_id: "claude".to_string(),
             provider_label: "Claude".to_string(),
+            images: vec![AiContextImage {
+                base64_data: "aW1hZ2UtYnl0ZXM=".to_string(),
+                content_hash: "fnv1a-image".to_string(),
+                filename: "diagram.png".to_string(),
+                id: "image-1".to_string(),
+                media_type: "image/png".to_string(),
+                size: 11,
+            }],
             references: vec![AiContextReference {
                 content_hash: "fnv1a-ref".to_string(),
                 markdown: "# 研究记录".to_string(),
@@ -4190,6 +4229,7 @@ mod tests {
                     path: "/repo/guide.md".to_string(),
                     title: "指南".to_string(),
                 }),
+                images: Vec::new(),
                 intent: "summarize-document".to_string(),
                 references: vec![AiContextReference {
                     content_hash: "fnv1a-ref".to_string(),
@@ -4225,6 +4265,14 @@ mod tests {
                     path: "/repo/guide.md".to_string(),
                     title: "指南".to_string(),
                 }),
+                images: vec![AiContextImage {
+                    base64_data: "aW1hZ2UtYnl0ZXM=".to_string(),
+                    content_hash: "fnv1a-image".to_string(),
+                    filename: "diagram.png".to_string(),
+                    id: "image-1".to_string(),
+                    media_type: "image/png".to_string(),
+                    size: 11,
+                }],
                 intent: "chat".to_string(),
                 references: vec![AiContextReference {
                     content_hash: "fnv1a-ref".to_string(),
@@ -4252,6 +4300,9 @@ mod tests {
         assert!(prompt.contains("当前 Markdown 文档：指南"));
         assert!(prompt.contains("用户当前选中的 Markdown 片段：指南"));
         assert!(prompt.contains("选中的段落"));
+        assert!(prompt.contains("用户附加的图片"));
+        assert!(prompt.contains("图片：diagram.png"));
+        assert!(prompt.contains("aW1hZ2UtYnl0ZXM="));
         assert!(prompt.contains("用户通过 @ 明确引用的工作区文件"));
         assert!(prompt.contains("引用：研究记录"));
         assert!(prompt.contains("# 研究记录"));

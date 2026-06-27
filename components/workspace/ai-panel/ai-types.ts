@@ -112,6 +112,7 @@ export interface AiContextPack {
     dirty: boolean;
   };
   references?: AiContextReference[];
+  images?: AiContextImage[];
   selection?: {
     markdown: string;
     from: number;
@@ -125,6 +126,15 @@ export interface AiContextPack {
     line?: number;
   }>;
   intent: AiIntent;
+}
+
+export interface AiContextImage {
+  id: string;
+  filename: string;
+  mediaType: string;
+  base64Data: string;
+  size: number;
+  contentHash: string;
 }
 
 export interface AiSelectionContext {
@@ -364,6 +374,7 @@ export interface AiConversationRecord {
   documentPath?: string;
   documentTitle?: string;
   references?: AiContextReference[];
+  images?: AiContextImage[];
   messages: AiConversationMessage[];
   thinking?: AiPanelThinkingBlock[];
   tools: AiPanelToolCall[];

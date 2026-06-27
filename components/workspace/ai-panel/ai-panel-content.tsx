@@ -75,6 +75,7 @@ import type {
   AiConversationSummary,
   AiContextReference,
   AiDetectedModel,
+  AiContextImage,
   AiIntent,
   AiPanelPermissionRequest,
   AiSelectionContext,
@@ -108,6 +109,12 @@ interface AiComposerContextAttachment {
   id: string;
   reference: AiContextReference;
   size: number;
+}
+
+interface AiComposerImageAttachment {
+  id: string;
+  image: AiContextImage;
+  previewUrl: string;
 }
 
 export function AiPanelContent({
@@ -158,11 +165,17 @@ export function AiPanelContent({
   const [contextAttachments, setContextAttachments] = React.useState<
     AiComposerContextAttachment[]
   >([]);
+  const [imageAttachments, setImageAttachments] = React.useState<
+    AiComposerImageAttachment[]
+  >([]);
   const [mentionInventory, setMentionInventory] = React.useState<
     AiMentionReference[]
   >([]);
   const [conversationReferences, setConversationReferences] = React.useState<
     AiContextReference[]
+  >([]);
+  const [conversationImages, setConversationImages] = React.useState<
+    AiContextImage[]
   >([]);
   const [mentionQuery, setMentionQuery] = React.useState<string | null>(null);
   const [mentionLoading, setMentionLoading] = React.useState(false);
@@ -463,6 +476,7 @@ export function AiPanelContent({
       const record = buildConversationRecord({
         activeConversationId,
         conversationCreatedAt,
+        conversationImages,
         conversationReferences,
         currentDocument,
         profileMetadata,
@@ -488,6 +502,7 @@ export function AiPanelContent({
   }, [
     activeConversationId,
     conversationReferences,
+    conversationImages,
     conversationCreatedAt,
     currentDocument,
     hasRuntimeActivity,
@@ -513,9 +528,14 @@ export function AiPanelContent({
         ...resolvedReferences,
         ...contextAttachments.map((attachment) => attachment.reference),
       ]);
+      const contextImages = mergeAiContextImages([
+        ...conversationImages,
+        ...imageAttachments.map((attachment) => attachment.image),
+      ]);
       const context = buildAiContextPack({
         currentDocument,
         documentPanelData,
+        images: contextImages,
         intent,
         references: contextReferences,
         selection: activeSelectionContext,
@@ -551,6 +571,7 @@ export function AiPanelContent({
           });
         }
         setConversationReferences(context.references ?? []);
+        setConversationImages(context.images ?? []);
 
         dispatch({
           content: trimmed,
@@ -565,6 +586,7 @@ export function AiPanelContent({
         });
         setPrompt('');
         setContextAttachments([]);
+        setImageAttachments([]);
         setMentionQuery(null);
       } catch (error) {
         dispatch({
@@ -577,7 +599,9 @@ export function AiPanelContent({
       currentDocument,
       documentPanelData,
       contextAttachments,
+      imageAttachments,
       conversationReferences,
+      conversationImages,
       activeSelectionContext,
       runtimeReady,
       selectedProfile,
@@ -668,6 +692,28 @@ export function AiPanelContent({
   const handleAttachFiles = React.useCallback(
     async (files: Iterable<File>) => {
       for (const file of files) {
+        if (file.type.startsWith('image/')) {
+          try {
+            const attachment = await buildImageContextAttachment(file);
+
+            setImageAttachments((current) =>
+              current.some(
+                (item) =>
+                  item.image.contentHash === attachment.image.contentHash,
+              )
+                ? current
+                : [...current, attachment],
+            );
+          } catch (error) {
+            dispatch({
+              message:
+                error instanceof Error ? error.message : '无法读取图片附件',
+              type: 'errorRaised',
+            });
+          }
+          continue;
+        }
+
         if (!isTextContextFile(file)) {
           continue;
         }
@@ -719,6 +765,7 @@ export function AiPanelContent({
   );
 
   const referenceCount = selectedReferences.length + contextAttachments.length;
+  const imageCount = imageAttachments.length + conversationImages.length;
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col bg-background">
@@ -739,7 +786,9 @@ export function AiPanelContent({
             setActiveConversationId(null);
             setConversationCreatedAt(null);
             setConversationReferences([]);
+            setConversationImages([]);
             setContextAttachments([]);
+            setImageAttachments([]);
             setSelectedReferences([]);
             setSessionNotice('New session');
             setActivePopover(null);
@@ -838,7 +887,9 @@ export function AiPanelContent({
                       type: 'conversationRestored',
                     });
                     setConversationReferences(conversation.references ?? []);
+                    setConversationImages(conversation.images ?? []);
                     setContextAttachments([]);
+                    setImageAttachments([]);
                     setSelectedReferences([]);
                     setActivePopover(null);
                     setSessionNotice(null);
@@ -1017,6 +1068,14 @@ export function AiPanelContent({
               );
             }}
           />
+          <ComposerImageAttachments
+            attachments={imageAttachments}
+            onRemove={(id) => {
+              setImageAttachments((current) =>
+                current.filter((attachment) => attachment.id !== id),
+              );
+            }}
+          />
           <textarea
             className="min-h-20 w-full resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
             disabled={!workspaceRootPath || !runtimeReady}
@@ -1071,11 +1130,16 @@ export function AiPanelContent({
                   +{referenceCount} referenced
                 </span>
               ) : null}
+              {imageCount > 0 ? (
+                <span className="truncate rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+                  {imageCount} image{imageCount === 1 ? '' : 's'}
+                </span>
+              ) : null}
             </div>
             <div className="flex items-center gap-1.5">
               <input
                 ref={fileInputRef}
-                accept=".md,.markdown,.mdx,.txt,.csv,.json,.yaml,.yml,.toml,.xml,.html,.css,.ts,.tsx,.js,.jsx"
+                accept="image/*,.md,.markdown,.mdx,.txt,.csv,.json,.yaml,.yml,.toml,.xml,.html,.css,.ts,.tsx,.js,.jsx"
                 className="hidden"
                 multiple
                 type="file"
@@ -1170,6 +1234,7 @@ function selectInitialProfileId(
 function buildConversationRecord({
   activeConversationId,
   conversationReferences,
+  conversationImages,
   conversationCreatedAt,
   currentDocument,
   profileMetadata,
@@ -1177,6 +1242,7 @@ function buildConversationRecord({
 }: {
   activeConversationId: string;
   conversationReferences: AiContextReference[];
+  conversationImages: AiContextImage[];
   conversationCreatedAt: number | null;
   currentDocument: WorkspaceNode | null;
   profileMetadata: {
@@ -1201,6 +1267,7 @@ function buildConversationRecord({
     profileLabel: profileMetadata.label,
     providerId: profileMetadata.providerId,
     providerLabel: profileMetadata.providerLabel,
+    images: conversationImages,
     references: conversationReferences,
     runState: state.runState,
     thinking: state.thinking,
@@ -1452,6 +1519,55 @@ function ComposerContextAttachments({
             onClick={() => onRemove(attachment.reference.relativePath)}
           >
             <X size={12} />
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ComposerImageAttachments({
+  attachments,
+  onRemove,
+}: {
+  attachments: AiComposerImageAttachment[];
+  onRemove: (id: string) => void;
+}) {
+  if (attachments.length === 0) {
+    return null;
+  }
+
+  return (
+    <div
+      className="mb-2 flex min-w-0 flex-wrap items-center gap-2"
+      data-testid="ai-composer-image-attachments"
+    >
+      {attachments.map((attachment) => (
+        <span
+          className="group relative inline-flex max-w-[180px] items-center gap-2 rounded-md border bg-muted/30 p-1.5 pr-2 text-xs"
+          key={attachment.id}
+        >
+          <span
+            aria-label={attachment.image.filename}
+            className="size-9 shrink-0 rounded bg-cover bg-center"
+            role="img"
+            style={{ backgroundImage: `url(${attachment.previewUrl})` }}
+          />
+          <span className="min-w-0">
+            <span className="block truncate font-medium">
+              {attachment.image.filename}
+            </span>
+            <span className="block truncate text-[10px] text-muted-foreground">
+              {attachment.image.mediaType} · {formatFileSize(attachment.image.size)}
+            </span>
+          </span>
+          <button
+            aria-label={`移除图片 ${attachment.image.filename}`}
+            className="absolute -right-1.5 -top-1.5 flex size-4 items-center justify-center rounded-full border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-foreground group-hover:opacity-100"
+            type="button"
+            onClick={() => onRemove(attachment.id)}
+          >
+            <X size={11} />
           </button>
         </span>
       ))}
@@ -3522,6 +3638,66 @@ function mergeAiContextReferences(references: AiContextReference[]) {
   return merged;
 }
 
+function mergeAiContextImages(images: AiContextImage[]) {
+  const merged: AiContextImage[] = [];
+  const seen = new Set<string>();
+
+  for (const image of images) {
+    if (seen.has(image.contentHash)) {
+      continue;
+    }
+
+    seen.add(image.contentHash);
+    merged.push(image);
+  }
+
+  return merged;
+}
+
+async function buildImageContextAttachment(
+  file: File,
+): Promise<AiComposerImageAttachment> {
+  const dataUrl = await readFileAsDataUrl(file);
+  const [header, base64Data = ''] = dataUrl.split(',');
+  const mediaType =
+    header.match(/^data:([^;]+);base64$/u)?.[1] || file.type || 'image/png';
+  const filename = file.name || `image-${Date.now()}.png`;
+  const contentHash = createStableContentHash(
+    `${filename}:${mediaType}:${base64Data}`,
+  );
+  const image: AiContextImage = {
+    base64Data,
+    contentHash,
+    filename,
+    id: contentHash,
+    mediaType,
+    size: file.size,
+  };
+
+  return {
+    id: contentHash,
+    image,
+    previewUrl: dataUrl,
+  };
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error('无法读取文件内容'));
+    };
+    reader.onerror = () => reject(new Error('无法读取文件内容'));
+    reader.readAsDataURL(file);
+  });
+}
+
 function shouldCapturePastedTextContext(text: string) {
   const trimmed = text.trim();
 
@@ -3562,6 +3738,18 @@ function formatCharacterCount(value: number) {
   }
 
   return `${value} ch`;
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function buildCurrentDocumentReference(
