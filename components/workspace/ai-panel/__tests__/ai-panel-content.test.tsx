@@ -1636,6 +1636,102 @@ describe('AiPanelContent', () => {
     ).toBeTruthy();
   });
 
+  it('applies a pure unified diff edit suggestion when context matches', async () => {
+    const user = userEvent.setup();
+
+    mocks.readMarkdownDocument.mockResolvedValueOnce({
+      content: '# 指南\n\n旧段落\n\n结尾',
+      modifiedAt: 21,
+      path: '/repo/guide.md',
+    });
+    mocks.saveMarkdownDocument.mockResolvedValueOnce({
+      modifiedAt: 22,
+      path: '/repo/guide.md',
+    });
+
+    render(
+      <AiPanelContent
+        currentDocument={currentDocument}
+        documentPanelData={documentPanelData}
+        workspaceRootPath="/repo"
+      />,
+    );
+
+    await waitFor(() => expect(mocks.aiHandlers).toHaveLength(1));
+    act(() => {
+      mocks.aiHandlers[0]({
+        input: {
+          changes: [
+            {
+              diff: '--- guide.md\n+++ guide.md\n@@\n # 指南\n \n-旧段落\n+新段落\n \n 结尾',
+              path: '/repo/guide.md',
+            },
+          ],
+        },
+        sessionId: 'ai-1',
+        toolCallId: 'tool-patch-apply',
+        toolName: 'Edit',
+        type: 'toolStarted',
+      });
+    });
+
+    await user.click(
+      await screen.findByRole('button', { name: '应用 guide.md 到文档' }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.saveMarkdownDocument).toHaveBeenCalledWith(
+        '/repo',
+        '/repo/guide.md',
+        '# 指南\n\n新段落\n\n结尾',
+        21,
+      ),
+    );
+  });
+
+  it('does not apply a pure unified diff when context no longer matches', async () => {
+    const user = userEvent.setup();
+
+    mocks.readMarkdownDocument.mockResolvedValueOnce({
+      content: '# 指南\n\n手动改过\n\n结尾',
+      modifiedAt: 23,
+      path: '/repo/guide.md',
+    });
+
+    render(
+      <AiPanelContent
+        currentDocument={currentDocument}
+        documentPanelData={documentPanelData}
+        workspaceRootPath="/repo"
+      />,
+    );
+
+    await waitFor(() => expect(mocks.aiHandlers).toHaveLength(1));
+    act(() => {
+      mocks.aiHandlers[0]({
+        input: {
+          changes: [
+            {
+              diff: '--- guide.md\n+++ guide.md\n@@\n # 指南\n \n-旧段落\n+新段落\n \n 结尾',
+              path: '/repo/guide.md',
+            },
+          ],
+        },
+        sessionId: 'ai-1',
+        toolCallId: 'tool-patch-stale',
+        toolName: 'Edit',
+        type: 'toolStarted',
+      });
+    });
+
+    await user.click(
+      await screen.findByRole('button', { name: '应用 guide.md 到文档' }),
+    );
+
+    await screen.findByText('当前文档已变化，无法安全应用 AI 生成的 diff');
+    expect(mocks.saveMarkdownDocument).not.toHaveBeenCalled();
+  });
+
   it('applies a single-file edit tool suggestion to the workspace document', async () => {
     const user = userEvent.setup();
     const onMarkdownDocumentApplied = vi.fn();

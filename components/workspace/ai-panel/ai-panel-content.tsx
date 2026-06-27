@@ -3190,6 +3190,7 @@ interface PlanningPlan {
 }
 
 interface ApplicableMarkdownEdit {
+  diffPatch?: string;
   fullContent?: string;
   newString?: string;
   oldString?: string;
@@ -3413,15 +3414,17 @@ function getApplicableMarkdownEdit(
   const oldString = getStringRecordValue(tool.input, 'old_string');
   const newString = getStringRecordValue(tool.input, 'new_string');
 
-  if (!oldString && !newString) {
-    return null;
+  if (oldString || newString) {
+    return {
+      newString,
+      oldString,
+      path,
+    };
   }
 
-  return {
-    newString,
-    oldString,
-    path,
-  };
+  const diffPatch = extractDiffText(tool.output) ?? extractDiffText(tool.input);
+
+  return diffPatch ? { diffPatch, path } : null;
 }
 
 function getApplicableMarkdownEditFromRecord(
@@ -3449,15 +3452,19 @@ function getApplicableMarkdownEditFromRecord(
     getStringRecordValue(value, 'new_string') ||
     getStringRecordValue(value, 'newString');
 
-  if (!oldString && !newString) {
-    return undefined;
+  if (oldString || newString) {
+    return {
+      newString,
+      oldString,
+      path,
+    };
   }
 
-  return {
-    newString,
-    oldString,
-    path,
-  };
+  const diffPatch =
+    getStringRecordValue(value, 'diff') ||
+    getStringRecordValue(value, 'patch');
+
+  return diffPatch ? { diffPatch, path } : undefined;
 }
 
 async function applyMarkdownEditSuggestion({
@@ -3507,6 +3514,10 @@ function buildAppliedMarkdownEditContent(
     return edit.fullContent;
   }
 
+  if (edit.diffPatch) {
+    return applyUnifiedDiffPatch(currentContent, edit.diffPatch);
+  }
+
   const oldString = edit.oldString ?? '';
   const newString = edit.newString ?? '';
 
@@ -3519,6 +3530,96 @@ function buildAppliedMarkdownEditContent(
   }
 
   return currentContent.replace(oldString, newString);
+}
+
+function applyUnifiedDiffPatch(currentContent: string, diffPatch: string) {
+  const hunks = parseApplicableUnifiedDiffHunks(diffPatch);
+
+  if (hunks.length === 0) {
+    throw new Error('无法识别可应用的 unified diff');
+  }
+
+  let nextContent = currentContent;
+
+  for (const hunk of hunks) {
+    const oldBlock = hunk.oldLines.join('\n');
+    const newBlock = hunk.newLines.join('\n');
+
+    if (!oldBlock) {
+      throw new Error('diff 缺少可匹配的上下文，无法安全应用');
+    }
+
+    const firstIndex = nextContent.indexOf(oldBlock);
+
+    if (firstIndex < 0) {
+      throw new Error('当前文档已变化，无法安全应用 AI 生成的 diff');
+    }
+
+    if (nextContent.indexOf(oldBlock, firstIndex + oldBlock.length) >= 0) {
+      throw new Error('diff 上下文不唯一，无法安全应用');
+    }
+
+    nextContent =
+      nextContent.slice(0, firstIndex) +
+      newBlock +
+      nextContent.slice(firstIndex + oldBlock.length);
+  }
+
+  return nextContent;
+}
+
+interface ApplicableUnifiedDiffHunk {
+  newLines: string[];
+  oldLines: string[];
+}
+
+function parseApplicableUnifiedDiffHunks(
+  diffPatch: string,
+): ApplicableUnifiedDiffHunk[] {
+  const hunks: ApplicableUnifiedDiffHunk[] = [];
+  let currentHunk: ApplicableUnifiedDiffHunk | null = null;
+
+  for (const rawLine of diffPatch.split('\n')) {
+    if (rawLine.startsWith('@@')) {
+      currentHunk = { newLines: [], oldLines: [] };
+      hunks.push(currentHunk);
+      continue;
+    }
+
+    if (!currentHunk) {
+      continue;
+    }
+
+    if (
+      rawLine.startsWith('--- ') ||
+      rawLine.startsWith('+++ ') ||
+      rawLine.startsWith('diff --git ') ||
+      rawLine.startsWith('index ') ||
+      rawLine.startsWith('\\ No newline')
+    ) {
+      continue;
+    }
+
+    if (rawLine.startsWith('+')) {
+      currentHunk.newLines.push(rawLine.slice(1));
+      continue;
+    }
+
+    if (rawLine.startsWith('-')) {
+      currentHunk.oldLines.push(rawLine.slice(1));
+      continue;
+    }
+
+    const contextLine = rawLine.startsWith(' ')
+      ? rawLine.slice(1)
+      : rawLine;
+    currentHunk.oldLines.push(contextLine);
+    currentHunk.newLines.push(contextLine);
+  }
+
+  return hunks.filter(
+    (hunk) => hunk.oldLines.length > 0 || hunk.newLines.length > 0,
+  );
 }
 
 function isMarkdownDocumentPath(path: string) {
