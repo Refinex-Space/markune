@@ -1636,6 +1636,167 @@ describe('AiPanelContent', () => {
     ).toBeTruthy();
   });
 
+  it('applies all safe files from a multi-file edit suggestion after preflight', async () => {
+    const user = userEvent.setup();
+    const onMarkdownDocumentApplied = vi.fn();
+
+    mocks.readMarkdownDocument
+      .mockResolvedValueOnce({
+        content: '# A\n\nold a',
+        modifiedAt: 31,
+        path: '/repo/docs/a.md',
+      })
+      .mockResolvedValueOnce({
+        content: '# B\n\nold b',
+        modifiedAt: 41,
+        path: '/repo/docs/b.md',
+      });
+    mocks.saveMarkdownDocument
+      .mockResolvedValueOnce({
+        modifiedAt: 32,
+        path: '/repo/docs/a.md',
+      })
+      .mockResolvedValueOnce({
+        modifiedAt: 42,
+        path: '/repo/docs/b.md',
+      });
+
+    render(
+      <AiPanelContent
+        currentDocument={currentDocument}
+        documentPanelData={documentPanelData}
+        workspaceRootPath="/repo"
+        onMarkdownDocumentApplied={onMarkdownDocumentApplied}
+      />,
+    );
+
+    await waitFor(() => expect(mocks.aiHandlers).toHaveLength(1));
+    act(() => {
+      mocks.aiHandlers[0]({
+        input: {},
+        sessionId: 'ai-1',
+        toolCallId: 'tool-edit-apply-all',
+        toolName: 'Edit',
+        type: 'toolStarted',
+      });
+      mocks.aiHandlers[0]({
+        output: {
+          changes: [
+            {
+              diff: '--- docs/a.md\n+++ docs/a.md\n@@\n-old a\n+new a',
+              new_string: 'new a',
+              old_string: 'old a',
+              path: '/repo/docs/a.md',
+            },
+            {
+              diff: '--- docs/b.md\n+++ docs/b.md\n@@\n-old b\n+new b',
+              new_string: 'new b',
+              old_string: 'old b',
+              path: '/repo/docs/b.md',
+            },
+          ],
+        },
+        sessionId: 'ai-1',
+        status: 'success',
+        toolCallId: 'tool-edit-apply-all',
+        toolName: 'Edit',
+        type: 'toolCompleted',
+      });
+    });
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: '应用全部 2 项到文档',
+      }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.saveMarkdownDocument).toHaveBeenNthCalledWith(
+        1,
+        '/repo',
+        '/repo/docs/a.md',
+        '# A\n\nnew a',
+        31,
+      );
+      expect(mocks.saveMarkdownDocument).toHaveBeenNthCalledWith(
+        2,
+        '/repo',
+        '/repo/docs/b.md',
+        '# B\n\nnew b',
+        41,
+      );
+    });
+    expect(onMarkdownDocumentApplied).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('button', { name: '全部已应用' })).toBeTruthy();
+  });
+
+  it('does not save any file when multi-file preflight fails', async () => {
+    const user = userEvent.setup();
+
+    mocks.readMarkdownDocument
+      .mockResolvedValueOnce({
+        content: '# A\n\nold a',
+        modifiedAt: 31,
+        path: '/repo/docs/a.md',
+      })
+      .mockResolvedValueOnce({
+        content: '# B\n\n手动改过',
+        modifiedAt: 41,
+        path: '/repo/docs/b.md',
+      });
+
+    render(
+      <AiPanelContent
+        currentDocument={currentDocument}
+        documentPanelData={documentPanelData}
+        workspaceRootPath="/repo"
+      />,
+    );
+
+    await waitFor(() => expect(mocks.aiHandlers).toHaveLength(1));
+    act(() => {
+      mocks.aiHandlers[0]({
+        input: {},
+        sessionId: 'ai-1',
+        toolCallId: 'tool-edit-preflight-fail',
+        toolName: 'Edit',
+        type: 'toolStarted',
+      });
+      mocks.aiHandlers[0]({
+        output: {
+          changes: [
+            {
+              diff: '--- docs/a.md\n+++ docs/a.md\n@@\n-old a\n+new a',
+              new_string: 'new a',
+              old_string: 'old a',
+              path: '/repo/docs/a.md',
+            },
+            {
+              diff: '--- docs/b.md\n+++ docs/b.md\n@@\n-old b\n+new b',
+              new_string: 'new b',
+              old_string: 'old b',
+              path: '/repo/docs/b.md',
+            },
+          ],
+        },
+        sessionId: 'ai-1',
+        status: 'success',
+        toolCallId: 'tool-edit-preflight-fail',
+        toolName: 'Edit',
+        type: 'toolCompleted',
+      });
+    });
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: '应用全部 2 项到文档',
+      }),
+    );
+
+    await screen.findByText(/批量预检失败，未写入任何文件/);
+    expect(mocks.saveMarkdownDocument).not.toHaveBeenCalled();
+  });
+
   it('applies a pure unified diff edit suggestion when context matches', async () => {
     const user = userEvent.setup();
 

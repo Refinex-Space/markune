@@ -2615,9 +2615,18 @@ function EditToolActivity({
     'idle' | 'applying' | 'applied' | 'error'
   >('idle');
   const [applyError, setApplyError] = React.useState<string | null>(null);
+  const [batchApplyState, setBatchApplyState] = React.useState<
+    'idle' | 'applying' | 'applied' | 'error'
+  >('idle');
+  const [batchApplyError, setBatchApplyError] = React.useState<string | null>(
+    null,
+  );
   const diff = extractDiffText(tool.output) ?? extractDiffText(tool.input);
   const fileChanges = extractToolFileChanges(tool);
   const applicableEdit = getApplicableMarkdownEdit(tool, fileChanges);
+  const batchApplicableEdits = fileChanges.flatMap((change) =>
+    change.applicableEdit ? [change.applicableEdit] : [],
+  );
   const stats = calculateEditToolStats(tool, diff, fileChanges);
   const filePath = getToolFilePath(tool);
   const displayPath =
@@ -2651,11 +2660,67 @@ function EditToolActivity({
         <ToolStatusBadge status={tool.status} />
       </div>
       {fileChanges.length > 0 ? (
-        <FileChangesPreview
-          changes={fileChanges}
-          onMarkdownDocumentApplied={onMarkdownDocumentApplied}
-          workspaceRootPath={workspaceRootPath}
-        />
+        <>
+          {batchApplicableEdits.length > 1 ? (
+            <div className="mt-2 rounded-md border bg-muted/20 p-2">
+              <div className="flex min-w-0 items-center justify-between gap-2">
+                <div className="min-w-0 text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">
+                    可批量应用
+                  </span>
+                  <span className="ml-1">
+                    {batchApplicableEdits.length} 项 Markdown 修改
+                  </span>
+                </div>
+                <Button
+                  aria-label={
+                    batchApplyState === 'applied'
+                      ? '全部已应用'
+                      : `应用全部 ${batchApplicableEdits.length} 项到文档`
+                  }
+                  disabled={
+                    !workspaceRootPath ||
+                    batchApplyState === 'applying' ||
+                    batchApplyState === 'applied'
+                  }
+                  size="sm"
+                  type="button"
+                  variant={batchApplyState === 'applied' ? 'outline' : 'default'}
+                  onClick={() => {
+                    if (!workspaceRootPath) {
+                      return;
+                    }
+
+                    void applyMarkdownEditBatchSuggestion({
+                      edits: batchApplicableEdits,
+                      onApplied: onMarkdownDocumentApplied,
+                      rootPath: workspaceRootPath,
+                      setError: setBatchApplyError,
+                      setState: setBatchApplyState,
+                    });
+                  }}
+                >
+                  {batchApplyState === 'applying' ? (
+                    <LoaderCircle className="animate-spin" size={13} />
+                  ) : batchApplyState === 'applied' ? (
+                    <Check size={13} />
+                  ) : null}
+                  {batchApplyState === 'applied' ? '全部已应用' : '应用全部'}
+                </Button>
+              </div>
+              {batchApplyError ? (
+                <div className="mt-2 rounded-md bg-destructive/10 px-2 py-1.5 text-xs text-destructive">
+                  {batchApplyError}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          <FileChangesPreview
+            changes={fileChanges}
+            onMarkdownDocumentApplied={onMarkdownDocumentApplied}
+            workspaceRootPath={workspaceRootPath}
+          />
+        </>
       ) : (
         <ToolDetailPreview
           permission={permission}
@@ -3207,6 +3272,22 @@ interface ApplyMarkdownEditInput {
   >;
 }
 
+interface ApplyMarkdownEditBatchInput {
+  edits: ApplicableMarkdownEdit[];
+  onApplied?: (document: AiAppliedMarkdownDocument) => void;
+  rootPath: string;
+  setError: React.Dispatch<React.SetStateAction<string | null>>;
+  setState: React.Dispatch<
+    React.SetStateAction<'idle' | 'applying' | 'applied' | 'error'>
+  >;
+}
+
+interface PreparedMarkdownEdit {
+  edit: ApplicableMarkdownEdit;
+  expectedModifiedAt: number | null;
+  nextContent: string;
+}
+
 function extractToolTodos(tool: AiPanelToolCall): PlanningTodoItem[] {
   return (
     extractTodosFromValue(tool.output?.newTodos) ||
@@ -3504,6 +3585,76 @@ async function applyMarkdownEditSuggestion({
         : '无法应用 AI 生成的文档修改',
     );
   }
+}
+
+async function applyMarkdownEditBatchSuggestion({
+  edits,
+  onApplied,
+  rootPath,
+  setError,
+  setState,
+}: ApplyMarkdownEditBatchInput) {
+  setState('applying');
+  setError(null);
+
+  let prepared: PreparedMarkdownEdit[];
+
+  try {
+    prepared = await prepareMarkdownEditBatch(rootPath, edits);
+  } catch (error) {
+    setState('error');
+    setError(
+      `批量预检失败，未写入任何文件：${
+        error instanceof Error ? error.message : '无法应用 AI 生成的文档修改'
+      }`,
+    );
+    return;
+  }
+
+  try {
+    for (const item of prepared) {
+      const meta = await saveMarkdownDocument(
+        rootPath,
+        item.edit.path,
+        item.nextContent,
+        item.expectedModifiedAt,
+      );
+
+      onApplied?.({
+        content: item.nextContent,
+        modifiedAt: meta.modifiedAt,
+        path: meta.path,
+      });
+    }
+
+    setState('applied');
+  } catch (error) {
+    setState('error');
+    setError(
+      `批量保存失败，部分文件可能已保存：${
+        error instanceof Error ? error.message : '无法保存 AI 生成的文档修改'
+      }`,
+    );
+  }
+}
+
+async function prepareMarkdownEditBatch(
+  rootPath: string,
+  edits: ApplicableMarkdownEdit[],
+): Promise<PreparedMarkdownEdit[]> {
+  const prepared: PreparedMarkdownEdit[] = [];
+
+  for (const edit of edits) {
+    const current = await readMarkdownDocument(rootPath, edit.path);
+
+    prepared.push({
+      edit,
+      expectedModifiedAt: current.modifiedAt ?? null,
+      nextContent: buildAppliedMarkdownEditContent(current.content, edit),
+    });
+  }
+
+  return prepared;
 }
 
 function buildAppliedMarkdownEditContent(
