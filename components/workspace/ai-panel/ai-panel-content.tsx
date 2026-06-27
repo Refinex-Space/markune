@@ -1500,7 +1500,13 @@ function RuntimeActivity({
   );
 }
 
-type RuntimeToolGroupKind = 'exploration' | 'web' | 'edit' | 'other';
+type RuntimeToolGroupKind =
+  | 'exploration'
+  | 'planning'
+  | 'mcp'
+  | 'web'
+  | 'edit'
+  | 'other';
 
 interface RuntimeToolGroup {
   kind: RuntimeToolGroupKind;
@@ -1511,6 +1517,8 @@ interface RuntimeToolGroup {
 
 const runtimeToolGroupOrder: RuntimeToolGroupKind[] = [
   'exploration',
+  'planning',
+  'mcp',
   'web',
   'edit',
   'other',
@@ -1601,6 +1609,16 @@ function RuntimeToolItem({
     );
   }
 
+  if (groupKind === 'mcp') {
+    return (
+      <McpToolActivity
+        permission={permission}
+        sessionId={sessionId}
+        tool={tool}
+      />
+    );
+  }
+
   return (
     <BasicToolActivity
       permission={permission}
@@ -1632,6 +1650,48 @@ function BasicToolActivity({
               <Wrench className="shrink-0 text-muted-foreground" size={14} />
             )}
             <span className="truncate text-sm font-medium">{tool.name}</span>
+          </div>
+          {meta.subtitle ? (
+            <div className="mt-1 truncate text-xs text-muted-foreground">
+              {meta.subtitle}
+            </div>
+          ) : null}
+        </div>
+        <ToolStatusBadge status={tool.status} />
+      </div>
+      <ToolDetailPreview
+        permission={permission}
+        sessionId={sessionId}
+        tool={tool}
+      />
+    </div>
+  );
+}
+
+function McpToolActivity({
+  permission,
+  sessionId,
+  tool,
+}: {
+  permission: AiPanelPermissionRequest | null;
+  sessionId: string | null;
+  tool: AiPanelToolCall;
+}) {
+  const info = parseRuntimeMcpTool(tool.name);
+  const meta = getRuntimeToolMeta(tool);
+
+  return (
+    <div className="px-3 py-2">
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <Wrench className="shrink-0 text-muted-foreground" size={14} />
+            <span className="truncate text-sm font-medium">
+              {info?.serverName ?? 'MCP'}
+            </span>
+            <span className="truncate text-sm text-muted-foreground">
+              {info?.displayName ?? tool.name}
+            </span>
           </div>
           {meta.subtitle ? (
             <div className="mt-1 truncate text-xs text-muted-foreground">
@@ -1924,6 +1984,14 @@ function buildRuntimeToolGroups(tools: AiPanelToolCall[]) {
 function getRuntimeToolGroupKind(tool: AiPanelToolCall): RuntimeToolGroupKind {
   const name = normalizeToolName(tool.name);
 
+  if (isPlanningToolName(name)) {
+    return 'planning';
+  }
+
+  if (parseRuntimeMcpTool(tool.name)) {
+    return 'mcp';
+  }
+
   if (
     [
       'read',
@@ -1957,6 +2025,10 @@ function getRuntimeGroupLabels(kind: RuntimeToolGroupKind) {
   switch (kind) {
     case 'exploration':
       return { completedLabel: '已探索', runningLabel: '正在探索' };
+    case 'planning':
+      return { completedLabel: '已规划', runningLabel: '正在规划' };
+    case 'mcp':
+      return { completedLabel: '已调用 MCP', runningLabel: '正在调用 MCP' };
     case 'web':
       return { completedLabel: '已联网', runningLabel: '正在联网' };
     case 'edit':
@@ -1973,6 +2045,10 @@ function renderRuntimeGroupIcon(kind: RuntimeToolGroupKind) {
   switch (kind) {
     case 'exploration':
       return <Search className={className} size={size} />;
+    case 'planning':
+      return <Sparkles className={className} size={size} />;
+    case 'mcp':
+      return <Wrench className={className} size={size} />;
     case 'web':
       return <Globe className={className} size={size} />;
     case 'edit':
@@ -1994,6 +2070,17 @@ function formatRuntimeGroupSummary(group: RuntimeToolGroup) {
 
 function getRuntimeToolMeta(tool: AiPanelToolCall) {
   const name = normalizeToolName(tool.name);
+  const mcpInfo = parseRuntimeMcpTool(tool.name);
+
+  if (mcpInfo) {
+    return {
+      subtitle:
+        getStringRecordValue(tool.input, 'query') ||
+        getStringRecordValue(tool.input, 'library') ||
+        getStringRecordValue(tool.input, 'id') ||
+        mcpInfo.category,
+    };
+  }
 
   if (name === 'bash') {
     return {
@@ -2019,6 +2106,42 @@ function getRuntimeToolMeta(tool: AiPanelToolCall) {
     };
   }
 
+  if (name === 'todowrite') {
+    const todos = tool.input.todos;
+
+    return {
+      subtitle: Array.isArray(todos)
+        ? `${todos.length} item${todos.length === 1 ? '' : 's'}`
+        : '',
+    };
+  }
+
+  if (name === 'planwrite') {
+    const plan = isRecord(tool.input.plan) ? tool.input.plan : null;
+    const title = plan ? getStringRecordValue(plan, 'title') : '';
+    const steps = plan && Array.isArray(plan.steps) ? plan.steps : [];
+    const completed = steps.filter(
+      (step) => isRecord(step) && step.status === 'completed',
+    ).length;
+
+    return {
+      subtitle: title
+        ? `${title}${steps.length > 0 ? ` (${completed}/${steps.length})` : ''}`
+        : steps.length > 0
+          ? `${completed}/${steps.length} steps`
+          : '',
+    };
+  }
+
+  if (name.startsWith('task')) {
+    return {
+      subtitle:
+        getStringRecordValue(tool.input, 'subject') ||
+        getStringRecordValue(tool.input, 'description') ||
+        getStringRecordValue(tool.input, 'taskId'),
+    };
+  }
+
   return {
     subtitle:
       compactWorkspacePath(getToolFilePath(tool) ?? '') ||
@@ -2030,6 +2153,106 @@ function getRuntimeToolMeta(tool: AiPanelToolCall) {
 
 function normalizeToolName(name: string) {
   return name.replace(/^tool-/i, '').replace(/\s.+$/, '').toLowerCase();
+}
+
+function isPlanningToolName(name: string) {
+  return (
+    name === 'todowrite' ||
+    name === 'planwrite' ||
+    name === 'exitplanmode' ||
+    name.startsWith('task')
+  );
+}
+
+interface RuntimeMcpToolInfo {
+  category: string;
+  displayName: string;
+  serverName: string;
+}
+
+function parseRuntimeMcpTool(name: string): RuntimeMcpToolInfo | null {
+  const normalized = name.replace(/^tool-/i, '');
+  const lower = normalized.toLowerCase();
+
+  if (
+    lower === 'listmcpresources' ||
+    lower === 'listmcpresourcestool'
+  ) {
+    return {
+      category: 'list',
+      displayName: 'List Resources',
+      serverName: 'mcp',
+    };
+  }
+
+  if (
+    lower === 'readmcpresource' ||
+    lower === 'readmcpresourcetool'
+  ) {
+    return {
+      category: 'get',
+      displayName: 'Read Resource',
+      serverName: 'mcp',
+    };
+  }
+
+  const separatorIndex = normalized.indexOf('.');
+
+  if (separatorIndex <= 0 || separatorIndex === normalized.length - 1) {
+    return null;
+  }
+
+  const serverName = normalized.slice(0, separatorIndex);
+  const toolName = normalized.slice(separatorIndex + 1);
+
+  return {
+    category: categorizeRuntimeMcpTool(toolName),
+    displayName: formatRuntimeMcpToolName(toolName),
+    serverName,
+  };
+}
+
+function formatRuntimeMcpToolName(name: string) {
+  return name
+    .replace(/[-_]/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function categorizeRuntimeMcpTool(name: string) {
+  const lower = name.toLowerCase();
+
+  if (lower.startsWith('search') || lower.startsWith('query')) {
+    return 'search';
+  }
+
+  if (lower.startsWith('list')) {
+    return 'list';
+  }
+
+  if (
+    lower.startsWith('get') ||
+    lower.startsWith('fetch') ||
+    lower.startsWith('retrieve') ||
+    lower.startsWith('resolve')
+  ) {
+    return 'get';
+  }
+
+  if (lower.startsWith('create') || lower.startsWith('add')) {
+    return 'create';
+  }
+
+  if (lower.startsWith('update') || lower.startsWith('modify')) {
+    return 'update';
+  }
+
+  if (lower.startsWith('delete') || lower.startsWith('remove')) {
+    return 'delete';
+  }
+
+  return 'other';
 }
 
 function getToolFilePath(tool: AiPanelToolCall) {

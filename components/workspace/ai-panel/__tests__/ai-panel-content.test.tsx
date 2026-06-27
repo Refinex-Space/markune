@@ -1288,6 +1288,78 @@ describe('AiPanelContent', () => {
     expect(screen.queryByText('"result"')).toBeNull();
   });
 
+  it('renders planning and MCP tools as dedicated activity groups', async () => {
+    render(
+      <AiPanelContent
+        currentDocument={currentDocument}
+        documentPanelData={documentPanelData}
+        workspaceRootPath="/repo"
+      />,
+    );
+
+    await waitFor(() => expect(mocks.aiHandlers).toHaveLength(1));
+    act(() => {
+      mocks.aiHandlers[0]({
+        input: {
+          todos: [
+            { content: '梳理资料', status: 'completed' },
+            { content: '改写正文', status: 'in_progress' },
+          ],
+        },
+        sessionId: 'ai-1',
+        toolCallId: 'tool-todo',
+        toolName: 'TodoWrite',
+        type: 'toolStarted',
+      });
+      mocks.aiHandlers[0]({
+        output: { ok: true },
+        sessionId: 'ai-1',
+        status: 'success',
+        toolCallId: 'tool-todo',
+        toolName: 'TodoWrite',
+        type: 'toolCompleted',
+      });
+      mocks.aiHandlers[0]({
+        input: {
+          plan: {
+            steps: [
+              { status: 'completed' },
+              { status: 'pending' },
+            ],
+            title: '写作协作升级',
+          },
+        },
+        sessionId: 'ai-1',
+        toolCallId: 'tool-plan',
+        toolName: 'PlanWrite',
+        type: 'toolStarted',
+      });
+      mocks.aiHandlers[0]({
+        input: { library: 'react' },
+        sessionId: 'ai-1',
+        toolCallId: 'tool-mcp',
+        toolName: 'context7.resolve-library-id',
+        type: 'toolStarted',
+      });
+      mocks.aiHandlers[0]({
+        output: { result: 'react docs id' },
+        sessionId: 'ai-1',
+        status: 'success',
+        toolCallId: 'tool-mcp',
+        toolName: 'context7.resolve-library-id',
+        type: 'toolCompleted',
+      });
+    });
+
+    expect(await screen.findByText('正在规划')).toBeTruthy();
+    expect(screen.getByText('已调用 MCP')).toBeTruthy();
+    expect(screen.getByText('TodoWrite')).toBeTruthy();
+    expect(screen.getByText('2 items')).toBeTruthy();
+    expect(screen.getByText('写作协作升级 (1/2)')).toBeTruthy();
+    expect(screen.getByText('context7')).toBeTruthy();
+    expect(screen.getByText('Resolve Library Id')).toBeTruthy();
+  });
+
   it('uses 1Code-style notification preferences for permission prompts and completion', async () => {
     const notificationSpy = vi.fn();
     class MockNotification {
