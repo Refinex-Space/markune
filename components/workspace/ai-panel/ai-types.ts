@@ -134,10 +134,12 @@ export interface AiContextReference {
   contentHash: string;
   source:
     | 'agent'
+    | 'attached-file'
     | 'command'
     | 'current-document'
     | 'file'
     | 'mcp-tool'
+    | 'pasted-text'
     | 'skill';
 }
 

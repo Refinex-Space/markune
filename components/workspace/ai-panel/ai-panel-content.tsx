@@ -12,6 +12,7 @@ import {
   Globe,
   History,
   LoaderCircle,
+  Paperclip,
   Pencil,
   Plus,
   Search,
@@ -100,6 +101,12 @@ interface AiMentionReference {
   reference?: AiContextReference;
 }
 
+interface AiComposerContextAttachment {
+  id: string;
+  reference: AiContextReference;
+  size: number;
+}
+
 export function AiPanelContent({
   currentDocument,
   documentPanelData,
@@ -143,6 +150,9 @@ export function AiPanelContent({
   const [selectedReferences, setSelectedReferences] = React.useState<
     AiMentionReference[]
   >([]);
+  const [contextAttachments, setContextAttachments] = React.useState<
+    AiComposerContextAttachment[]
+  >([]);
   const [mentionInventory, setMentionInventory] = React.useState<
     AiMentionReference[]
   >([]);
@@ -152,6 +162,7 @@ export function AiPanelContent({
   const [mentionQuery, setMentionQuery] = React.useState<string | null>(null);
   const [mentionLoading, setMentionLoading] = React.useState(false);
   const [sessionNotice, setSessionNotice] = React.useState<string | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const notifiedPermissionIdsRef = React.useRef<Set<string>>(new Set());
   const notifiedRunStateRef = React.useRef<string | null>(null);
 
@@ -487,14 +498,20 @@ export function AiPanelContent({
         return;
       }
 
+      const resolvedReferences = await resolveMentionReferences({
+        references: selectedReferences,
+        workspaceRootPath,
+      });
+      const contextReferences = mergeAiContextReferences([
+        ...conversationReferences,
+        ...resolvedReferences,
+        ...contextAttachments.map((attachment) => attachment.reference),
+      ]);
       const context = buildAiContextPack({
         currentDocument,
         documentPanelData,
         intent,
-        references: await resolveMentionReferences({
-          references: selectedReferences,
-          workspaceRootPath,
-        }),
+        references: contextReferences,
         workspaceRootPath,
       });
       const userMessageId =
@@ -540,6 +557,7 @@ export function AiPanelContent({
           sessionId: session.sessionId,
         });
         setPrompt('');
+        setContextAttachments([]);
         setMentionQuery(null);
       } catch (error) {
         dispatch({
@@ -551,6 +569,8 @@ export function AiPanelContent({
     [
       currentDocument,
       documentPanelData,
+      contextAttachments,
+      conversationReferences,
       runtimeReady,
       selectedProfile,
       selectedReferences,
@@ -593,6 +613,105 @@ export function AiPanelContent({
     [],
   );
 
+  const addTextContextAttachment = React.useCallback(
+    (
+      text: string,
+      options: {
+        source: 'attached-file' | 'pasted-text';
+        title: string;
+      },
+    ) => {
+      const markdown = text.trim();
+
+      if (!workspaceRootPath || !markdown) {
+        return;
+      }
+
+      const reference = buildComposerContextReference({
+        markdown,
+        source: options.source,
+        title: options.title,
+        workspaceRootPath,
+      });
+
+      setContextAttachments((current) => {
+        if (
+          current.some(
+            (attachment) =>
+              attachment.reference.contentHash === reference.contentHash,
+          )
+        ) {
+          return current;
+        }
+
+        return [
+          ...current,
+          {
+            id: reference.relativePath,
+            reference,
+            size: markdown.length,
+          },
+        ];
+      });
+    },
+    [workspaceRootPath],
+  );
+
+  const handleAttachFiles = React.useCallback(
+    async (files: Iterable<File>) => {
+      for (const file of files) {
+        if (!isTextContextFile(file)) {
+          continue;
+        }
+
+        try {
+          addTextContextAttachment(await file.text(), {
+            source: 'attached-file',
+            title: file.name || 'Attached file',
+          });
+        } catch (error) {
+          dispatch({
+            message:
+              error instanceof Error ? error.message : '无法读取上下文文件',
+            type: 'errorRaised',
+          });
+        }
+      }
+    },
+    [addTextContextAttachment],
+  );
+
+  const handleComposerPaste = React.useCallback(
+    (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const text = event.clipboardData.getData('text/plain');
+
+      if (!shouldCapturePastedTextContext(text)) {
+        return;
+      }
+
+      event.preventDefault();
+      addTextContextAttachment(text, {
+        source: 'pasted-text',
+        title: 'Pasted text',
+      });
+    },
+    [addTextContextAttachment],
+  );
+
+  const handleComposerDrop = React.useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (event.dataTransfer.files.length === 0) {
+        return;
+      }
+
+      event.preventDefault();
+      void handleAttachFiles(Array.from(event.dataTransfer.files));
+    },
+    [handleAttachFiles],
+  );
+
+  const referenceCount = selectedReferences.length + contextAttachments.length;
+
   return (
     <div className="relative flex min-h-0 flex-1 flex-col bg-background">
       <header className="flex min-h-12 items-center justify-end gap-1 border-b px-2">
@@ -612,6 +731,7 @@ export function AiPanelContent({
             setActiveConversationId(null);
             setConversationCreatedAt(null);
             setConversationReferences([]);
+            setContextAttachments([]);
             setSelectedReferences([]);
             setSessionNotice('New session');
             setActivePopover(null);
@@ -710,6 +830,7 @@ export function AiPanelContent({
                       type: 'conversationRestored',
                     });
                     setConversationReferences(conversation.references ?? []);
+                    setContextAttachments([]);
                     setSelectedReferences([]);
                     setActivePopover(null);
                     setSessionNotice(null);
@@ -768,6 +889,12 @@ export function AiPanelContent({
             setSelectedReferences((current) =>
               current.filter(
                 (item) => mentionReferenceRelativePath(item) !== relativePath,
+              ),
+            );
+            setContextAttachments((current) =>
+              current.filter(
+                (attachment) =>
+                  attachment.reference.relativePath !== relativePath,
               ),
             );
             setConversationReferences((current) =>
@@ -860,13 +987,31 @@ export function AiPanelContent({
         <div
           className="rounded-xl border bg-background p-3 shadow-sm"
           data-testid="ai-composer"
+          onDragOver={(event) => {
+            if (event.dataTransfer.types.includes('Files')) {
+              event.preventDefault();
+            }
+          }}
+          onDrop={handleComposerDrop}
         >
+          <ComposerContextAttachments
+            attachments={contextAttachments}
+            onRemove={(relativePath) => {
+              setContextAttachments((current) =>
+                current.filter(
+                  (attachment) =>
+                    attachment.reference.relativePath !== relativePath,
+                ),
+              );
+            }}
+          />
           <textarea
             className="min-h-20 w-full resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
             disabled={!workspaceRootPath || !runtimeReady}
             placeholder="向 AI 询问当前工作区..."
             value={prompt}
             onChange={(event) => handlePromptChange(event.currentTarget.value)}
+            onPaste={handleComposerPaste}
           />
           {mentionQuery !== null ? (
             <MentionPicker
@@ -909,13 +1054,39 @@ export function AiPanelContent({
               <span className="truncate rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
                 Current Note {documentPanelData?.markdown?.length ?? 0} ch
               </span>
-              {selectedReferences.length > 0 ? (
+              {referenceCount > 0 ? (
                 <span className="truncate rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
-                  +{selectedReferences.length} referenced
+                  +{referenceCount} referenced
                 </span>
               ) : null}
             </div>
             <div className="flex items-center gap-1.5">
+              <input
+                ref={fileInputRef}
+                accept=".md,.markdown,.mdx,.txt,.csv,.json,.yaml,.yml,.toml,.xml,.html,.css,.ts,.tsx,.js,.jsx"
+                className="hidden"
+                multiple
+                type="file"
+                onChange={(event) => {
+                  const { files } = event.currentTarget;
+
+                  if (files) {
+                    void handleAttachFiles(Array.from(files));
+                  }
+
+                  event.currentTarget.value = '';
+                }}
+              />
+              <Button
+                aria-label="添加上下文文件"
+                disabled={!workspaceRootPath || !runtimeReady}
+                size="icon"
+                type="button"
+                variant="ghost"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Paperclip size={15} />
+              </Button>
               <Button
                 aria-label="停止"
                 disabled={!state.session || state.status !== 'streaming'}
@@ -1199,6 +1370,48 @@ function ContextReferenceStrip({
             className="ml-0.5 rounded-sm text-muted-foreground hover:text-foreground"
             type="button"
             onClick={() => onRemoveReference(reference.relativePath)}
+          >
+            <X size={12} />
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ComposerContextAttachments({
+  attachments,
+  onRemove,
+}: {
+  attachments: AiComposerContextAttachment[];
+  onRemove: (relativePath: string) => void;
+}) {
+  if (attachments.length === 0) {
+    return null;
+  }
+
+  return (
+    <div
+      className="mb-2 flex min-w-0 flex-wrap items-center gap-1.5"
+      data-testid="ai-composer-context-attachments"
+    >
+      {attachments.map((attachment) => (
+        <span
+          className="inline-flex max-w-full items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-1 text-xs"
+          key={attachment.reference.relativePath}
+        >
+          <Paperclip size={12} />
+          <span className="min-w-0 truncate">
+            {attachment.reference.title}
+          </span>
+          <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
+            {formatCharacterCount(attachment.size)}
+          </span>
+          <button
+            aria-label={`移除上下文 ${attachment.reference.title}`}
+            className="rounded-sm text-muted-foreground hover:text-foreground"
+            type="button"
+            onClick={() => onRemove(attachment.reference.relativePath)}
           >
             <X size={12} />
           </button>
@@ -3225,6 +3438,92 @@ function removeActiveMentionToken(value: string) {
 
 function stripMentionTokens(value: string) {
   return value.replace(/@\[[^\]]+\]/gu, '').trim();
+}
+
+function buildComposerContextReference({
+  markdown,
+  source,
+  title,
+  workspaceRootPath,
+}: {
+  markdown: string;
+  source: 'attached-file' | 'pasted-text';
+  title: string;
+  workspaceRootPath: string;
+}): AiContextReference {
+  const contentHash = createStableContentHash(markdown);
+  const slug = slugifyContextTitle(title);
+  const relativePath = `${source}/${slug}-${contentHash}.md`;
+
+  return {
+    contentHash,
+    markdown,
+    modifiedAt: null,
+    path: `${workspaceRootPath}/.madora/ai-context/${relativePath}`,
+    relativePath,
+    source,
+    title,
+  };
+}
+
+function mergeAiContextReferences(references: AiContextReference[]) {
+  const merged: AiContextReference[] = [];
+  const seen = new Set<string>();
+
+  for (const reference of references) {
+    const key = reference.relativePath || reference.contentHash;
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    merged.push(reference);
+  }
+
+  return merged;
+}
+
+function shouldCapturePastedTextContext(text: string) {
+  const trimmed = text.trim();
+
+  if (!trimmed) {
+    return false;
+  }
+
+  const meaningfulLines = trimmed
+    .split(/\r?\n/u)
+    .filter((line) => line.trim().length > 0);
+
+  return trimmed.length >= 500 || meaningfulLines.length >= 4;
+}
+
+function isTextContextFile(file: File) {
+  if (file.type.startsWith('text/')) {
+    return true;
+  }
+
+  return /\.(csv|css|html|json|jsx|md|mdx|ts|tsx|txt|toml|xml|ya?ml)$/iu.test(
+    file.name,
+  );
+}
+
+function slugifyContextTitle(title: string) {
+  const normalized = title
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/gu, '-')
+    .replace(/^-+|-+$/gu, '')
+    .slice(0, 48);
+
+  return normalized || 'context';
+}
+
+function formatCharacterCount(value: number) {
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k ch`;
+  }
+
+  return `${value} ch`;
 }
 
 function buildCurrentDocumentReference(

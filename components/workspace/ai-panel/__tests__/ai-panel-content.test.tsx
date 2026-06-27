@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -823,6 +823,69 @@ describe('AiPanelContent', () => {
         }),
         prompt: '结合这份资料改写',
       }),
+    );
+  });
+
+  it('adds pasted long text as a removable context attachment for the next chat', async () => {
+    const user = userEvent.setup();
+    const pastedText = [
+      '# 访谈记录',
+      '',
+      '用户希望把写作助手做成持续协作的侧边面板。',
+      '需要保留当前文档上下文，也要能显式附加长文本资料。',
+      '发送时不要把整段粘贴内容混入用户输入框。',
+    ].join('\n');
+
+    render(
+      <AiPanelContent
+        currentDocument={currentDocument}
+        documentPanelData={documentPanelData}
+        workspaceRootPath="/repo"
+      />,
+    );
+
+    const input = await screen.findByPlaceholderText('向 AI 询问当前工作区...');
+    fireEvent.paste(input, {
+      clipboardData: {
+        getData: vi.fn(() => pastedText),
+      },
+    });
+
+    expect(screen.getByText('Pasted text')).toBeTruthy();
+    expect(screen.getByText('+1 referenced')).toBeTruthy();
+    expect((input as HTMLTextAreaElement).value).toBe('');
+
+    await user.type(input, '结合附件整理写作建议');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() => expect(mocks.sendAiPrompt).toHaveBeenCalled());
+    expect(mocks.sendAiPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          references: [
+            expect.objectContaining({
+              markdown: pastedText,
+              relativePath: expect.stringMatching(/^pasted-text\//),
+              source: 'pasted-text',
+              title: 'Pasted text',
+            }),
+          ],
+        }),
+        prompt: '结合附件整理写作建议',
+      }),
+    );
+    await waitFor(() =>
+      expect(mocks.saveAiConversation).toHaveBeenCalledWith(
+        '/repo',
+        expect.objectContaining({
+          references: [
+            expect.objectContaining({
+              markdown: pastedText,
+              source: 'pasted-text',
+            }),
+          ],
+        }),
+      ),
     );
   });
 
