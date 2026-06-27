@@ -1728,6 +1728,8 @@ describe('AiPanelContent', () => {
     });
     expect(onMarkdownDocumentApplied).toHaveBeenCalledTimes(2);
     expect(screen.getByRole('button', { name: '全部已应用' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '已应用 docs/a.md' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '已应用 docs/b.md' })).toBeTruthy();
   });
 
   it('does not save any file when multi-file preflight fails', async () => {

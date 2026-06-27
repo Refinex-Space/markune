@@ -2716,6 +2716,7 @@ function EditToolActivity({
             </div>
           ) : null}
           <FileChangesPreview
+            batchApplyState={batchApplyState}
             changes={fileChanges}
             onMarkdownDocumentApplied={onMarkdownDocumentApplied}
             workspaceRootPath={workspaceRootPath}
@@ -2933,10 +2934,12 @@ interface AiFileChangePreview {
 }
 
 function FileChangesPreview({
+  batchApplyState,
   changes,
   onMarkdownDocumentApplied,
   workspaceRootPath,
 }: {
+  batchApplyState?: 'idle' | 'applying' | 'applied' | 'error';
   changes: AiFileChangePreview[];
   onMarkdownDocumentApplied?: (document: AiAppliedMarkdownDocument) => void;
   workspaceRootPath: string | null;
@@ -2945,6 +2948,7 @@ function FileChangesPreview({
     <div className="mt-2 space-y-2">
       {changes.map((change, index) => (
         <FileChangePreviewItem
+          batchApplyState={batchApplyState}
           change={change}
           key={`${change.path}:${index}`}
           onMarkdownDocumentApplied={onMarkdownDocumentApplied}
@@ -2956,10 +2960,12 @@ function FileChangesPreview({
 }
 
 function FileChangePreviewItem({
+  batchApplyState,
   change,
   onMarkdownDocumentApplied,
   workspaceRootPath,
 }: {
+  batchApplyState?: 'idle' | 'applying' | 'applied' | 'error';
   change: AiFileChangePreview;
   onMarkdownDocumentApplied?: (document: AiAppliedMarkdownDocument) => void;
   workspaceRootPath: string | null;
@@ -2968,6 +2974,10 @@ function FileChangePreviewItem({
     'idle' | 'applying' | 'applied' | 'error'
   >('idle');
   const [applyError, setApplyError] = React.useState<string | null>(null);
+  const effectiveApplyState =
+    batchApplyState === 'applying' || batchApplyState === 'applied'
+      ? batchApplyState
+      : applyState;
   const canApply = Boolean(change.applicableEdit && workspaceRootPath);
 
   return (
@@ -2985,14 +2995,18 @@ function FileChangePreviewItem({
         {change.applicableEdit ? (
           <Button
             aria-label={
-              applyState === 'applied'
+              effectiveApplyState === 'applied'
                 ? `已应用 ${change.path}`
                 : `应用 ${change.path} 到文档`
             }
-            disabled={!canApply || applyState === 'applying' || applyState === 'applied'}
+            disabled={
+              !canApply ||
+              effectiveApplyState === 'applying' ||
+              effectiveApplyState === 'applied'
+            }
             size="sm"
             type="button"
-            variant={applyState === 'applied' ? 'outline' : 'secondary'}
+            variant={effectiveApplyState === 'applied' ? 'outline' : 'secondary'}
             onClick={() => {
               if (!workspaceRootPath || !change.applicableEdit) {
                 return;
@@ -3007,12 +3021,12 @@ function FileChangePreviewItem({
               });
             }}
           >
-            {applyState === 'applying' ? (
+            {effectiveApplyState === 'applying' ? (
               <LoaderCircle className="animate-spin" size={12} />
-            ) : applyState === 'applied' ? (
+            ) : effectiveApplyState === 'applied' ? (
               <Check size={12} />
             ) : null}
-            {applyState === 'applied' ? '已应用' : '应用'}
+            {effectiveApplyState === 'applied' ? '已应用' : '应用'}
           </Button>
         ) : null}
       </div>
