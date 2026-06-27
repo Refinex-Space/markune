@@ -1198,6 +1198,18 @@ describe('AiPanelContent', () => {
     expect(screen.getByText('+2')).toBeTruthy();
     expect(screen.getByText('-1')).toBeTruthy();
     expect(screen.getByText(/Madora markdown workspace AI/)).toBeTruthy();
+    expect(
+      screen
+        .getAllByTestId('ai-diff-line-added')
+        .map((line) => line.textContent)
+        .join('\n'),
+    ).toContain('新增段落');
+    expect(
+      screen
+        .getAllByTestId('ai-diff-line-removed')
+        .map((line) => line.textContent)
+        .join('\n'),
+    ).toContain('# 旧指南');
   });
 
   it('uses 1Code-style notification preferences for permission prompts and completion', async () => {

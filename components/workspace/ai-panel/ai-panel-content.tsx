@@ -2025,17 +2025,162 @@ function calculateUnifiedDiffStats(diff: string) {
   return { added, removed };
 }
 
+interface ParsedUnifiedDiffLine {
+  content: string;
+  type: 'added' | 'context' | 'hunk' | 'removed';
+}
+
+interface ParsedUnifiedDiff {
+  displayPath: string | null;
+  lines: ParsedUnifiedDiffLine[];
+}
+
+const collapsedDiffLineLimit = 12;
+
 function DiffPreview({ diff }: { diff: string }) {
+  const parsedDiff = React.useMemo(() => parseUnifiedDiff(diff), [diff]);
+  const canCollapse = parsedDiff.lines.length > collapsedDiffLineLimit;
+  const [expanded, setExpanded] = React.useState(!canCollapse);
+  const visibleLines =
+    !canCollapse || expanded
+      ? parsedDiff.lines
+      : parsedDiff.lines.slice(0, collapsedDiffLineLimit);
+
+  if (parsedDiff.lines.length === 0) {
+    return (
+      <div className="overflow-hidden rounded-md border bg-background">
+        <div className="border-b bg-muted/50 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          Diff
+        </div>
+        <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words px-2 py-2 font-mono text-xs leading-5">
+          {diff}
+        </pre>
+      </div>
+    );
+  }
+
   return (
     <div className="overflow-hidden rounded-md border bg-background">
-      <div className="border-b bg-muted/50 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-        Diff
+      <div className="flex min-w-0 items-center justify-between gap-2 border-b bg-muted/50 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        <span>Diff</span>
+        {parsedDiff.displayPath ? (
+          <span className="min-w-0 truncate normal-case tracking-normal">
+            {parsedDiff.displayPath}
+          </span>
+        ) : null}
       </div>
-      <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words px-2 py-2 font-mono text-xs leading-5">
-        {diff}
-      </pre>
+      <div className="max-h-56 overflow-auto font-mono text-xs leading-5">
+        {visibleLines.map((line, index) => (
+          <DiffPreviewLine key={`${line.type}-${index}`} line={line} />
+        ))}
+      </div>
+      {canCollapse ? (
+        <button
+          className="w-full border-t px-2 py-1 text-left text-xs text-muted-foreground hover:bg-muted/50"
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {expanded
+            ? '收起 diff'
+            : `展开完整 diff（还有 ${parsedDiff.lines.length - visibleLines.length} 行）`}
+        </button>
+      ) : null}
     </div>
   );
+}
+
+function DiffPreviewLine({ line }: { line: ParsedUnifiedDiffLine }) {
+  const prefix =
+    line.type === 'added'
+      ? '+'
+      : line.type === 'removed'
+        ? '-'
+        : line.type === 'hunk'
+          ? '@'
+          : ' ';
+  const testId =
+    line.type === 'added'
+      ? 'ai-diff-line-added'
+      : line.type === 'removed'
+        ? 'ai-diff-line-removed'
+        : line.type === 'hunk'
+          ? 'ai-diff-line-hunk'
+          : 'ai-diff-line-context';
+
+  return (
+    <div
+      className={cn(
+        'grid grid-cols-[20px_minmax(0,1fr)] border-l-2 px-2 py-0.5',
+        line.type === 'added' &&
+          'border-emerald-500/50 bg-emerald-50 text-emerald-900',
+        line.type === 'removed' &&
+          'border-red-500/50 bg-red-50 text-red-900',
+        line.type === 'hunk' &&
+          'border-sky-500/30 bg-sky-50 text-sky-800',
+        line.type === 'context' &&
+          'border-transparent text-muted-foreground',
+      )}
+      data-testid={testId}
+    >
+      <span className="select-none text-muted-foreground">{prefix}</span>
+      <span className="min-w-0 whitespace-pre-wrap break-words">
+        {line.content || ' '}
+      </span>
+    </div>
+  );
+}
+
+function parseUnifiedDiff(diff: string): ParsedUnifiedDiff {
+  let oldPath = '';
+  let newPath = '';
+  const lines: ParsedUnifiedDiffLine[] = [];
+
+  for (const rawLine of diff.split('\n')) {
+    if (rawLine.startsWith('--- ')) {
+      oldPath = rawLine.slice(4).trim();
+      continue;
+    }
+
+    if (rawLine.startsWith('+++ ')) {
+      newPath = rawLine.slice(4).trim();
+      continue;
+    }
+
+    if (rawLine.startsWith('@@')) {
+      lines.push({ content: rawLine, type: 'hunk' });
+      continue;
+    }
+
+    if (rawLine.startsWith('+')) {
+      lines.push({ content: rawLine.slice(1), type: 'added' });
+      continue;
+    }
+
+    if (rawLine.startsWith('-')) {
+      lines.push({ content: rawLine.slice(1), type: 'removed' });
+      continue;
+    }
+
+    if (rawLine.startsWith(' ')) {
+      lines.push({ content: rawLine.slice(1), type: 'context' });
+      continue;
+    }
+
+    if (rawLine.trim()) {
+      lines.push({ content: rawLine, type: 'context' });
+    }
+  }
+
+  return {
+    displayPath: compactDiffPath(newPath || oldPath),
+    lines,
+  };
+}
+
+function compactDiffPath(path: string) {
+  const normalized = path.replace(/^[ab]\//, '').trim();
+
+  return normalized ? compactWorkspacePath(normalized) : null;
 }
 
 function PermissionCard({
