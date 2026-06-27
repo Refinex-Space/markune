@@ -260,6 +260,8 @@ pub struct AiContextPack {
     pub workspace_root_path: String,
     pub intent: String,
     pub document: Option<AiContextDocument>,
+    #[serde(default)]
+    pub references: Vec<AiContextReference>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -271,6 +273,18 @@ pub struct AiContextDocument {
     pub modified_at: Option<u128>,
     pub content_hash: String,
     pub dirty: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AiContextReference {
+    pub path: String,
+    pub relative_path: String,
+    pub title: String,
+    pub markdown: String,
+    pub modified_at: Option<u128>,
+    pub content_hash: String,
+    pub source: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -426,6 +440,8 @@ pub struct AiConversationRecord {
     pub updated_at: u128,
     pub document_path: Option<String>,
     pub document_title: Option<String>,
+    #[serde(default)]
+    pub references: Vec<AiContextReference>,
     pub messages: Vec<AiConversationMessage>,
     #[serde(default)]
     pub tools: Vec<serde_json::Value>,
@@ -3368,13 +3384,26 @@ fn run_detected_assistant(
 }
 
 fn build_assistant_prompt(input: &SendAiPromptInput) -> String {
-    match input.context.document.as_ref() {
-        Some(document) => format!(
-            "{}\n\n当前 Markdown 文档：{}\n\n```markdown\n{}\n```",
-            input.prompt, document.title, document.markdown
-        ),
-        None => input.prompt.clone(),
+    let mut prompt = input.prompt.clone();
+
+    if let Some(document) = input.context.document.as_ref() {
+        prompt.push_str(&format!(
+            "\n\n当前 Markdown 文档：{}\n路径：{}\n\n```markdown\n{}\n```",
+            document.title, document.path, document.markdown
+        ));
     }
+
+    if !input.context.references.is_empty() {
+        prompt.push_str("\n\n用户通过 @ 明确引用的工作区文件：");
+        for reference in &input.context.references {
+            prompt.push_str(&format!(
+                "\n\n引用：{}\n路径：{}\n\n```markdown\n{}\n```",
+                reference.title, reference.path, reference.markdown
+            ));
+        }
+    }
+
+    prompt
 }
 
 fn run_command_text(path: &Path, args: &[&str]) -> Result<String, String> {
@@ -3459,6 +3488,7 @@ mod tests {
         AiContextPack {
             document: None,
             intent: "chat".to_string(),
+            references: Vec::new(),
             workspace_root_path: root.to_string(),
         }
     }
@@ -3976,6 +4006,7 @@ mod tests {
             profile_label: "Codex".to_string(),
             provider_id: "codex".to_string(),
             provider_label: "Codex".to_string(),
+            references: Vec::new(),
             run_state: None,
             title: title.to_string(),
             tools: Vec::new(),
@@ -4010,6 +4041,15 @@ mod tests {
             profile_label: "Claude Code".to_string(),
             provider_id: "claude".to_string(),
             provider_label: "Claude".to_string(),
+            references: vec![AiContextReference {
+                content_hash: "fnv1a-ref".to_string(),
+                markdown: "# 研究记录".to_string(),
+                modified_at: Some(10),
+                path: "/repo/notes/research.md".to_string(),
+                relative_path: "notes/research.md".to_string(),
+                source: "mention".to_string(),
+                title: "研究记录".to_string(),
+            }],
             run_state: None,
             title: "总结".to_string(),
             tools: Vec::new(),
@@ -4110,6 +4150,15 @@ mod tests {
                     title: "指南".to_string(),
                 }),
                 intent: "summarize-document".to_string(),
+                references: vec![AiContextReference {
+                    content_hash: "fnv1a-ref".to_string(),
+                    markdown: "# 研究记录".to_string(),
+                    modified_at: Some(10),
+                    path: "/repo/notes/research.md".to_string(),
+                    relative_path: "notes/research.md".to_string(),
+                    source: "mention".to_string(),
+                    title: "研究记录".to_string(),
+                }],
                 workspace_root_path: "/repo".to_string(),
             },
             prompt: "总结此页面".to_string(),
@@ -4120,6 +4169,41 @@ mod tests {
             build_fake_response(&input),
             "Echo: 总结此页面\n\nContext: 指南 (fnv1a-abc)"
         );
+    }
+
+    #[test]
+    fn assistant_prompt_includes_mentioned_workspace_references() {
+        let input = SendAiPromptInput {
+            context: AiContextPack {
+                document: Some(AiContextDocument {
+                    content_hash: "fnv1a-abc".to_string(),
+                    dirty: false,
+                    markdown: "# 指南".to_string(),
+                    modified_at: None,
+                    path: "/repo/guide.md".to_string(),
+                    title: "指南".to_string(),
+                }),
+                intent: "chat".to_string(),
+                references: vec![AiContextReference {
+                    content_hash: "fnv1a-ref".to_string(),
+                    markdown: "# 研究记录".to_string(),
+                    modified_at: Some(10),
+                    path: "/repo/notes/research.md".to_string(),
+                    relative_path: "notes/research.md".to_string(),
+                    source: "mention".to_string(),
+                    title: "研究记录".to_string(),
+                }],
+                workspace_root_path: "/repo".to_string(),
+            },
+            prompt: "结合资料改写".to_string(),
+            session_id: "ai-1".to_string(),
+        };
+        let prompt = build_assistant_prompt(&input);
+
+        assert!(prompt.contains("当前 Markdown 文档：指南"));
+        assert!(prompt.contains("用户通过 @ 明确引用的工作区文件"));
+        assert!(prompt.contains("引用：研究记录"));
+        assert!(prompt.contains("# 研究记录"));
     }
 
     #[test]

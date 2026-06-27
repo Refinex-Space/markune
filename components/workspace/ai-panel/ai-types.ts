@@ -111,6 +111,7 @@ export interface AiContextPack {
     contentHash: string;
     dirty: boolean;
   };
+  references?: AiContextReference[];
   selection?: {
     markdown: string;
     from: number;
@@ -122,6 +123,22 @@ export interface AiContextPack {
     line?: number;
   }>;
   intent: AiIntent;
+}
+
+export interface AiContextReference {
+  path: string;
+  relativePath: string;
+  title: string;
+  markdown: string;
+  modifiedAt: number | null;
+  contentHash: string;
+  source:
+    | 'agent'
+    | 'command'
+    | 'current-document'
+    | 'file'
+    | 'mcp-tool'
+    | 'skill';
 }
 
 export interface StartAiSessionInput {
@@ -328,6 +345,7 @@ export interface AiConversationRecord {
   updatedAt: number;
   documentPath?: string;
   documentTitle?: string;
+  references?: AiContextReference[];
   messages: AiConversationMessage[];
   tools: AiPanelToolCall[];
   permissions: AiPanelPermissionRequest[];

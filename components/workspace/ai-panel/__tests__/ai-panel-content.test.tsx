@@ -13,8 +13,14 @@ const mocks = vi.hoisted(() => ({
   isTauriRuntime: vi.fn(),
   listAiAgentModels: vi.fn(),
   listAiAgentProfiles: vi.fn(),
+  listAiCommands: vi.fn(),
   listAiConversations: vi.fn(),
+  listAiCustomAgents: vi.fn(),
+  listAiMcpServers: vi.fn(),
+  listAiSkills: vi.fn(),
+  loadWorkspaceTree: vi.fn(),
   readAppSettings: vi.fn(),
+  readMarkdownDocument: vi.fn(),
   readAiConversation: vi.fn(),
   requestAiChat: vi.fn(),
   respondAiPermission: vi.fn(),
@@ -29,9 +35,15 @@ vi.mock('@/components/workspace/workspace-api', () => ({
   isTauriRuntime: () => mocks.isTauriRuntime(),
   listAiAgentProfiles: (...args: unknown[]) =>
     mocks.listAiAgentProfiles(...args),
+  listAiCommands: (...args: unknown[]) => mocks.listAiCommands(...args),
   listAiAgentModels: (...args: unknown[]) => mocks.listAiAgentModels(...args),
   listAiConversations: (...args: unknown[]) =>
     mocks.listAiConversations(...args),
+  listAiCustomAgents: (...args: unknown[]) =>
+    mocks.listAiCustomAgents(...args),
+  listAiMcpServers: (...args: unknown[]) => mocks.listAiMcpServers(...args),
+  listAiSkills: (...args: unknown[]) => mocks.listAiSkills(...args),
+  loadWorkspaceTree: (...args: unknown[]) => mocks.loadWorkspaceTree(...args),
   listenAiEvents: (handler: (event: AiRuntimeEvent) => void) => {
     mocks.aiHandlers.push(handler);
 
@@ -44,6 +56,8 @@ vi.mock('@/components/workspace/workspace-api', () => ({
     });
   },
   readAppSettings: (...args: unknown[]) => mocks.readAppSettings(...args),
+  readMarkdownDocument: (...args: unknown[]) =>
+    mocks.readMarkdownDocument(...args),
   readAiConversation: (...args: unknown[]) => mocks.readAiConversation(...args),
   requestAiChat: (...args: unknown[]) => mocks.requestAiChat(...args),
   respondAiPermission: (...args: unknown[]) =>
@@ -163,10 +177,16 @@ describe('AiPanelContent', () => {
     });
     mocks.aiHandlers.splice(0, mocks.aiHandlers.length);
     mocks.listAiAgentProfiles.mockReset();
+    mocks.listAiCommands.mockReset();
     mocks.listAiAgentModels.mockReset();
     mocks.listAiConversations.mockReset();
+    mocks.listAiCustomAgents.mockReset();
+    mocks.listAiMcpServers.mockReset();
+    mocks.listAiSkills.mockReset();
+    mocks.loadWorkspaceTree.mockReset();
     mocks.isTauriRuntime.mockReset();
     mocks.readAppSettings.mockReset();
+    mocks.readMarkdownDocument.mockReset();
     mocks.readAiConversation.mockReset();
     mocks.requestAiChat.mockReset();
     mocks.respondAiPermission.mockReset();
@@ -195,8 +215,90 @@ describe('AiPanelContent', () => {
         providerLabel: 'Codex',
       },
     ]);
+    mocks.listAiCommands.mockResolvedValue([
+      {
+        argumentHint: 'topic',
+        content: 'Write a technical article.',
+        description: 'Write docs',
+        name: 'write-docs',
+        path: '/repo/.claude/commands/write-docs.md',
+        source: 'project',
+      },
+    ]);
     mocks.listAiConversations.mockResolvedValue([]);
+    mocks.listAiCustomAgents.mockResolvedValue([
+      {
+        description: 'Reviews code changes',
+        disallowedTools: [],
+        model: 'sonnet',
+        name: 'reviewer',
+        path: '/repo/.claude/agents/reviewer.md',
+        prompt: 'Review code for correctness.',
+        source: 'project',
+        tools: ['Read', 'Grep'],
+      },
+    ]);
+    mocks.listAiMcpServers.mockResolvedValue([
+      {
+        args: [],
+        authStatus: null,
+        authType: 'none',
+        command: null,
+        connectionType: 'http',
+        enabled: true,
+        envKeys: [],
+        groupName: 'Codex',
+        name: 'context7',
+        provider: 'codex',
+        source: 'global',
+        status: 'connected',
+        tools: [
+          {
+            description: 'Resolve library ids',
+            name: 'resolve-library-id',
+          },
+        ],
+        url: 'https://mcp.context7.com/sse',
+      },
+    ]);
+    mocks.listAiSkills.mockResolvedValue([
+      {
+        content: 'Use canonical project docs.',
+        description: 'Project documentation conventions',
+        name: 'docs',
+        path: '/repo/.claude/skills/docs/SKILL.md',
+        source: 'project',
+      },
+    ]);
+    mocks.loadWorkspaceTree.mockResolvedValue({
+      nodes: [
+        currentDocument,
+        {
+          absolutePath: '/repo/notes/research.md',
+          id: '/repo/notes/research.md',
+          kind: 'document',
+          name: 'research.md',
+          relativePath: 'notes/research.md',
+          title: '研究记录',
+        },
+        {
+          absolutePath: '/repo/assets',
+          children: [],
+          id: '/repo/assets',
+          kind: 'directory',
+          name: 'assets',
+          relativePath: 'assets',
+        },
+      ],
+      rootName: 'repo',
+      rootPath: '/repo',
+    });
     mocks.isTauriRuntime.mockReturnValue(true);
+    mocks.readMarkdownDocument.mockResolvedValue({
+      content: '# 研究记录\n\n引用内容',
+      modifiedAt: 10,
+      path: 'notes/research.md',
+    });
     mocks.readAppSettings.mockResolvedValue(defaultAppSettings);
     mocks.requestAiChat.mockResolvedValue({
       body: { output_text: 'Provider response' },
@@ -645,6 +747,128 @@ describe('AiPanelContent', () => {
           title: '总结此页面',
         }),
       ),
+    );
+  });
+
+  it('adds mentioned workspace files as structured references for a new chat', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <AiPanelContent
+        currentDocument={currentDocument}
+        documentPanelData={documentPanelData}
+        workspaceRootPath="/repo"
+      />,
+    );
+
+    await user.type(
+      await screen.findByPlaceholderText('向 AI 询问当前工作区...'),
+      '@research',
+    );
+
+    await waitFor(() =>
+      expect(mocks.loadWorkspaceTree).toHaveBeenCalledWith('/repo'),
+    );
+    await user.click(await screen.findByRole('option', { name: /研究记录/ }));
+
+    expect(screen.getByText('研究记录')).toBeTruthy();
+
+    await user.type(
+      screen.getByPlaceholderText('向 AI 询问当前工作区...'),
+      ' 结合这份资料改写',
+    );
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: '发送' }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() => expect(mocks.readMarkdownDocument).toHaveBeenCalled());
+    expect(mocks.readMarkdownDocument).toHaveBeenCalledWith(
+      '/repo',
+      'notes/research.md',
+    );
+    expect(mocks.startAiSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          document: expect.objectContaining({
+            path: '/repo/guide.md',
+            title: '指南',
+          }),
+          references: [
+            expect.objectContaining({
+              markdown: '# 研究记录\n\n引用内容',
+              path: '/repo/notes/research.md',
+              relativePath: 'notes/research.md',
+              title: '研究记录',
+            }),
+          ],
+          workspaceRootPath: '/repo',
+        }),
+      }),
+    );
+    expect(mocks.sendAiPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          references: [
+            expect.objectContaining({
+              markdown: '# 研究记录\n\n引用内容',
+              relativePath: 'notes/research.md',
+            }),
+          ],
+        }),
+        prompt: '结合这份资料改写',
+      }),
+    );
+  });
+
+  it('adds mentioned skills agents and MCP tools as structured references', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <AiPanelContent
+        currentDocument={currentDocument}
+        documentPanelData={documentPanelData}
+        workspaceRootPath="/repo"
+      />,
+    );
+
+    await user.type(
+      await screen.findByPlaceholderText('向 AI 询问当前工作区...'),
+      '@reviewer',
+    );
+
+    await waitFor(() =>
+      expect(mocks.listAiCustomAgents).toHaveBeenCalledWith('/repo'),
+    );
+    expect(mocks.listAiSkills).toHaveBeenCalledWith('/repo');
+    expect(mocks.listAiMcpServers).toHaveBeenCalledWith('/repo');
+    await user.click(await screen.findByRole('option', { name: /reviewer/ }));
+
+    await user.type(
+      screen.getByPlaceholderText('向 AI 询问当前工作区...'),
+      ' 帮我审查',
+    );
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() => expect(mocks.startAiSession).toHaveBeenCalled());
+    expect(mocks.readMarkdownDocument).not.toHaveBeenCalled();
+    expect(mocks.sendAiPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          references: [
+            expect.objectContaining({
+              markdown: expect.stringContaining('Review code for correctness.'),
+              relativePath: 'agent:reviewer',
+              source: 'agent',
+              title: 'reviewer',
+            }),
+          ],
+        }),
+        prompt: '帮我审查',
+      }),
     );
   });
 

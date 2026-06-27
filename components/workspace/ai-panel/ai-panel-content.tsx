@@ -29,9 +29,15 @@ import {
   isTauriRuntime,
   listAiAgentModels,
   listAiAgentProfiles,
+  listAiCommands,
   listAiConversations,
+  listAiCustomAgents,
+  listAiMcpServers,
+  listAiSkills,
+  loadWorkspaceTree,
   listenAiEvents,
   readAppSettings,
+  readMarkdownDocument,
   readAiConversation,
   respondAiPermission,
   saveAiConversation,
@@ -43,12 +49,19 @@ import {
   withDefaultAppSettings,
 } from '@/components/workspace/workspace-settings';
 import type {
+  AiCommandItem,
+  AiCustomAgentItem,
+  AiMcpServerItem,
+  AiSkillItem,
+} from '@/components/workspace/ai-settings/ai-settings-types';
+import type {
   AppSettings,
   WorkspaceNode,
 } from '@/components/workspace/workspace-types';
 import { cn } from '@/lib/utils';
 
 import { buildAiContextPack } from './ai-context';
+import { createStableContentHash } from './ai-context';
 import {
   createInitialAiPanelState,
   reduceAiPanelState,
@@ -56,6 +69,7 @@ import {
 import type {
   AiConversationRecord,
   AiConversationSummary,
+  AiContextReference,
   AiDetectedModel,
   AiIntent,
   AiPanelPermissionRequest,
@@ -69,6 +83,17 @@ interface AiPanelContentProps {
   settingsVersion?: number;
   workspaceRootPath: string | null;
   onOpenSettings?: () => void;
+}
+
+type AiMentionKind = 'agent' | 'command' | 'file' | 'mcp-tool' | 'skill';
+
+interface AiMentionReference {
+  detail: string;
+  id: string;
+  kind: AiMentionKind;
+  label: string;
+  node?: WorkspaceNode;
+  reference?: AiContextReference;
 }
 
 export function AiPanelContent({
@@ -108,6 +133,20 @@ export function AiPanelContent({
   const [selectedModelId, setSelectedModelId] = React.useState<string | null>(
     null,
   );
+  const [mentionInventoryLoadedForRoot, setMentionInventoryLoadedForRoot] = React.useState<
+    string | null
+  >(null);
+  const [selectedReferences, setSelectedReferences] = React.useState<
+    AiMentionReference[]
+  >([]);
+  const [mentionInventory, setMentionInventory] = React.useState<
+    AiMentionReference[]
+  >([]);
+  const [conversationReferences, setConversationReferences] = React.useState<
+    AiContextReference[]
+  >([]);
+  const [mentionQuery, setMentionQuery] = React.useState<string | null>(null);
+  const [mentionLoading, setMentionLoading] = React.useState(false);
   const [sessionNotice, setSessionNotice] = React.useState<string | null>(null);
   const notifiedPermissionIdsRef = React.useRef<Set<string>>(new Set());
   const notifiedRunStateRef = React.useRef<string | null>(null);
@@ -236,6 +275,22 @@ export function AiPanelContent({
     state.permissions.length > 0 ||
     Boolean(state.usage) ||
     Boolean(state.runState);
+  const currentDocumentReference = React.useMemo(
+    () =>
+      currentDocument && documentPanelData
+        ? buildCurrentDocumentReference(currentDocument, documentPanelData)
+        : null,
+    [currentDocument, documentPanelData],
+  );
+  const mentionOptions = React.useMemo(
+    () =>
+      buildMentionOptions({
+        inventory: mentionInventory,
+        query: mentionQuery,
+        selectedReferences,
+      }),
+    [mentionInventory, mentionQuery, selectedReferences],
+  );
 
   React.useEffect(() => {
     for (const permission of state.permissions) {
@@ -331,6 +386,47 @@ export function AiPanelContent({
     }
   }, [workspaceRootPath]);
 
+  const loadMentionInventory = React.useCallback(async () => {
+    if (
+      !workspaceRootPath ||
+      mentionInventoryLoadedForRoot === workspaceRootPath
+    ) {
+      return;
+    }
+
+    setMentionLoading(true);
+    try {
+      const [snapshot, skills, commands, agents, mcpServers] =
+        await Promise.all([
+          loadWorkspaceTree(workspaceRootPath),
+          listAiSkills(workspaceRootPath),
+          listAiCommands(workspaceRootPath),
+          listAiCustomAgents(workspaceRootPath),
+          listAiMcpServers(workspaceRootPath),
+        ]);
+      const documents = flattenWorkspaceDocuments(snapshot.nodes);
+
+      setMentionInventory(
+        buildMentionInventory({
+          agents,
+          commands,
+          documents,
+          mcpServers,
+          skills,
+        }),
+      );
+      setMentionInventoryLoadedForRoot(workspaceRootPath);
+    } catch (error) {
+      dispatch({
+        message:
+          error instanceof Error ? error.message : '无法读取工作区引用列表',
+        type: 'errorRaised',
+      });
+    } finally {
+      setMentionLoading(false);
+    }
+  }, [mentionInventoryLoadedForRoot, workspaceRootPath]);
+
   React.useEffect(() => {
     if (
       !workspaceRootPath ||
@@ -345,6 +441,7 @@ export function AiPanelContent({
       const record = buildConversationRecord({
         activeConversationId,
         conversationCreatedAt,
+        conversationReferences,
         currentDocument,
         profileMetadata,
         state,
@@ -368,6 +465,7 @@ export function AiPanelContent({
     return () => window.clearTimeout(handle);
   }, [
     activeConversationId,
+    conversationReferences,
     conversationCreatedAt,
     currentDocument,
     hasRuntimeActivity,
@@ -388,6 +486,10 @@ export function AiPanelContent({
         currentDocument,
         documentPanelData,
         intent,
+        references: await resolveMentionReferences({
+          references: selectedReferences,
+          workspaceRootPath,
+        }),
         workspaceRootPath,
       });
       const userMessageId =
@@ -419,6 +521,7 @@ export function AiPanelContent({
             type: 'runtimeEventReceived',
           });
         }
+        setConversationReferences(context.references ?? []);
 
         dispatch({
           content: trimmed,
@@ -428,10 +531,11 @@ export function AiPanelContent({
 
         await sendAiPrompt({
           context,
-          prompt: trimmed,
+          prompt: stripMentionTokens(trimmed),
           sessionId: session.sessionId,
         });
         setPrompt('');
+        setMentionQuery(null);
       } catch (error) {
         dispatch({
           message: error instanceof Error ? error.message : 'AI 请求失败',
@@ -444,6 +548,7 @@ export function AiPanelContent({
       documentPanelData,
       runtimeReady,
       selectedProfile,
+      selectedReferences,
       sessionStartOptions,
       state.selectedProfileId,
       state.session,
@@ -456,6 +561,32 @@ export function AiPanelContent({
     Boolean(prompt.trim()) &&
     state.status !== 'streaming' &&
     state.status !== 'connecting';
+
+  const handlePromptChange = React.useCallback(
+    (value: string) => {
+      setPrompt(value);
+      const query = getActiveMentionQuery(value);
+      setMentionQuery(query);
+
+      if (query !== null) {
+        void loadMentionInventory();
+      }
+    },
+    [loadMentionInventory],
+  );
+
+  const handleSelectReference = React.useCallback(
+    (reference: AiMentionReference) => {
+      setSelectedReferences((current) =>
+        current.some((item) => item.id === reference.id)
+          ? current
+          : [...current, reference],
+      );
+      setPrompt((current) => removeActiveMentionToken(current));
+      setMentionQuery(null);
+    },
+    [],
+  );
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col bg-background">
@@ -475,6 +606,8 @@ export function AiPanelContent({
             dispatch({ type: 'sessionCleared' });
             setActiveConversationId(null);
             setConversationCreatedAt(null);
+            setConversationReferences([]);
+            setSelectedReferences([]);
             setSessionNotice('New session');
             setActivePopover(null);
           }}
@@ -571,6 +704,8 @@ export function AiPanelContent({
                       conversation,
                       type: 'conversationRestored',
                     });
+                    setConversationReferences(conversation.references ?? []);
+                    setSelectedReferences([]);
                     setActivePopover(null);
                     setSessionNotice(null);
                   } catch (error) {
@@ -615,6 +750,26 @@ export function AiPanelContent({
             </span>
           ) : null}
         </div>
+        <ContextReferenceStrip
+          currentDocumentReference={currentDocumentReference}
+          references={
+            conversationReferences.length > 0
+              ? conversationReferences
+              : selectedReferences.map((reference) =>
+                  buildPendingMentionReference(reference),
+                )
+          }
+          onRemoveReference={(relativePath) => {
+            setSelectedReferences((current) =>
+              current.filter(
+                (item) => mentionReferenceRelativePath(item) !== relativePath,
+              ),
+            );
+            setConversationReferences((current) =>
+              current.filter((item) => item.relativePath !== relativePath),
+            );
+          }}
+        />
 
         {settingsDisabled ? (
           <div className="flex min-h-[260px] flex-col items-center justify-center text-center">
@@ -702,8 +857,15 @@ export function AiPanelContent({
             disabled={!workspaceRootPath || !runtimeReady}
             placeholder="向 AI 询问当前工作区..."
             value={prompt}
-            onChange={(event) => setPrompt(event.currentTarget.value)}
+            onChange={(event) => handlePromptChange(event.currentTarget.value)}
           />
+          {mentionQuery !== null ? (
+            <MentionPicker
+              loading={mentionLoading}
+              options={mentionOptions}
+              onSelect={handleSelectReference}
+            />
+          ) : null}
           <div
             className="mt-2 flex items-center justify-between gap-2"
             data-testid="ai-composer-footer"
@@ -738,6 +900,11 @@ export function AiPanelContent({
               <span className="truncate rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
                 Current Note {documentPanelData?.markdown?.length ?? 0} ch
               </span>
+              {selectedReferences.length > 0 ? (
+                <span className="truncate rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+                  +{selectedReferences.length} referenced
+                </span>
+              ) : null}
             </div>
             <div className="flex items-center gap-1.5">
               <Button
@@ -810,12 +977,14 @@ function selectInitialProfileId(
 
 function buildConversationRecord({
   activeConversationId,
+  conversationReferences,
   conversationCreatedAt,
   currentDocument,
   profileMetadata,
   state,
 }: {
   activeConversationId: string;
+  conversationReferences: AiContextReference[];
   conversationCreatedAt: number | null;
   currentDocument: WorkspaceNode | null;
   profileMetadata: {
@@ -840,6 +1009,7 @@ function buildConversationRecord({
     profileLabel: profileMetadata.label,
     providerId: profileMetadata.providerId,
     providerLabel: profileMetadata.providerLabel,
+    references: conversationReferences,
     runState: state.runState,
     title: buildConversationTitle(
       firstUserMessage?.content ??
@@ -978,6 +1148,103 @@ function playAiNotificationSound(settings: AppSettings) {
   } catch {
     return;
   }
+}
+
+function ContextReferenceStrip({
+  currentDocumentReference,
+  references,
+  onRemoveReference,
+}: {
+  currentDocumentReference: AiContextReference | null;
+  references: AiContextReference[];
+  onRemoveReference: (relativePath: string) => void;
+}) {
+  if (!currentDocumentReference && references.length === 0) {
+    return null;
+  }
+
+  return (
+    <div
+      className="mb-4 flex min-w-0 flex-wrap items-center gap-1.5"
+      data-testid="ai-context-reference-strip"
+    >
+      {currentDocumentReference ? (
+        <span className="inline-flex max-w-full items-center gap-1 rounded-md border bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
+          <FileText size={12} />
+          <span className="truncate">{currentDocumentReference.title}</span>
+          <span className="shrink-0 text-[10px] uppercase tracking-wide">
+            当前
+          </span>
+        </span>
+      ) : null}
+      {references.map((reference) => (
+        <span
+          className="inline-flex max-w-full items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs"
+          key={reference.relativePath}
+        >
+          <FileText size={12} />
+          <span className="truncate">{reference.title}</span>
+          <button
+            aria-label={`移除引用 ${reference.title}`}
+            className="ml-0.5 rounded-sm text-muted-foreground hover:text-foreground"
+            type="button"
+            onClick={() => onRemoveReference(reference.relativePath)}
+          >
+            <X size={12} />
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function MentionPicker({
+  loading,
+  options,
+  onSelect,
+}: {
+  loading: boolean;
+  options: AiMentionReference[];
+  onSelect: (reference: AiMentionReference) => void;
+}) {
+  return (
+    <div
+      aria-label="工作区文件提及"
+      className="mb-2 max-h-52 overflow-auto rounded-md border bg-background p-1 shadow-sm"
+      role="listbox"
+    >
+      {loading ? (
+        <div className="flex h-9 items-center gap-2 px-2 text-xs text-muted-foreground">
+          <LoaderCircle className="animate-spin" size={13} />
+          正在读取工作区文件...
+        </div>
+      ) : null}
+      {!loading && options.length === 0 ? (
+        <div className="px-2 py-2 text-xs text-muted-foreground">
+          没有匹配的 Markdown 文件。
+        </div>
+      ) : null}
+      {options.map((option) => (
+        <button
+          aria-label={`${option.label} ${option.detail}`}
+          aria-selected={false}
+          className="grid h-10 w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-2 rounded-md px-2 text-left hover:bg-muted"
+          key={option.id}
+          role="option"
+          type="button"
+          onClick={() => onSelect(option)}
+        >
+          <FileText className="text-muted-foreground" size={14} />
+          <span className="min-w-0">
+            <span className="block truncate text-sm">{option.label}</span>
+            <span className="block truncate text-[11px] text-muted-foreground">
+              {formatMentionKind(option.kind)} · {option.detail}
+            </span>
+          </span>
+        </button>
+      ))}
+    </div>
+  );
 }
 
 function FloatingPanel({
@@ -1484,6 +1751,337 @@ function buildModelOptions(
     }));
 
   return [...models, ...fallbackModels];
+}
+
+function flattenWorkspaceDocuments(nodes: WorkspaceNode[]) {
+  const documents: WorkspaceNode[] = [];
+  const visit = (node: WorkspaceNode) => {
+    if (node.kind === 'document') {
+      documents.push(node);
+    }
+
+    for (const child of node.children ?? []) {
+      visit(child);
+    }
+  };
+
+  for (const node of nodes) {
+    visit(node);
+  }
+
+  return documents.sort((left, right) =>
+    (left.title ?? left.name).localeCompare(right.title ?? right.name),
+  );
+}
+
+function buildMentionInventory({
+  agents,
+  commands,
+  documents,
+  mcpServers,
+  skills,
+}: {
+  agents: AiCustomAgentItem[];
+  commands: AiCommandItem[];
+  documents: WorkspaceNode[];
+  mcpServers: AiMcpServerItem[];
+  skills: AiSkillItem[];
+}): AiMentionReference[] {
+  return [
+    ...documents.map(fileMentionReference),
+    ...skills.map(skillMentionReference),
+    ...commands.map(commandMentionReference),
+    ...agents.map(agentMentionReference),
+    ...mcpServers.flatMap(mcpToolMentionReferences),
+  ];
+}
+
+function buildMentionOptions({
+  inventory,
+  query,
+  selectedReferences,
+}: {
+  inventory: AiMentionReference[];
+  query: string | null;
+  selectedReferences: AiMentionReference[];
+}) {
+  if (query === null) {
+    return [];
+  }
+
+  const normalizedQuery = query.trim().toLowerCase();
+  const selectedPaths = new Set(
+    selectedReferences.map((reference) => reference.id),
+  );
+
+  return inventory
+    .filter((reference) => !selectedPaths.has(reference.id))
+    .filter((reference) => {
+      if (!normalizedQuery) {
+        return true;
+      }
+
+      return (
+        reference.label.toLowerCase().includes(normalizedQuery) ||
+        reference.detail.toLowerCase().includes(normalizedQuery) ||
+        reference.id.toLowerCase().includes(normalizedQuery)
+      );
+    })
+    .slice(0, 8);
+}
+
+function fileMentionReference(node: WorkspaceNode): AiMentionReference {
+  return {
+    detail: node.relativePath,
+    id: `file:${node.relativePath}`,
+    kind: 'file',
+    label: node.title ?? node.name,
+    node,
+  };
+}
+
+function skillMentionReference(skill: AiSkillItem): AiMentionReference {
+  return {
+    detail: `${formatSourceLabel(skill.source)} · ${skill.description}`,
+    id: `skill:${skill.source}:${skill.name}`,
+    kind: 'skill',
+    label: skill.name,
+    reference: {
+      contentHash: createStableContentHash(skill.content),
+      markdown: [
+        `# Skill: ${skill.name}`,
+        skill.description,
+        '',
+        skill.content,
+      ].join('\n'),
+      modifiedAt: null,
+      path: skill.path,
+      relativePath: `skill:${skill.name}`,
+      source: 'skill',
+      title: skill.name,
+    },
+  };
+}
+
+function commandMentionReference(command: AiCommandItem): AiMentionReference {
+  return {
+    detail: `${formatSourceLabel(command.source)} · ${command.description}`,
+    id: `command:${command.source}:${command.name}`,
+    kind: 'command',
+    label: `/${command.name}`,
+    reference: {
+      contentHash: createStableContentHash(command.content),
+      markdown: [
+        `# Slash Command: /${command.name}`,
+        command.description,
+        command.argumentHint ? `Arguments: ${command.argumentHint}` : '',
+        '',
+        command.content,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      modifiedAt: null,
+      path: command.path,
+      relativePath: `command:${command.name}`,
+      source: 'command',
+      title: `/${command.name}`,
+    },
+  };
+}
+
+function agentMentionReference(agent: AiCustomAgentItem): AiMentionReference {
+  return {
+    detail: `${formatSourceLabel(agent.source)} · ${agent.description}`,
+    id: `agent:${agent.source}:${agent.name}`,
+    kind: 'agent',
+    label: agent.name,
+    reference: {
+      contentHash: createStableContentHash(agent.prompt),
+      markdown: [
+        `# Agent: ${agent.name}`,
+        agent.description,
+        agent.model ? `Model: ${agent.model}` : '',
+        agent.tools.length > 0 ? `Tools: ${agent.tools.join(', ')}` : '',
+        agent.disallowedTools.length > 0
+          ? `Disallowed tools: ${agent.disallowedTools.join(', ')}`
+          : '',
+        '',
+        agent.prompt,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      modifiedAt: null,
+      path: agent.path,
+      relativePath: `agent:${agent.name}`,
+      source: 'agent',
+      title: agent.name,
+    },
+  };
+}
+
+function mcpToolMentionReferences(server: AiMcpServerItem): AiMentionReference[] {
+  return (server.tools ?? []).map((tool) => ({
+    detail: `${server.name} · ${tool.description ?? server.status}`,
+    id: `mcp-tool:${server.provider}:${server.name}:${tool.name}`,
+    kind: 'mcp-tool' as const,
+    label: tool.name,
+    reference: {
+      contentHash: createStableContentHash(
+        `${server.provider}:${server.name}:${tool.name}:${tool.description ?? ''}`,
+      ),
+      markdown: [
+        `# MCP Tool: ${tool.name}`,
+        tool.description ?? '',
+        `Server: ${server.name}`,
+        `Provider: ${server.provider}`,
+        `Status: ${server.status}`,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      modifiedAt: null,
+      path: server.url ?? server.command ?? server.name,
+      relativePath: `mcp-tool:${server.name}:${tool.name}`,
+      source: 'mcp-tool',
+      title: tool.name,
+    },
+  }));
+}
+
+function getActiveMentionQuery(value: string) {
+  const match = value.match(/(?:^|\s)@([^\s@]*)$/u);
+
+  return match ? match[1] : null;
+}
+
+function removeActiveMentionToken(value: string) {
+  return value.replace(/(?:^|\s)@[^\s@]*$/u, (match) =>
+    match.startsWith(' ') ? ' ' : '',
+  );
+}
+
+function stripMentionTokens(value: string) {
+  return value.replace(/@\[[^\]]+\]/gu, '').trim();
+}
+
+function buildCurrentDocumentReference(
+  currentDocument: WorkspaceNode,
+  documentPanelData: DocumentPanelData,
+): AiContextReference {
+  return {
+    contentHash: createStableContentHash(documentPanelData.markdown),
+    markdown: documentPanelData.markdown,
+    modifiedAt: null,
+    path: currentDocument.absolutePath,
+    relativePath: currentDocument.relativePath,
+    source: 'current-document',
+    title:
+      documentPanelData.metadata.title ||
+      currentDocument.title ||
+      currentDocument.name,
+  };
+}
+
+function buildPendingMentionReference(reference: AiMentionReference): AiContextReference {
+  if (reference.reference) {
+    return reference.reference;
+  }
+
+  const node = reference.node;
+  if (!node) {
+    return {
+      contentHash: '',
+      markdown: '',
+      modifiedAt: null,
+      path: reference.id,
+      relativePath: reference.id,
+      source: reference.kind,
+      title: reference.label,
+    };
+  }
+
+  return {
+    contentHash: '',
+    markdown: '',
+    modifiedAt: null,
+    path: node.absolutePath,
+    relativePath: node.relativePath,
+    source: 'file',
+    title: reference.label,
+  };
+}
+
+async function resolveMentionReferences({
+  references,
+  workspaceRootPath,
+}: {
+  references: AiMentionReference[];
+  workspaceRootPath: string;
+}) {
+  const resolvedReferences: AiContextReference[] = [];
+
+  for (const reference of references) {
+    if (reference.reference) {
+      resolvedReferences.push(reference.reference);
+      continue;
+    }
+
+    if (!reference.node) {
+      continue;
+    }
+
+    const content = await readMarkdownDocument(
+      workspaceRootPath,
+      reference.node.relativePath,
+    );
+
+    resolvedReferences.push({
+      contentHash: createStableContentHash(content.content),
+      markdown: content.content,
+      modifiedAt: content.modifiedAt,
+      path: reference.node.absolutePath,
+      relativePath: reference.node.relativePath,
+      source: 'file',
+      title: reference.label,
+    });
+  }
+
+  return resolvedReferences;
+}
+
+function mentionReferenceRelativePath(reference: AiMentionReference) {
+  return (
+    reference.reference?.relativePath ??
+    reference.node?.relativePath ??
+    reference.id
+  );
+}
+
+function formatMentionKind(kind: AiMentionKind) {
+  switch (kind) {
+    case 'agent':
+      return 'Agent';
+    case 'command':
+      return 'Command';
+    case 'file':
+      return 'File';
+    case 'mcp-tool':
+      return 'MCP';
+    case 'skill':
+      return 'Skill';
+  }
+}
+
+function formatSourceLabel(source: string) {
+  switch (source) {
+    case 'plugin':
+      return 'Plugin';
+    case 'project':
+      return 'Project';
+    case 'user':
+      return 'User';
+    default:
+      return source;
+  }
 }
 
 function formatJson(value: Record<string, unknown>) {
