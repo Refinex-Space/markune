@@ -410,6 +410,36 @@ const SETTINGS_SECTIONS = [
   },
 ];
 
+const SETTINGS_SECTION_GROUPS = [
+  {
+    id: 'personal',
+    label: '个人',
+    sectionIds: [
+      'preferences',
+      'appearance',
+      'storage',
+    ] satisfies ConcreteSettingsSectionId[],
+  },
+  {
+    id: 'integrations',
+    label: '集成',
+    sectionIds: [
+      'ai-models',
+      'ai-mcp',
+      'ai-plugins',
+    ] satisfies ConcreteSettingsSectionId[],
+  },
+  {
+    id: 'coding',
+    label: '编码',
+    sectionIds: [
+      'ai-skills',
+      'ai-agents',
+      'git-sync',
+    ] satisfies ConcreteSettingsSectionId[],
+  },
+];
+
 const APPEARANCE_FIELD_DEFINITIONS = [
   {
     id: 'theme',
@@ -727,12 +757,16 @@ export function WorkspaceSettingsPage({
             ? shouldShowGitSyncSection
             : shouldShowAiSection;
   });
-  const visiblePrimarySections = visibleSections.filter(
-    (section) => !isAiSettingsSectionId(section.id),
-  );
-  const visibleAiSections = visibleSections.filter((section) =>
-    isAiSettingsSectionId(section.id),
-  );
+  const visibleSectionGroups = SETTINGS_SECTION_GROUPS.map((group) => ({
+    ...group,
+    sections: group.sectionIds
+      .map((sectionId) =>
+        visibleSections.find((section) => section.id === sectionId),
+      )
+      .filter((section): section is (typeof SETTINGS_SECTIONS)[number] =>
+        Boolean(section),
+      ),
+  })).filter((group) => group.sections.length > 0);
   const normalizedActiveSectionId = normalizeSettingsSectionId(activeSectionId);
   const activeSection = visibleSections.some(
     (section) => section.id === normalizedActiveSectionId,
@@ -1165,41 +1199,21 @@ export function WorkspaceSettingsPage({
             ) : null}
           </label>
 
-          <div className="grid gap-1">
-            <p className="px-2 pb-1 text-[11px] font-medium text-muted-foreground">
-              个人
-            </p>
-            {visiblePrimarySections.map((section) => (
-              <button
-                key={section.id}
-                className={cn(
-                  'flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm font-medium transition-colors',
-                  activeSection === section.id
-                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                    : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/75 hover:text-sidebar-accent-foreground',
-                )}
-                type="button"
-                onClick={() => setActiveSectionId(section.id)}
-              >
-                <SettingsSectionIcon sectionId={section.id} />
-                {section.label}
-              </button>
-            ))}
-            {visibleAiSections.length > 0 ? (
-              <div className="grid gap-1">
-                <div className="flex h-8 items-center gap-2 px-2 text-sm font-medium text-sidebar-foreground/80">
-                  <SettingsSectionIcon sectionId="ai-models" />
-                  <span>AI Assistant</span>
-                </div>
-                {visibleAiSections.map((section) => (
+          <nav aria-label="设置分类" className="space-y-5">
+            {visibleSectionGroups.map((group) => (
+              <div className="grid gap-1" key={group.id}>
+                <p className="px-2 pb-1 text-[11px] font-semibold text-muted-foreground">
+                  {group.label}
+                </p>
+                {group.sections.map((section) => (
                   <button
+                    key={section.id}
                     className={cn(
-                      'ml-6 flex h-8 items-center gap-2 rounded-md px-2 text-left text-sm transition-colors',
+                      'flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm font-medium transition-colors',
                       activeSection === section.id
                         ? 'bg-sidebar-accent text-sidebar-accent-foreground'
                         : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/75 hover:text-sidebar-accent-foreground',
                     )}
-                    key={section.id}
                     type="button"
                     onClick={() => setActiveSectionId(section.id)}
                   >
@@ -1208,8 +1222,8 @@ export function WorkspaceSettingsPage({
                   </button>
                 ))}
               </div>
-            ) : null}
-          </div>
+            ))}
+          </nav>
         </div>
       </aside>
 

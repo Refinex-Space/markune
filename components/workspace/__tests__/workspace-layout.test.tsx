@@ -2190,9 +2190,13 @@ describe('WorkspaceLayout', () => {
     expect(screen.queryByRole('button', { name: '切换主题' })).toBeNull();
     expect(screen.queryByTestId('sidebar-chrome-toggle')).toBeNull();
     expect(screen.getByRole('button', { name: '返回应用' })).toBeTruthy();
+    const settingsSidebar = screen.getByTestId('workspace-settings-sidebar');
+    expect(within(settingsSidebar).getByText('个人')).toBeTruthy();
+    expect(within(settingsSidebar).getByText('集成')).toBeTruthy();
+    expect(within(settingsSidebar).getByText('编码')).toBeTruthy();
     expect(screen.getByRole('button', { name: '外观' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '存储' })).toBeTruthy();
-    expect(screen.getByText('AI Assistant')).toBeTruthy();
+    expect(screen.queryByText('AI Assistant')).toBeNull();
     expect(screen.getByRole('button', { name: 'Models' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Skills' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Custom Agents' })).toBeTruthy();
@@ -2624,8 +2628,12 @@ describe('WorkspaceLayout', () => {
     await user.click(screen.getByRole('button', { name: '打开设置' }));
 
     expect(await screen.findByTestId('workspace-settings-page')).toBeTruthy();
+    const settingsSidebar = screen.getByTestId('workspace-settings-sidebar');
+    expect(within(settingsSidebar).getByText('个人')).toBeTruthy();
+    expect(within(settingsSidebar).getByText('集成')).toBeTruthy();
+    expect(within(settingsSidebar).getByText('编码')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Preferences' })).toBeTruthy();
-    expect(screen.getByText('AI Assistant')).toBeTruthy();
+    expect(screen.queryByText('AI Assistant')).toBeNull();
     expect(screen.getByRole('button', { name: 'Models' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Skills' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Custom Agents' })).toBeTruthy();
@@ -2635,7 +2643,9 @@ describe('WorkspaceLayout', () => {
 
     await user.type(screen.getByRole('searchbox', { name: '搜索设置' }), 'AI');
 
-    expect(screen.getByText('AI Assistant')).toBeTruthy();
+    expect(within(settingsSidebar).getByText('集成')).toBeTruthy();
+    expect(within(settingsSidebar).getByText('编码')).toBeTruthy();
+    expect(screen.queryByText('AI Assistant')).toBeNull();
     await user.click(screen.getByRole('button', { name: 'Models' }));
 
     expect(await screen.findByRole('heading', { name: 'Models' })).toBeTruthy();
