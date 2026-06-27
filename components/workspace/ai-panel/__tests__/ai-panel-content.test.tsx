@@ -1412,6 +1412,45 @@ describe('AiPanelContent', () => {
     });
   });
 
+  it('keeps raw non-edit tool details collapsed until requested', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <AiPanelContent
+        currentDocument={currentDocument}
+        documentPanelData={documentPanelData}
+        workspaceRootPath="/repo"
+      />,
+    );
+
+    await waitFor(() => expect(mocks.aiHandlers).toHaveLength(1));
+    act(() => {
+      mocks.aiHandlers[0]({
+        input: { command: 'pnpm test' },
+        sessionId: 'ai-1',
+        toolCallId: 'tool-bash-details',
+        toolName: 'Bash',
+        type: 'toolStarted',
+      });
+      mocks.aiHandlers[0]({
+        output: { stdout: 'hidden stdout line' },
+        sessionId: 'ai-1',
+        status: 'success',
+        toolCallId: 'tool-bash-details',
+        toolName: 'Bash',
+        type: 'toolCompleted',
+      });
+    });
+
+    expect(await screen.findByText('Bash')).toBeTruthy();
+    expect(screen.queryByText(/hidden stdout line/)).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: '展开 Bash 详情' }));
+
+    expect(screen.getByRole('button', { name: '收起 Bash 详情' })).toBeTruthy();
+    expect(screen.getByText(/hidden stdout line/)).toBeTruthy();
+  });
+
   it('groups exploration, web, and edit tool activity for the side panel', async () => {
     render(
       <AiPanelContent

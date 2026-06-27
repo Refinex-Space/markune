@@ -2799,6 +2799,9 @@ function ToolDetailPreview({
 }) {
   const diff = extractDiffText(tool.output) ?? extractDiffText(tool.input);
   const hasOutput = Boolean(tool.output && !diff && !hideOutput);
+  const hasRawDetails = Boolean(diff || tool.partialJson || hasOutput);
+  const canCollapseDetails = Boolean(!diff && (tool.partialJson || hasOutput));
+  const [detailsExpanded, setDetailsExpanded] = React.useState(!canCollapseDetails);
 
   if (!diff && !tool.partialJson && !hasOutput && !permission) {
     return null;
@@ -2806,14 +2809,44 @@ function ToolDetailPreview({
 
   return (
     <div className="mt-2 space-y-2">
-      {diff ? <DiffPreview diff={diff} /> : null}
-      {tool.partialJson ? (
-        <pre className="max-h-28 overflow-auto rounded-md bg-muted p-2 text-xs leading-5 text-muted-foreground">
-          {tool.partialJson}
-        </pre>
-      ) : null}
-      {hasOutput && tool.output ? (
-        <JsonPreview label="Output" value={tool.output} />
+      {hasRawDetails ? (
+        <div className="overflow-hidden rounded-md border bg-background">
+          {canCollapseDetails ? (
+            <button
+              aria-expanded={detailsExpanded}
+              aria-label={`${detailsExpanded ? '收起' : '展开'} ${tool.name} 详情`}
+              className="flex w-full min-w-0 items-center justify-between gap-2 px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted/50"
+              type="button"
+              onClick={() => setDetailsExpanded((current) => !current)}
+            >
+              <span className="truncate font-medium">工具详情</span>
+              <ChevronDown
+                className={cn(
+                  'shrink-0 transition-transform',
+                  !detailsExpanded && '-rotate-90',
+                )}
+                size={14}
+              />
+            </button>
+          ) : null}
+          {detailsExpanded ? (
+            <div className={cn(canCollapseDetails && 'border-t')}>
+              {diff ? <DiffPreview diff={diff} /> : null}
+              {tool.partialJson ? (
+                <pre className="max-h-28 overflow-auto bg-muted p-2 text-xs leading-5 text-muted-foreground">
+                  {tool.partialJson}
+                </pre>
+              ) : null}
+              {hasOutput && tool.output ? (
+                <JsonPreview
+                  className="rounded-none bg-muted/60"
+                  label="Output"
+                  value={tool.output}
+                />
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       ) : null}
       {permission ? (
         <PermissionCard permission={permission} sessionId={sessionId} />
