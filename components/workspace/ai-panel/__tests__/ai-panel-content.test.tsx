@@ -1555,6 +1555,87 @@ describe('AiPanelContent', () => {
     ).toContain('new b');
   });
 
+  it('applies one file from a multi-file edit suggestion', async () => {
+    const user = userEvent.setup();
+    const onMarkdownDocumentApplied = vi.fn();
+
+    mocks.readMarkdownDocument.mockResolvedValueOnce({
+      content: '# A\n\nold a',
+      modifiedAt: 11,
+      path: '/repo/docs/a.md',
+    });
+    mocks.saveMarkdownDocument.mockResolvedValueOnce({
+      modifiedAt: 12,
+      path: '/repo/docs/a.md',
+    });
+
+    render(
+      <AiPanelContent
+        currentDocument={currentDocument}
+        documentPanelData={documentPanelData}
+        workspaceRootPath="/repo"
+        onMarkdownDocumentApplied={onMarkdownDocumentApplied}
+      />,
+    );
+
+    await waitFor(() => expect(mocks.aiHandlers).toHaveLength(1));
+    act(() => {
+      mocks.aiHandlers[0]({
+        input: {},
+        sessionId: 'ai-1',
+        toolCallId: 'tool-edit-batch',
+        toolName: 'Edit',
+        type: 'toolStarted',
+      });
+      mocks.aiHandlers[0]({
+        output: {
+          changes: [
+            {
+              diff: '--- docs/a.md\n+++ docs/a.md\n@@\n-old a\n+new a',
+              new_string: 'new a',
+              old_string: 'old a',
+              path: '/repo/docs/a.md',
+            },
+            {
+              diff: '--- docs/b.md\n+++ docs/b.md\n@@\n-old b\n+new b',
+              new_string: 'new b',
+              old_string: 'old b',
+              path: '/repo/docs/b.md',
+            },
+          ],
+        },
+        sessionId: 'ai-1',
+        status: 'success',
+        toolCallId: 'tool-edit-batch',
+        toolName: 'Edit',
+        type: 'toolCompleted',
+      });
+    });
+
+    await user.click(
+      await screen.findByRole('button', { name: '应用 docs/a.md 到文档' }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.saveMarkdownDocument).toHaveBeenCalledWith(
+        '/repo',
+        '/repo/docs/a.md',
+        '# A\n\nnew a',
+        11,
+      ),
+    );
+    expect(mocks.saveMarkdownDocument).toHaveBeenCalledTimes(1);
+    expect(onMarkdownDocumentApplied).toHaveBeenCalledWith({
+      content: '# A\n\nnew a',
+      modifiedAt: 12,
+      path: '/repo/docs/a.md',
+    });
+    expect(screen.getByRole('button', { name: '已应用 docs/a.md' })).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: '应用 docs/b.md 到文档' }),
+    ).toBeTruthy();
+  });
+
   it('applies a single-file edit tool suggestion to the workspace document', async () => {
     const user = userEvent.setup();
     const onMarkdownDocumentApplied = vi.fn();

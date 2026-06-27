@@ -2651,7 +2651,11 @@ function EditToolActivity({
         <ToolStatusBadge status={tool.status} />
       </div>
       {fileChanges.length > 0 ? (
-        <FileChangesPreview changes={fileChanges} />
+        <FileChangesPreview
+          changes={fileChanges}
+          onMarkdownDocumentApplied={onMarkdownDocumentApplied}
+          workspaceRootPath={workspaceRootPath}
+        />
       ) : (
         <ToolDetailPreview
           permission={permission}
@@ -2857,33 +2861,102 @@ function WebFetchContentPreview({
 }
 
 interface AiFileChangePreview {
+  applicableEdit?: ApplicableMarkdownEdit;
   diff: string;
   path: string;
   stats: { added: number; removed: number };
 }
 
-function FileChangesPreview({ changes }: { changes: AiFileChangePreview[] }) {
+function FileChangesPreview({
+  changes,
+  onMarkdownDocumentApplied,
+  workspaceRootPath,
+}: {
+  changes: AiFileChangePreview[];
+  onMarkdownDocumentApplied?: (document: AiAppliedMarkdownDocument) => void;
+  workspaceRootPath: string | null;
+}) {
   return (
     <div className="mt-2 space-y-2">
       {changes.map((change, index) => (
-        <div
-          className="overflow-hidden rounded-md border bg-muted/20"
+        <FileChangePreviewItem
+          change={change}
           key={`${change.path}:${index}`}
-        >
-          <div className="flex min-w-0 items-center gap-2 border-b px-2 py-1.5 text-xs">
-            <span className="min-w-0 flex-1 truncate font-medium">
-              {change.path}
-            </span>
-            <span className="font-medium text-emerald-700">
-              +{change.stats.added}
-            </span>
-            <span className="font-medium text-red-700">
-              -{change.stats.removed}
-            </span>
-          </div>
-          <DiffPreview diff={change.diff} />
-        </div>
+          onMarkdownDocumentApplied={onMarkdownDocumentApplied}
+          workspaceRootPath={workspaceRootPath}
+        />
       ))}
+    </div>
+  );
+}
+
+function FileChangePreviewItem({
+  change,
+  onMarkdownDocumentApplied,
+  workspaceRootPath,
+}: {
+  change: AiFileChangePreview;
+  onMarkdownDocumentApplied?: (document: AiAppliedMarkdownDocument) => void;
+  workspaceRootPath: string | null;
+}) {
+  const [applyState, setApplyState] = React.useState<
+    'idle' | 'applying' | 'applied' | 'error'
+  >('idle');
+  const [applyError, setApplyError] = React.useState<string | null>(null);
+  const canApply = Boolean(change.applicableEdit && workspaceRootPath);
+
+  return (
+    <div className="overflow-hidden rounded-md border bg-muted/20">
+      <div className="flex min-w-0 items-center gap-2 border-b px-2 py-1.5 text-xs">
+        <span className="min-w-0 flex-1 truncate font-medium">
+          {change.path}
+        </span>
+        <span className="font-medium text-emerald-700">
+          +{change.stats.added}
+        </span>
+        <span className="font-medium text-red-700">
+          -{change.stats.removed}
+        </span>
+        {change.applicableEdit ? (
+          <Button
+            aria-label={
+              applyState === 'applied'
+                ? `已应用 ${change.path}`
+                : `应用 ${change.path} 到文档`
+            }
+            disabled={!canApply || applyState === 'applying' || applyState === 'applied'}
+            size="sm"
+            type="button"
+            variant={applyState === 'applied' ? 'outline' : 'secondary'}
+            onClick={() => {
+              if (!workspaceRootPath || !change.applicableEdit) {
+                return;
+              }
+
+              void applyMarkdownEditSuggestion({
+                edit: change.applicableEdit,
+                onApplied: onMarkdownDocumentApplied,
+                rootPath: workspaceRootPath,
+                setError: setApplyError,
+                setState: setApplyState,
+              });
+            }}
+          >
+            {applyState === 'applying' ? (
+              <LoaderCircle className="animate-spin" size={12} />
+            ) : applyState === 'applied' ? (
+              <Check size={12} />
+            ) : null}
+            {applyState === 'applied' ? '已应用' : '应用'}
+          </Button>
+        ) : null}
+      </div>
+      <DiffPreview diff={change.diff} />
+      {applyError ? (
+        <div className="border-t bg-destructive/10 px-2 py-1.5 text-xs text-destructive">
+          {applyError}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -3351,6 +3424,42 @@ function getApplicableMarkdownEdit(
   };
 }
 
+function getApplicableMarkdownEditFromRecord(
+  value: Record<string, unknown>,
+  path: string,
+): ApplicableMarkdownEdit | undefined {
+  if (!path || !isMarkdownDocumentPath(path)) {
+    return undefined;
+  }
+
+  const fullContent =
+    getStringRecordValue(value, 'content') ||
+    getStringRecordValue(value, 'markdown') ||
+    getStringRecordValue(value, 'newContent') ||
+    getStringRecordValue(value, 'new_content');
+
+  if (fullContent) {
+    return { fullContent, path };
+  }
+
+  const oldString =
+    getStringRecordValue(value, 'old_string') ||
+    getStringRecordValue(value, 'oldString');
+  const newString =
+    getStringRecordValue(value, 'new_string') ||
+    getStringRecordValue(value, 'newString');
+
+  if (!oldString && !newString) {
+    return undefined;
+  }
+
+  return {
+    newString,
+    oldString,
+    path,
+  };
+}
+
 async function applyMarkdownEditSuggestion({
   edit,
   onApplied,
@@ -3731,11 +3840,13 @@ function extractFileChangesFromRecord(
       getStringRecordValue(change, 'file_path') ||
       parseUnifiedDiff(diff).displayPath ||
       `change-${index + 1}`;
+    const displayPath = compactWorkspacePath(path);
 
     return [
       {
+        applicableEdit: getApplicableMarkdownEditFromRecord(change, path),
         diff,
-        path: compactWorkspacePath(path),
+        path: displayPath,
         stats: calculateUnifiedDiffStats(diff),
       },
     ];
