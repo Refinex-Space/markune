@@ -1107,7 +1107,7 @@ describe('AiPanelContent', () => {
     expect(await screen.findByText('Bash')).toBeTruthy();
     expect(screen.getAllByText(/pnpm test/).length).toBeGreaterThan(0);
     expect(screen.getByText('Diff')).toBeTruthy();
-    expect(screen.getByText(/README.md/)).toBeTruthy();
+    expect(screen.getAllByText(/README.md/).length).toBeGreaterThan(0);
     expect(screen.getByText('needs approval')).toBeTruthy();
     expect(screen.getByText(/claude-sonnet/)).toBeTruthy();
     expect(screen.getAllByText(/Running/).length).toBeGreaterThan(0);
@@ -1195,8 +1195,8 @@ describe('AiPanelContent', () => {
     expect(screen.getByText('已联网')).toBeTruthy();
     expect(screen.getByText('已编辑')).toBeTruthy();
     expect(screen.getAllByText('guide.md').length).toBeGreaterThan(0);
-    expect(screen.getByText('+2')).toBeTruthy();
-    expect(screen.getByText('-1')).toBeTruthy();
+    expect(screen.getAllByText('+2').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('-1').length).toBeGreaterThan(0);
     expect(screen.getByText(/Madora markdown workspace AI/)).toBeTruthy();
     expect(
       screen
@@ -1210,6 +1210,59 @@ describe('AiPanelContent', () => {
         .map((line) => line.textContent)
         .join('\n'),
     ).toContain('# 旧指南');
+  });
+
+  it('renders multi-file edit changes as file-specific previews', async () => {
+    render(
+      <AiPanelContent
+        currentDocument={currentDocument}
+        documentPanelData={documentPanelData}
+        workspaceRootPath="/repo"
+      />,
+    );
+
+    await waitFor(() => expect(mocks.aiHandlers).toHaveLength(1));
+    act(() => {
+      mocks.aiHandlers[0]({
+        input: {},
+        sessionId: 'ai-1',
+        toolCallId: 'tool-edit-many',
+        toolName: 'Edit',
+        type: 'toolStarted',
+      });
+      mocks.aiHandlers[0]({
+        output: {
+          changes: [
+            {
+              diff: '--- docs/a.md\n+++ docs/a.md\n@@\n-old a\n+new a',
+              path: '/repo/docs/a.md',
+            },
+            {
+              diff: '--- docs/b.md\n+++ docs/b.md\n@@\n+new b',
+              path: '/repo/docs/b.md',
+            },
+          ],
+        },
+        sessionId: 'ai-1',
+        status: 'success',
+        toolCallId: 'tool-edit-many',
+        toolName: 'Edit',
+        type: 'toolCompleted',
+      });
+    });
+
+    expect(await screen.findByText('已编辑')).toBeTruthy();
+    expect(screen.getByText('2 files')).toBeTruthy();
+    expect(screen.getAllByText('docs/a.md').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('docs/b.md').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('+2').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('-1').length).toBeGreaterThan(0);
+    expect(
+      screen
+        .getAllByTestId('ai-diff-line-added')
+        .map((line) => line.textContent)
+        .join('\n'),
+    ).toContain('new b');
   });
 
   it('renders web search results and fetched page content as expandable previews', async () => {

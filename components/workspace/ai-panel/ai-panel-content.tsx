@@ -1779,9 +1779,14 @@ function EditToolActivity({
   tool: AiPanelToolCall;
 }) {
   const diff = extractDiffText(tool.output) ?? extractDiffText(tool.input);
-  const stats = calculateToolDiffStats(tool, diff);
+  const fileChanges = extractToolFileChanges(tool);
+  const stats = calculateEditToolStats(tool, diff, fileChanges);
   const filePath = getToolFilePath(tool);
-  const displayPath = filePath ? compactWorkspacePath(filePath) : tool.name;
+  const displayPath =
+    fileChanges.length > 1
+      ? `${fileChanges.length} files`
+      : fileChanges[0]?.path ??
+        (filePath ? compactWorkspacePath(filePath) : tool.name);
 
   return (
     <div className="px-3 py-2">
@@ -1807,11 +1812,20 @@ function EditToolActivity({
         </div>
         <ToolStatusBadge status={tool.status} />
       </div>
-      <ToolDetailPreview
-        permission={permission}
-        sessionId={sessionId}
-        tool={tool}
-      />
+      {fileChanges.length > 0 ? (
+        <FileChangesPreview changes={fileChanges} />
+      ) : (
+        <ToolDetailPreview
+          permission={permission}
+          sessionId={sessionId}
+          tool={tool}
+        />
+      )}
+      {fileChanges.length > 0 && permission ? (
+        <div className="mt-2">
+          <PermissionCard permission={permission} sessionId={sessionId} />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1952,6 +1966,38 @@ function WebFetchContentPreview({
           {content}
         </pre>
       ) : null}
+    </div>
+  );
+}
+
+interface AiFileChangePreview {
+  diff: string;
+  path: string;
+  stats: { added: number; removed: number };
+}
+
+function FileChangesPreview({ changes }: { changes: AiFileChangePreview[] }) {
+  return (
+    <div className="mt-2 space-y-2">
+      {changes.map((change, index) => (
+        <div
+          className="overflow-hidden rounded-md border bg-muted/20"
+          key={`${change.path}:${index}`}
+        >
+          <div className="flex min-w-0 items-center gap-2 border-b px-2 py-1.5 text-xs">
+            <span className="min-w-0 flex-1 truncate font-medium">
+              {change.path}
+            </span>
+            <span className="font-medium text-emerald-700">
+              +{change.stats.added}
+            </span>
+            <span className="font-medium text-red-700">
+              -{change.stats.removed}
+            </span>
+          </div>
+          <DiffPreview diff={change.diff} />
+        </div>
+      ))}
     </div>
   );
 }
@@ -2412,6 +2458,82 @@ function formatBytes(bytes: number) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function calculateEditToolStats(
+  tool: AiPanelToolCall,
+  diff: string | null,
+  changes: AiFileChangePreview[],
+) {
+  if (changes.length > 0) {
+    return changes.reduce(
+      (total, change) => ({
+        added: total.added + change.stats.added,
+        removed: total.removed + change.stats.removed,
+      }),
+      { added: 0, removed: 0 },
+    );
+  }
+
+  return calculateToolDiffStats(tool, diff);
+}
+
+function extractToolFileChanges(tool: AiPanelToolCall): AiFileChangePreview[] {
+  const changes = [
+    ...extractFileChangesFromRecord(tool.output),
+    ...extractFileChangesFromRecord(tool.input),
+  ];
+  const seen = new Set<string>();
+
+  return changes.filter((change) => {
+    const key = `${change.path}\n${change.diff}`;
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function extractFileChangesFromRecord(
+  value: Record<string, unknown> | undefined,
+): AiFileChangePreview[] {
+  const changes = value?.changes;
+
+  if (!Array.isArray(changes)) {
+    return [];
+  }
+
+  return changes.flatMap((change, index) => {
+    if (!isRecord(change)) {
+      return [];
+    }
+
+    const diff =
+      getStringRecordValue(change, 'diff') ||
+      getStringRecordValue(change, 'patch');
+
+    if (!diff) {
+      return [];
+    }
+
+    const path =
+      getStringRecordValue(change, 'path') ||
+      getStringRecordValue(change, 'filePath') ||
+      getStringRecordValue(change, 'file_path') ||
+      parseUnifiedDiff(diff).displayPath ||
+      `change-${index + 1}`;
+
+    return [
+      {
+        diff,
+        path: compactWorkspacePath(path),
+        stats: calculateUnifiedDiffStats(diff),
+      },
+    ];
+  });
 }
 
 function calculateToolDiffStats(tool: AiPanelToolCall, diff: string | null) {
