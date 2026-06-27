@@ -1502,7 +1502,9 @@ describe('AiPanelContent', () => {
     ).toContain('# 旧指南');
   });
 
-  it('renders multi-file edit changes as file-specific previews', async () => {
+  it('renders multi-file edit changes as compact expandable file previews', async () => {
+    const user = userEvent.setup();
+
     render(
       <AiPanelContent
         currentDocument={currentDocument}
@@ -1552,7 +1554,13 @@ describe('AiPanelContent', () => {
         .getAllByTestId('ai-diff-line-added')
         .map((line) => line.textContent)
         .join('\n'),
-    ).toContain('new b');
+    ).toContain('new a');
+    expect(screen.queryByText('new b')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: '展开 docs/b.md diff' }));
+
+    expect(screen.getByRole('button', { name: '收起 docs/b.md diff' })).toBeTruthy();
+    expect(screen.getByText('new b')).toBeTruthy();
   });
 
   it('applies one file from a multi-file edit suggestion', async () => {

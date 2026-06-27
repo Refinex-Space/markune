@@ -2950,6 +2950,7 @@ function FileChangesPreview({
         <FileChangePreviewItem
           batchApplyState={batchApplyState}
           change={change}
+          defaultExpanded={changes.length === 1 || index === 0}
           key={`${change.path}:${index}`}
           onMarkdownDocumentApplied={onMarkdownDocumentApplied}
           workspaceRootPath={workspaceRootPath}
@@ -2962,11 +2963,13 @@ function FileChangesPreview({
 function FileChangePreviewItem({
   batchApplyState,
   change,
+  defaultExpanded,
   onMarkdownDocumentApplied,
   workspaceRootPath,
 }: {
   batchApplyState?: 'idle' | 'applying' | 'applied' | 'error';
   change: AiFileChangePreview;
+  defaultExpanded: boolean;
   onMarkdownDocumentApplied?: (document: AiAppliedMarkdownDocument) => void;
   workspaceRootPath: string | null;
 }) {
@@ -2974,6 +2977,7 @@ function FileChangePreviewItem({
     'idle' | 'applying' | 'applied' | 'error'
   >('idle');
   const [applyError, setApplyError] = React.useState<string | null>(null);
+  const [expanded, setExpanded] = React.useState(defaultExpanded);
   const effectiveApplyState =
     batchApplyState === 'applying' || batchApplyState === 'applied'
       ? batchApplyState
@@ -2983,6 +2987,18 @@ function FileChangePreviewItem({
   return (
     <div className="overflow-hidden rounded-md border bg-muted/20">
       <div className="flex min-w-0 items-center gap-2 border-b px-2 py-1.5 text-xs">
+        <button
+          aria-expanded={expanded}
+          aria-label={`${expanded ? '收起' : '展开'} ${change.path} diff`}
+          className="flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+        >
+          <ChevronDown
+            className={cn('transition-transform', !expanded && '-rotate-90')}
+            size={13}
+          />
+        </button>
         <span className="min-w-0 flex-1 truncate font-medium">
           {change.path}
         </span>
@@ -3030,7 +3046,7 @@ function FileChangePreviewItem({
           </Button>
         ) : null}
       </div>
-      <DiffPreview diff={change.diff} />
+      {expanded ? <DiffPreview diff={change.diff} /> : null}
       {applyError ? (
         <div className="border-t bg-destructive/10 px-2 py-1.5 text-xs text-destructive">
           {applyError}
