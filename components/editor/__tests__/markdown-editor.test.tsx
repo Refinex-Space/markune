@@ -355,7 +355,7 @@ describe('MarkdownEditor', () => {
     const config = mardoraMock.mock.calls.at(-1)?.[0];
     expect(config.toc.enabled).toBe(false);
     expect(config.toc.onTocChange).toEqual(expect.any(Function));
-    expect(config.extensions).toHaveLength(1);
+    expect(config.extensions).toHaveLength(2);
   });
 
   it('wide 页宽模式通过 Mardora 内容层限宽', () => {
@@ -524,6 +524,69 @@ describe('MarkdownEditor', () => {
       }),
     );
     expect(focusMock).toHaveBeenCalled();
+  });
+
+  it('将编辑器选中的 Markdown 范围上报给工作区', () => {
+    const onSelectionChange = vi.fn();
+    render(
+      <MarkdownEditor
+        documentKey="doc-1"
+        markdown="# 标题\n\n选中的段落"
+        onMarkdownChange={() => {}}
+        onSelectionChange={onSelectionChange}
+      />,
+    );
+
+    const updateListener = mardoraMock
+      .mock.calls.at(-1)?.[0]
+      ?.extensions?.find(
+        (extension: unknown) =>
+          typeof (extension as { value?: unknown }).value === 'function',
+      ) as { value: (update: unknown) => void } | undefined;
+
+    expect(updateListener).toBeTruthy();
+
+    act(() => {
+      updateListener?.value({
+        docChanged: false,
+        selectionSet: true,
+        state: {
+          selection: {
+            main: {
+              empty: false,
+              from: 6,
+              to: 11,
+            },
+          },
+          sliceDoc: vi.fn(() => '选中的段落'),
+        },
+      });
+    });
+
+    expect(onSelectionChange).toHaveBeenLastCalledWith({
+      from: 6,
+      markdown: '选中的段落',
+      to: 11,
+    });
+
+    act(() => {
+      updateListener?.value({
+        docChanged: false,
+        selectionSet: true,
+        state: {
+          selection: {
+            main: {
+              empty: true,
+              from: 11,
+              to: 11,
+            },
+          },
+          sliceDoc: vi.fn(),
+        },
+      });
+    });
+
+    expect(onSelectionChange).toHaveBeenLastCalledWith(null);
   });
 
   it('编辑模式回到顶部按钮避开滚动条并使用分段缓动滚动', async () => {
@@ -728,7 +791,7 @@ describe('MarkdownEditor', () => {
         contentWidth: {
           maxWidth: '48rem',
         },
-        extensions: [expect.anything()],
+        extensions: [expect.anything(), expect.anything()],
       }),
     );
   });

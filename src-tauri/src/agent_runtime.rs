@@ -261,6 +261,8 @@ pub struct AiContextPack {
     pub intent: String,
     pub document: Option<AiContextDocument>,
     #[serde(default)]
+    pub selection: Option<AiContextSelection>,
+    #[serde(default)]
     pub references: Vec<AiContextReference>,
 }
 
@@ -273,6 +275,18 @@ pub struct AiContextDocument {
     pub modified_at: Option<u128>,
     pub content_hash: String,
     pub dirty: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AiContextSelection {
+    pub markdown: String,
+    pub from: usize,
+    pub to: usize,
+    #[serde(default)]
+    pub document_path: Option<String>,
+    #[serde(default)]
+    pub document_title: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -3395,6 +3409,25 @@ fn build_assistant_prompt(input: &SendAiPromptInput) -> String {
         ));
     }
 
+    if let Some(selection) = input.context.selection.as_ref() {
+        prompt.push_str(&format!(
+            "\n\n用户当前选中的 Markdown 片段{}{}：\n范围：{}..{}\n\n```markdown\n{}\n```",
+            selection
+                .document_title
+                .as_deref()
+                .map(|title| format!("：{}", title))
+                .unwrap_or_default(),
+            selection
+                .document_path
+                .as_deref()
+                .map(|path| format!("\n路径：{}", path))
+                .unwrap_or_default(),
+            selection.from,
+            selection.to,
+            selection.markdown
+        ));
+    }
+
     if !input.context.references.is_empty() {
         prompt.push_str("\n\n用户通过 @ 明确引用的工作区文件：");
         for reference in &input.context.references {
@@ -3491,6 +3524,7 @@ mod tests {
             document: None,
             intent: "chat".to_string(),
             references: Vec::new(),
+            selection: None,
             workspace_root_path: root.to_string(),
         }
     }
@@ -4166,6 +4200,7 @@ mod tests {
                     source: "mention".to_string(),
                     title: "研究记录".to_string(),
                 }],
+                selection: None,
                 workspace_root_path: "/repo".to_string(),
             },
             prompt: "总结此页面".to_string(),
@@ -4200,6 +4235,13 @@ mod tests {
                     source: "mention".to_string(),
                     title: "研究记录".to_string(),
                 }],
+                selection: Some(AiContextSelection {
+                    document_path: Some("/repo/guide.md".to_string()),
+                    document_title: Some("指南".to_string()),
+                    from: 2,
+                    markdown: "选中的段落".to_string(),
+                    to: 8,
+                }),
                 workspace_root_path: "/repo".to_string(),
             },
             prompt: "结合资料改写".to_string(),
@@ -4208,6 +4250,8 @@ mod tests {
         let prompt = build_assistant_prompt(&input);
 
         assert!(prompt.contains("当前 Markdown 文档：指南"));
+        assert!(prompt.contains("用户当前选中的 Markdown 片段：指南"));
+        assert!(prompt.contains("选中的段落"));
         assert!(prompt.contains("用户通过 @ 明确引用的工作区文件"));
         assert!(prompt.contains("引用：研究记录"));
         assert!(prompt.contains("# 研究记录"));

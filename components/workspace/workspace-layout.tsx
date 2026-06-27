@@ -38,6 +38,7 @@ import {
   RightSidePanel,
   RightToolRail,
 } from './ai-side-panel';
+import type { AiSelectionContext } from './ai-panel/ai-types';
 import { DirectoryPage } from './directory-page';
 import { DailyNoteCalendar } from './daily-note-calendar';
 import {
@@ -294,6 +295,8 @@ export function WorkspaceLayout({
   >({});
   const [activeEditorDocumentPath, setActiveEditorDocumentPath] =
     React.useState<string | null>(null);
+  const [selectedTextContext, setSelectedTextContext] =
+    React.useState<AiSelectionContext | null>(null);
   const [documentEditorLayout, setDocumentEditorLayout] =
     React.useState<DocumentEditorLayout>(() => createInitialEditorLayout());
   const [recentDocuments, setRecentDocuments] = React.useState<
@@ -332,6 +335,10 @@ export function WorkspaceLayout({
           activePanelDocumentPath,
         )
       : workspace.currentDocument;
+  const activePanelSelectionContext =
+    selectedTextContext?.documentPath === activePanelDocumentPath
+      ? selectedTextContext
+      : null;
   const hasOpenDocumentTabs = documentEditorLayout.tabs.length > 0;
   const dailyContentDates = React.useMemo(
     () => getDailyContentDates(dailyNoteEntries),
@@ -2076,6 +2083,7 @@ export function WorkspaceLayout({
                           void workspace.saveCurrentDocumentNow()
                         }
                         onSelectTab={handleSelectDocumentTab}
+                        onSelectionChange={setSelectedTextContext}
                       />
                     ) : (
                       <EditorPane
@@ -2136,6 +2144,7 @@ export function WorkspaceLayout({
                         : false
                     }
                     mode={workspace.rightPanelMode}
+                    selectedTextContext={activePanelSelectionContext}
                     settingsVersion={settingsVersion}
                     width={rightPanelWidth}
                     workspaceRootPath={workspaceRootPath}
@@ -2147,6 +2156,7 @@ export function WorkspaceLayout({
                             )
                         : undefined
                     }
+                    onClearSelectedTextContext={() => setSelectedTextContext(null)}
                     onOpenSettings={() => openSettingsPage('ai')}
                   />
                 </div>
@@ -2677,6 +2687,7 @@ function DocumentEditorSurface({
   onRetryDocument,
   onSaveRequested,
   onSelectTab,
+  onSelectionChange,
 }: {
   activeDocumentPath: string | null;
   currentDocumentPath: string | null;
@@ -2698,6 +2709,7 @@ function DocumentEditorSurface({
   onRetryDocument: () => void;
   onSaveRequested: () => void;
   onSelectTab: (tabPath: string) => void;
+  onSelectionChange: (selection: AiSelectionContext | null) => void;
 }) {
   const activeTab = getActiveTab(documentEditorLayout);
   const activeTabPath = activeTab?.absolutePath ?? null;
@@ -2743,6 +2755,7 @@ function DocumentEditorSurface({
           onRetryDocument,
           onSaveRequested,
           onSelectTab,
+          onSelectionChange,
         })}
       </div>
     </div>
@@ -2763,6 +2776,7 @@ function renderDocumentEditorContent({
   onRetryDocument,
   onSaveRequested,
   onSelectTab,
+  onSelectionChange,
 }: {
   activeDocumentPath: string | null;
   activeTab: ReturnType<typeof getActiveTab>;
@@ -2777,6 +2791,7 @@ function renderDocumentEditorContent({
   onRetryDocument: () => void;
   onSaveRequested: () => void;
   onSelectTab: (tabPath: string) => void;
+  onSelectionChange: (selection: AiSelectionContext | null) => void;
 }) {
   if (!activeTab) {
     return (
@@ -2841,36 +2856,57 @@ function renderDocumentEditorContent({
   return (
     <DocumentEditorInstance
       documentPath={activeTab.absolutePath}
+      documentTitle={activeTab.title}
       editorSession={editorSession}
       pageWidthMode={pageWidthMode}
       readOnly={getDocumentReadOnly(activeTab.absolutePath)}
       workspaceRootPath={workspaceRootPath}
       onMarkdownChange={onMarkdownChange}
       onSaveRequested={onSaveRequested}
+      onSelectionChange={onSelectionChange}
     />
   );
 }
 
 function DocumentEditorInstance({
   documentPath,
+  documentTitle,
   editorSession,
   pageWidthMode,
   readOnly,
   workspaceRootPath,
   onMarkdownChange,
   onSaveRequested,
+  onSelectionChange,
 }: {
   documentPath: string;
+  documentTitle: string;
   editorSession: DocumentEditorSession;
   pageWidthMode: PageWidthMode;
   readOnly: boolean;
   workspaceRootPath: string | null;
   onMarkdownChange: (documentPath: string, markdown: string) => void;
   onSaveRequested: () => void;
+  onSelectionChange: (selection: AiSelectionContext | null) => void;
 }) {
   const handleMarkdownChange = React.useCallback(
     (markdown: string) => onMarkdownChange(documentPath, markdown),
     [documentPath, onMarkdownChange],
+  );
+  const handleSelectionChange = React.useCallback(
+    (selection: { markdown: string; from: number; to: number } | null) => {
+      if (!selection) {
+        onSelectionChange(null);
+        return;
+      }
+
+      onSelectionChange({
+        ...selection,
+        documentPath,
+        documentTitle,
+      });
+    },
+    [documentPath, documentTitle, onSelectionChange],
   );
 
   return (
@@ -2883,6 +2919,7 @@ function DocumentEditorInstance({
         workspaceRootPath={workspaceRootPath}
         onMarkdownChange={handleMarkdownChange}
         onSaveRequested={onSaveRequested}
+        onSelectionChange={handleSelectionChange}
       />
     </div>
   );

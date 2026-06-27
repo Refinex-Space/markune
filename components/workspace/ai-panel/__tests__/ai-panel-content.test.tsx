@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import * as React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { DocumentPanelData } from '@/components/workspace/ai-side-panel';
@@ -886,6 +887,97 @@ describe('AiPanelContent', () => {
           ],
         }),
       ),
+    );
+  });
+
+  it('sends selected editor text as structured selection context', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <AiPanelContent
+        currentDocument={currentDocument}
+        documentPanelData={documentPanelData}
+        selectedTextContext={{
+          documentPath: '/repo/guide.md',
+          documentTitle: '指南',
+          from: 2,
+          markdown: '指南选中的段落',
+          to: 9,
+        }}
+        workspaceRootPath="/repo"
+      />,
+    );
+
+    expect(await screen.findByText(/Selection/)).toBeTruthy();
+    expect(screen.getAllByText(/指南/).length).toBeGreaterThan(0);
+
+    await user.type(
+      screen.getByPlaceholderText('向 AI 询问当前工作区...'),
+      '基于选区扩写',
+    );
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() => expect(mocks.sendAiPrompt).toHaveBeenCalled());
+    expect(mocks.sendAiPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          selection: {
+            documentPath: '/repo/guide.md',
+            documentTitle: '指南',
+            from: 2,
+            markdown: '指南选中的段落',
+            to: 9,
+          },
+        }),
+        prompt: '基于选区扩写',
+      }),
+    );
+  });
+
+  it('removes selected editor text context before sending', async () => {
+    const user = userEvent.setup();
+    function SelectionContextHarness() {
+      const [selection, setSelection] = React.useState<{
+        documentPath: string;
+        documentTitle: string;
+        from: number;
+        markdown: string;
+        to: number;
+      } | null>({
+        documentPath: '/repo/guide.md',
+        documentTitle: '指南',
+        from: 2,
+        markdown: '不应发送的选区',
+        to: 9,
+      });
+
+      return (
+        <AiPanelContent
+          currentDocument={currentDocument}
+          documentPanelData={documentPanelData}
+          selectedTextContext={selection}
+          workspaceRootPath="/repo"
+          onClearSelectedTextContext={() => setSelection(null)}
+        />
+      );
+    }
+
+    render(<SelectionContextHarness />);
+
+    await user.click(await screen.findByRole('button', { name: '移除选中文本上下文' }));
+    await user.type(
+      screen.getByPlaceholderText('向 AI 询问当前工作区...'),
+      '只处理当前文档',
+    );
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() => expect(mocks.sendAiPrompt).toHaveBeenCalled());
+    expect(mocks.sendAiPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.not.objectContaining({
+          selection: expect.anything(),
+        }),
+      }),
     );
   });
 

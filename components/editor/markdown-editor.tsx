@@ -6,7 +6,7 @@ import { ArrowUp } from 'lucide-react';
 import CodeMirror, {
   type ReactCodeMirrorRef,
 } from '@uiw/react-codemirror';
-import { EditorView } from '@codemirror/view';
+import { EditorView, type ViewUpdate } from '@codemirror/view';
 import { githubDark, githubLight } from '@uiw/codemirror-theme-github';
 import {
   EditorSelection,
@@ -38,6 +38,9 @@ interface MarkdownEditorProps {
   pageWidthMode?: PageWidthMode;
   onSaveRequested?: () => void;
   onMarkdownChange?: (markdown: string) => void;
+  onSelectionChange?: (
+    selection: { markdown: string; from: number; to: number } | null,
+  ) => void;
   readOnly?: boolean;
   workspaceRootPath?: string | null;
 }
@@ -94,6 +97,7 @@ export function MarkdownEditor({
   pageWidthMode = 'wide',
   onSaveRequested,
   onMarkdownChange,
+  onSelectionChange,
   readOnly = false,
   workspaceRootPath = null,
 }: MarkdownEditorProps) {
@@ -215,6 +219,36 @@ export function MarkdownEditor({
     },
     [],
   );
+
+  const handleEditorUpdate = React.useCallback(
+    (update: ViewUpdate) => {
+      if (!onSelectionChange || (!update.selectionSet && !update.docChanged)) {
+        return;
+      }
+
+      const range = update.state.selection.main;
+
+      if (range.empty) {
+        onSelectionChange(null);
+        return;
+      }
+
+      const from = Math.min(range.from, range.to);
+      const to = Math.max(range.from, range.to);
+      const selectedMarkdown = update.state.sliceDoc(from, to);
+
+      onSelectionChange(
+        selectedMarkdown.trim()
+          ? {
+              from,
+              markdown: selectedMarkdown,
+              to,
+            }
+          : null,
+      );
+    },
+    [onSelectionChange],
+  );
   React.useEffect(() => {
     activeTocItemRef.current?.scrollIntoView?.({ block: 'nearest' });
   }, [tocItems]);
@@ -330,7 +364,10 @@ export function MarkdownEditor({
         contentWidth,
         fonts: MARDORA_FONTS,
         plugins: allPlugins,
-        extensions: [mardoraMouseSelectionGuard],
+        extensions: [
+          mardoraMouseSelectionGuard,
+          EditorView.updateListener.of(handleEditorUpdate),
+        ],
         disableViewPlugin: false,
         defaultKeybindings: true,
         history: true,
@@ -362,7 +399,7 @@ export function MarkdownEditor({
 
       return mardora(config);
     },
-    [contentWidth, handleTocChange, mardoraTheme, uploader],
+    [contentWidth, handleEditorUpdate, handleTocChange, mardoraTheme, uploader],
   );
 
   return (

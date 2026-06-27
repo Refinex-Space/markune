@@ -26,6 +26,7 @@ import { cn } from '@/lib/utils';
 
 import { DocumentMetaPanel } from './document-meta-panel';
 import { AiPanelContent } from './ai-panel/ai-panel-content';
+import type { AiSelectionContext } from './ai-panel/ai-types';
 import type {
   RightPanelMode,
   WorkspaceNode,
@@ -44,10 +45,12 @@ interface RightSidePanelProps {
   documentPanelData: DocumentPanelData | null;
   documentReadOnly: boolean;
   mode: RightPanelMode;
+  selectedTextContext?: AiSelectionContext | null;
   settingsVersion: number;
   width: number;
   workspaceRootPath: string | null;
   onToggleDocumentReadOnly?: () => void;
+  onClearSelectedTextContext?: () => void;
   onOpenSettings: () => void;
 }
 
@@ -64,10 +67,12 @@ export function RightSidePanel({
   documentPanelData,
   documentReadOnly,
   mode,
+  selectedTextContext = null,
   settingsVersion,
   width,
   workspaceRootPath,
   onToggleDocumentReadOnly,
+  onClearSelectedTextContext,
   onOpenSettings,
 }: RightSidePanelProps) {
   if (!mode) {
@@ -84,8 +89,10 @@ export function RightSidePanel({
         <AiPanelContent
           currentDocument={currentDocument}
           documentPanelData={documentPanelData}
+          selectedTextContext={selectedTextContext}
           settingsVersion={settingsVersion}
           workspaceRootPath={workspaceRootPath}
+          onClearSelectedTextContext={onClearSelectedTextContext}
           onOpenSettings={onOpenSettings}
         />
       ) : (

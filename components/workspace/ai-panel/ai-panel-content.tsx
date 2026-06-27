@@ -77,6 +77,7 @@ import type {
   AiDetectedModel,
   AiIntent,
   AiPanelPermissionRequest,
+  AiSelectionContext,
   AiPanelThinkingBlock,
   AiPanelToolCall,
   AiPanelUsage,
@@ -85,8 +86,10 @@ import type {
 interface AiPanelContentProps {
   currentDocument: WorkspaceNode | null;
   documentPanelData: DocumentPanelData | null;
+  selectedTextContext?: AiSelectionContext | null;
   settingsVersion?: number;
   workspaceRootPath: string | null;
+  onClearSelectedTextContext?: () => void;
   onOpenSettings?: () => void;
 }
 
@@ -110,8 +113,10 @@ interface AiComposerContextAttachment {
 export function AiPanelContent({
   currentDocument,
   documentPanelData,
+  selectedTextContext = null,
   settingsVersion = 0,
   workspaceRootPath,
+  onClearSelectedTextContext,
   onOpenSettings,
 }: AiPanelContentProps) {
   const [state, dispatch] = React.useReducer(
@@ -307,6 +312,7 @@ export function AiPanelContent({
       }),
     [mentionInventory, mentionQuery, selectedReferences],
   );
+  const activeSelectionContext = selectedTextContext;
 
   React.useEffect(() => {
     for (const permission of state.permissions) {
@@ -512,6 +518,7 @@ export function AiPanelContent({
         documentPanelData,
         intent,
         references: contextReferences,
+        selection: activeSelectionContext,
         workspaceRootPath,
       });
       const userMessageId =
@@ -571,6 +578,7 @@ export function AiPanelContent({
       documentPanelData,
       contextAttachments,
       conversationReferences,
+      activeSelectionContext,
       runtimeReady,
       selectedProfile,
       selectedReferences,
@@ -885,6 +893,7 @@ export function AiPanelContent({
                   buildPendingMentionReference(reference),
                 )
           }
+          selectionContext={activeSelectionContext}
           onRemoveReference={(relativePath) => {
             setSelectedReferences((current) =>
               current.filter(
@@ -900,6 +909,9 @@ export function AiPanelContent({
             setConversationReferences((current) =>
               current.filter((item) => item.relativePath !== relativePath),
             );
+          }}
+          onRemoveSelection={() => {
+            onClearSelectedTextContext?.();
           }}
         />
 
@@ -1333,14 +1345,18 @@ function playAiNotificationSound(settings: AppSettings) {
 
 function ContextReferenceStrip({
   currentDocumentReference,
+  selectionContext,
   references,
   onRemoveReference,
+  onRemoveSelection,
 }: {
   currentDocumentReference: AiContextReference | null;
+  selectionContext: AiSelectionContext | null;
   references: AiContextReference[];
   onRemoveReference: (relativePath: string) => void;
+  onRemoveSelection: () => void;
 }) {
-  if (!currentDocumentReference && references.length === 0) {
+  if (!currentDocumentReference && !selectionContext && references.length === 0) {
     return null;
   }
 
@@ -1356,6 +1372,28 @@ function ContextReferenceStrip({
           <span className="shrink-0 text-[10px] uppercase tracking-wide">
             当前
           </span>
+        </span>
+      ) : null}
+      {selectionContext ? (
+        <span className="inline-flex max-w-full items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs">
+          <Pencil size={12} />
+          <span className="truncate">
+            Selection
+            {selectionContext.documentTitle
+              ? ` · ${selectionContext.documentTitle}`
+              : ''}
+          </span>
+          <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
+            {formatCharacterCount(selectionContext.markdown.length)}
+          </span>
+          <button
+            aria-label="移除选中文本上下文"
+            className="ml-0.5 rounded-sm text-muted-foreground hover:text-foreground"
+            type="button"
+            onClick={onRemoveSelection}
+          >
+            <X size={12} />
+          </button>
         </span>
       ) : null}
       {references.map((reference) => (

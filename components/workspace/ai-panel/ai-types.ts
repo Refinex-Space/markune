@@ -116,6 +116,8 @@ export interface AiContextPack {
     markdown: string;
     from: number;
     to: number;
+    documentPath?: string;
+    documentTitle?: string;
   };
   toc?: Array<{
     depth: number;
@@ -123,6 +125,14 @@ export interface AiContextPack {
     line?: number;
   }>;
   intent: AiIntent;
+}
+
+export interface AiSelectionContext {
+  markdown: string;
+  from: number;
+  to: number;
+  documentPath?: string;
+  documentTitle?: string;
 }
 
 export interface AiContextReference {
