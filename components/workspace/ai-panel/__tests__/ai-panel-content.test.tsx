@@ -1442,7 +1442,12 @@ describe('AiPanelContent', () => {
       });
     });
 
-    expect(await screen.findByText('Bash')).toBeTruthy();
+    expect(await screen.findByText('已调用工具')).toBeTruthy();
+    expect(screen.queryByText('Bash')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: '展开 已调用工具 工具组' }));
+
+    expect(screen.getByText('Bash')).toBeTruthy();
     expect(screen.queryByText(/hidden stdout line/)).toBeNull();
 
     await user.click(screen.getByRole('button', { name: '展开 Bash 详情' }));
@@ -1452,6 +1457,8 @@ describe('AiPanelContent', () => {
   });
 
   it('groups exploration, web, and edit tool activity for the side panel', async () => {
+    const user = userEvent.setup();
+
     render(
       <AiPanelContent
         currentDocument={currentDocument}
@@ -1526,6 +1533,10 @@ describe('AiPanelContent', () => {
     expect(screen.getAllByText('guide.md').length).toBeGreaterThan(0);
     expect(screen.getAllByText('+2').length).toBeGreaterThan(0);
     expect(screen.getAllByText('-1').length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Madora markdown workspace AI/)).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: '展开 已联网 工具组' }));
+
     expect(screen.getByText(/Madora markdown workspace AI/)).toBeTruthy();
     expect(
       screen
@@ -2117,9 +2128,12 @@ describe('AiPanelContent', () => {
     });
 
     expect(await screen.findByText('已联网')).toBeTruthy();
-    expect(screen.getByText(/Madora AI workspace/)).toBeTruthy();
+    expect(screen.queryByText(/Madora AI workspace/)).toBeNull();
     expect(screen.queryByText('Madora AI Panel Notes')).toBeNull();
 
+    await user.click(screen.getByRole('button', { name: '展开 已联网 工具组' }));
+
+    expect(screen.getByText(/Madora AI workspace/)).toBeTruthy();
     await user.click(screen.getByRole('button', { name: '展开 WebSearch 结果' }));
     expect(
       screen
@@ -2133,6 +2147,8 @@ describe('AiPanelContent', () => {
   });
 
   it('renders planning and MCP tools as dedicated activity groups', async () => {
+    const user = userEvent.setup();
+
     render(
       <AiPanelContent
         currentDocument={currentDocument}
@@ -2218,6 +2234,9 @@ describe('AiPanelContent', () => {
     expect(screen.getByText('落地协作流')).toBeTruthy();
     expect(screen.getByText('让计划工具在侧边栏内可读可跟踪')).toBeTruthy();
     expect(screen.getByText('ai-panel-content.tsx')).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: '展开 已调用 MCP 工具组' }));
+
     expect(screen.getByText('context7')).toBeTruthy();
     expect(screen.getByText('Resolve Library Id')).toBeTruthy();
   });

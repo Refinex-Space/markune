@@ -2000,7 +2000,10 @@ function RuntimeActivityGroup({
   workspaceRootPath: string | null;
 }) {
   const hasRunningTool = group.tools.some((tool) => tool.status === 'running');
-  const [expanded, setExpanded] = React.useState(true);
+  const hasPermission = group.tools.some((tool) => permissionByToolId.has(tool.id));
+  const shouldStartExpanded =
+    group.kind === 'edit' || hasRunningTool || hasPermission;
+  const [expanded, setExpanded] = React.useState(shouldStartExpanded);
   const title = hasRunningTool ? group.runningLabel : group.completedLabel;
 
   return (
@@ -2010,6 +2013,7 @@ function RuntimeActivityGroup({
     >
       <button
         aria-expanded={expanded}
+        aria-label={`${expanded ? '收起' : '展开'} ${title} 工具组`}
         className="flex w-full min-w-0 items-center gap-2 border-b bg-muted/30 px-3 py-2 text-left"
         type="button"
         onClick={() => setExpanded((current) => !current)}
