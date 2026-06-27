@@ -9,8 +9,10 @@ import {
   CircleCheck,
   Download,
   FileText,
+  Globe,
   History,
   LoaderCircle,
+  Pencil,
   Plus,
   Search,
   Send,
@@ -1475,15 +1477,16 @@ function RuntimeActivity({
   const standalonePermissions = permissions.filter(
     (permission) => !tools.some((tool) => tool.id === permission.toolCallId),
   );
+  const groups = buildRuntimeToolGroups(tools);
 
   return (
     <div className="space-y-2">
-      {tools.map((tool) => (
-        <ToolCard
-          key={tool.id}
-          permission={permissionByToolId.get(tool.id) ?? null}
+      {groups.map((group) => (
+        <RuntimeActivityGroup
+          group={group}
+          key={group.kind}
+          permissionByToolId={permissionByToolId}
           sessionId={sessionId}
-          tool={tool}
         />
       ))}
       {standalonePermissions.map((permission) => (
@@ -1497,7 +1500,197 @@ function RuntimeActivity({
   );
 }
 
-function ToolCard({
+type RuntimeToolGroupKind = 'exploration' | 'web' | 'edit' | 'other';
+
+interface RuntimeToolGroup {
+  kind: RuntimeToolGroupKind;
+  runningLabel: string;
+  completedLabel: string;
+  tools: AiPanelToolCall[];
+}
+
+const runtimeToolGroupOrder: RuntimeToolGroupKind[] = [
+  'exploration',
+  'web',
+  'edit',
+  'other',
+];
+
+function RuntimeActivityGroup({
+  group,
+  permissionByToolId,
+  sessionId,
+}: {
+  group: RuntimeToolGroup;
+  permissionByToolId: Map<string, AiPanelPermissionRequest>;
+  sessionId: string | null;
+}) {
+  const hasRunningTool = group.tools.some((tool) => tool.status === 'running');
+  const [expanded, setExpanded] = React.useState(true);
+  const title = hasRunningTool ? group.runningLabel : group.completedLabel;
+
+  return (
+    <div
+      className="overflow-hidden rounded-md border bg-background"
+      data-testid={`ai-tool-group-${group.kind}`}
+    >
+      <button
+        aria-expanded={expanded}
+        className="flex w-full min-w-0 items-center gap-2 border-b bg-muted/30 px-3 py-2 text-left"
+        type="button"
+        onClick={() => setExpanded((current) => !current)}
+      >
+        {renderRuntimeGroupIcon(group.kind)}
+        <span className="text-sm font-medium">{title}</span>
+        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+          {formatRuntimeGroupSummary(group)}
+        </span>
+        <ChevronDown
+          className={cn(
+            'shrink-0 text-muted-foreground transition-transform',
+            expanded && 'rotate-180',
+          )}
+          size={14}
+        />
+      </button>
+      {expanded ? (
+        <div className="divide-y">
+          {group.tools.map((tool) => (
+            <RuntimeToolItem
+              groupKind={group.kind}
+              key={tool.id}
+              permission={permissionByToolId.get(tool.id) ?? null}
+              sessionId={sessionId}
+              tool={tool}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function RuntimeToolItem({
+  groupKind,
+  permission,
+  sessionId,
+  tool,
+}: {
+  groupKind: RuntimeToolGroupKind;
+  permission: AiPanelPermissionRequest | null;
+  sessionId: string | null;
+  tool: AiPanelToolCall;
+}) {
+  if (groupKind === 'edit') {
+    return (
+      <EditToolActivity
+        permission={permission}
+        sessionId={sessionId}
+        tool={tool}
+      />
+    );
+  }
+
+  if (groupKind === 'web') {
+    return (
+      <WebToolActivity
+        permission={permission}
+        sessionId={sessionId}
+        tool={tool}
+      />
+    );
+  }
+
+  return (
+    <BasicToolActivity
+      permission={permission}
+      sessionId={sessionId}
+      tool={tool}
+    />
+  );
+}
+
+function BasicToolActivity({
+  permission,
+  sessionId,
+  tool,
+}: {
+  permission: AiPanelPermissionRequest | null;
+  sessionId: string | null;
+  tool: AiPanelToolCall;
+}) {
+  const meta = getRuntimeToolMeta(tool);
+
+  return (
+    <div className="px-3 py-2">
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            {tool.name.toLowerCase().includes('bash') ? (
+              <Terminal className="shrink-0 text-muted-foreground" size={14} />
+            ) : (
+              <Wrench className="shrink-0 text-muted-foreground" size={14} />
+            )}
+            <span className="truncate text-sm font-medium">{tool.name}</span>
+          </div>
+          {meta.subtitle ? (
+            <div className="mt-1 truncate text-xs text-muted-foreground">
+              {meta.subtitle}
+            </div>
+          ) : null}
+        </div>
+        <ToolStatusBadge status={tool.status} />
+      </div>
+      <ToolDetailPreview
+        permission={permission}
+        sessionId={sessionId}
+        tool={tool}
+      />
+    </div>
+  );
+}
+
+function WebToolActivity({
+  permission,
+  sessionId,
+  tool,
+}: {
+  permission: AiPanelPermissionRequest | null;
+  sessionId: string | null;
+  tool: AiPanelToolCall;
+}) {
+  const query = getStringRecordValue(tool.input, 'query');
+  const url = getStringRecordValue(tool.input, 'url');
+  const resultCount = countWebResults(tool.output);
+  const subtitle = query || formatHostname(url) || getRuntimeToolMeta(tool).subtitle;
+
+  return (
+    <div className="px-3 py-2">
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <Globe className="shrink-0 text-muted-foreground" size={14} />
+            <span className="truncate text-sm font-medium">{tool.name}</span>
+          </div>
+          {subtitle ? (
+            <div className="mt-1 truncate text-xs text-muted-foreground">
+              {subtitle}
+              {resultCount > 0 ? ` · ${resultCount} result${resultCount === 1 ? '' : 's'}` : ''}
+            </div>
+          ) : null}
+        </div>
+        <ToolStatusBadge status={tool.status} />
+      </div>
+      <ToolDetailPreview
+        permission={permission}
+        sessionId={sessionId}
+        tool={tool}
+      />
+    </div>
+  );
+}
+
+function EditToolActivity({
   permission,
   sessionId,
   tool,
@@ -1507,34 +1700,329 @@ function ToolCard({
   tool: AiPanelToolCall;
 }) {
   const diff = extractDiffText(tool.output) ?? extractDiffText(tool.input);
+  const stats = calculateToolDiffStats(tool, diff);
+  const filePath = getToolFilePath(tool);
+  const displayPath = filePath ? compactWorkspacePath(filePath) : tool.name;
 
   return (
-    <div className="rounded-md border bg-background">
-      <div className="flex min-w-0 items-center justify-between gap-2 border-b px-3 py-2">
-        <div className="flex min-w-0 items-center gap-2">
-          {tool.name.toLowerCase().includes('bash') ? (
-            <Terminal size={15} />
-          ) : (
-            <Wrench size={15} />
-          )}
-          <span className="truncate text-sm font-medium">{tool.name}</span>
+    <div className="px-3 py-2">
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <Pencil className="shrink-0 text-muted-foreground" size={14} />
+            <span className="truncate text-sm font-medium">{tool.name}</span>
+            <span className="truncate text-sm text-muted-foreground">
+              {displayPath}
+            </span>
+          </div>
+          {stats ? (
+            <div className="mt-1 flex items-center gap-2 text-xs">
+              <span className="font-medium text-emerald-700">
+                +{stats.added}
+              </span>
+              <span className="font-medium text-red-700">
+                -{stats.removed}
+              </span>
+            </div>
+          ) : null}
         </div>
         <ToolStatusBadge status={tool.status} />
       </div>
-      <div className="space-y-2 p-3">
-        {diff ? <DiffPreview diff={diff} /> : <JsonPreview value={tool.input} />}
-        {tool.partialJson ? (
-          <pre className="max-h-28 overflow-auto rounded-md bg-muted p-2 text-xs leading-5 text-muted-foreground">
-            {tool.partialJson}
-          </pre>
-        ) : null}
-        {tool.output ? <JsonPreview label="Output" value={tool.output} /> : null}
-        {permission ? (
-          <PermissionCard permission={permission} sessionId={sessionId} />
-        ) : null}
-      </div>
+      <ToolDetailPreview
+        permission={permission}
+        sessionId={sessionId}
+        tool={tool}
+      />
     </div>
   );
+}
+
+function ToolDetailPreview({
+  permission,
+  sessionId,
+  tool,
+}: {
+  permission: AiPanelPermissionRequest | null;
+  sessionId: string | null;
+  tool: AiPanelToolCall;
+}) {
+  const diff = extractDiffText(tool.output) ?? extractDiffText(tool.input);
+  const hasOutput = Boolean(tool.output && !diff);
+
+  if (!diff && !tool.partialJson && !hasOutput && !permission) {
+    return null;
+  }
+
+  return (
+    <div className="mt-2 space-y-2">
+      {diff ? <DiffPreview diff={diff} /> : null}
+      {tool.partialJson ? (
+        <pre className="max-h-28 overflow-auto rounded-md bg-muted p-2 text-xs leading-5 text-muted-foreground">
+          {tool.partialJson}
+        </pre>
+      ) : null}
+      {hasOutput && tool.output ? (
+        <JsonPreview label="Output" value={tool.output} />
+      ) : null}
+      {permission ? (
+        <PermissionCard permission={permission} sessionId={sessionId} />
+      ) : null}
+    </div>
+  );
+}
+
+function buildRuntimeToolGroups(tools: AiPanelToolCall[]) {
+  const byKind = new Map<RuntimeToolGroupKind, AiPanelToolCall[]>();
+
+  for (const tool of tools) {
+    const kind = getRuntimeToolGroupKind(tool);
+    byKind.set(kind, [...(byKind.get(kind) ?? []), tool]);
+  }
+
+  return runtimeToolGroupOrder.flatMap((kind) => {
+    const groupTools = byKind.get(kind) ?? [];
+
+    if (groupTools.length === 0) {
+      return [];
+    }
+
+    return [
+      {
+        ...getRuntimeGroupLabels(kind),
+        kind,
+        tools: groupTools,
+      },
+    ];
+  });
+}
+
+function getRuntimeToolGroupKind(tool: AiPanelToolCall): RuntimeToolGroupKind {
+  const name = normalizeToolName(tool.name);
+
+  if (
+    [
+      'read',
+      'grep',
+      'glob',
+      'ls',
+      'list',
+      'find',
+      'search',
+    ].includes(name)
+  ) {
+    return 'exploration';
+  }
+
+  if (name.includes('websearch') || name.includes('webfetch')) {
+    return 'web';
+  }
+
+  if (
+    ['edit', 'write', 'multiedit', 'notebookedit'].includes(name) ||
+    Boolean(extractDiffText(tool.input)) ||
+    Boolean(extractDiffText(tool.output))
+  ) {
+    return 'edit';
+  }
+
+  return 'other';
+}
+
+function getRuntimeGroupLabels(kind: RuntimeToolGroupKind) {
+  switch (kind) {
+    case 'exploration':
+      return { completedLabel: '已探索', runningLabel: '正在探索' };
+    case 'web':
+      return { completedLabel: '已联网', runningLabel: '正在联网' };
+    case 'edit':
+      return { completedLabel: '已编辑', runningLabel: '正在编辑' };
+    case 'other':
+      return { completedLabel: '已调用工具', runningLabel: '正在调用工具' };
+  }
+}
+
+function renderRuntimeGroupIcon(kind: RuntimeToolGroupKind) {
+  const className = 'shrink-0 text-muted-foreground';
+  const size = 15;
+
+  switch (kind) {
+    case 'exploration':
+      return <Search className={className} size={size} />;
+    case 'web':
+      return <Globe className={className} size={size} />;
+    case 'edit':
+      return <Pencil className={className} size={size} />;
+    case 'other':
+      return <Wrench className={className} size={size} />;
+  }
+}
+
+function formatRuntimeGroupSummary(group: RuntimeToolGroup) {
+  const runningCount = group.tools.filter((tool) => tool.status === 'running').length;
+
+  if (runningCount > 0) {
+    return `${runningCount}/${group.tools.length} running`;
+  }
+
+  return `${group.tools.length} item${group.tools.length === 1 ? '' : 's'}`;
+}
+
+function getRuntimeToolMeta(tool: AiPanelToolCall) {
+  const name = normalizeToolName(tool.name);
+
+  if (name === 'bash') {
+    return {
+      subtitle: getStringRecordValue(tool.input, 'command'),
+    };
+  }
+
+  if (name === 'read') {
+    return {
+      subtitle: compactWorkspacePath(getToolFilePath(tool) ?? ''),
+    };
+  }
+
+  if (name === 'grep') {
+    return {
+      subtitle: getStringRecordValue(tool.input, 'pattern'),
+    };
+  }
+
+  if (name === 'glob') {
+    return {
+      subtitle: getStringRecordValue(tool.input, 'pattern'),
+    };
+  }
+
+  return {
+    subtitle:
+      compactWorkspacePath(getToolFilePath(tool) ?? '') ||
+      getStringRecordValue(tool.input, 'description') ||
+      getStringRecordValue(tool.input, 'query') ||
+      getStringRecordValue(tool.input, 'url'),
+  };
+}
+
+function normalizeToolName(name: string) {
+  return name.replace(/^tool-/i, '').replace(/\s.+$/, '').toLowerCase();
+}
+
+function getToolFilePath(tool: AiPanelToolCall) {
+  return (
+    getStringRecordValue(tool.input, 'file_path') ||
+    getStringRecordValue(tool.input, 'filePath') ||
+    getStringRecordValue(tool.input, 'path') ||
+    getStringRecordValue(tool.output, 'file_path') ||
+    getStringRecordValue(tool.output, 'filePath') ||
+    getStringRecordValue(tool.output, 'path')
+  );
+}
+
+function compactWorkspacePath(path: string) {
+  if (!path) {
+    return '';
+  }
+
+  const normalized = path.replace(/\\/g, '/');
+  const segments = normalized.split('/').filter(Boolean);
+
+  if (normalized.startsWith('/') && segments.length <= 2) {
+    return segments.at(-1) ?? normalized;
+  }
+
+  if (segments.length <= 2) {
+    return normalized;
+  }
+
+  const rootIndex = segments.findIndex((segment) =>
+    ['app', 'components', 'docs', 'packages', 'src', 'src-tauri'].includes(segment),
+  );
+
+  if (rootIndex >= 0) {
+    return segments.slice(rootIndex).join('/');
+  }
+
+  return segments.slice(-1).join('/');
+}
+
+function getStringRecordValue(
+  value: Record<string, unknown> | undefined,
+  key: string,
+) {
+  const entry = value?.[key];
+
+  return typeof entry === 'string' ? entry : '';
+}
+
+function formatHostname(url: string) {
+  if (!url) {
+    return '';
+  }
+
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
+
+function countWebResults(output: Record<string, unknown> | undefined) {
+  const results = output?.results;
+
+  if (!Array.isArray(results)) {
+    return 0;
+  }
+
+  return results.reduce((count, result) => {
+    if (!result || typeof result !== 'object') {
+      return count;
+    }
+
+    const content = (result as Record<string, unknown>).content;
+
+    if (Array.isArray(content)) {
+      return count + content.filter((item) => item && typeof item === 'object').length;
+    }
+
+    return count + 1;
+  }, 0);
+}
+
+function calculateToolDiffStats(tool: AiPanelToolCall, diff: string | null) {
+  if (diff) {
+    return calculateUnifiedDiffStats(diff);
+  }
+
+  const oldString = getStringRecordValue(tool.input, 'old_string');
+  const newString = getStringRecordValue(tool.input, 'new_string');
+
+  if (!oldString && !newString) {
+    return null;
+  }
+
+  return {
+    added: newString ? newString.split('\n').length : 0,
+    removed: oldString ? oldString.split('\n').length : 0,
+  };
+}
+
+function calculateUnifiedDiffStats(diff: string) {
+  let added = 0;
+  let removed = 0;
+
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('+++') || line.startsWith('---')) {
+      continue;
+    }
+
+    if (line.startsWith('+')) {
+      added += 1;
+    } else if (line.startsWith('-')) {
+      removed += 1;
+    }
+  }
+
+  return { added, removed };
 }
 
 function DiffPreview({ diff }: { diff: string }) {

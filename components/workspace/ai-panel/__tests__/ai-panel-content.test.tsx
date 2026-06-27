@@ -1122,6 +1122,84 @@ describe('AiPanelContent', () => {
     });
   });
 
+  it('groups exploration, web, and edit tool activity for the side panel', async () => {
+    render(
+      <AiPanelContent
+        currentDocument={currentDocument}
+        documentPanelData={documentPanelData}
+        workspaceRootPath="/repo"
+      />,
+    );
+
+    await waitFor(() => expect(mocks.aiHandlers).toHaveLength(1));
+    act(() => {
+      mocks.aiHandlers[0]({
+        input: { file_path: '/repo/guide.md' },
+        sessionId: 'ai-1',
+        toolCallId: 'tool-read',
+        toolName: 'Read',
+        type: 'toolStarted',
+      });
+      mocks.aiHandlers[0]({
+        durationMs: 15,
+        output: { content: '# 指南' },
+        sessionId: 'ai-1',
+        status: 'success',
+        toolCallId: 'tool-read',
+        toolName: 'Read',
+        type: 'toolCompleted',
+      });
+      mocks.aiHandlers[0]({
+        input: { query: 'Madora markdown workspace AI' },
+        sessionId: 'ai-1',
+        toolCallId: 'tool-web',
+        toolName: 'WebSearch',
+        type: 'toolStarted',
+      });
+      mocks.aiHandlers[0]({
+        output: {
+          results: [
+            { title: 'Madora docs', url: 'https://example.com/madora' },
+          ],
+        },
+        sessionId: 'ai-1',
+        status: 'success',
+        toolCallId: 'tool-web',
+        toolName: 'WebSearch',
+        type: 'toolCompleted',
+      });
+      mocks.aiHandlers[0]({
+        input: {
+          file_path: '/repo/guide.md',
+          new_string: '# 指南\n新增段落',
+          old_string: '# 旧指南',
+        },
+        sessionId: 'ai-1',
+        toolCallId: 'tool-edit',
+        toolName: 'Edit',
+        type: 'toolStarted',
+      });
+      mocks.aiHandlers[0]({
+        output: {
+          diff: '--- guide.md\n+++ guide.md\n@@\n-# 旧指南\n+# 指南\n+新增段落',
+        },
+        sessionId: 'ai-1',
+        status: 'success',
+        toolCallId: 'tool-edit',
+        toolName: 'Edit',
+        type: 'toolCompleted',
+      });
+    });
+
+    expect(await screen.findByText('已探索')).toBeTruthy();
+    expect(screen.getByText('已联网')).toBeTruthy();
+    expect(screen.getByText('已编辑')).toBeTruthy();
+    expect(screen.getAllByText('guide.md').length).toBeGreaterThan(0);
+    expect(screen.getByText('+2')).toBeTruthy();
+    expect(screen.getByText('-1')).toBeTruthy();
+    expect(screen.getByText(/Madora markdown workspace AI/)).toBeTruthy();
+  });
+
   it('uses 1Code-style notification preferences for permission prompts and completion', async () => {
     const notificationSpy = vi.fn();
     class MockNotification {
