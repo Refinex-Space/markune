@@ -1002,6 +1002,39 @@ export async function saveAiConversation(
   });
 }
 
+// v2 会话存储（parts 纵向流）。@author refinex
+// 与 v1 物理隔离（.v2.json 后缀），用于 B-J 子项目的 parts 纵向流渲染。
+export async function readAiConversationV2(
+  rootPath: string,
+  conversationId: string,
+): Promise<Record<string, unknown> | null> {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<Record<string, unknown> | null>('read_ai_conversation_v2', {
+    conversationId,
+    rootPath,
+  });
+}
+
+export async function saveAiConversationV2(
+  rootPath: string,
+  record: Record<string, unknown>,
+): Promise<void> {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  await invoke<void>('save_ai_conversation_v2', { record, rootPath });
+}
+
+export async function listAiConversationsV2(
+  rootPath: string,
+): Promise<Array<Record<string, unknown>>> {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<Array<Record<string, unknown>>>('list_ai_conversations_v2', {
+    rootPath,
+  });
+}
+
 export interface AiProviderSecretStatus {
   status: 'configured' | 'missing';
 }

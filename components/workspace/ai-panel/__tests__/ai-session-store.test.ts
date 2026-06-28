@@ -1,9 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// mock Tauri 动态 import（vi.mock 会被提升到顶部，对 await import() 同样生效）
+const invokeMock = vi.fn();
+vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 
 import {
   createEmptyConversationRecord,
+  loadConversationRecord,
+  listConversationSummaries,
   migrateConversationV1ToV2,
   isV1Record,
+  saveConversationRecord,
 } from '../ai-session-store';
 import type { AiConversationRecordV1 } from '../ai-session-store';
 
@@ -138,5 +145,80 @@ describe('migrateConversationV1ToV2', () => {
     const v2 = migrateConversationV1ToV2(v1);
     expect(v2.messages).toHaveLength(2);
     expect(v2.messages[1].role).toBe('assistant');
+  });
+});
+
+describe('v2 invoke I/O', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+  });
+
+  it('loadConversationRecord v2 文件存在时直接返回（已是 v2）', async () => {
+    invokeMock.mockResolvedValueOnce({
+      id: 'c1',
+      title: '对话',
+      profileId: 'p1',
+      providerId: 'local',
+      createdAt: 1,
+      updatedAt: 2,
+      messages: [
+        { id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }], createdAt: 1 },
+      ],
+      schemaVersion: 2,
+    });
+    const rec = await loadConversationRecord('/ws', 'c1');
+    expect(invokeMock).toHaveBeenCalledWith('read_ai_conversation_v2', {
+      conversationId: 'c1',
+      rootPath: '/ws',
+    });
+    expect(rec?.schemaVersion).toBe(2);
+    expect(rec?.messages[0].parts[0]).toMatchObject({ type: 'text', text: 'hi' });
+  });
+
+  it('loadConversationRecord v2 文件不存在（返回 null）时回退 v1 并迁移', async () => {
+    invokeMock
+      .mockResolvedValueOnce(null) // read_ai_conversation_v2 -> 不存在
+      .mockResolvedValueOnce({
+        // read_ai_conversation (v1)
+        id: 'c1',
+        title: '旧',
+        profileId: 'p1',
+        providerId: 'local',
+        createdAt: 1,
+        updatedAt: 2,
+        messages: [{ id: 'u1', role: 'user', content: 'hi' }],
+      });
+    const rec = await loadConversationRecord('/ws', 'c1');
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'read_ai_conversation', {
+      conversationId: 'c1',
+      rootPath: '/ws',
+    });
+    expect(rec?.schemaVersion).toBe(2);
+    expect(rec?.messages[0].parts[0]).toMatchObject({ type: 'text', text: 'hi' });
+  });
+
+  it('saveConversationRecord 调用 save_ai_conversation_v2 并强制 schemaVersion 2', async () => {
+    invokeMock.mockResolvedValueOnce(undefined);
+    const rec = createEmptyConversationRecord({
+      id: 'c2',
+      profileId: 'p',
+      providerId: 'local',
+    });
+    await saveConversationRecord('/ws', rec);
+    expect(invokeMock).toHaveBeenCalledWith('save_ai_conversation_v2', {
+      record: expect.objectContaining({ id: 'c2', schemaVersion: 2 }),
+      rootPath: '/ws',
+    });
+  });
+
+  it('listConversationSummaries 调用 list_ai_conversations_v2', async () => {
+    invokeMock.mockResolvedValueOnce([
+      { id: 'c1', title: 't', messageCount: 3, updatedAt: 2 },
+    ]);
+    const list = await listConversationSummaries('/ws');
+    expect(invokeMock).toHaveBeenCalledWith('list_ai_conversations_v2', {
+      rootPath: '/ws',
+    });
+    expect(list[0].messageCount).toBe(3);
   });
 });

@@ -162,3 +162,61 @@ export function normalizeRecord(raw: Record<string, unknown>): AiConversationRec
   }
   return raw as unknown as AiConversationRecordV2;
 }
+
+// —— Tauri I/O（接 v2 invoke 封装，v2 不存在时回退 v1 并迁移）——
+
+import {
+  listAiConversationsV2,
+  readAiConversation,
+  readAiConversationV2,
+  saveAiConversationV2,
+} from '../workspace-api';
+
+const SCHEMA_VERSION = 2;
+
+export interface AiConversationSummaryV2 {
+  id: string;
+  title: string;
+  profileId: string;
+  providerId: string;
+  createdAt: number;
+  updatedAt: number;
+  documentPath?: string;
+  documentTitle?: string;
+  messageCount: number;
+}
+
+/**
+ * 加载会话：优先 v2，v2 不存在时回退 v1 并迁移为 v2。
+ * 调用方可选择在迁移后调用 saveConversationRecord 写回 v2。
+ */
+export async function loadConversationRecord(
+  workspaceRoot: string,
+  id: string,
+): Promise<AiConversationRecordV2 | null> {
+  const v2 = await readAiConversationV2(workspaceRoot, id);
+  if (v2) {
+    return v2 as unknown as AiConversationRecordV2;
+  }
+  // 回退 v1：复用既有 read_ai_conversation 命令
+  const v1 = await readAiConversation(workspaceRoot, id);
+  if (!v1) return null;
+  return migrateConversationV1ToV2(v1 as unknown as AiConversationRecordV1);
+}
+
+/** 保存 v2 记录。 */
+export async function saveConversationRecord(
+  workspaceRoot: string,
+  record: AiConversationRecordV2,
+): Promise<void> {
+  const toWrite: AiConversationRecordV2 = { ...record, schemaVersion: SCHEMA_VERSION };
+  await saveAiConversationV2(workspaceRoot, toWrite as unknown as Record<string, unknown>);
+}
+
+/** 列出所有 v2 会话摘要（按 updatedAt 倒序）。 */
+export async function listConversationSummaries(
+  workspaceRoot: string,
+): Promise<AiConversationSummaryV2[]> {
+  const list = await listAiConversationsV2(workspaceRoot);
+  return list as unknown as AiConversationSummaryV2[];
+}
