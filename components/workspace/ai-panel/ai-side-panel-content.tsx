@@ -23,6 +23,7 @@ import { AiComposer } from './rendering/ai-composer';
 import { AiModeSelector, type AiMode } from './rendering/ai-mode-selector';
 import { AiPermissionPrompt } from './rendering/ai-permission-prompt';
 import { AiApplyEditContext } from './rendering/ai-apply-context';
+import { AiQuickActions, type QuickAction } from './rendering/ai-quick-actions';
 import type { MentionOption } from './rendering/ai-mention-serializer';
 
 export interface AiSidePanelContentProps {
@@ -194,6 +195,45 @@ export function AiSidePanelContent({
     [workspaceRootPath, documentPanelData, currentDocument, onMarkdownDocumentApplied],
   );
 
+  // 快捷写作动作：用 action.intent 重建 contextPack 并发送
+  const handleQuickAction = React.useCallback(
+    async (action: QuickAction) => {
+      if (!selectedProfile || !transport) return;
+      let pack = contextPack;
+      // 非 chat intent 需重建 contextPack（summarize-document/generate-outline）
+      if (
+        action.intent !== 'chat' &&
+        workspaceRootPath &&
+        currentDocument &&
+        documentPanelData
+      ) {
+        pack = buildAiContextPack({
+          workspaceRootPath,
+          currentDocument,
+          documentPanelData,
+          selection: selectedTextContext ?? null,
+          intent: action.intent,
+        });
+      }
+      if (!pack) return;
+      setIsStreaming(true);
+      try {
+        const stream = await transport.sendMessages({ prompt: action.prompt, context: pack });
+        const reader = stream.getReader();
+        let done = false;
+        while (!done) {
+          const result = await reader.read();
+          done = result.done;
+        }
+      } catch {
+        // 错误处理
+      } finally {
+        setIsStreaming(false);
+      }
+    },
+    [selectedProfile, transport, contextPack, workspaceRootPath, currentDocument, documentPanelData, selectedTextContext],
+  );
+
   // transport 创建/重建（profile/mode 变化时）。microtask 延迟避免 effect 内同步 setState。
   React.useEffect(() => {
     if (!selectedProfile || !workspaceRootPath) return;
@@ -225,6 +265,7 @@ export function AiSidePanelContent({
             </option>
           ))}
         </select>
+        <AiQuickActions onAction={handleQuickAction} disabled={!transport || isStreaming} />
         <AiModeSelector mode={mode} onChange={setMode} />
         {onOpenSettings && (
           <button
