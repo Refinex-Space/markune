@@ -13,6 +13,8 @@ import { AiPlanningPlaceholder } from './ai-planning-placeholder';
 import { AiToolCall } from './ai-tool-call';
 import { AiMcpToolCall } from './ai-mcp-tool-call';
 import { AiEditTool } from './ai-edit-tool';
+import { AiThinkingBlock } from './ai-thinking-block';
+import { AiWebSearchTool } from './ai-web-search-tool';
 import { getToolMeta, parseMcpToolType } from './ai-tool-registry';
 
 export interface AiAssistantMessageProps {
@@ -78,15 +80,12 @@ function renderPart(
         />
       );
     case 'reasoning':
-      // F 子项目接入思考折叠卡；D 先用简单文本占位
       return (
-        <div
+        <AiThinkingBlock
           key={`reasoning-${index}`}
-          className="rounded-md border border-dashed bg-muted/20 px-2.5 py-1.5 text-xs text-muted-foreground"
-        >
-          <div className="mb-0.5 font-medium text-muted-foreground/70">思考</div>
-          <div className="whitespace-pre-wrap break-words">{part.text ?? ''}</div>
-        </div>
+          part={part}
+          isStreaming={ctx.isStreaming}
+        />
       );
     default: {
       if (!part.type.startsWith('tool-')) return null;
@@ -98,6 +97,11 @@ function renderPart(
       if (part.type === 'tool-Edit' || part.type === 'tool-Write') {
         const { isPending } = getToolStatus(part, ctx.chatStatus);
         return <AiEditTool key={`tool-${index}`} part={part} isPending={isPending} />;
+      }
+      // WebSearch 工具用专用折叠卡（显示搜索结果）
+      if (part.type === 'tool-WebSearch') {
+        const { isPending } = getToolStatus(part, ctx.chatStatus);
+        return <AiWebSearchTool key={`tool-${index}`} part={part} isPending={isPending} />;
       }
       // 普通工具用 registry 元数据驱动单行卡片
       const meta = getToolMeta(part.type);

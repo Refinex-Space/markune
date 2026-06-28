@@ -73,7 +73,7 @@ describe('AiAssistantMessage', () => {
     expect(container.textContent).toContain('ls');
   });
 
-  it('reasoning part 渲染占位（F 子项目接入思考卡）', () => {
+  it('reasoning part 用思考折叠卡渲染（F 子项目已接入）', () => {
     const message: AiMessage = {
       id: 'a5',
       role: 'assistant',
@@ -81,6 +81,8 @@ describe('AiAssistantMessage', () => {
       createdAt: 1,
     };
     const { container } = render(<AiAssistantMessage message={message} />);
+    // AiThinkingBlock header 显示「思考」+ 预览
+    expect(container.textContent).toContain('思考');
     expect(container.textContent).toContain('我在思考');
   });
 });
