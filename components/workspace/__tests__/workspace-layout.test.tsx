@@ -568,11 +568,11 @@ const defaultAiSettings = DEFAULT_AI_SETTINGS;
 const defaultAppSettings = DEFAULT_APP_SETTINGS;
 
 function getSettingsCreateButton() {
-  const buttons = screen.getAllByRole('button', { name: 'Create' });
+  const buttons = screen.getAllByRole('button', { name: '新建' });
   const button = buttons.at(-1);
 
   if (!button) {
-    throw new Error('Create button not found');
+    throw new Error('新建 button not found');
   }
 
   return button as HTMLButtonElement;
@@ -1988,7 +1988,8 @@ describe('WorkspaceLayout', () => {
     await user.click(aiButton);
 
     expect(await screen.findByTestId('ai-panel-island')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '快捷动作' })).toBeTruthy();
+    // 新 AI 面板（parts 纵向流重建）渲染输入编辑器（role=textbox）
+    expect(screen.getByRole('textbox')).toBeTruthy();
   });
 
   it('toggles the AI panel from the right rail', async () => {
@@ -2649,7 +2650,7 @@ describe('WorkspaceLayout', () => {
     await user.click(screen.getByRole('button', { name: 'Models' }));
 
     expect(await screen.findByRole('heading', { name: 'Models' })).toBeTruthy();
-    expect(screen.getByPlaceholderText('Add or search model')).toBeTruthy();
+    expect(screen.getByPlaceholderText('添加或搜索 model')).toBeTruthy();
     expect(screen.getByTestId('ai-models-settings-shell').className).toContain(
       'space-y-6',
     );
@@ -2679,7 +2680,7 @@ describe('WorkspaceLayout', () => {
     expect(screen.getByText('Codex Account')).toBeTruthy();
     expect(screen.getByText('Codex Subscription')).toBeTruthy();
     expect(screen.getByText('API Keys')).toBeTruthy();
-    expect(screen.getByText('Connected')).toBeTruthy();
+    expect(screen.getByText('已连接')).toBeTruthy();
     expect(screen.queryByText('本地 AI 助手')).toBeNull();
 
     await user.click(screen.getByRole('button', { name: 'Skills' }));
@@ -2736,9 +2737,9 @@ describe('WorkspaceLayout', () => {
     );
     expect(screen.getAllByText('reviewer').length).toBeGreaterThan(0);
     expect(screen.getByText('Reviews code changes')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Only Selected' })).toBeTruthy();
-    expect(screen.getByText('Read File')).toBeTruthy();
-    expect(screen.getByText('Search Content')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '仅已选择' })).toBeTruthy();
+    expect(screen.getByText('读取文件')).toBeTruthy();
+    expect(screen.getByText('搜索内容')).toBeTruthy();
 
     await user.click(screen.getByRole('button', { name: 'MCP Servers' }));
     expect(
@@ -2798,14 +2799,14 @@ describe('WorkspaceLayout', () => {
     expect(screen.getByText('work@example.com')).toBeTruthy();
     expect(screen.getByText('Personal Claude')).toBeTruthy();
     expect(screen.getByText('personal@example.com')).toBeTruthy();
-    expect(screen.getAllByText('Active').length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: 'Switch' })).toBeTruthy();
+    expect(screen.getAllByText('活跃').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: '切换' })).toBeTruthy();
 
     await user.click(
-      screen.getByRole('button', { name: 'Account actions for Work Claude' }),
+      screen.getByRole('button', { name: 'Work Claude 的 account 操作' }),
     );
-    expect(await screen.findByRole('menuitem', { name: 'Rename' })).toBeTruthy();
-    expect(screen.getByRole('menuitem', { name: 'Remove' })).toBeTruthy();
+    expect(await screen.findByRole('menuitem', { name: '重命名' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: '移除' })).toBeTruthy();
   });
 
   it('switches renames and removes 1Code-style Anthropic accounts', async () => {
@@ -2888,16 +2889,16 @@ describe('WorkspaceLayout', () => {
     await user.click(await screen.findByRole('button', { name: 'Models' }));
 
     expect(await screen.findByText('Personal Claude')).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Switch' }));
+    await user.click(screen.getByRole('button', { name: '切换' }));
 
     await waitFor(() => {
       expect(setAiAnthropicAccountActiveMock).toHaveBeenCalledWith('acct-personal');
     });
 
     await user.click(
-      screen.getByRole('button', { name: 'Account actions for Personal Claude' }),
+      screen.getByRole('button', { name: 'Personal Claude 的 account 操作' }),
     );
-    await user.click(await screen.findByRole('menuitem', { name: 'Rename' }));
+    await user.click(await screen.findByRole('menuitem', { name: '重命名' }));
 
     await waitFor(() => {
       expect(renameAiAnthropicAccountMock).toHaveBeenCalledWith(
@@ -2907,15 +2908,15 @@ describe('WorkspaceLayout', () => {
     });
 
     await user.click(
-      screen.getByRole('button', { name: 'Account actions for Personal Renamed' }),
+      screen.getByRole('button', { name: 'Personal Renamed 的 account 操作' }),
     );
-    await user.click(await screen.findByRole('menuitem', { name: 'Remove' }));
+    await user.click(await screen.findByRole('menuitem', { name: '移除' }));
 
     await waitFor(() => {
       expect(deleteAiAnthropicAccountMock).toHaveBeenCalledWith('acct-personal');
     });
     expect(window.confirm).toHaveBeenCalledWith(
-      'Are you sure you want to remove "Personal Renamed"? You will need to re-authenticate to use it again.',
+      '确定要移除 "Personal Renamed" 吗？再次使用前需要重新认证。',
     );
   });
 
@@ -2942,14 +2943,14 @@ describe('WorkspaceLayout', () => {
 
     await user.click(screen.getByRole('button', { name: '打开设置' }));
     await user.click(await screen.findByRole('button', { name: 'Models' }));
-    await user.click(await screen.findByRole('button', { name: 'Connect' }));
+    await user.click(await screen.findByRole('button', { name: '连接' }));
 
     const dialog = await screen.findByRole('dialog');
-    await user.click(within(dialog).getByRole('button', { name: 'Import token manually' }));
-    await user.type(screen.getByLabelText('Display name'), 'Imported Claude');
+    await user.click(within(dialog).getByRole('button', { name: '手动导入 token' }));
+    await user.type(screen.getByLabelText('显示名称'), 'Imported Claude');
     await user.type(screen.getByLabelText('Email'), 'imported@example.com');
     await user.type(screen.getByLabelText('OAuth token'), 'oauth-token');
-    await user.click(screen.getByRole('button', { name: 'Import account' }));
+    await user.click(screen.getByRole('button', { name: '导入 account' }));
 
     await waitFor(() => {
       expect(importAiAnthropicAccountTokenMock).toHaveBeenCalledWith({
@@ -2990,12 +2991,12 @@ describe('WorkspaceLayout', () => {
 
     await user.click(screen.getByRole('button', { name: '打开设置' }));
     await user.click(await screen.findByRole('button', { name: 'Models' }));
-    await user.click(await screen.findByRole('button', { name: 'Connect' }));
+    await user.click(await screen.findByRole('button', { name: '连接' }));
 
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByRole('heading', { name: 'Claude Code' })).toBeTruthy();
 
-    await user.click(within(dialog).getByRole('button', { name: 'Connect' }));
+    await user.click(within(dialog).getByRole('button', { name: '连接' }));
 
     await waitFor(() => {
       expect(startAiClaudeCodeAuthMock).toHaveBeenCalledTimes(1);
@@ -3012,7 +3013,7 @@ describe('WorkspaceLayout', () => {
       within(dialog).getByLabelText('Authentication code'),
       'oauth#code',
     );
-    await user.click(within(dialog).getByRole('button', { name: 'Continue' }));
+    await user.click(within(dialog).getByRole('button', { name: '继续' }));
 
     await waitFor(() => {
       expect(submitAiClaudeCodeAuthCodeMock).toHaveBeenCalledWith({
@@ -3035,9 +3036,7 @@ describe('WorkspaceLayout', () => {
     await user.click(screen.getByRole('button', { name: '打开设置' }));
     await user.click(await screen.findByRole('button', { name: 'Preferences' }));
 
-    expect(
-      await screen.findByRole('heading', { name: 'Preferences' }),
-    ).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: '偏好设置' })).toBeTruthy();
     expect(screen.getByTestId('ai-preferences-settings-shell').className).toContain(
       'p-6',
     );
@@ -3051,86 +3050,82 @@ describe('WorkspaceLayout', () => {
       .toContain('flex');
     expect(screen.getByTestId('ai-preferences-row-extended-thinking').className)
       .toContain('justify-between');
-    expect(
-      screen.getByText("Configure Claude's behavior and features"),
-    ).toBeTruthy();
-    expect(screen.getByText('Extended Thinking')).toBeTruthy();
+    expect(screen.getByText('配置 Claude 的行为和功能')).toBeTruthy();
+    expect(screen.getByText('启用 Extended Thinking')).toBeTruthy();
     expect(
       screen.getByText(
-        'Enable deeper reasoning with more thinking tokens (uses more credits). Disables response streaming.',
+        '使用更多 thinking tokens 进行更深入推理（会消耗更多 credits）。启用后将关闭响应流式输出。',
       ),
     ).toBeTruthy();
-    expect(screen.getByText('Default Mode')).toBeTruthy();
+    expect(screen.getByText('默认 Agent 模式')).toBeTruthy();
     expect(
-      screen.getByText('Mode for new agents (Plan = read-only, Agent = can edit)'),
+      screen.getByText('新建 agent 使用的模式（Plan = 只读，Agent = 可编辑）'),
     ).toBeTruthy();
-    expect(screen.getByText('Include Co-Authored-By')).toBeTruthy();
+    expect(screen.getByText('包含 Co-Authored-By')).toBeTruthy();
     expect(
-      screen.getByText('Add "Co-authored-by: Claude" to git commits made by Claude'),
+      screen.getByText('为 Claude 创建的 Git commit 添加 "Co-authored-by: Claude"'),
     ).toBeTruthy();
-    expect(screen.getByText('Default Model')).toBeTruthy();
+    expect(screen.getByText('默认 Claude 模型')).toBeTruthy();
     expect(screen.queryByText('Default Codex Model')).toBeNull();
-    expect(screen.getByText('Codex Thinking')).toBeTruthy();
-    expect(screen.getByText('Desktop Notifications')).toBeTruthy();
+    expect(screen.getByText('Codex Thinking 强度')).toBeTruthy();
+    expect(screen.getByText('桌面通知')).toBeTruthy();
     expect(
       screen.getByText(
-        'Show system notifications when agent needs input or completes work',
+        '当 agent 需要输入或完成工作时显示系统通知',
       ),
     ).toBeTruthy();
-    expect(screen.getByText('Sound Notifications')).toBeTruthy();
+    expect(screen.getByText('声音通知')).toBeTruthy();
     expect(
-      screen.getByText("Play a sound when agent completes work while you're away"),
+      screen.getByText('当你离开期间 agent 完成工作时播放提示音'),
     ).toBeTruthy();
-    expect(screen.getByText('Notify When Focused')).toBeTruthy();
+    expect(screen.getByText('窗口聚焦时仍通知')).toBeTruthy();
     expect(
-      screen.getByText('Show notifications even when the app window is active'),
+      screen.getByText('即使应用窗口处于活动状态也显示通知'),
     ).toBeTruthy();
-    expect(screen.getByText('Quick Switch')).toBeTruthy();
-    expect(
-      screen.getByText((_, node) => node?.textContent === 'What ⌃Tab switches between'),
-    ).toBeTruthy();
-    expect(screen.getByText('Auto-advance')).toBeTruthy();
-    expect(screen.getByText('Where to go after archiving a workspace')).toBeTruthy();
-    expect(screen.getByText('Preferred Editor')).toBeTruthy();
-    expect(screen.getByText('Default app for opening workspaces')).toBeTruthy();
-    expect(screen.getByText('Share Usage Analytics')).toBeTruthy();
+    expect(screen.getByText('快速切换')).toBeTruthy();
     expect(
       screen.getByText(
-        'Help us improve Agents by sharing anonymous usage data. We only track feature usage and app performance–never your code, prompts, or messages. No AI training on your data.',
+        (_, node) => node?.textContent === '设置 ⌃Tab 在哪些目标之间切换',
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText('归档后跳转')).toBeTruthy();
+    expect(screen.getByText('归档 workspace 后跳转到哪里')).toBeTruthy();
+    expect(screen.getByText('首选 Editor')).toBeTruthy();
+    expect(screen.getByText('打开 workspace 时默认使用的应用')).toBeTruthy();
+    expect(screen.getByText('共享使用分析')).toBeTruthy();
+    expect(
+      screen.getByText(
+        '共享匿名使用数据，帮助我们改进 Agents。我们只跟踪功能使用和应用性能，不会跟踪你的代码、prompts 或消息，也不会用你的数据训练 AI。',
       ),
     ).toBeTruthy();
 
     await user.click(
-      screen.getByRole('switch', { name: 'Extended Thinking' }),
+      screen.getByRole('switch', { name: '启用 Extended Thinking' }),
     );
     await user.click(
-      screen.getByRole('switch', { name: 'Include Co-Authored-By' }),
+      screen.getByRole('switch', { name: '包含 Co-Authored-By' }),
     );
     expect(setAiClaudeIncludeCoAuthoredByMock).toHaveBeenCalledWith(false);
-    await user.click(screen.getByRole('combobox', { name: 'Default Mode' }));
+    await user.click(screen.getByRole('combobox', { name: '默认 Agent 模式' }));
     await user.click(await screen.findByRole('option', { name: 'Plan' }));
-    await user.click(screen.getByRole('button', { name: 'Extra High' }));
-    await user.click(
-      screen.getByRole('switch', { name: 'Desktop Notifications' }),
-    );
-    await user.click(
-      screen.getByRole('switch', { name: 'Sound Notifications' }),
-    );
-    await user.click(screen.getByRole('combobox', { name: 'Quick Switch' }));
+    await user.click(screen.getByRole('button', { name: '极高' }));
+    await user.click(screen.getByRole('switch', { name: '桌面通知' }));
+    await user.click(screen.getByRole('switch', { name: '声音通知' }));
+    await user.click(screen.getByRole('combobox', { name: '快速切换' }));
     await user.click(await screen.findByRole('option', { name: 'Agents' }));
-    await user.click(screen.getByRole('combobox', { name: 'Auto-advance' }));
+    await user.click(screen.getByRole('combobox', { name: '归档后跳转' }));
     await user.click(
-      await screen.findByRole('option', { name: 'Close workspace' }),
+      await screen.findByRole('option', { name: '关闭 workspace' }),
     );
     await user.click(
-      screen.getByRole('button', { name: 'Preferred Editor: Cursor' }),
+      screen.getByRole('button', { name: '首选 Editor: Cursor' }),
     );
     expect(screen.getAllByTestId('preferred-editor-icon-cursor').length).toBeGreaterThan(0);
     expect(await screen.findByTestId('preferred-editor-icon-warp')).toBeTruthy();
     await user.click(await screen.findByRole('menuitem', { name: 'Warp' }));
     expect(screen.getByTestId('preferred-editor-icon-warp')).toBeTruthy();
     await user.click(
-      screen.getByRole('switch', { name: 'Share Usage Analytics' }),
+      screen.getByRole('switch', { name: '共享使用分析' }),
     );
     await user.click(screen.getByRole('button', { name: '应用' }));
 
@@ -3165,14 +3160,14 @@ describe('WorkspaceLayout', () => {
     await user.click(screen.getByRole('button', { name: 'API Keys' }));
 
     expect(screen.getByText('Codex API Key')).toBeTruthy();
-    expect(screen.getByText('Takes priority over subscription')).toBeTruthy();
+    expect(screen.getByText('优先级高于 subscription')).toBeTruthy();
     expect(screen.getByText('OpenAI API Key')).toBeTruthy();
     expect(
-      screen.getByText('Required for voice transcription (Whisper API)'),
+      screen.getByText('语音转写需要使用（Whisper API）'),
     ).toBeTruthy();
     expect(screen.getByText('Override Model')).toBeTruthy();
     expect(screen.getByText('Model name')).toBeTruthy();
-    expect(screen.getByText('Model identifier to use for requests')).toBeTruthy();
+    expect(screen.getByText('请求时使用的 model identifier')).toBeTruthy();
     expect(screen.getByText('API token')).toBeTruthy();
     expect(screen.getByText('ANTHROPIC_AUTH_TOKEN env')).toBeTruthy();
     expect(screen.getByText('Base URL')).toBeTruthy();
@@ -3267,15 +3262,15 @@ describe('WorkspaceLayout', () => {
     await user.click(screen.getByRole('button', { name: '打开设置' }));
     await user.click(await screen.findByRole('button', { name: 'Models' }));
 
-    expect(await screen.findByText('Not connected')).toBeTruthy();
-    await user.click(await screen.findByRole('button', { name: 'Connect Codex' }));
+    expect(await screen.findByText('未连接')).toBeTruthy();
+    await user.click(await screen.findByRole('button', { name: '连接 Codex' }));
 
     const dialog = await screen.findByRole('dialog');
     expect(
-      within(dialog).getByRole('heading', { name: 'Connect OpenAI Codex' }),
+      within(dialog).getByRole('heading', { name: '连接 OpenAI Codex' }),
     ).toBeTruthy();
 
-    await user.click(within(dialog).getByRole('button', { name: 'Connect' }));
+    await user.click(within(dialog).getByRole('button', { name: '连接' }));
 
     await waitFor(() => {
       expect(startCodexLoginMock).toHaveBeenCalledTimes(1);
@@ -3308,7 +3303,7 @@ describe('WorkspaceLayout', () => {
     await user.click(screen.getByRole('button', { name: '打开设置' }));
     await user.click(await screen.findByRole('button', { name: 'Models' }));
 
-    expect(await screen.findByText('Not connected to subscription')).toBeTruthy();
+    expect(await screen.findByText('未连接 subscription')).toBeTruthy();
   });
 
   it('logs out Codex subscription from the Models account section', async () => {
@@ -3358,12 +3353,12 @@ describe('WorkspaceLayout', () => {
 
     await user.click(screen.getByRole('button', { name: '打开设置' }));
     await user.click(await screen.findByRole('button', { name: 'Models' }));
-    await user.click(await screen.findByRole('button', { name: 'Logout' }));
+    await user.click(await screen.findByRole('button', { name: '退出' }));
 
     await waitFor(() => {
       expect(logoutCodexAccountMock).toHaveBeenCalledTimes(1);
     });
-    expect(confirmSpy).toHaveBeenCalledWith('Log out from Codex on this device?');
+    expect(confirmSpy).toHaveBeenCalledWith('要在这台设备上退出 Codex 吗？');
     expect(detectAiAccountsMock).toHaveBeenCalledTimes(2);
 
     confirmSpy.mockRestore();
@@ -3388,7 +3383,7 @@ describe('WorkspaceLayout', () => {
     await waitFor(() => {
       expect(
         screen.getByText(
-          "Invalid Codex API key format. Key should start with 'sk-'",
+          "Codex API key 格式无效，key 应以 'sk-' 开头。",
         ),
       ).toBeTruthy();
     });
@@ -3402,7 +3397,7 @@ describe('WorkspaceLayout', () => {
     await waitFor(() => {
       expect(
         screen.getByText(
-          "Invalid OpenAI API key format. Key should start with 'sk-'",
+          "OpenAI API key 格式无效，key 应以 'sk-' 开头。",
         ),
       ).toBeTruthy();
     });
@@ -3511,9 +3506,9 @@ describe('WorkspaceLayout', () => {
     await user.click(screen.getByRole('button', { name: '打开设置' }));
     await user.click(await screen.findByRole('button', { name: 'Skills' }));
 
-    await user.click(screen.getByTitle('Create new skill or command'));
+    await user.click(screen.getByTitle('新建 Skill 或 command'));
     await user.type(screen.getByLabelText('Name'), 'doc');
-    await user.type(screen.getByLabelText('Description'), 'Write docs');
+    await user.type(screen.getByLabelText('描述'), 'Write docs');
     await user.type(screen.getByLabelText('Instructions'), 'Use docs.');
     await user.click(getSettingsCreateButton());
 
@@ -3526,16 +3521,16 @@ describe('WorkspaceLayout', () => {
     await waitFor(() => {
       expect(screen.getAllByText('doc').length).toBeGreaterThan(0);
     });
-    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '保存' })).toBeNull();
 
-    await user.clear(screen.getByLabelText('Description'));
-    await user.type(screen.getByLabelText('Description'), 'Write updated docs');
-    await user.click(screen.getByRole('button', { name: 'Edit markdown' }));
+    await user.clear(screen.getByLabelText('描述'));
+    await user.type(screen.getByLabelText('描述'), 'Write updated docs');
+    await user.click(screen.getByRole('button', { name: '编辑 markdown' }));
     const skillEditor = await screen.findByLabelText('Instructions');
     await user.clear(skillEditor);
     await user.type(skillEditor, 'Use updated docs.');
-    expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByRole('button', { name: '保存' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '保存' }));
 
     expect(updateAiSkillMock).toHaveBeenCalledWith('/repo', {
       content: 'Use updated docs.',
@@ -3547,21 +3542,21 @@ describe('WorkspaceLayout', () => {
     expect(screen.getByTestId('ai-skills-delete-row').className).toContain(
       'border-t',
     );
-    await user.click(screen.getByRole('button', { name: 'Delete skill' }));
+    await user.click(screen.getByRole('button', { name: '删除 Skill' }));
     expect(deleteAiSkillMock).not.toHaveBeenCalled();
     let deleteDialog = await screen.findByRole('alertdialog');
-    expect(within(deleteDialog).getByText(/Are you sure you want to delete/)).toBeTruthy();
-    await user.click(within(deleteDialog).getByRole('button', { name: 'Delete' }));
+    expect(within(deleteDialog).getByText(/确定要删除/)).toBeTruthy();
+    await user.click(within(deleteDialog).getByRole('button', { name: '删除' }));
     expect(deleteAiSkillMock).toHaveBeenCalledWith('/repo', {
       name: 'doc',
       source: 'user',
     });
 
-    await user.click(screen.getByTitle('Create new skill or command'));
-    await user.click(screen.getByRole('combobox', { name: 'Type' }));
+    await user.click(screen.getByTitle('新建 Skill 或 command'));
+    await user.click(screen.getByRole('combobox', { name: '类型' }));
     await user.click(
       await screen.findByRole('option', {
-        name: 'Command (triggered via /slash)',
+        name: 'Command（通过 /slash 触发）',
       }),
     );
     await user.click(screen.getByRole('combobox', { name: 'Scope' }));
@@ -3571,8 +3566,8 @@ describe('WorkspaceLayout', () => {
       }),
     );
     await user.type(screen.getByLabelText('Name'), 'git/commit');
-    await user.type(screen.getByLabelText('Description'), 'Commit');
-    await user.type(screen.getByLabelText('Argument hint'), '<message>');
+    await user.type(screen.getByLabelText('描述'), 'Commit');
+    await user.type(screen.getByLabelText('参数提示'), '<message>');
     await user.type(screen.getByLabelText('Instructions'), 'Commit changes.');
     await user.click(getSettingsCreateButton());
 
@@ -3586,17 +3581,17 @@ describe('WorkspaceLayout', () => {
     await waitFor(() => {
       expect(screen.getAllByText('git:commit').length).toBeGreaterThan(0);
     });
-    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '保存' })).toBeNull();
 
-    await user.clear(screen.getByLabelText('Argument hint'));
-    await user.clear(screen.getByLabelText('Description'));
-    await user.type(screen.getByLabelText('Description'), 'Commit updated');
-    await user.click(screen.getByRole('button', { name: 'Edit markdown' }));
+    await user.clear(screen.getByLabelText('参数提示'));
+    await user.clear(screen.getByLabelText('描述'));
+    await user.type(screen.getByLabelText('描述'), 'Commit updated');
+    await user.click(screen.getByRole('button', { name: '编辑 markdown' }));
     const commandEditor = await screen.findByLabelText('Instructions');
     await user.clear(commandEditor);
     await user.type(commandEditor, 'Commit updated changes.');
-    expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByRole('button', { name: '保存' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '保存' }));
 
     expect(updateAiCommandMock).toHaveBeenCalledWith('/repo', {
       argumentHint: null,
@@ -3606,11 +3601,11 @@ describe('WorkspaceLayout', () => {
       source: 'project',
     });
 
-    await user.click(screen.getByRole('button', { name: 'Delete command' }));
+    await user.click(screen.getByRole('button', { name: '删除 command' }));
     expect(deleteAiCommandMock).not.toHaveBeenCalled();
     deleteDialog = await screen.findByRole('alertdialog');
-    expect(within(deleteDialog).getByText(/Are you sure you want to delete/)).toBeTruthy();
-    await user.click(within(deleteDialog).getByRole('button', { name: 'Delete' }));
+    expect(within(deleteDialog).getByText(/确定要删除/)).toBeTruthy();
+    await user.click(within(deleteDialog).getByRole('button', { name: '删除' }));
     expect(deleteAiCommandMock).toHaveBeenCalledWith('/repo', {
       name: 'git:commit',
       source: 'project',
@@ -3640,7 +3635,7 @@ describe('WorkspaceLayout', () => {
     await user.click(screen.getByRole('button', { name: '打开设置' }));
     await user.click(await screen.findByRole('button', { name: 'Skills' }));
 
-    expect(await screen.findByText('Usage')).toBeTruthy();
+    expect(await screen.findByText('用法')).toBeTruthy();
     expect(screen.getAllByText('@doc').length).toBeGreaterThan(0);
     expect(
       await screen.findByRole('heading', { level: 3, name: 'Use docs' }),
@@ -3648,7 +3643,7 @@ describe('WorkspaceLayout', () => {
     expect(screen.queryByText('### Use docs')).toBeNull();
     expect(screen.queryByLabelText('Instructions')).toBeNull();
 
-    await user.click(screen.getByRole('button', { name: 'Edit markdown' }));
+    await user.click(screen.getByRole('button', { name: '编辑 markdown' }));
     const editor = await screen.findByLabelText('Instructions');
     expect((editor as HTMLTextAreaElement).rows).toBe(16);
     await user.clear(editor);
@@ -3678,18 +3673,18 @@ describe('WorkspaceLayout', () => {
 
     await user.click(screen.getByRole('button', { name: '打开设置' }));
     await user.click(await screen.findByRole('button', { name: 'Skills' }));
-    await user.click(screen.getByTitle('Create new skill or command'));
+    await user.click(screen.getByTitle('新建 Skill 或 command'));
 
-    expect(await screen.findByRole('heading', { name: 'New Skill' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: '新建 Skill' })).toBeTruthy();
     expect(screen.getByPlaceholderText('my-skill')).toBeTruthy();
     expect(
       screen.getByText(
-        'Will be converted to kebab-case (lowercase letters, numbers, hyphens)',
+        '会转换为 kebab-case（小写字母、数字和连字符）',
       ),
     ).toBeTruthy();
-    expect(screen.getByPlaceholderText('What this skill does...')).toBeTruthy();
+    expect(screen.getByPlaceholderText('这个 Skill 的用途...')).toBeTruthy();
     const skillInstructions = screen.getByPlaceholderText(
-      'Skill instructions (markdown)...',
+      'Skill instructions（markdown）...',
     ) as HTMLTextAreaElement;
     expect(skillInstructions).toBeTruthy();
     expect(skillInstructions.rows).toBe(12);
@@ -3702,24 +3697,24 @@ describe('WorkspaceLayout', () => {
     ).toBeTruthy();
     await user.keyboard('{Escape}');
 
-    await user.click(screen.getByRole('combobox', { name: 'Type' }));
+    await user.click(screen.getByRole('combobox', { name: '类型' }));
     await user.click(
       await screen.findByRole('option', {
-        name: 'Command (triggered via /slash)',
+        name: 'Command（通过 /slash 触发）',
       }),
     );
 
     expect(screen.getByPlaceholderText('my-command')).toBeTruthy();
     expect(
-      screen.getByPlaceholderText('What this command does...'),
+      screen.getByPlaceholderText('这个 command 的用途...'),
     ).toBeTruthy();
     expect(
-      screen.getByPlaceholderText('Command prompt (markdown)...'),
+      screen.getByPlaceholderText('Command prompt（markdown）...'),
     ).toBeTruthy();
     expect(
       (
         screen.getByPlaceholderText(
-          'Command prompt (markdown)...',
+          'Command prompt（markdown）...',
         ) as HTMLTextAreaElement
       ).rows,
     ).toBe(12);
@@ -3772,7 +3767,7 @@ describe('WorkspaceLayout', () => {
       await screen.findByRole('button', { name: 'Custom Agents' }),
     );
 
-    await user.click(screen.getByRole('button', { name: 'Create agent' }));
+    await user.click(screen.getByRole('button', { name: '新建 Agent' }));
     await user.click(screen.getByRole('combobox', { name: 'Scope' }));
     await user.click(
       await screen.findByRole('option', {
@@ -3780,9 +3775,9 @@ describe('WorkspaceLayout', () => {
       }),
     );
     await user.type(screen.getByLabelText('Name'), 'reviewer');
-    await user.type(screen.getByLabelText('Description'), 'Review code');
-    expect(screen.queryByLabelText('Allowed tools')).toBeNull();
-    expect(screen.queryByLabelText('Disallowed tools')).toBeNull();
+    await user.type(screen.getByLabelText('描述'), 'Review code');
+    expect(screen.queryByLabelText('允许的 Tools')).toBeNull();
+    expect(screen.queryByLabelText('禁用的 Tools')).toBeNull();
     await user.type(screen.getByLabelText('System Prompt'), 'Review carefully.');
     await user.click(getSettingsCreateButton());
 
@@ -3799,23 +3794,23 @@ describe('WorkspaceLayout', () => {
       expect(screen.getAllByText('reviewer').length).toBeGreaterThan(0);
     });
     expect(screen.getByText('Tools')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Only Selected' })).toBeTruthy();
-    expect(screen.getByText('Read File')).toBeTruthy();
-    expect(screen.getByText('Search Content')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '仅已选择' })).toBeTruthy();
+    expect(screen.getByText('读取文件')).toBeTruthy();
+    expect(screen.getByText('搜索内容')).toBeTruthy();
     expect(screen.getByText('Bash Commands')).toBeTruthy();
-    expect(screen.queryByLabelText('Allowed tools')).toBeNull();
-    expect(screen.queryByLabelText('Disallowed tools')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    expect(screen.queryByLabelText('允许的 Tools')).toBeNull();
+    expect(screen.queryByLabelText('禁用的 Tools')).toBeNull();
+    expect(screen.queryByRole('button', { name: '保存' })).toBeNull();
 
-    await user.clear(screen.getByLabelText('Description'));
-    await user.type(screen.getByLabelText('Description'), 'Review code deeply');
+    await user.clear(screen.getByLabelText('描述'));
+    await user.type(screen.getByLabelText('描述'), 'Review code deeply');
     await user.clear(screen.getByLabelText('System Prompt'));
     await user.type(
       screen.getByLabelText('System Prompt'),
       'Review more carefully.',
     );
-    expect(screen.getByRole('button', { name: 'Save' })).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByRole('button', { name: '保存' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '保存' }));
 
     expect(updateAiCustomAgentMock).toHaveBeenCalledWith('/repo', {
       description: 'Review code deeply',
@@ -3827,11 +3822,11 @@ describe('WorkspaceLayout', () => {
       tools: ['Read', 'Grep'],
     });
 
-    await user.click(screen.getByRole('button', { name: 'Delete agent' }));
+    await user.click(screen.getByRole('button', { name: '删除 Agent' }));
     expect(deleteAiCustomAgentMock).not.toHaveBeenCalled();
     const deleteDialog = await screen.findByRole('alertdialog');
-    expect(within(deleteDialog).getByText(/Are you sure you want to delete/)).toBeTruthy();
-    await user.click(within(deleteDialog).getByRole('button', { name: 'Delete' }));
+    expect(within(deleteDialog).getByText(/确定要删除/)).toBeTruthy();
+    await user.click(within(deleteDialog).getByRole('button', { name: '删除' }));
     expect(deleteAiCustomAgentMock).toHaveBeenCalledWith('/repo', {
       name: 'reviewer',
       source: 'project',
@@ -3853,15 +3848,15 @@ describe('WorkspaceLayout', () => {
       await screen.findByRole('button', { name: 'Custom Agents' }),
     );
 
-    expect(await screen.findByText('No agents')).toBeTruthy();
+    expect(await screen.findByText('暂无 Agents')).toBeTruthy();
     expect(screen.getByTestId('agents-empty-sidebar-icon')).toBeTruthy();
-    expect(screen.getByText('No custom agents found')).toBeTruthy();
+    expect(screen.getByText('未找到 Custom Agents')).toBeTruthy();
     expect(screen.getByTestId('agents-empty-detail-icon')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Create agent' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '新建 Agent' })).toBeTruthy();
     expect(
-      screen.getByRole('button', { name: 'Create your first agent' }),
+      screen.getByRole('button', { name: '新建第一个 Agent' }),
     ).toBeTruthy();
-    expect(screen.queryByLabelText('Description')).toBeNull();
+    expect(screen.queryByLabelText('描述')).toBeNull();
   });
 
   it('matches 1Code-style custom agents sidebar and create form', async () => {
@@ -3898,10 +3893,10 @@ describe('WorkspaceLayout', () => {
     expect(within(reviewerButton).queryByText(/\.claude\/agents/)).toBeNull();
     expect(within(reviewerButton).queryByText(/Read, Grep/)).toBeNull();
 
-    await user.click(screen.getByTitle('Create new agent'));
+    await user.click(screen.getByTitle('新建 Agent'));
 
     expect(
-      await screen.findByRole('heading', { name: 'New Agent' }),
+      await screen.findByRole('heading', { name: '新建 Agent' }),
     ).toBeTruthy();
     expect(screen.getByTestId('ai-agents-detail-inner').className).toContain(
       'max-w-2xl',
@@ -3909,24 +3904,24 @@ describe('WorkspaceLayout', () => {
     expect(screen.getByTestId('ai-agents-detail-inner').className).toContain(
       'p-6',
     );
-    expect(screen.getByRole('heading', { name: 'New Agent' }).className).toContain(
+    expect(screen.getByRole('heading', { name: '新建 Agent' }).className).toContain(
       'text-sm',
     );
     expect(
-      screen.getByRole('heading', { name: 'New Agent' }).className,
+      screen.getByRole('heading', { name: '新建 Agent' }).className,
     ).not.toContain('text-[18px]');
     expect(
       (screen.getByLabelText('System Prompt') as HTMLTextAreaElement).rows,
     ).toBe(12);
     expect(screen.getByPlaceholderText('my-agent')).toBeTruthy();
     expect(
-      screen.getByText('Lowercase letters, numbers, and hyphens'),
+      screen.getByText('小写字母、数字和连字符'),
     ).toBeTruthy();
-    expect(screen.getByPlaceholderText('What this agent does...')).toBeTruthy();
+    expect(screen.getByPlaceholderText('这个 Agent 的用途...')).toBeTruthy();
     expect(
-      screen.getByPlaceholderText('You are a specialized agent that...'),
+      screen.getByPlaceholderText('你是一个专用 agent，负责...'),
     ).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: '取消' }).length).toBeGreaterThan(0);
     expect(
       getSettingsCreateButton().disabled,
     ).toBe(true);
@@ -3970,20 +3965,20 @@ describe('WorkspaceLayout', () => {
       await screen.findByRole('button', { name: 'Custom Agents' }),
     );
 
-    await user.click(screen.getByRole('button', { name: 'Create agent' }));
+    await user.click(screen.getByRole('button', { name: '新建 Agent' }));
     expect(await screen.findByText('Tools')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'All Tools' })).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Only Selected' }));
+    expect(screen.getByRole('button', { name: '所有 Tools' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '仅已选择' }));
 
-    expect(await screen.findByText('File Operations')).toBeTruthy();
+    expect(await screen.findByText('文件操作')).toBeTruthy();
     expect(screen.getByText('System')).toBeTruthy();
-    expect(screen.getByText('0 selected')).toBeTruthy();
+    expect(screen.getByText('已选择 0 个')).toBeTruthy();
     expect(
-      screen.getByText('Agent will ONLY have access to selected tools'),
+      screen.getByText('Agent 只能访问已选择的 tools'),
     ).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: /Read File/ }));
+    await user.click(screen.getByRole('button', { name: /读取文件/ }));
     await user.click(screen.getByRole('button', { name: /Bash Commands/ }));
-    expect(screen.getByText('2 selected')).toBeTruthy();
+    expect(screen.getByText('已选择 2 个')).toBeTruthy();
 
     await user.click(screen.getByRole('combobox', { name: 'Scope' }));
     await user.click(
@@ -3992,7 +3987,7 @@ describe('WorkspaceLayout', () => {
       }),
     );
     await user.type(screen.getByLabelText('Name'), 'reviewer');
-    await user.type(screen.getByLabelText('Description'), 'Review code');
+    await user.type(screen.getByLabelText('描述'), 'Review code');
     await user.type(screen.getByLabelText('System Prompt'), 'Review carefully.');
     await user.click(getSettingsCreateButton());
 
@@ -4009,11 +4004,11 @@ describe('WorkspaceLayout', () => {
     await waitFor(() => {
       expect(screen.getAllByText('reviewer').length).toBeGreaterThan(0);
     });
-    expect(screen.getByRole('button', { name: 'Only Selected' })).toBeTruthy();
-    expect(screen.getByText('2 selected')).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: /Search Content/ }));
-    expect(screen.getByText('1 selected')).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByRole('button', { name: '仅已选择' })).toBeTruthy();
+    expect(screen.getByText('已选择 2 个')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: /搜索内容/ }));
+    expect(screen.getByText('已选择 1 个')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '保存' }));
 
     expect(updateAiCustomAgentMock).toHaveBeenCalledWith('/repo', {
       description: 'Review code',
@@ -4037,16 +4032,16 @@ describe('WorkspaceLayout', () => {
 
     await user.click(screen.getByRole('button', { name: '打开设置' }));
     await user.click(await screen.findByRole('button', { name: 'Skills' }));
-    await user.click(screen.getByTitle('Create new skill or command'));
+    await user.click(screen.getByTitle('新建 Skill 或 command'));
 
-    expect(await screen.findByRole('heading', { name: 'New Skill' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: '新建 Skill' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Project' })).toBeNull();
     expect(screen.queryByText('Project (.claude/skills/)')).toBeNull();
 
     await user.click(screen.getByRole('button', { name: 'Custom Agents' }));
-    await user.click(screen.getByRole('button', { name: 'Create agent' }));
+    await user.click(screen.getByRole('button', { name: '新建 Agent' }));
 
-    expect(await screen.findByRole('heading', { name: 'New Agent' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: '新建 Agent' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Project' })).toBeNull();
     expect(screen.queryByText('Project (.claude/agents/)')).toBeNull();
   });
@@ -4065,13 +4060,13 @@ describe('WorkspaceLayout', () => {
     await user.click(screen.getByRole('button', { name: '打开设置' }));
     await user.click(await screen.findByRole('button', { name: 'Skills' }));
 
-    expect(await screen.findByText('No skills or commands')).toBeTruthy();
+    expect(await screen.findByText('暂无 Skills 或 commands')).toBeTruthy();
     expect(screen.getByTestId('skills-empty-sidebar-icon')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Create' })).toBeTruthy();
-    expect(screen.getByText('No skills or commands found')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '新建' })).toBeTruthy();
+    expect(screen.getByText('未找到 Skills 或 commands')).toBeTruthy();
     expect(screen.getByTestId('skills-empty-detail-icon')).toBeTruthy();
     expect(
-      screen.getByRole('button', { name: 'Create your first skill or command' }),
+      screen.getByRole('button', { name: '新建第一个 Skill 或 command' }),
     ).toBeTruthy();
   });
 
@@ -4153,7 +4148,7 @@ describe('WorkspaceLayout', () => {
     await user.click(screen.getByRole('button', { name: '打开设置' }));
     await user.click(await screen.findByRole('button', { name: 'Skills' }));
 
-    await user.click(screen.getByTitle('Create new skill or command'));
+    await user.click(screen.getByTitle('新建 Skill 或 command'));
     await user.type(screen.getByLabelText('Name'), 'global-skill');
     expect(
       getSettingsCreateButton().disabled,
@@ -4166,11 +4161,11 @@ describe('WorkspaceLayout', () => {
       source: 'user',
     });
 
-    await user.click(screen.getByTitle('Create new skill or command'));
-    await user.click(screen.getByRole('combobox', { name: 'Type' }));
+    await user.click(screen.getByTitle('新建 Skill 或 command'));
+    await user.click(screen.getByRole('combobox', { name: '类型' }));
     await user.click(
       await screen.findByRole('option', {
-        name: 'Command (triggered via /slash)',
+        name: 'Command（通过 /slash 触发）',
       }),
     );
     await user.type(screen.getByLabelText('Name'), 'global-command');
@@ -4184,7 +4179,7 @@ describe('WorkspaceLayout', () => {
     });
 
     await user.click(screen.getByRole('button', { name: 'Custom Agents' }));
-    await user.click(screen.getByRole('button', { name: 'Create agent' }));
+    await user.click(screen.getByRole('button', { name: '新建 Agent' }));
     await user.type(screen.getByLabelText('Name'), 'global-agent');
     expect(
       getSettingsCreateButton().disabled,
@@ -4238,7 +4233,7 @@ describe('WorkspaceLayout', () => {
 
     expect(await screen.findByText('Use docs.')).toBeTruthy();
     expect(screen.queryByText('Source')).toBeNull();
-    await user.click(screen.getByTitle('Create new skill or command'));
+    await user.click(screen.getByTitle('新建 Skill 或 command'));
     expect(await screen.findByRole('combobox', { name: 'Scope' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Project' })).toBeNull();
     await user.click(screen.getByRole('combobox', { name: 'Scope' }));
@@ -4253,7 +4248,7 @@ describe('WorkspaceLayout', () => {
 
     expect(await screen.findByLabelText('System Prompt')).toBeTruthy();
     expect(screen.queryByText('Source')).toBeNull();
-    await user.click(screen.getByTitle('Create new agent'));
+    await user.click(screen.getByTitle('新建 Agent'));
     expect(await screen.findByRole('combobox', { name: 'Scope' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Project' })).toBeNull();
     await user.click(screen.getByRole('combobox', { name: 'Scope' }));
@@ -4302,7 +4297,7 @@ describe('WorkspaceLayout', () => {
       await screen.findByRole('button', { name: 'Custom Agents' }),
     );
 
-    const description = await screen.findByLabelText('Description');
+    const description = await screen.findByLabelText('描述');
     await user.clear(description);
     await user.type(description, 'Review code deeply');
     fireEvent.blur(description);
@@ -4391,7 +4386,7 @@ describe('WorkspaceLayout', () => {
     await user.click(screen.getByRole('button', { name: '打开设置' }));
     await user.click(await screen.findByRole('button', { name: 'Skills' }));
 
-    await user.click(screen.getByTitle('Create new skill or command'));
+    await user.click(screen.getByTitle('新建 Skill 或 command'));
     await user.type(screen.getByLabelText('Name'), 'minimal-skill');
     await user.click(getSettingsCreateButton());
     expect(createAiSkillMock).toHaveBeenCalledWith('/repo', {
@@ -4401,11 +4396,11 @@ describe('WorkspaceLayout', () => {
       source: 'user',
     });
 
-    await user.click(screen.getByTitle('Create new skill or command'));
-    await user.click(screen.getByRole('combobox', { name: 'Type' }));
+    await user.click(screen.getByTitle('新建 Skill 或 command'));
+    await user.click(screen.getByRole('combobox', { name: '类型' }));
     await user.click(
       await screen.findByRole('option', {
-        name: 'Command (triggered via /slash)',
+        name: 'Command（通过 /slash 触发）',
       }),
     );
     await user.type(screen.getByLabelText('Name'), 'minimal-command');
@@ -4419,7 +4414,7 @@ describe('WorkspaceLayout', () => {
     });
 
     await user.click(screen.getByRole('button', { name: 'Custom Agents' }));
-    await user.click(screen.getByRole('button', { name: 'Create agent' }));
+    await user.click(screen.getByRole('button', { name: '新建 Agent' }));
     await user.type(screen.getByLabelText('Name'), 'minimal-agent');
     await user.click(getSettingsCreateButton());
     expect(createAiCustomAgentMock).toHaveBeenCalledWith('/repo', {
@@ -4507,9 +4502,9 @@ describe('WorkspaceLayout', () => {
     );
     expect(readonlyDescription.textContent).toBe('Plugin skill');
     expect(readonlyDescription.className).toContain('bg-muted/50');
-    expect(screen.queryByLabelText('Description')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Edit markdown' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Delete skill' })).toBeNull();
+    expect(screen.queryByLabelText('描述')).toBeNull();
+    expect(screen.queryByRole('button', { name: '编辑 markdown' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '删除 Skill' })).toBeNull();
 
     await user.click(screen.getByRole('button', { name: 'Custom Agents' }));
     expect(await screen.findByText('project-agent')).toBeTruthy();
@@ -4607,7 +4602,7 @@ describe('WorkspaceLayout', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Skills' }));
     const skillsSearch = await screen.findByRole('searchbox', {
-      name: 'Search skills and commands',
+      name: '搜索 Skills 和 commands',
     });
     skillsSearch.focus();
     await user.keyboard('{ArrowDown}');
@@ -4619,7 +4614,7 @@ describe('WorkspaceLayout', () => {
 
     await user.click(screen.getByRole('button', { name: 'Custom Agents' }));
     const agentsSearch = await screen.findByRole('searchbox', {
-      name: 'Search agents',
+      name: '搜索 Agents',
     });
     agentsSearch.focus();
     await user.keyboard('{ArrowDown}');
@@ -4631,7 +4626,7 @@ describe('WorkspaceLayout', () => {
 
     await user.click(screen.getByRole('button', { name: 'MCP Servers' }));
     const serversSearch = await screen.findByRole('searchbox', {
-      name: 'Search servers',
+      name: '搜索 MCP servers',
     });
     serversSearch.focus();
     await user.keyboard('{ArrowDown}');
@@ -4666,7 +4661,7 @@ describe('WorkspaceLayout', () => {
     await user.click(await screen.findByRole('button', { name: 'Skills' }));
 
     const handle = await screen.findByRole('separator', {
-      name: 'Resize Skills settings list',
+      name: '调整 Skills 设置列表宽度',
     });
     expect(handle.getAttribute('aria-valuenow')).toBe('240');
 
@@ -4739,29 +4734,29 @@ describe('WorkspaceLayout', () => {
     expect(within(commandButton).queryByText('Command')).toBeNull();
     expect(within(commandButton).queryByText(/\.claude\/commands/)).toBeNull();
 
-    await user.click(screen.getByTitle('Create new skill or command'));
+    await user.click(screen.getByTitle('新建 Skill 或 command'));
 
-    expect(await screen.findByRole('heading', { name: 'New Skill' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: '新建 Skill' })).toBeTruthy();
     expect(screen.getByTestId('ai-skills-detail-inner').className).toContain(
       'max-w-2xl',
     );
     expect(screen.getByTestId('ai-skills-detail-inner').className).toContain(
       'p-6',
     );
-    expect(screen.getByRole('heading', { name: 'New Skill' }).className).toContain(
+    expect(screen.getByRole('heading', { name: '新建 Skill' }).className).toContain(
       'text-sm',
     );
     expect(
-      screen.getByRole('heading', { name: 'New Skill' }).className,
+      screen.getByRole('heading', { name: '新建 Skill' }).className,
     ).not.toContain('text-[18px]');
-    expect(screen.getByRole('combobox', { name: 'Type' })).toBeTruthy();
-    await user.click(screen.getByRole('combobox', { name: 'Type' }));
+    expect(screen.getByRole('combobox', { name: '类型' })).toBeTruthy();
+    await user.click(screen.getByRole('combobox', { name: '类型' }));
     await user.click(
       await screen.findByRole('option', {
-        name: 'Command (triggered via /slash)',
+        name: 'Command（通过 /slash 触发）',
       }),
     );
-    expect(screen.getByRole('heading', { name: 'New Command' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '新建 Command' })).toBeTruthy();
   });
 
   it('toggles AI plugins from settings', async () => {
@@ -4802,7 +4797,7 @@ describe('WorkspaceLayout', () => {
     await user.click(screen.getByRole('button', { name: '打开设置' }));
     await user.click(await screen.findByRole('button', { name: 'Plugins' }));
     await user.click(
-      await screen.findByRole('switch', { name: 'Toggle plugin-one' }),
+      await screen.findByRole('switch', { name: '切换 plugin-one' }),
     );
 
 	    expect(setAiPluginEnabledMock).toHaveBeenCalledWith(
@@ -4814,11 +4809,11 @@ describe('WorkspaceLayout', () => {
 	      ['context7', 'browser'],
 	      false,
 	    );
-	    expect(await screen.findByText('Disabled')).toBeTruthy();
+	    expect(await screen.findByText('已停用')).toBeTruthy();
 
 	    listAiPluginsMock.mockResolvedValueOnce([enabledPlugin]);
 	    await user.click(
-	      await screen.findByRole('switch', { name: 'Toggle plugin-one' }),
+	      await screen.findByRole('switch', { name: '切换 plugin-one' }),
 	    );
 	    expect(setAiPluginEnabledMock).toHaveBeenLastCalledWith(
 	      'market:plugin-one',
@@ -4846,11 +4841,11 @@ describe('WorkspaceLayout', () => {
 
     expect(await screen.findByTestId('plugins-empty-sidebar-icon')).toBeTruthy();
     expect(screen.getByTestId('plugins-empty-detail-icon')).toBeTruthy();
-    expect(await screen.findAllByText('No plugins')).toHaveLength(1);
-    expect(screen.getByText('No plugins installed')).toBeTruthy();
-    expect(screen.getByText('Install plugins to ~/.claude/plugins/')).toBeTruthy();
+    expect(await screen.findAllByText('暂无 Plugins')).toHaveLength(1);
+    expect(screen.getByText('未安装 Plugins')).toBeTruthy();
+    expect(screen.getByText('将 plugins 安装到 ~/.claude/plugins/')).toBeTruthy();
     expect(
-      screen.getByText('Install plugins to ~/.claude/plugins/marketplaces/'),
+      screen.getByText('将 plugins 安装到 ~/.claude/plugins/marketplaces/'),
     ).toBeTruthy();
   });
 
@@ -4918,7 +4913,7 @@ describe('WorkspaceLayout', () => {
 
     expect(await screen.findByText('pending-approval')).toBeTruthy();
     await user.click(
-      await screen.findByRole('switch', { name: 'Toggle context7' }),
+      await screen.findByRole('switch', { name: '切换 context7' }),
     );
 
     expect(setAiPluginEnabledMock).toHaveBeenCalledWith(
@@ -4933,7 +4928,7 @@ describe('WorkspaceLayout', () => {
     await waitFor(() => {
       expect(listAiMcpServersMock).toHaveBeenCalledTimes(2);
     });
-    expect(await screen.findByText('Connected')).toBeTruthy();
+    expect(await screen.findByText('已连接')).toBeTruthy();
   });
 
   it('shows 1Code-style plugin list detail layout and navigates component rows', async () => {
@@ -5004,7 +4999,7 @@ describe('WorkspaceLayout', () => {
     await user.click(await screen.findByRole('button', { name: 'Plugins' }));
 
     expect(
-      await screen.findByRole('searchbox', { name: 'Search plugins' }),
+      await screen.findByRole('searchbox', { name: '搜索 Plugins' }),
     ).toBeTruthy();
     expect(screen.getByTestId('workspace-settings-content').className).toContain(
       'h-full',
@@ -5024,7 +5019,7 @@ describe('WorkspaceLayout', () => {
     expect(screen.getByTestId('ai-plugins-search-input').className).toContain(
       'h-7',
     );
-    expect(screen.getByText('Enabled')).toBeTruthy();
+    expect(screen.getByText('已启用')).toBeTruthy();
     expect(screen.getByText('claude-plugins-official')).toBeTruthy();
     expect(
       screen
@@ -5066,19 +5061,19 @@ describe('WorkspaceLayout', () => {
     expect(screen.getByTestId('plugin-agent-icon-reviewer')).toBeTruthy();
     expect(screen.getByText('MCP Servers (1)')).toBeTruthy();
     expect(screen.getByTestId('plugin-mcp-icon-context7')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Sign in' })).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(screen.getByRole('button', { name: '登录' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '登录' }));
     expect(authenticateAiMcpServerMock).toHaveBeenCalledWith('/repo', {
       name: 'context7',
       projectPath: null,
       provider: 'claude',
     });
 
-    await user.type(screen.getByRole('searchbox', { name: 'Search plugins' }), 'Search docs');
+    await user.type(screen.getByRole('searchbox', { name: '搜索 Plugins' }), 'Search docs');
     expect(screen.queryByRole('button', { name: /Document Skills/ })).toBeNull();
     expect(screen.getByRole('button', { name: /Context7/ })).toBeTruthy();
 
-    await user.clear(screen.getByRole('searchbox', { name: 'Search plugins' }));
+    await user.clear(screen.getByRole('searchbox', { name: '搜索 Plugins' }));
     await user.click(screen.getByRole('button', { name: /Document Skills/ }));
     await user.click(screen.getByRole('button', { name: /docx/ }));
     expect(
@@ -5155,10 +5150,10 @@ describe('WorkspaceLayout', () => {
 
     await user.click(screen.getByRole('button', { name: '打开设置' }));
     await user.click(await screen.findByRole('button', { name: 'Plugins' }));
-    await user.click(await screen.findByRole('button', { name: 'Sign in' }));
+    await user.click(await screen.findByRole('button', { name: '登录' }));
 
     expect(screen.getByTestId('plugin-mcp-auth-spinner-context7')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '登录' })).toBeNull();
 
     resolveAuth?.();
     await waitFor(() => expect(authenticateAiMcpServerMock).toHaveBeenCalled());
@@ -5214,8 +5209,8 @@ describe('WorkspaceLayout', () => {
     await user.click(await screen.findByRole('button', { name: 'Plugins' }));
 
     expect(listAiMcpServersMock).toHaveBeenCalledWith('__global__');
-    expect(await screen.findByRole('button', { name: 'Sign in' })).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(await screen.findByRole('button', { name: '登录' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '登录' }));
 
     expect(authenticateAiMcpServerMock).toHaveBeenCalledWith('__global__', {
       name: 'context7',
@@ -5266,7 +5261,7 @@ describe('WorkspaceLayout', () => {
     await user.click(await screen.findByRole('button', { name: 'Plugins' }));
 
     const search = await screen.findByRole('searchbox', {
-      name: 'Search plugins',
+      name: '搜索 Plugins',
     });
     await waitFor(() => {
       expect(
@@ -5370,10 +5365,10 @@ describe('WorkspaceLayout', () => {
     await user.click(screen.getByRole('button', { name: '打开设置' }));
 
     const cases = [
-      ['Skills', 'Search skills and commands'],
-      ['Custom Agents', 'Search agents'],
-      ['MCP Servers', 'Search servers'],
-      ['Plugins', 'Search plugins'],
+      ['Skills', '搜索 Skills 和 commands'],
+      ['Custom Agents', '搜索 Agents'],
+      ['MCP Servers', '搜索 MCP servers'],
+      ['Plugins', '搜索 Plugins'],
     ] as const;
 
     for (const [tabName, searchName] of cases) {
@@ -5429,11 +5424,11 @@ describe('WorkspaceLayout', () => {
     await user.click(
       await screen.findByRole('button', { name: 'MCP Servers' }),
     );
-    await user.click(screen.getByRole('button', { name: 'Add your first server' }));
+    await user.click(screen.getByRole('button', { name: '添加第一个 server' }));
     await user.type(screen.getByLabelText('Name'), 'context7');
     await user.type(screen.getByLabelText('Command'), 'npx');
     await user.type(screen.getByLabelText('Arguments'), '-y @upstash/context7');
-    await user.click(screen.getByRole('button', { name: 'Add' }));
+    await user.click(screen.getByRole('button', { name: '添加' }));
 
     expect(createAiMcpServerMock).toHaveBeenCalledWith('/repo', {
       args: ['-y', '@upstash/context7'],
@@ -5452,7 +5447,7 @@ describe('WorkspaceLayout', () => {
     });
 
     await user.click(
-      screen.getByRole('switch', { name: 'Toggle MCP context7' }),
+      screen.getByRole('switch', { name: '切换 MCP context7' }),
     );
     expect(setAiMcpServerEnabledMock).toHaveBeenCalledWith('/repo', {
       enabled: false,
@@ -5460,16 +5455,20 @@ describe('WorkspaceLayout', () => {
       provider: 'claude-code',
       source: 'project',
     });
-    expect((await screen.findAllByText('Disabled')).length).toBeGreaterThanOrEqual(2);
+    expect((await screen.findAllByText('已停用')).length).toBeGreaterThanOrEqual(2);
 
-    await user.click(screen.getByRole('button', { name: 'Delete server' }));
+    await user.click(screen.getByRole('button', { name: '删除 server' }));
     expect(deleteAiMcpServerMock).not.toHaveBeenCalled();
     const deleteDialog = await screen.findByRole('alertdialog');
     expect(
-      within(deleteDialog).getByRole('heading', { name: 'Delete MCP Server' }),
+      within(deleteDialog).getByRole('heading', { name: '删除 MCP Server' }),
     ).toBeTruthy();
-    expect(within(deleteDialog).getByText(/delete/)).toBeTruthy();
-    await user.click(within(deleteDialog).getByRole('button', { name: 'Delete' }));
+    expect(
+      within(deleteDialog).getByText(
+        '确定要删除 context7 吗？这会移除 server 配置，且无法撤销。',
+      ),
+    ).toBeTruthy();
+    await user.click(within(deleteDialog).getByRole('button', { name: '删除' }));
     expect(deleteAiMcpServerMock).toHaveBeenCalledWith('/repo', {
       name: 'context7',
       provider: 'claude-code',
@@ -5491,7 +5490,7 @@ describe('WorkspaceLayout', () => {
     await user.click(
       await screen.findByRole('button', { name: 'MCP Servers' }),
     );
-    await user.click(screen.getByRole('button', { name: 'Add your first server' }));
+    await user.click(screen.getByRole('button', { name: '添加第一个 server' }));
 
     expect(screen.getByRole('combobox', { name: 'Provider' })).toBeTruthy();
     expect(screen.getByRole('combobox', { name: 'Transport' })).toBeTruthy();
@@ -5501,11 +5500,11 @@ describe('WorkspaceLayout', () => {
     expect(screen.getByLabelText('Arguments')).toBeTruthy();
     expect(screen.queryByLabelText('Args')).toBeNull();
     expect(screen.getByPlaceholderText('-m mcp_server --port 3000')).toBeTruthy();
-    expect(screen.getByText('Space-separated arguments')).toBeTruthy();
+    expect(screen.getByText('用空格分隔 arguments')).toBeTruthy();
 
     await user.click(screen.getByRole('combobox', { name: 'Transport' }));
     expect(
-      await screen.findByRole('option', { name: 'stdio (local command)' }),
+      await screen.findByRole('option', { name: 'stdio（本地 command）' }),
     ).toBeTruthy();
     expect(screen.getByRole('option', { name: 'HTTP (SSE)' })).toBeTruthy();
     await user.click(screen.getByRole('option', { name: 'HTTP (SSE)' }));
@@ -5528,29 +5527,29 @@ describe('WorkspaceLayout', () => {
     );
 
     expect(
-      await screen.findByRole('button', { name: 'Add your first server' }),
+      await screen.findByRole('button', { name: '添加第一个 server' }),
     ).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Add MCP server' }));
+    await user.click(screen.getByRole('button', { name: '添加 MCP server' }));
 
     expect(
-      await screen.findByRole('heading', { name: 'New MCP Server' }),
+      await screen.findByRole('heading', { name: '新建 MCP Server' }),
     ).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Save server' })).toBeNull();
+    expect(screen.getAllByRole('button', { name: '取消' }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: '保存 server' })).toBeNull();
     expect(
-      (screen.getByRole('button', { name: 'Add' }) as HTMLButtonElement)
+      (screen.getByRole('button', { name: '添加' }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
 
     await user.type(screen.getByLabelText('Name'), 'context7');
     expect(
-      (screen.getByRole('button', { name: 'Add' }) as HTMLButtonElement)
+      (screen.getByRole('button', { name: '添加' }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
 
     await user.type(screen.getByLabelText('Command'), 'npx');
     expect(
-      (screen.getByRole('button', { name: 'Add' }) as HTMLButtonElement)
+      (screen.getByRole('button', { name: '添加' }) as HTMLButtonElement)
         .disabled,
     ).toBe(false);
   });
@@ -5569,10 +5568,10 @@ describe('WorkspaceLayout', () => {
     await user.click(
       await screen.findByRole('button', { name: 'MCP Servers' }),
     );
-    await user.click(screen.getByRole('button', { name: 'Add MCP server' }));
+    await user.click(screen.getByRole('button', { name: '添加 MCP server' }));
 
     expect(
-      await screen.findByRole('heading', { name: 'New MCP Server' }),
+      await screen.findByRole('heading', { name: '新建 MCP Server' }),
     ).toBeTruthy();
     expect(screen.getByText('Claude Code')).toBeTruthy();
     expect(screen.queryByRole('combobox', { name: 'Scope' })).toBeNull();
@@ -5627,16 +5626,16 @@ describe('WorkspaceLayout', () => {
     await user.click(
       await screen.findByRole('button', { name: 'MCP Servers' }),
     );
-    await user.click(screen.getByRole('button', { name: 'Add MCP server' }));
+    await user.click(screen.getByRole('button', { name: '添加 MCP server' }));
     await user.type(screen.getByLabelText('Name'), 'context7');
     await user.type(screen.getByLabelText('Command'), 'npx');
     await user.type(screen.getByLabelText('Arguments'), '-y @upstash/context7');
 
     expect(
-      (screen.getByRole('button', { name: 'Add' }) as HTMLButtonElement)
+      (screen.getByRole('button', { name: '添加' }) as HTMLButtonElement)
         .disabled,
     ).toBe(false);
-    await user.click(screen.getByRole('button', { name: 'Add' }));
+    await user.click(screen.getByRole('button', { name: '添加' }));
 
     expect(createAiMcpServerMock).toHaveBeenCalledWith(globalRoot, {
       args: ['-y', '@upstash/context7'],
@@ -5653,7 +5652,7 @@ describe('WorkspaceLayout', () => {
     expect(await screen.findByRole('heading', { name: 'context7' })).toBeTruthy();
 
     await user.click(
-      screen.getByRole('switch', { name: 'Toggle MCP context7' }),
+      screen.getByRole('switch', { name: '切换 MCP context7' }),
     );
     expect(setAiMcpServerEnabledMock).toHaveBeenCalledWith(globalRoot, {
       enabled: false,
@@ -5661,11 +5660,11 @@ describe('WorkspaceLayout', () => {
       provider: 'claude-code',
       source: 'global',
     });
-    expect((await screen.findAllByText('Disabled')).length).toBeGreaterThanOrEqual(2);
+    expect((await screen.findAllByText('已停用')).length).toBeGreaterThanOrEqual(2);
 
-    await user.click(screen.getByRole('button', { name: 'Delete server' }));
+    await user.click(screen.getByRole('button', { name: '删除 server' }));
     const deleteDialog = await screen.findByRole('alertdialog');
-    await user.click(within(deleteDialog).getByRole('button', { name: 'Delete' }));
+    await user.click(within(deleteDialog).getByRole('button', { name: '删除' }));
     expect(deleteAiMcpServerMock).toHaveBeenCalledWith(globalRoot, {
       name: 'context7',
       provider: 'claude-code',
@@ -5824,12 +5823,12 @@ describe('WorkspaceLayout', () => {
     await user.click(
       await screen.findByRole('button', { name: 'MCP Servers' }),
     );
-    await user.click(await screen.findByRole('button', { name: 'Edit server' }));
+    await user.click(await screen.findByRole('button', { name: '编辑 server' }));
     await user.click(screen.getByRole('combobox', { name: 'Transport' }));
     await user.click(await screen.findByRole('option', { name: 'HTTP (SSE)' }));
     await user.clear(screen.getByLabelText('URL'));
     await user.type(screen.getByLabelText('URL'), 'https://mcp.example.com');
-    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    await user.click(screen.getByRole('button', { name: '保存更改' }));
 
     expect(updateAiMcpServerMock).toHaveBeenCalledWith('/repo', {
       args: [],
@@ -5881,7 +5880,7 @@ describe('WorkspaceLayout', () => {
     await user.click(
       await screen.findByRole('button', { name: 'MCP Servers' }),
     );
-    await user.click(screen.getByRole('button', { name: 'Add your first server' }));
+    await user.click(screen.getByRole('button', { name: '添加第一个 server' }));
     await user.click(screen.getByRole('combobox', { name: 'Scope' }));
     await user.click(await screen.findByRole('option', { name: 'Project: repo' }));
     await user.click(screen.getByRole('combobox', { name: 'Transport' }));
@@ -5890,7 +5889,7 @@ describe('WorkspaceLayout', () => {
     await user.type(screen.getByLabelText('URL'), 'https://mcp.example.com');
     await user.click(screen.getByRole('button', { name: 'Bearer Token' }));
     await user.type(screen.getByLabelText('Bearer token'), 'mcp-token');
-    await user.click(screen.getByRole('button', { name: 'Add' }));
+    await user.click(screen.getByRole('button', { name: '添加' }));
 
     expect(createAiMcpServerMock).toHaveBeenCalledWith('/repo', {
       args: [],
@@ -5904,7 +5903,7 @@ describe('WorkspaceLayout', () => {
       source: 'project',
       url: 'https://mcp.example.com',
     });
-    expect(await screen.findByText('Authorization configured')).toBeTruthy();
+    expect(await screen.findByText('Authorization 已配置')).toBeTruthy();
   });
 
   it('creates Codex MCP servers with global scope from settings', async () => {
@@ -5942,7 +5941,7 @@ describe('WorkspaceLayout', () => {
     await user.click(
       await screen.findByRole('button', { name: 'MCP Servers' }),
     );
-    await user.click(screen.getByRole('button', { name: 'Add your first server' }));
+    await user.click(screen.getByRole('button', { name: '添加第一个 server' }));
     await user.click(screen.getByRole('combobox', { name: 'Provider' }));
     await user.click(
       await screen.findByRole('option', { name: 'OpenAI Codex' }),
@@ -5951,7 +5950,7 @@ describe('WorkspaceLayout', () => {
     await user.click(await screen.findByRole('option', { name: 'HTTP (SSE)' }));
     await user.type(screen.getByLabelText('Name'), 'codex-http');
     await user.type(screen.getByLabelText('URL'), 'https://mcp.example.com');
-    await user.click(screen.getByRole('button', { name: 'Add' }));
+    await user.click(screen.getByRole('button', { name: '添加' }));
 
     expect(createAiMcpServerMock).toHaveBeenCalledWith('/repo', {
       args: [],
@@ -6010,14 +6009,14 @@ describe('WorkspaceLayout', () => {
     await user.click(
       await screen.findByRole('button', { name: 'MCP Servers' }),
     );
-    await user.click(await screen.findByRole('button', { name: 'Authenticate' }));
+    await user.click(await screen.findByRole('button', { name: '认证' }));
 
     expect(authenticateAiMcpServerMock).toHaveBeenCalledWith('/repo', {
       name: 'codex-http',
       projectPath: null,
       provider: 'codex',
     });
-    await user.click(await screen.findByRole('button', { name: 'Logout' }));
+    await user.click(await screen.findByRole('button', { name: '退出' }));
 
     expect(logoutAiMcpServerMock).toHaveBeenCalledWith('/repo', {
       name: 'codex-http',
@@ -6063,7 +6062,7 @@ describe('WorkspaceLayout', () => {
     );
 
     expect(await screen.findByRole('heading', { name: 'codex-http' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Logout' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '退出' })).toBeNull();
   });
 
   it('authenticates and logs out Claude HTTP MCP servers from settings', async () => {
@@ -6109,14 +6108,14 @@ describe('WorkspaceLayout', () => {
     await user.click(
       await screen.findByRole('button', { name: 'MCP Servers' }),
     );
-    await user.click(await screen.findByRole('button', { name: 'Authenticate' }));
+    await user.click(await screen.findByRole('button', { name: '认证' }));
 
     expect(authenticateAiMcpServerMock).toHaveBeenCalledWith('/repo', {
       name: 'figma',
       projectPath: '/repo',
       provider: 'claude-code',
     });
-    await user.click(await screen.findByRole('button', { name: 'Logout' }));
+    await user.click(await screen.findByRole('button', { name: '退出' }));
 
     expect(logoutAiMcpServerMock).toHaveBeenCalledWith('/repo', {
       name: 'figma',
@@ -6159,9 +6158,9 @@ describe('WorkspaceLayout', () => {
     await user.click(
       await screen.findByRole('button', { name: 'MCP Servers' }),
     );
-    await user.click(await screen.findByRole('button', { name: 'Reconnect' }));
+    await user.click(await screen.findByRole('button', { name: '重新连接' }));
 
-    expect(screen.queryByRole('button', { name: 'Authenticate' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '认证' })).toBeNull();
     expect(authenticateAiMcpServerMock).toHaveBeenCalledWith('/repo', {
       name: 'figma',
       projectPath: '/repo',
@@ -6225,7 +6224,7 @@ describe('WorkspaceLayout', () => {
     await user.click(
       await screen.findByRole('button', { name: 'MCP Servers' }),
     );
-    await user.click(await screen.findByRole('button', { name: 'Authenticate' }));
+    await user.click(await screen.findByRole('button', { name: '认证' }));
 
     expect(authenticateAiMcpServerMock).toHaveBeenCalledWith('/repo', {
       name: 'figma',
@@ -6281,7 +6280,7 @@ describe('WorkspaceLayout', () => {
     );
     expect((await screen.findAllByText('pending-approval')).length).toBeGreaterThan(0);
     await user.click(
-      screen.getByRole('button', { name: 'Approve plugin MCP server' }),
+      screen.getByRole('button', { name: '批准 plugin MCP server' }),
     );
 
     expect(setAiPluginMcpServerApprovedMock).toHaveBeenCalledWith(
@@ -6333,7 +6332,7 @@ describe('WorkspaceLayout', () => {
     expect(await screen.findByText('resolve-library-id')).toBeTruthy();
     await user.click(
       screen.getByRole('button', {
-        name: 'Revoke plugin MCP server approval',
+        name: '撤销 plugin MCP server 批准',
       }),
     );
 
@@ -6364,8 +6363,8 @@ describe('WorkspaceLayout', () => {
 
     expect(await screen.findByTestId('mcp-empty-sidebar-icon')).toBeTruthy();
     expect(screen.getByTestId('mcp-empty-detail-icon')).toBeTruthy();
-    expect(screen.getByText('No servers')).toBeTruthy();
-    expect(screen.getByText('No MCP servers configured')).toBeTruthy();
+    expect(screen.getByText('暂无 MCP servers')).toBeTruthy();
+    expect(screen.getByText('未配置 MCP servers')).toBeTruthy();
   });
 
   it('shows No tools for connected Claude MCP servers without tools like 1Code', async () => {
@@ -6401,9 +6400,9 @@ describe('WorkspaceLayout', () => {
     );
 
     const serverButton = await screen.findByRole('button', { name: /context7/ });
-    expect(within(serverButton).getByText('No tools')).toBeTruthy();
+    expect(within(serverButton).getByText('无 tools')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'context7' })).toBeTruthy();
-    expect(screen.getAllByText('No tools').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('无 tools').length).toBeGreaterThanOrEqual(1);
     expect(within(serverButton).queryByText('connected')).toBeNull();
   });
 
@@ -6466,7 +6465,7 @@ describe('WorkspaceLayout', () => {
     );
 
     expect(
-      await screen.findByRole('searchbox', { name: 'Search servers' }),
+      await screen.findByRole('searchbox', { name: '搜索 MCP servers' }),
     ).toBeTruthy();
     expect(screen.getByTestId('workspace-settings-content').className).toContain(
       'h-full',
@@ -6513,10 +6512,10 @@ describe('WorkspaceLayout', () => {
     expect(screen.getByTestId('ai-mcp-detail-title').className).not.toContain(
       'text-[18px]',
     );
-    expect(screen.getAllByText('2 tools').length).toBeGreaterThan(0);
-    expect(screen.getByText('Enabled')).toBeTruthy();
-    expect(screen.getByText('Connection')).toBeTruthy();
-    expect(screen.getByText('Connection').className).toContain('text-xs');
+    expect(screen.getAllByText('2 个 tool').length).toBeGreaterThan(0);
+    expect(screen.getByText('启用')).toBeTruthy();
+    expect(screen.getByText('连接')).toBeTruthy();
+    expect(screen.getByText('连接').className).toContain('text-xs');
     expect(screen.getByText('Tools (2)')).toBeTruthy();
     expect(screen.getByText('ui_to_artifact')).toBeTruthy();
     expect(screen.getByText('ui_to_artifact').className).toContain('text-[13px]');
@@ -6524,23 +6523,26 @@ describe('WorkspaceLayout', () => {
       screen.getByText('Convert UI screenshots into artifacts').className,
     ).toContain('text-xs');
     expect(screen.getByText('Z_AI_API_KEY')).toBeTruthy();
-    expect(screen.getByText('Error')).toBeTruthy();
+    expect(screen.getByText('错误')).toBeTruthy();
     expect(
       screen.getByText('MCP initialize failed: missing Z_AI_API_KEY'),
     ).toBeTruthy();
 
-    await user.type(screen.getByRole('searchbox', { name: 'Search servers' }), 'context');
+    await user.type(
+      screen.getByRole('searchbox', { name: '搜索 MCP servers' }),
+      'context',
+    );
     expect(screen.queryByRole('button', { name: /zai-mcp-server/ })).toBeNull();
     const codexServerButton = screen.getByRole('button', { name: /context7/ });
-    expect(within(codexServerButton).getByText('Connected')).toBeTruthy();
-    expect(within(codexServerButton).queryByText('1 tool')).toBeNull();
+    expect(within(codexServerButton).getByText('已连接')).toBeTruthy();
+    expect(within(codexServerButton).queryByText('1 个 tool')).toBeNull();
     await user.click(codexServerButton);
     expect(screen.getByText('https://mcp.context7.com/sse')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Tools' })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Tools (1)' })).toBeNull();
 
-    await user.click(screen.getByRole('button', { name: 'Add MCP server' }));
-    expect(screen.getByRole('heading', { name: 'New MCP Server' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '添加 MCP server' }));
+    expect(screen.getByRole('heading', { name: '新建 MCP Server' })).toBeTruthy();
     expect(screen.getByText('Provider')).toBeTruthy();
     expect(screen.getByText('Transport')).toBeTruthy();
   });

@@ -25,7 +25,7 @@ import {
 import { cn } from '@/lib/utils';
 
 import { DocumentMetaPanel } from './document-meta-panel';
-import { AiPanelContent } from './ai-panel/ai-panel-content';
+import { AiSidePanelContent } from './ai-panel/ai-side-panel-content';
 import type { AiSelectionContext } from './ai-panel/ai-types';
 import type {
   RightPanelMode,
@@ -92,7 +92,7 @@ export function RightSidePanel({
       style={{ width }}
     >
       {mode === 'ai' ? (
-        <AiPanelContent
+        <AiSidePanelContent
           currentDocument={currentDocument}
           documentPanelData={documentPanelData}
           selectedTextContext={selectedTextContext}
