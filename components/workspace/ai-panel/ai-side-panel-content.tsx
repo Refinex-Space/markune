@@ -15,12 +15,13 @@ import { createDefaultAiChatTransport, type AiChatTransport } from './ai-chat-tr
 import { listAiAgentProfiles } from '../workspace-api';
 import type { AiAgentProfile } from './ai-types';
 import type { AiContextPack, AiSelectionContext } from './ai-types';
+import type { PermissionRequestChunk } from './ai-contracts';
 import type { WorkspaceNode } from '../workspace-types';
 import type { DocumentPanelData } from '../ai-side-panel';
-
 import { AiConversationView } from './rendering/ai-conversation-view';
 import { AiComposer } from './rendering/ai-composer';
 import { AiModeSelector, type AiMode } from './rendering/ai-mode-selector';
+import { AiPermissionPrompt } from './rendering/ai-permission-prompt';
 import type { MentionOption } from './rendering/ai-mention-serializer';
 
 export interface AiSidePanelContentProps {
@@ -47,6 +48,7 @@ export function AiSidePanelContent({
   const [mode, setMode] = React.useState<AiMode>('agent');
   const [isStreaming, setIsStreaming] = React.useState(false);
   const [transport, setTransport] = React.useState<AiChatTransport | null>(null);
+  const [pendingPermission, setPendingPermission] = React.useState<PermissionRequestChunk | null>(null);
 
   // 加载 profiles
   React.useEffect(() => {
@@ -149,6 +151,22 @@ export function AiSidePanelContent({
     setIsStreaming(false);
   }, [transport]);
 
+  // 权限确认：允许/拒绝调用 transport.respondPermission
+  const handleAllowPermission = React.useCallback(
+    (requestId: string) => {
+      void transport?.respondPermission(requestId, 'allow');
+      setPendingPermission(null);
+    },
+    [transport],
+  );
+  const handleDenyPermission = React.useCallback(
+    (requestId: string) => {
+      void transport?.respondPermission(requestId, 'deny');
+      setPendingPermission(null);
+    },
+    [transport],
+  );
+
   // transport 创建/重建（profile/mode 变化时）。microtask 延迟避免 effect 内同步 setState。
   React.useEffect(() => {
     if (!selectedProfile || !workspaceRootPath) return;
@@ -159,6 +177,7 @@ export function AiSidePanelContent({
           profileId: selectedProfile.id,
           mode,
           modelId: selectedProfile.modelId,
+          onPermissionRequest: (chunk) => setPendingPermission(chunk),
         }),
       );
     });
@@ -209,6 +228,17 @@ export function AiSidePanelContent({
           </div>
         )}
       </div>
+
+      {/* 权限确认提示（agent 执行需授权工具时） */}
+      {pendingPermission && (
+        <div className="border-t px-2 py-1.5">
+          <AiPermissionPrompt
+            request={pendingPermission}
+            onAllow={handleAllowPermission}
+            onDeny={handleDenyPermission}
+          />
+        </div>
+      )}
 
       {/* 输入区 */}
       <AiComposer

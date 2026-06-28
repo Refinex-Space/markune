@@ -97,6 +97,10 @@ export type UiMessageChunk =
  * 'text' | 'tool-<Name>' | 'reasoning' | 'data-image' | ...
  * 索引签名承载工具特定字段。
  */
+// 特殊 chunk 的具名类型别名（从 UiMessageChunk 联合体派生，便于消费方引用）
+export type PermissionRequestChunk = Extract<UiMessageChunk, { type: 'permission-request' }>;
+export type SessionInitChunk = Extract<UiMessageChunk, { type: 'session-init' }>;
+
 export interface MessagePart {
   type: string;
   text?: string;
