@@ -811,3 +811,11 @@
     background-position: -200% 0;
   }
 }
+
+/* @mention 编辑器占位符（@author refinex） */
+.ai-mentions-editor:empty:before {
+  content: attr(data-placeholder);
+  color: var(--muted-foreground);
+  pointer-events: none;
+  opacity: 0.6;
+}
