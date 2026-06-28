@@ -161,7 +161,7 @@ export function createAiChatTransport(
           await deps.sendAiPrompt({ context, prompt, sessionId: sid });
         },
         cancel() {
-          abortSignal?.removeEventListener('abort', onAbort);
+          // AbortSignal 的 listener 在 ReadableStream 销毁时随闭包 GC，无需显式移除
           if (unlisten) {
             unlisten();
             unlisten = null;

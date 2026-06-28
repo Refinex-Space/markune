@@ -2122,19 +2122,19 @@ function AiPreferencesSettingsSection({
     (model) => model.provider === 'anthropic',
   );
   const codexThinkingLevels = [
-    { label: 'Low', value: 'low' as const },
-    { label: 'Medium', value: 'medium' as const },
-    { label: 'High', value: 'high' as const },
-    { label: 'Extra High', value: 'xhigh' as const },
+    { label: '低', value: 'low' as const },
+    { label: '中', value: 'medium' as const },
+    { label: '高', value: 'high' as const },
+    { label: '极高', value: 'xhigh' as const },
   ];
   const quickSwitchTargets = [
     { label: 'Workspaces', value: 'workspaces' as const },
     { label: 'Agents', value: 'agents' as const },
   ];
   const autoAdvanceTargets = [
-    { label: 'Go to next workspace', value: 'next' as const },
-    { label: 'Go to previous workspace', value: 'previous' as const },
-    { label: 'Close workspace', value: 'close' as const },
+    { label: '前往下一个 workspace', value: 'next' as const },
+    { label: '前往上一个 workspace', value: 'previous' as const },
+    { label: '关闭 workspace', value: 'close' as const },
   ];
   const editorOptions = AI_PREFERRED_EDITOR_OPTIONS.filter((editor) =>
     ['cursor', 'zed', 'sublime', 'xcode', 'windsurf', 'trae'].includes(
@@ -2193,13 +2193,13 @@ function AiPreferencesSettingsSection({
           className="text-sm font-semibold text-foreground"
           data-testid="ai-preferences-settings-title"
         >
-          Preferences
+          偏好设置
         </h2>
         <p
           className="text-xs text-muted-foreground"
           data-testid="ai-preferences-settings-description"
         >
-          Configure Claude&apos;s behavior and features
+          配置 Claude 的行为和功能
         </p>
       </div>
 
@@ -2208,12 +2208,12 @@ function AiPreferencesSettingsSection({
           control={
             <PillSwitch
               checked={aiSettings.extendedThinkingEnabled}
-              label="Extended Thinking"
+              label="启用 Extended Thinking"
               onChange={(checked) => update({ extendedThinkingEnabled: checked })}
             />
           }
-          description="Enable deeper reasoning with more thinking tokens (uses more credits). Disables response streaming."
-          label="Extended Thinking"
+          description="使用更多 thinking tokens 进行更深入推理（会消耗更多 credits）。启用后将关闭响应流式输出。"
+          label="启用 Extended Thinking"
           testId="ai-preferences-row-extended-thinking"
         />
         <PreferenceRow
@@ -2226,7 +2226,7 @@ function AiPreferencesSettingsSection({
                 })
               }
             >
-              <SelectTrigger aria-label="Default Mode" className="w-auto px-2">
+              <SelectTrigger aria-label="默认 Agent 模式" className="w-auto px-2">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -2235,19 +2235,19 @@ function AiPreferencesSettingsSection({
               </SelectContent>
             </Select>
           }
-          description="Mode for new agents (Plan = read-only, Agent = can edit)"
-          label="Default Mode"
+          description="新建 agent 使用的模式（Plan = 只读，Agent = 可编辑）"
+          label="默认 Agent 模式"
         />
         <PreferenceRow
           control={
             <PillSwitch
               checked={aiSettings.includeCoAuthoredBy}
-              label="Include Co-Authored-By"
+              label="包含 Co-Authored-By"
               onChange={(checked) => void handleIncludeCoAuthoredByChange(checked)}
             />
           }
-          description='Add "Co-authored-by: Claude" to git commits made by Claude'
-          label="Include Co-Authored-By"
+          description='为 Claude 创建的 Git commit 添加 "Co-authored-by: Claude"'
+          label="包含 Co-Authored-By"
         />
       </section>
       {claudeSettingsMessage ? (
@@ -2268,8 +2268,8 @@ function AiPreferencesSettingsSection({
               ))}
             </div>
           }
-          description="Default Claude model for new assistant sessions."
-          label="Default Model"
+          description="新 assistant session 默认使用的 Claude 模型。"
+          label="默认 Claude 模型"
         />
         <PreferenceRow
           control={
@@ -2286,8 +2286,8 @@ function AiPreferencesSettingsSection({
               ))}
             </div>
           }
-          description="Default Codex reasoning effort for models that support thinking levels."
-          label="Codex Thinking"
+          description="支持 thinking levels 的模型默认使用的 Codex 推理强度。"
+          label="Codex Thinking 强度"
         />
       </section>
 
@@ -2296,39 +2296,39 @@ function AiPreferencesSettingsSection({
           control={
             <PillSwitch
               checked={aiSettings.desktopNotificationsEnabled}
-              label="Desktop Notifications"
+              label="桌面通知"
               onChange={(checked) =>
                 update({ desktopNotificationsEnabled: checked })
               }
             />
           }
-          description="Show system notifications when agent needs input or completes work"
-          label="Desktop Notifications"
+          description="当 agent 需要输入或完成工作时显示系统通知"
+          label="桌面通知"
         />
         <PreferenceRow
           control={
             <PillSwitch
               checked={aiSettings.soundNotificationsEnabled}
-              label="Sound Notifications"
+              label="声音通知"
               onChange={(checked) =>
                 update({ soundNotificationsEnabled: checked })
               }
             />
           }
-          description="Play a sound when agent completes work while you're away"
-          label="Sound Notifications"
+          description="当你离开期间 agent 完成工作时播放提示音"
+          label="声音通知"
         />
         <PreferenceRow
           control={
             <PillSwitch
               checked={aiSettings.notifyWhenFocused}
               disabled={!aiSettings.desktopNotificationsEnabled}
-              label="Notify When Focused"
+              label="窗口聚焦时仍通知"
               onChange={(checked) => update({ notifyWhenFocused: checked })}
             />
           }
-          description="Show notifications even when the app window is active"
-          label="Notify When Focused"
+          description="即使应用窗口处于活动状态也显示通知"
+          label="窗口聚焦时仍通知"
         />
       </section>
 
@@ -2341,7 +2341,7 @@ function AiPreferencesSettingsSection({
                 update({ ctrlTabTarget: value as AppSettings['ai']['ctrlTabTarget'] })
               }
             >
-              <SelectTrigger aria-label="Quick Switch" className="w-auto px-2">
+              <SelectTrigger aria-label="快速切换" className="w-auto px-2">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -2355,10 +2355,10 @@ function AiPreferencesSettingsSection({
           }
           description={
             <>
-              What <InlineKbd>⌃Tab</InlineKbd> switches between
+              设置 <InlineKbd>⌃Tab</InlineKbd> 在哪些目标之间切换
             </>
           }
-          label="Quick Switch"
+          label="快速切换"
         />
         <PreferenceRow
           control={
@@ -2370,7 +2370,7 @@ function AiPreferencesSettingsSection({
                 })
               }
             >
-              <SelectTrigger aria-label="Auto-advance" className="w-auto px-2">
+              <SelectTrigger aria-label="归档后跳转" className="w-auto px-2">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -2382,15 +2382,15 @@ function AiPreferencesSettingsSection({
               </SelectContent>
             </Select>
           }
-          description="Where to go after archiving a workspace"
-          label="Auto-advance"
+          description="归档 workspace 后跳转到哪里"
+          label="归档后跳转"
         />
         <PreferenceRow
           control={
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
-                  aria-label={`Preferred Editor: ${preferredEditorLabel}`}
+                  aria-label={`首选 Editor: ${preferredEditorLabel}`}
                   className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input bg-background px-2 text-xs font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
                   type="button"
                 >
@@ -2464,8 +2464,8 @@ function AiPreferencesSettingsSection({
               </DropdownMenuContent>
             </DropdownMenu>
           }
-          description="Default app for opening workspaces"
-          label="Preferred Editor"
+          description="打开 workspace 时默认使用的应用"
+          label="首选 Editor"
         />
       </section>
 
@@ -2474,12 +2474,12 @@ function AiPreferencesSettingsSection({
           control={
             <PillSwitch
               checked={!aiSettings.analyticsOptOut}
-              label="Share Usage Analytics"
+              label="共享使用分析"
               onChange={(checked) => update({ analyticsOptOut: !checked })}
             />
           }
-          description="Help us improve Agents by sharing anonymous usage data. We only track feature usage and app performance–never your code, prompts, or messages. No AI training on your data."
-          label="Share Usage Analytics"
+          description="共享匿名使用数据，帮助我们改进 Agents。我们只跟踪功能使用和应用性能，不会跟踪你的代码、prompts 或消息，也不会用你的数据训练 AI。"
+          label="共享使用分析"
         />
       </section>
     </div>
@@ -2740,13 +2740,13 @@ function AiModelsSettingsSection({
     }
 
     if (providerId === 'codex' && !trimmed.startsWith('sk-')) {
-      setSecretMessage("Invalid Codex API key format. Key should start with 'sk-'");
+      setSecretMessage("Codex API key 格式无效，key 应以 'sk-' 开头。");
       setCodexApiKey('');
       return;
     }
 
     if (providerId === 'openai' && !trimmed.startsWith('sk-')) {
-      setSecretMessage("Invalid OpenAI API key format. Key should start with 'sk-'");
+      setSecretMessage("OpenAI API key 格式无效，key 应以 'sk-' 开头。");
       return;
     }
 
@@ -2760,9 +2760,9 @@ function AiModelsSettingsSection({
       if (providerId === 'anthropic-override') {
         persistCompleteCustomClaudeConfig();
       }
-      setSecretMessage('API key saved.');
+      setSecretMessage('API key 已保存。');
     } catch (error) {
-      setSecretMessage(error instanceof Error ? error.message : 'Unable to save API key.');
+      setSecretMessage(error instanceof Error ? error.message : '无法保存 API key。');
     }
   }
 
@@ -2777,9 +2777,9 @@ function AiModelsSettingsSection({
         [providerId]: status.status,
       }));
       options?.clearInput?.();
-      setSecretMessage('API key removed.');
+      setSecretMessage('API key 已移除。');
     } catch (error) {
-      setSecretMessage(error instanceof Error ? error.message : 'Unable to remove API key.');
+      setSecretMessage(error instanceof Error ? error.message : '无法移除 API key。');
     }
   }
 
@@ -2790,7 +2790,7 @@ function AiModelsSettingsSection({
       return next;
     } catch (error) {
       setCodexAccountMessage(
-        error instanceof Error ? error.message : 'Unable to read Codex status.',
+        error instanceof Error ? error.message : '无法读取 Codex 状态。',
       );
       return null;
     }
@@ -2807,7 +2807,7 @@ function AiModelsSettingsSection({
       await openCodexLoginUrl(url);
     } catch (error) {
       setCodexLoginError(
-        error instanceof Error ? error.message : 'Unable to open Codex login URL.',
+        error instanceof Error ? error.message : '无法打开 Codex 登录 URL。',
       );
     } finally {
       setIsOpeningCodexUrl(false);
@@ -2834,12 +2834,12 @@ function AiModelsSettingsSection({
       await onDetectedAccountsRefresh();
 
       if (integration?.isConnected) {
-        setCodexAccountMessage('Codex connected successfully.');
+        setCodexAccountMessage('Codex 已连接。');
         setIsCodexLoginOpen(false);
       } else {
         setCodexLoginState('error');
         setCodexLoginError(
-          'Codex login completed, but credentials were not detected. Please retry.',
+          'Codex 登录已完成，但未检测到凭据。请重试。',
         );
       }
     }
@@ -2852,7 +2852,7 @@ function AiModelsSettingsSection({
     } catch (error) {
       setCodexLoginState('error');
       setCodexLoginError(
-        error instanceof Error ? error.message : 'Unable to refresh Codex login.',
+        error instanceof Error ? error.message : '无法刷新 Codex 登录状态。',
       );
     }
   }, [handleCodexLoginSession]);
@@ -2868,7 +2868,7 @@ function AiModelsSettingsSection({
       setCodexIntegration(integration);
       if (integration.isConnected) {
         setCodexLoginState('success');
-        setCodexAccountMessage('Codex already connected.');
+        setCodexAccountMessage('Codex 已连接。');
         setIsCodexLoginOpen(false);
         return;
       }
@@ -2883,7 +2883,7 @@ function AiModelsSettingsSection({
       setCodexLoginError(
         error instanceof Error
           ? error.message
-          : 'Failed to start Codex login. Please try again.',
+          : '无法启动 Codex 登录，请重试。',
       );
     }
   }
@@ -2925,7 +2925,7 @@ function AiModelsSettingsSection({
   ]);
 
   async function handleCodexLogout() {
-    const confirmed = window.confirm('Log out from Codex on this device?');
+    const confirmed = window.confirm('要在这台设备上退出 Codex 吗？');
 
     if (!confirmed) {
       return;
@@ -2938,10 +2938,10 @@ function AiModelsSettingsSection({
       await logoutCodexAccount();
       await refreshCodexIntegrationStatus();
       await onDetectedAccountsRefresh();
-      setCodexAccountMessage('Codex disconnected.');
+      setCodexAccountMessage('Codex 已断开连接。');
     } catch (error) {
       setCodexAccountMessage(
-        error instanceof Error ? error.message : 'Unable to disconnect Codex.',
+        error instanceof Error ? error.message : '无法断开 Codex。',
       );
     } finally {
       setIsCodexLoggingOut(false);
@@ -2952,12 +2952,12 @@ function AiModelsSettingsSection({
     codexIntegration?.state === 'connected_chatgpt';
   const codexSubscriptionStatusText =
     codexIntegration?.state === 'connected_chatgpt'
-      ? 'Connected via ChatGPT'
+      ? '已通过 ChatGPT 连接'
       : codexIntegration?.state === 'connected_api_key'
-        ? 'Not connected to subscription'
+        ? '未连接 subscription'
         : codexIntegration?.state === 'not_logged_in'
-          ? 'Not connected'
-          : 'Status unavailable';
+          ? '未连接'
+          : '状态不可用';
 
   return (
     <div
@@ -2980,7 +2980,7 @@ function AiModelsSettingsSection({
             <Search className="size-4 shrink-0" />
             <input
               className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-              placeholder="Add or search model"
+              placeholder="添加或搜索 model"
               type="search"
               value={modelSearchQuery}
               onChange={(event) => setModelSearchQuery(event.target.value)}
@@ -3017,7 +3017,7 @@ function AiModelsSettingsSection({
                 </div>
                 <PillSwitch
                   checked={enabled}
-                  label={`${model.label} enabled`}
+                  label={`${model.label} 已启用`}
                   onChange={(checked) =>
                     onModelVisibilityChange(model.id, checked)
                   }
@@ -3027,7 +3027,7 @@ function AiModelsSettingsSection({
           })}
           {visibleModels.length === 0 ? (
             <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-              No models found
+              未找到 models
             </div>
           ) : null}
         </div>
@@ -3037,13 +3037,13 @@ function AiModelsSettingsSection({
         <AiModelAnthropicAccountsSection
           accounts={anthropicAccounts}
           detectedAccounts={detectedAnthropicAccounts}
-          description="Manage your Claude API accounts"
+          description="管理你的 Claude API accounts"
           label="Anthropic Accounts"
           onAccountsRefresh={onAnthropicAccountsRefresh}
         />
         <AiModelAccountRow
           account={codexAccount}
-          description="Manage your Codex account"
+          description="管理你的 Codex account"
           label="Codex Account"
           providerId="codex"
         />
@@ -3059,7 +3059,7 @@ function AiModelsSettingsSection({
               {isCodexSubscriptionConnected ? (
                 <>
                   <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium">
-                    Active
+                    活跃
                   </span>
                   <button
                     className="text-sm font-semibold hover:text-foreground/80"
@@ -3067,12 +3067,12 @@ function AiModelsSettingsSection({
                     type="button"
                     onClick={() => void handleCodexLogout()}
                   >
-                    {isCodexLoggingOut ? '...' : 'Logout'}
+                    {isCodexLoggingOut ? '...' : '退出'}
                   </button>
                 </>
               ) : (
                 <Button
-                  aria-label="Connect Codex"
+                  aria-label="连接 Codex"
                   className="h-9 rounded-md"
                   size="sm"
                   type="button"
@@ -3086,7 +3086,7 @@ function AiModelsSettingsSection({
                   }}
                 >
                   <Plus className="mr-1 size-3" />
-                  Connect
+                  连接
                 </Button>
               )}
             </div>
@@ -3103,9 +3103,9 @@ function AiModelsSettingsSection({
                 <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-foreground text-background">
                   <Terminal className="size-6" />
                 </div>
-                <h4 className="text-base font-semibold">Connect OpenAI Codex</h4>
+                <h4 className="text-base font-semibold">连接 OpenAI Codex</h4>
                 <p className="text-sm text-muted-foreground">
-                  Connect your Codex subscription
+                  连接你的 Codex subscription
                 </p>
                 {codexLoginSession?.url ? (
                   <button
@@ -3114,7 +3114,7 @@ function AiModelsSettingsSection({
                     type="button"
                     onClick={() => void openCodexUrlOnce(codexLoginSession.url!)}
                   >
-                    {isOpeningCodexUrl ? 'Opening...' : 'Did not open? Click here'}
+                    {isOpeningCodexUrl ? '正在打开...' : '没有打开？点击这里'}
                   </button>
                 ) : null}
               </div>
@@ -3128,7 +3128,7 @@ function AiModelsSettingsSection({
                 type="button"
                 onClick={() => void handleStartCodexLogin()}
               >
-                {codexLoginState === 'running' ? 'Connecting...' : 'Connect'}
+                {codexLoginState === 'running' ? '连接中...' : '连接'}
               </Button>
               <div className="flex justify-end">
                 <Button
@@ -3136,7 +3136,7 @@ function AiModelsSettingsSection({
                   variant="ghost"
                   onClick={() => void handleCodexLoginOpenChange(false)}
                 >
-                  Cancel
+                  取消
                 </Button>
               </div>
             </div>
@@ -3147,7 +3147,7 @@ function AiModelsSettingsSection({
         ) : null}
         <button
           aria-expanded={isApiKeysOpen}
-          aria-label="API Keys"
+        aria-label="API Keys"
           className="flex h-10 w-fit items-center gap-2 rounded-md px-1 text-left text-sm font-semibold hover:text-foreground/75"
           type="button"
           onClick={() => setIsApiKeysOpen((current) => !current)}
@@ -3163,7 +3163,7 @@ function AiModelsSettingsSection({
         {isApiKeysOpen ? (
           <div className="grid gap-4">
             <AiModelSecretRow
-              description="Takes priority over subscription"
+              description="优先级高于 subscription"
               inputLabel="Codex API Key"
               isConfigured={secretStatuses.codex === 'configured'}
               placeholder="sk-..."
@@ -3176,7 +3176,7 @@ function AiModelsSettingsSection({
               }
             />
             <AiModelSecretRow
-              description="Required for voice transcription (Whisper API)"
+              description="语音转写需要使用（Whisper API）"
               inputLabel="OpenAI API Key"
               isConfigured={secretStatuses.openai === 'configured'}
               placeholder="sk-..."
@@ -3209,13 +3209,13 @@ function AiModelsSettingsSection({
                       void removeSecret('anthropic-override');
                     }}
                   >
-                    Reset
+                    重置
                   </Button>
                 ) : null}
               </div>
               <div className="overflow-hidden rounded-md border bg-background">
                 <AiModelTextRow
-                  description="Model identifier to use for requests"
+                  description="请求时使用的 model identifier"
                   inputLabel="Model name"
                   placeholder="claude-3-7-sonnet-20250219"
                   title="Model name"
@@ -3307,7 +3307,7 @@ function AiModelAccountRow({
       </div>
       {providerId === 'claude' && account?.status !== 'connected' ? (
         <Button className="h-9 rounded-md" size="sm" type="button" variant="outline">
-          + Connect
+          + 连接
         </Button>
       ) : null}
     </div>
@@ -3389,13 +3389,13 @@ function AiModelAnthropicAccountsSection({
       if (status.state === 'error') {
         setAuthFlow({
           step: 'error',
-          message: status.error || 'Failed to get OAuth URL',
+          message: status.error || '无法获取 OAuth URL',
         });
       }
     } catch (error) {
       setAuthFlow({
         step: 'error',
-        message: error instanceof Error ? error.message : 'Failed to get OAuth URL',
+        message: error instanceof Error ? error.message : '无法获取 OAuth URL',
       });
     }
   }
@@ -3432,7 +3432,7 @@ function AiModelAnthropicAccountsSection({
         message:
           error instanceof Error
             ? error.message
-            : 'Failed to start authentication',
+            : '无法启动认证',
       });
     }
   }
@@ -3458,7 +3458,7 @@ function AiModelAnthropicAccountsSection({
     } catch (error) {
       setAuthFlow({
         step: 'error',
-        message: error instanceof Error ? error.message : 'Failed to submit code',
+        message: error instanceof Error ? error.message : '无法提交 authentication code',
       });
     }
   }
@@ -3468,7 +3468,7 @@ function AiModelAnthropicAccountsSection({
     const token = importToken.trim();
 
     if (!token) {
-      setMessage('OAuth token is required.');
+      setMessage('OAuth token 不能为空。');
       return;
     }
 
@@ -3487,7 +3487,7 @@ function AiModelAnthropicAccountsSection({
       setImportToken('');
       setIsImportOpen(false);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Unable to import account.');
+      setMessage(error instanceof Error ? error.message : '无法导入 account。');
     } finally {
       setIsImporting(false);
     }
@@ -3501,7 +3501,7 @@ function AiModelAnthropicAccountsSection({
       await setAiAnthropicAccountActive(account.id);
       await onAccountsRefresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Unable to switch account.');
+      setMessage(error instanceof Error ? error.message : '无法切换 account。');
     } finally {
       setUpdatingAccountId(null);
     }
@@ -3509,7 +3509,7 @@ function AiModelAnthropicAccountsSection({
 
   async function handleRename(account: AiAnthropicAccountItem) {
     const currentName = account.displayName || 'Anthropic Account';
-    const nextName = window.prompt('Enter new name for this account:', currentName);
+    const nextName = window.prompt('输入这个 account 的新名称：', currentName);
 
     if (!nextName?.trim()) {
       return;
@@ -3522,7 +3522,7 @@ function AiModelAnthropicAccountsSection({
       await renameAiAnthropicAccount(account.id, nextName.trim());
       await onAccountsRefresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Unable to rename account.');
+      setMessage(error instanceof Error ? error.message : '无法重命名 account。');
     } finally {
       setUpdatingAccountId(null);
     }
@@ -3531,7 +3531,7 @@ function AiModelAnthropicAccountsSection({
   async function handleRemove(account: AiAnthropicAccountItem) {
     const accountName = account.displayName || 'this account';
     const confirmed = window.confirm(
-      `Are you sure you want to remove "${accountName}"? You will need to re-authenticate to use it again.`,
+      `确定要移除 "${accountName}" 吗？再次使用前需要重新认证。`,
     );
 
     if (!confirmed) {
@@ -3545,7 +3545,7 @@ function AiModelAnthropicAccountsSection({
       await deleteAiAnthropicAccount(account.id);
       await onAccountsRefresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Unable to remove account.');
+      setMessage(error instanceof Error ? error.message : '无法移除 account。');
     } finally {
       setUpdatingAccountId(null);
     }
@@ -3570,7 +3570,7 @@ function AiModelAnthropicAccountsSection({
           }}
         >
           <Plus className="mr-1 size-3" />
-          {hasManagedAccounts || detectedAccounts.length > 0 ? 'Add' : 'Connect'}
+          {hasManagedAccounts || detectedAccounts.length > 0 ? '添加' : '连接'}
         </Button>
       </div>
       {isImportOpen ? (
@@ -3587,7 +3587,7 @@ function AiModelAnthropicAccountsSection({
                 </div>
                 <h4 className="text-base font-semibold">Claude Code</h4>
                 <p className="text-sm text-muted-foreground">
-                  Connect your Claude Code subscription
+                  连接你的 Claude Code subscription
                 </p>
               </div>
               {authFlow.step === 'has_url' || authFlow.step === 'submitting' ? (
@@ -3602,7 +3602,7 @@ function AiModelAnthropicAccountsSection({
                       className="font-mono text-center"
                       disabled={authFlow.step === 'submitting'}
                       id="claude-code-auth-code"
-                      placeholder="Paste your authentication code here..."
+                      placeholder="粘贴 authentication code..."
                       value={authCode}
                       onChange={(event) => setAuthCode(event.target.value)}
                       onKeyDown={(event) => {
@@ -3617,17 +3617,17 @@ function AiModelAnthropicAccountsSection({
                     type="button"
                     onClick={() => void handleSubmitClaudeAuthCode()}
                   >
-                    {authFlow.step === 'submitting' ? '...' : 'Continue'}
+                    {authFlow.step === 'submitting' ? '...' : '继续'}
                   </Button>
                   {authFlow.step === 'has_url' ? (
                     <p className="text-center text-xs text-muted-foreground">
-                      A new tab has opened for authentication.{' '}
+                      已打开新标签页进行认证。{' '}
                       <button
                         className="underline underline-offset-4 hover:text-foreground"
                         type="button"
                         onClick={() => void openAiClaudeCodeOAuthUrl(authFlow.oauthUrl)}
                       >
-                        Did not open? Click here
+                        没有打开？点击这里
                       </button>
                     </p>
                   ) : null}
@@ -3642,7 +3642,7 @@ function AiModelAnthropicAccountsSection({
                 >
                   {authFlow.step === 'starting' || authFlow.step === 'waiting_url'
                     ? '...'
-                    : 'Connect'}
+                    : '连接'}
                 </Button>
               )}
               {authFlow.step === 'error' ? (
@@ -3655,7 +3655,7 @@ function AiModelAnthropicAccountsSection({
                     variant="secondary"
                     onClick={() => void handleClaudeConnect()}
                   >
-                    Try Again
+                    重试
                   </Button>
                 </div>
               ) : null}
@@ -3668,7 +3668,7 @@ function AiModelAnthropicAccountsSection({
                     setAuthFlow({ step: 'error', message: 'manual-import' });
                   }}
                 >
-                  Import token manually
+                  手动导入 token
                 </button>
                 <Button
                   type="button"
@@ -3678,7 +3678,7 @@ function AiModelAnthropicAccountsSection({
                     resetClaudeAuthFlow();
                   }}
                 >
-                  Cancel
+                  取消
                 </Button>
               </div>
             </div>
@@ -3689,13 +3689,13 @@ function AiModelAnthropicAccountsSection({
               onSubmit={handleImportAccount}
             >
               <div className="grid gap-1">
-                <h4 className="text-base font-semibold">Import Anthropic Account</h4>
+                <h4 className="text-base font-semibold">导入 Anthropic Account</h4>
                 <p className="text-sm text-muted-foreground">
-                  Store the OAuth token in the system secret store and use it for the active Claude account.
+                  将 OAuth token 存入系统密钥存储，并用于当前 Claude account。
                 </p>
               </div>
               <label className="grid gap-1 text-sm font-medium" htmlFor="anthropic-display-name">
-                Display name
+                显示名称
                 <Input
                   id="anthropic-display-name"
                   placeholder="Work Claude"
@@ -3730,10 +3730,10 @@ function AiModelAnthropicAccountsSection({
                   variant="ghost"
                   onClick={() => setIsImportOpen(false)}
                 >
-                  Cancel
+                  取消
                 </Button>
                 <Button disabled={isImporting} type="submit">
-                  Import account
+                  导入 account
                 </Button>
               </div>
             </form>
@@ -3785,7 +3785,7 @@ function AiModelAnthropicAccountRow({
   const subtitle =
     account.email ||
     (account.connectedAt
-      ? `Connected ${new Date(account.connectedAt).toLocaleDateString()}`
+      ? `已连接 ${new Date(account.connectedAt).toLocaleDateString()}`
       : null);
   const displayName = account.displayName || 'Anthropic Account';
 
@@ -3804,7 +3804,7 @@ function AiModelAnthropicAccountRow({
       <div className="flex shrink-0 items-center gap-2">
         {account.isActive ? (
           <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
-            Active
+            活跃
           </span>
         ) : (
           <Button
@@ -3815,13 +3815,13 @@ function AiModelAnthropicAccountRow({
             variant="ghost"
             onClick={onSetActive}
           >
-            Switch
+            切换
           </Button>
         )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
-              aria-label={`Account actions for ${displayName}`}
+              aria-label={`${displayName} 的 account 操作`}
               className="size-7"
               disabled={disabled}
               size="icon"
@@ -3832,9 +3832,9 @@ function AiModelAnthropicAccountRow({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={onRename}>Rename</DropdownMenuItem>
+            <DropdownMenuItem onClick={onRename}>重命名</DropdownMenuItem>
             <DropdownMenuItem className="text-destructive" onClick={onRemove}>
-              Remove
+              移除
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -3868,17 +3868,17 @@ function AiModelDetectedAnthropicAccountRow({
       <div className="flex shrink-0 items-center gap-2">
         {isActive ? (
           <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
-            Active
+            活跃
           </span>
         ) : (
           <Button className="h-7" size="sm" type="button" variant="ghost">
-            Switch
+            切换
           </Button>
         )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
-              aria-label={`Account actions for ${account.label}`}
+              aria-label={`${account.label} 的 account 操作`}
               className="size-7"
               size="icon"
               type="button"
@@ -3888,9 +3888,9 @@ function AiModelDetectedAnthropicAccountRow({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem>Rename</DropdownMenuItem>
+            <DropdownMenuItem>重命名</DropdownMenuItem>
             <DropdownMenuItem className="text-destructive">
-              Remove
+              移除
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -3967,7 +3967,7 @@ function AiModelSecretRow({
           </label>
           {isConfigured ? (
             <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
-              Active
+              活跃
             </span>
           ) : null}
         </div>
@@ -3986,7 +3986,7 @@ function AiModelSecretRow({
         />
         {isConfigured ? (
           <button
-            aria-label={`Remove ${inputLabel}`}
+            aria-label={`移除 ${inputLabel}`}
             className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
             type="button"
             onClick={onRemove}
@@ -4338,10 +4338,10 @@ function AiSkillsSettingsSection({
         >
           <label className="min-w-0 flex-1">
             <input
-              aria-label="Search skills and commands"
+              aria-label="搜索 Skills 和 commands"
               className="h-7 w-full rounded-lg border border-input bg-muted px-3 text-sm outline-none placeholder:text-muted-foreground/40"
               data-testid="ai-skills-search-input"
-              placeholder="Search skills & commands..."
+              placeholder="搜索 Skills 和 commands..."
               ref={searchInputRef}
               type="search"
               value={query}
@@ -4351,7 +4351,7 @@ function AiSkillsSettingsSection({
           </label>
           <button
             className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-            title="Create new skill or command"
+            title="新建 Skill 或 command"
             type="button"
             onClick={() => startCreate()}
           >
@@ -4420,7 +4420,7 @@ function AiSkillsSettingsSection({
                 data-testid="skills-empty-sidebar-icon"
               />
               <p className="mb-2 text-sm text-muted-foreground">
-                No skills or commands
+                暂无 Skills 或 commands
               </p>
               <Button
                 className="h-8"
@@ -4430,17 +4430,17 @@ function AiSkillsSettingsSection({
                 onClick={() => startCreate()}
               >
                 <Plus className="mr-1.5 size-3.5" />
-                Create
+                新建
               </Button>
             </div>
           ) : (
-            <EmptyInventory label="No results found" />
+            <EmptyInventory label="未找到结果" />
           )}
         </div>
       </aside>
 
       <WorkspaceResizeHandle
-        aria-label="Resize Skills settings list"
+        aria-label="调整 Skills 设置列表宽度"
         className="-mx-1"
         direction="left"
         max={400}
@@ -4458,7 +4458,7 @@ function AiSkillsSettingsSection({
               data-testid="skills-empty-detail-icon"
             />
             <p className="text-sm text-muted-foreground">
-              No skills or commands found
+              未找到 Skills 或 commands
             </p>
             <Button
               className="mt-3 h-8"
@@ -4468,7 +4468,7 @@ function AiSkillsSettingsSection({
               onClick={() => startCreate()}
             >
               <Plus className="mr-1.5 size-3.5" />
-              Create your first skill or command
+              新建第一个 Skill 或 command
             </Button>
           </div>
         ) : (
@@ -4486,8 +4486,8 @@ function AiSkillsSettingsSection({
                   <h3 className="truncate text-sm font-semibold text-foreground">
                     {isCreating
                       ? draft.kind === 'skill'
-                        ? 'New Skill'
-                        : 'New Command'
+                        ? '新建 Skill'
+                        : '新建 Command'
                       : draft.name || 'Skills'}
                   </h3>
                   {!isCreating ? (
@@ -4498,7 +4498,7 @@ function AiSkillsSettingsSection({
                 </div>
                 {!isCreating ? (
                   <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {selectedItem?.path || 'Select an item or create a new one.'}
+                    {selectedItem?.path || '选择一项或新建一项。'}
                   </p>
                 ) : null}
               </div>
@@ -4507,7 +4507,7 @@ function AiSkillsSettingsSection({
             <div className="grid gap-4">
           {isCreating ? (
             <label className="grid gap-1.5">
-              <span className="text-sm font-medium">Type</span>
+              <span className="text-sm font-medium">类型</span>
               <Select
                 value={draft.kind}
                 onValueChange={(value) =>
@@ -4517,15 +4517,15 @@ function AiSkillsSettingsSection({
                   }))
                 }
               >
-                <SelectTrigger aria-label="Type">
+                <SelectTrigger aria-label="类型">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="skill">
-                    Skill (referenced via @mention)
+                    Skill（通过 @mention 引用）
                   </SelectItem>
                   <SelectItem value="command">
-                    Command (triggered via /slash)
+                    Command（通过 /slash 触发）
                   </SelectItem>
                 </SelectContent>
               </Select>
@@ -4579,20 +4579,20 @@ function AiSkillsSettingsSection({
             />
             {isCreating ? (
               <span className="text-[11px] text-muted-foreground">
-                Will be converted to kebab-case (lowercase letters, numbers, hyphens)
+                会转换为 kebab-case（小写字母、数字和连字符）
               </span>
             ) : null}
           </label>
 
           {isWritable ? (
             <label className="grid gap-1.5">
-              <span className="text-sm font-medium">Description</span>
+              <span className="text-sm font-medium">描述</span>
               <Input
-                aria-label="Description"
+                aria-label="描述"
                 placeholder={
                   draft.kind === 'skill'
-                    ? 'What this skill does...'
-                    : 'What this command does...'
+                    ? '这个 Skill 的用途...'
+                    : '这个 command 的用途...'
                 }
                 value={draft.description}
                 onBlur={() => void handleAutosave()}
@@ -4606,13 +4606,13 @@ function AiSkillsSettingsSection({
             </label>
           ) : (
             <div className="grid gap-1.5">
-              <span className="text-sm font-medium">Description</span>
+              <span className="text-sm font-medium">描述</span>
               <p
                 className="rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm text-foreground"
                 data-testid="ai-skills-readonly-description"
               >
                 {draft.description || (
-                  <span className="text-muted-foreground">No description</span>
+                  <span className="text-muted-foreground">暂无描述</span>
                 )}
               </p>
             </div>
@@ -4620,9 +4620,9 @@ function AiSkillsSettingsSection({
 
           {draft.kind === 'command' ? (
             <label className="grid gap-1.5">
-              <span className="text-sm font-medium">Argument hint</span>
+              <span className="text-sm font-medium">参数提示</span>
               <Input
-                aria-label="Argument hint"
+                aria-label="参数提示"
                 disabled={!isWritable}
                 placeholder="<message>"
                 value={draft.argumentHint}
@@ -4638,7 +4638,7 @@ function AiSkillsSettingsSection({
 
           {!isCreating ? (
             <div className="grid gap-1.5">
-              <span className="text-sm font-medium">Usage</span>
+              <span className="text-sm font-medium">用法</span>
               <div className="rounded-md border bg-muted/40 px-3 py-2">
                 <code className="text-sm">
                   {draft.kind === 'skill' ? `@${draft.name}` : `/${draft.name}`}
@@ -4654,8 +4654,8 @@ function AiSkillsSettingsSection({
                 <Button
                   aria-label={
                     instructionsViewMode === 'preview'
-                      ? 'Edit markdown'
-                      : 'Preview markdown'
+                      ? '编辑 markdown'
+                      : '预览 markdown'
                   }
                   className="size-8 p-0"
                   size="sm"
@@ -4695,7 +4695,7 @@ function AiSkillsSettingsSection({
                 {draft.content ? (
                   <AiSettingsMarkdownPreview content={draft.content} />
                 ) : (
-                  <span className="text-muted-foreground">No instructions</span>
+                  <span className="text-muted-foreground">暂无 instructions</span>
                 )}
               </div>
             ) : (
@@ -4705,8 +4705,8 @@ function AiSkillsSettingsSection({
                 disabled={!isWritable}
                 placeholder={
                   draft.kind === 'skill'
-                    ? 'Skill instructions (markdown)...'
-                    : 'Command prompt (markdown)...'
+                    ? 'Skill instructions（markdown）...'
+                    : 'Command prompt（markdown）...'
                 }
                 rows={isCreating ? 12 : 16}
                 value={draft.content}
@@ -4723,7 +4723,7 @@ function AiSkillsSettingsSection({
 
           {selectedItem?.source === 'plugin' ? (
             <p className="text-sm text-muted-foreground">
-              Plugin-provided skills and commands are read-only here.
+              Plugin 提供的 Skills 和 commands 在这里为只读。
             </p>
           ) : null}
 
@@ -4741,7 +4741,7 @@ function AiSkillsSettingsSection({
                 onClick={() => setDeletingItem(selectedItem)}
               >
                 <Trash2 className="mr-1.5 size-3.5" />
-                {draft.kind === 'skill' ? 'Delete skill' : 'Delete command'}
+                {draft.kind === 'skill' ? '删除 Skill' : '删除 command'}
               </Button>
             </div>
           ) : null}
@@ -4755,7 +4755,7 @@ function AiSkillsSettingsSection({
                   : 'text-muted-foreground',
               )}
             >
-              {message ?? 'Changes are written to Claude-compatible files.'}
+              {message ?? '更改会写入 Claude-compatible files。'}
             </p>
             {shouldShowSaveButton ? (
               <Button
@@ -4765,11 +4765,11 @@ function AiSkillsSettingsSection({
               >
                 {actionState === 'saving'
                   ? isCreating
-                    ? 'Creating...'
-                    : 'Saving...'
+                    ? '创建中...'
+                    : '保存中...'
                   : isCreating
-                    ? 'Create'
-                    : 'Save'}
+                    ? '新建'
+                    : '保存'}
               </Button>
             ) : null}
           </div>
@@ -4779,10 +4779,10 @@ function AiSkillsSettingsSection({
         )}
       </section>
       <ConfirmAiSettingsDeleteDialog
-        description={`Are you sure you want to delete ${deletingItem?.kind === 'skill' ? 'skill' : 'command'} "${deletingItem?.name ?? ''}"? This cannot be undone.`}
+        description={`确定要删除 ${deletingItem?.kind === 'skill' ? 'Skill' : 'command'} "${deletingItem?.name ?? ''}" 吗？此操作无法撤销。`}
         disabled={actionState === 'saving'}
         open={Boolean(deletingItem)}
-        title={`Delete ${deletingItem?.kind === 'skill' ? 'skill' : 'command'}`}
+        title={`删除 ${deletingItem?.kind === 'skill' ? 'Skill' : 'command'}`}
         onConfirm={() => void handleDelete()}
         onOpenChange={(open) => {
           if (!open) {
@@ -4982,15 +4982,15 @@ type AiCustomAgentToolMode = 'all' | 'allowlist' | 'denylist';
 const AI_CUSTOM_AGENT_TOOL_CATEGORIES = [
   {
     id: 'file',
-    name: 'File Operations',
+    name: '文件操作',
     tools: [
-      { description: 'Read file contents', id: 'Read', name: 'Read File' },
-      { description: 'Create or overwrite files', id: 'Write', name: 'Write File' },
-      { description: 'Make precise edits', id: 'Edit', name: 'Edit File' },
-      { description: 'Find files by pattern', id: 'Glob', name: 'Glob Pattern' },
-      { description: 'Search in file contents', id: 'Grep', name: 'Search Content' },
+      { description: '读取文件内容', id: 'Read', name: '读取文件' },
+      { description: '创建或覆盖文件', id: 'Write', name: '写入文件' },
+      { description: '进行精确编辑', id: 'Edit', name: '编辑文件' },
+      { description: '按 pattern 查找文件', id: 'Glob', name: 'Glob Pattern' },
+      { description: '搜索文件内容', id: 'Grep', name: '搜索内容' },
       {
-        description: 'Edit Jupyter notebooks',
+        description: '编辑 Jupyter notebooks',
         id: 'NotebookEdit',
         name: 'Notebook Edit',
       },
@@ -5000,25 +5000,25 @@ const AI_CUSTOM_AGENT_TOOL_CATEGORIES = [
     id: 'system',
     name: 'System',
     tools: [
-      { description: 'Execute shell commands', id: 'Bash', name: 'Bash Commands' },
-      { description: 'Launch specialized agents', id: 'Task', name: 'Launch Subagent' },
+      { description: '执行 shell commands', id: 'Bash', name: 'Bash Commands' },
+      { description: '启动专用 agents', id: 'Task', name: '启动 Subagent' },
     ],
   },
   {
     id: 'web',
     name: 'Web',
     tools: [
-      { description: 'Search the internet', id: 'WebSearch', name: 'Web Search' },
-      { description: 'Fetch webpage content', id: 'WebFetch', name: 'Fetch URL' },
+      { description: '搜索互联网', id: 'WebSearch', name: 'Web Search' },
+      { description: '获取网页内容', id: 'WebFetch', name: 'Fetch URL' },
     ],
   },
   {
     id: 'planning',
     name: 'Planning',
     tools: [
-      { description: 'Manage task list', id: 'TodoWrite', name: 'Todo List' },
+      { description: '管理任务列表', id: 'TodoWrite', name: 'Todo List' },
       {
-        description: 'Ask clarifying questions',
+        description: '提出澄清问题',
         id: 'AskUserQuestion',
         name: 'Ask User',
       },
@@ -5300,10 +5300,10 @@ function AiCustomAgentsSettingsSection({
         >
           <label className="min-w-0 flex-1">
             <input
-              aria-label="Search agents"
+              aria-label="搜索 Agents"
               className="h-7 w-full rounded-lg border border-input bg-muted px-3 text-sm outline-none placeholder:text-muted-foreground/40"
               data-testid="ai-agents-search-input"
-              placeholder="Search agents..."
+              placeholder="搜索 Agents..."
               ref={searchInputRef}
               type="search"
               value={query}
@@ -5313,7 +5313,7 @@ function AiCustomAgentsSettingsSection({
           </label>
           <button
             className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-            title="Create new agent"
+            title="新建 Agent"
             type="button"
             onClick={startCreate}
           >
@@ -5380,7 +5380,7 @@ function AiCustomAgentsSettingsSection({
                 className="mb-3 size-8 text-border"
                 data-testid="agents-empty-sidebar-icon"
               />
-              <p className="mb-2 text-sm text-muted-foreground">No agents</p>
+              <p className="mb-2 text-sm text-muted-foreground">暂无 Agents</p>
               <Button
                 className="h-8"
                 size="sm"
@@ -5389,17 +5389,17 @@ function AiCustomAgentsSettingsSection({
                 onClick={startCreate}
               >
                 <Plus className="mr-1.5 size-3.5" />
-                Create agent
+                新建 Agent
               </Button>
             </div>
           ) : (
-            <EmptyInventory label="No results found" />
+            <EmptyInventory label="未找到结果" />
           )}
         </div>
       </aside>
 
       <WorkspaceResizeHandle
-        aria-label="Resize Custom Agents settings list"
+        aria-label="调整 Custom Agents 设置列表宽度"
         className="-mx-1"
         direction="left"
         max={400}
@@ -5417,7 +5417,7 @@ function AiCustomAgentsSettingsSection({
               data-testid="agents-empty-detail-icon"
             />
             <p className="text-sm text-muted-foreground">
-              No custom agents found
+              未找到 Custom Agents
             </p>
             <Button
               className="mt-3 h-8"
@@ -5427,7 +5427,7 @@ function AiCustomAgentsSettingsSection({
               onClick={startCreate}
             >
               <Plus className="mr-1.5 size-3.5" />
-              Create your first agent
+              新建第一个 Agent
             </Button>
           </div>
         ) : (
@@ -5443,7 +5443,7 @@ function AiCustomAgentsSettingsSection({
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <h3 className="truncate text-sm font-semibold text-foreground">
-                    {isCreating ? 'New Agent' : draft.name || 'Custom Agents'}
+                    {isCreating ? '新建 Agent' : draft.name || 'Custom Agents'}
                   </h3>
                   {!isCreating ? (
                     <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
@@ -5453,7 +5453,7 @@ function AiCustomAgentsSettingsSection({
                 </div>
                 {!isCreating ? (
                   <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {selectedAgent?.path || 'Select an agent or create a new one.'}
+                    {selectedAgent?.path || '选择一个 Agent 或新建。'}
                   </p>
                 ) : null}
               </div>
@@ -5473,7 +5473,7 @@ function AiCustomAgentsSettingsSection({
                       }
                     }}
                   >
-                    Cancel
+                    取消
                   </Button>
                   <Button
                     disabled={!canSave || actionState === 'saving'}
@@ -5481,7 +5481,7 @@ function AiCustomAgentsSettingsSection({
                     type="button"
                     onClick={() => void handleSave()}
                   >
-                    {actionState === 'saving' ? 'Creating...' : 'Create'}
+                    {actionState === 'saving' ? '创建中...' : '新建'}
                   </Button>
                 </div>
               ) : selectedAgent && isWritable ? (
@@ -5493,7 +5493,7 @@ function AiCustomAgentsSettingsSection({
                   variant="ghost"
                   onClick={() => setDeletingAgent(selectedAgent)}
                 >
-                  Delete agent
+                  删除 Agent
                 </Button>
               ) : null}
             </div>
@@ -5542,18 +5542,18 @@ function AiCustomAgentsSettingsSection({
             />
             {isCreating ? (
               <span className="text-[11px] text-muted-foreground">
-                Lowercase letters, numbers, and hyphens
+                小写字母、数字和连字符
               </span>
             ) : null}
           </label>
 
           <label className="grid gap-1.5">
-            <span className="text-sm font-medium">Description</span>
+            <span className="text-sm font-medium">描述</span>
             <Input
-              aria-label="Description"
+              aria-label="描述"
               disabled={!isWritable}
               placeholder={
-                isCreating ? 'What this agent does...' : 'Agent description...'
+                isCreating ? '这个 Agent 的用途...' : 'Agent 描述...'
               }
               value={draft.description}
               onBlur={() => void handleAutosave()}
@@ -5606,13 +5606,13 @@ function AiCustomAgentsSettingsSection({
           ) : selectedAgent ? (
             <div className="grid gap-3 md:grid-cols-2">
               <CustomAgentToolBadges
-                emptyLabel="No allowed tools configured"
-                label="Allowed Tools"
+                emptyLabel="未配置允许的 tools"
+                label="允许的 Tools"
                 tools={selectedAgent.tools}
               />
               <CustomAgentToolBadges
-                emptyLabel="No disallowed tools configured"
-                label="Disallowed Tools"
+                emptyLabel="未配置禁用的 tools"
+                label="禁用的 Tools"
                 tools={selectedAgent.disallowedTools}
               />
             </div>
@@ -5626,8 +5626,8 @@ function AiCustomAgentsSettingsSection({
               disabled={!isWritable}
               placeholder={
                 isCreating
-                  ? 'You are a specialized agent that...'
-                  : 'System prompt for this agent...'
+                  ? '你是一个专用 agent，负责...'
+                  : '这个 agent 的 system prompt...'
               }
               rows={isCreating ? 12 : 16}
               value={draft.prompt}
@@ -5643,7 +5643,7 @@ function AiCustomAgentsSettingsSection({
 
           {selectedAgent?.source === 'plugin' ? (
             <p className="text-sm text-muted-foreground">
-              Plugin-provided custom agents are read-only here.
+              Plugin 提供的 Custom Agents 在这里为只读。
             </p>
           ) : null}
 
@@ -5656,7 +5656,7 @@ function AiCustomAgentsSettingsSection({
                   : 'text-muted-foreground',
               )}
             >
-              {message ?? 'Changes are written to Claude-compatible agent files.'}
+              {message ?? '更改会写入 Claude-compatible agent files。'}
             </p>
             {shouldShowSaveButton && !isCreating ? (
               <Button
@@ -5664,7 +5664,7 @@ function AiCustomAgentsSettingsSection({
                 type="button"
                 onClick={() => void handleSave()}
               >
-                {isCreating ? 'Create' : 'Save'}
+                {isCreating ? '新建' : '保存'}
               </Button>
             ) : null}
           </div>
@@ -5674,10 +5674,10 @@ function AiCustomAgentsSettingsSection({
         )}
       </section>
       <ConfirmAiSettingsDeleteDialog
-        description={`Are you sure you want to delete agent "${deletingAgent?.name ?? ''}"? This cannot be undone.`}
+        description={`确定要删除 Agent "${deletingAgent?.name ?? ''}" 吗？此操作无法撤销。`}
         disabled={actionState === 'saving'}
         open={Boolean(deletingAgent)}
-        title="Delete agent"
+        title="删除 Agent"
         onConfirm={() => void handleDelete()}
         onOpenChange={(open) => {
           if (!open) {
@@ -5839,7 +5839,7 @@ function CustomAgentToolSelector({
           type="button"
           onClick={() => onChange(allToolIds)}
         >
-          Select all
+          全选
         </button>
         <span className="text-muted-foreground">·</span>
         <button
@@ -5848,11 +5848,11 @@ function CustomAgentToolSelector({
           type="button"
           onClick={() => onChange([])}
         >
-          Clear
+          清空
         </button>
         <span className="flex-1" />
         <span className="text-muted-foreground">
-          {selectedTools.length} selected
+          已选择 {selectedTools.length} 个
         </span>
       </div>
 
@@ -5911,8 +5911,8 @@ function CustomAgentToolSelector({
 
       <p className="text-xs text-muted-foreground">
         {mode === 'allowlist'
-          ? 'Agent will ONLY have access to selected tools'
-          : 'Agent will have access to ALL tools EXCEPT selected ones'}
+          ? 'Agent 只能访问已选择的 tools'
+          : 'Agent 可以访问除已选择项以外的所有 tools'}
       </p>
     </div>
   );
@@ -5965,11 +5965,11 @@ function setCustomAgentDraftTools(
 function formatCustomAgentToolModeLabel(mode: AiCustomAgentToolMode) {
   switch (mode) {
     case 'all':
-      return 'All Tools';
+      return '所有 Tools';
     case 'allowlist':
-      return 'Only Selected';
+      return '仅已选择';
     case 'denylist':
-      return 'Except Selected';
+      return '排除已选择';
   }
 }
 
@@ -6015,7 +6015,7 @@ function formatAgentModelLabel(
 ) {
   const labels = {
     haiku: 'Haiku 4.5',
-    inherit: 'Inherit from parent',
+    inherit: '继承 parent 设置',
     opus: 'Opus 4.6',
     sonnet: 'Sonnet 4.6',
   } satisfies Record<typeof model, string>;
@@ -6347,10 +6347,10 @@ function AiMcpServersSettingsSection({
         >
           <label className="min-w-0 flex-1">
             <input
-              aria-label="Search servers"
+              aria-label="搜索 MCP servers"
               className="h-7 w-full rounded-lg border border-input bg-muted px-3 text-sm outline-none placeholder:text-muted-foreground/40"
               data-testid="ai-mcp-search-input"
-              placeholder="Search servers..."
+              placeholder="搜索 MCP servers..."
               ref={searchInputRef}
               type="search"
               value={query}
@@ -6359,10 +6359,10 @@ function AiMcpServersSettingsSection({
             />
           </label>
           <Button
-            aria-label="Add MCP server"
+            aria-label="添加 MCP server"
             className="size-7 shrink-0 rounded-lg text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
             size="icon"
-            title="Add MCP server"
+            title="添加 MCP server"
             type="button"
             variant="ghost"
             onClick={handleStartCreate}
@@ -6370,10 +6370,10 @@ function AiMcpServersSettingsSection({
             <Plus size={16} />
           </Button>
           <Button
-            aria-label="Refresh MCP servers"
+            aria-label="刷新 MCP servers"
             className="size-7 shrink-0 rounded-lg text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
             size="icon"
-            title="Refresh MCP servers"
+            title="刷新 MCP servers"
             type="button"
             variant="ghost"
             onClick={() => void onServersRefresh()}
@@ -6395,7 +6395,7 @@ function AiMcpServersSettingsSection({
                 height={34}
                 width={34}
               />
-              <p className="text-sm text-muted-foreground">No servers</p>
+              <p className="text-sm text-muted-foreground">暂无 MCP servers</p>
               <Button
                 className="h-8"
                 size="sm"
@@ -6403,11 +6403,11 @@ function AiMcpServersSettingsSection({
                 variant="outline"
                 onClick={handleStartCreate}
               >
-                Add server
+                添加 server
               </Button>
             </div>
           ) : filteredServers.length === 0 ? (
-            <EmptyInventory label="No results found" />
+            <EmptyInventory label="未找到结果" />
           ) : (
             <div className="space-y-3">
               {groupedServers.map((group) => (
@@ -6438,7 +6438,7 @@ function AiMcpServersSettingsSection({
       </aside>
 
       <WorkspaceResizeHandle
-        aria-label="Resize MCP Servers settings list"
+        aria-label="调整 MCP Servers 设置列表宽度"
         className="-mx-1"
         direction="left"
         max={400}
@@ -6455,7 +6455,7 @@ function AiMcpServersSettingsSection({
           <div className="mx-auto grid max-w-[720px] gap-4">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-[18px] font-semibold">
-              {isEditing ? 'Edit server' : 'New MCP Server'}
+              {isEditing ? '编辑 MCP Server' : '新建 MCP Server'}
             </h3>
             <div className="flex items-center gap-2">
               <Button
@@ -6465,7 +6465,7 @@ function AiMcpServersSettingsSection({
                 variant="ghost"
                 onClick={handleCancelDraft}
               >
-                Cancel
+                取消
               </Button>
               <Button
                 className="h-8"
@@ -6476,11 +6476,11 @@ function AiMcpServersSettingsSection({
               >
                 {updatingKey === (editingKey ?? 'new')
                   ? isEditing
-                    ? 'Saving...'
-                    : 'Adding...'
+                    ? '保存中...'
+                    : '添加中...'
                   : isEditing
-                    ? 'Save changes'
-                    : 'Add'}
+                    ? '保存更改'
+                    : '添加'}
               </Button>
             </div>
           </div>
@@ -6510,7 +6510,7 @@ function AiMcpServersSettingsSection({
             </div>
             {draft.provider === 'codex' || workspaceRootPath ? (
               <div className="grid gap-2">
-                <p className="text-sm font-medium">Scope</p>
+              <p className="text-sm font-medium">Scope</p>
                 <Select
                   disabled={isEditing || draft.provider === 'codex'}
                   value={draft.provider === 'codex' ? 'global' : draft.source}
@@ -6557,7 +6557,7 @@ function AiMcpServersSettingsSection({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="stdio">stdio (local command)</SelectItem>
+                  <SelectItem value="stdio">stdio（本地 command）</SelectItem>
                   <SelectItem value="http">HTTP (SSE)</SelectItem>
                 </SelectContent>
               </Select>
@@ -6608,7 +6608,7 @@ function AiMcpServersSettingsSection({
                   }
                 />
                 <span className="text-[11px] text-muted-foreground">
-                  Space-separated arguments
+                  用空格分隔 arguments
                 </span>
               </label>
             </>
@@ -6629,7 +6629,7 @@ function AiMcpServersSettingsSection({
                 />
               </label>
               <div className="grid gap-2">
-                <p className="text-sm font-medium">Auth Type</p>
+                <p className="text-sm font-medium">Auth 类型</p>
                 <div className="flex flex-wrap gap-2">
                   {(['none', 'oauth', 'bearer'] as const).map((authType) => (
                     <button
@@ -6710,8 +6710,8 @@ function AiMcpServersSettingsSection({
             />
             <p className="text-sm text-muted-foreground">
               {servers.length > 0
-                ? 'Select a server to view details'
-                : 'No MCP servers configured'}
+                ? '选择一个 MCP server 查看详情'
+                : '未配置 MCP servers'}
             </p>
             <Button
               className="h-8"
@@ -6720,18 +6720,18 @@ function AiMcpServersSettingsSection({
               variant="outline"
               onClick={handleStartCreate}
             >
-              Add your first server
+              添加第一个 server
             </Button>
           </div>
         )}
       </section>
       <ConfirmAiSettingsDeleteDialog
-        description={`Are you sure you want to delete ${deletingServer?.name ?? ''}? This will remove the server configuration and cannot be undone.`}
+        description={`确定要删除 ${deletingServer?.name ?? ''} 吗？这会移除 server 配置，且无法撤销。`}
         disabled={
           deletingServer ? updatingKey === mcpServerKey(deletingServer) : false
         }
         open={Boolean(deletingServer)}
-        title="Delete MCP Server"
+        title="删除 MCP Server"
         onConfirm={() => {
           if (deletingServer) {
             void handleDelete(deletingServer);
@@ -6888,7 +6888,7 @@ function McpServerDetailPanel({
             variant="secondary"
             onClick={() => void onAuthenticate(server)}
           >
-            {server.status === 'connected' ? 'Reconnect' : 'Authenticate'}
+            {server.status === 'connected' ? '重新连接' : '认证'}
           </Button>
         ) : null}
         {canLogout ? (
@@ -6900,18 +6900,18 @@ function McpServerDetailPanel({
             variant="outline"
             onClick={() => void onLogout(server)}
           >
-            Logout
+            退出
           </Button>
         ) : null}
         {canDelete ? (
           <div className="flex shrink-0 items-center gap-2">
             {canWrite ? (
               <Button
-                aria-label="Edit server"
+                aria-label="编辑 server"
                 className="size-8"
                 disabled={updatingKey === serverKey}
                 size="icon"
-                title="Edit server"
+                title="编辑 server"
                 type="button"
                 variant="ghost"
                 onClick={() => onEdit(server)}
@@ -6923,13 +6923,13 @@ function McpServerDetailPanel({
               className="size-8 text-destructive hover:text-destructive"
               disabled={updatingKey === serverKey}
               size="icon"
-              title="Delete server"
+              title="删除 server"
               type="button"
               variant="ghost"
               onClick={() => void onDelete(server)}
             >
               <Trash2 size={14} />
-              <span className="sr-only">Delete server</span>
+              <span className="sr-only">删除 server</span>
             </Button>
           </div>
         ) : null}
@@ -6937,8 +6937,8 @@ function McpServerDetailPanel({
           <Button
             aria-label={
               isPendingApproval
-                ? 'Approve plugin MCP server'
-                : 'Revoke plugin MCP server approval'
+                ? '批准 plugin MCP server'
+                : '撤销 plugin MCP server 批准'
             }
             className="h-8 shrink-0"
             disabled={updatingKey === serverKey}
@@ -6947,7 +6947,7 @@ function McpServerDetailPanel({
             variant={isPendingApproval ? 'default' : 'outline'}
             onClick={() => void onPluginApproval(server, isPendingApproval)}
           >
-            {isPendingApproval ? 'Approve' : 'Revoke'}
+            {isPendingApproval ? '批准' : '撤销'}
           </Button>
         ) : null}
       </div>
@@ -6955,24 +6955,24 @@ function McpServerDetailPanel({
       {canWrite ? (
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h4 className="text-xs font-medium text-foreground">Enabled</h4>
+            <h4 className="text-xs font-medium text-foreground">启用</h4>
             <p className="mt-1 text-xs text-muted-foreground">
-              Disable to prevent this server from connecting
+              关闭后将阻止这个 server 连接
             </p>
           </div>
           <PillSwitch
             checked={server.enabled}
             disabled={updatingKey === serverKey}
-            label={`Toggle MCP ${server.name}`}
+            label={`切换 MCP ${server.name}`}
             onChange={(checked) => void onToggle(server, checked)}
           />
         </div>
       ) : null}
 
       <div>
-        <h4 className="mb-2 text-xs font-medium text-foreground">Connection</h4>
+        <h4 className="mb-2 text-xs font-medium text-foreground">连接</h4>
         <div className="overflow-hidden rounded-md border">
-          <ReadonlyInfoRow label="Type" value={server.connectionType} />
+          <ReadonlyInfoRow label="类型" value={server.connectionType} />
           {server.command ? (
             <ReadonlyInfoRow label="Command" value={server.command} />
           ) : null}
@@ -6989,7 +6989,7 @@ function McpServerDetailPanel({
           {server.hasAuthHeader ? (
             <ReadonlyInfoRow
               label="Authorization"
-              value="Authorization configured"
+              value="Authorization 已配置"
             />
           ) : null}
           {server.envKeys.length > 0 ? (
@@ -7000,7 +7000,7 @@ function McpServerDetailPanel({
 
       {server.error ? (
         <div>
-          <h4 className="mb-2 text-xs font-medium text-destructive">Error</h4>
+          <h4 className="mb-2 text-xs font-medium text-destructive">错误</h4>
           <div className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2">
             <p className="break-words font-mono text-xs text-destructive">
               {server.error}
@@ -7051,7 +7051,7 @@ function McpStatusDot({
   if (normalizedStatus === 'pending') {
     return (
       <span
-        aria-label="MCP server connecting"
+        aria-label="MCP server 正在连接"
         className="size-3 shrink-0 animate-pulse rounded-full bg-muted-foreground/50"
         data-testid="mcp-status-loading-dot"
       />
@@ -7141,18 +7141,18 @@ function mcpServerMatchesSearch(
 
 function formatMcpStatusLabel(server: AiMcpServerItem) {
   if (!server.enabled) {
-    return 'Disabled';
+    return '已停用';
   }
 
   switch (server.status) {
     case 'connected':
-      return 'Connected';
+      return '已连接';
     case 'failed':
-      return 'Failed';
+      return '失败';
     case 'needs-auth':
-      return 'Needs auth';
+      return '需要认证';
     case 'pending':
-      return 'Connecting...';
+      return '连接中...';
     default:
       return server.status;
   }
@@ -7165,17 +7165,17 @@ function formatMcpServerSummary(
   const toolsCount = server.tools?.length ?? 0;
 
   if (!server.enabled) {
-    return 'Disabled';
+    return '已停用';
   }
 
   if (server.status === 'connected') {
     if (hideToolsCount) {
-      return 'Connected';
+      return '已连接';
     }
 
     return toolsCount > 0
-      ? `${toolsCount} tool${toolsCount === 1 ? '' : 's'}`
-      : 'No tools';
+      ? `${toolsCount} 个 tool`
+      : '无 tools';
   }
 
   return formatMcpStatusLabel(server);
@@ -7212,7 +7212,7 @@ function normalizeMcpAuthType(
 function formatMcpAuthTypeOption(authType: AiMcpServerDraft['authType']) {
   const labels = {
     bearer: 'Bearer Token',
-    none: 'None',
+    none: '无',
     oauth: 'OAuth',
   } satisfies Record<AiMcpServerDraft['authType'], string>;
 
@@ -7373,10 +7373,10 @@ function AiPluginsSettingsSection({
         >
           <label className="min-w-0 flex-1">
             <input
-              aria-label="Search plugins"
+              aria-label="搜索 Plugins"
               className="h-7 w-full rounded-lg border border-input bg-muted px-3 text-sm outline-none placeholder:text-muted-foreground/40"
               data-testid="ai-plugins-search-input"
-              placeholder="Search plugins..."
+              placeholder="搜索 Plugins..."
               ref={searchInputRef}
               type="search"
               value={query}
@@ -7394,11 +7394,11 @@ function AiPluginsSettingsSection({
           {plugins.length === 0 ? (
             <PluginsSidebarEmptyState />
           ) : filteredPlugins.length === 0 ? (
-            <EmptyInventory label="No results found" />
+            <EmptyInventory label="未找到结果" />
           ) : (
             <div className="space-y-4">
               {enabledPlugins.length > 0 ? (
-                <PluginListGroup title="Enabled">
+                <PluginListGroup title="已启用">
                   {enabledPlugins.map((plugin) => (
                     <PluginListItem
                       isSelected={selectedPlugin?.source === plugin.source}
@@ -7427,7 +7427,7 @@ function AiPluginsSettingsSection({
       </aside>
 
       <WorkspaceResizeHandle
-        aria-label="Resize Plugins settings list"
+        aria-label="调整 Plugins 设置列表宽度"
         className="-mx-1"
         direction="left"
         max={400}
@@ -7454,7 +7454,7 @@ function AiPluginsSettingsSection({
           />
         ) : (
           plugins.length > 0 ? (
-            <EmptyInventory label="Select a plugin to view details" />
+            <EmptyInventory label="选择一个 plugin 查看详情" />
           ) : (
             <PluginsDetailEmptyState />
           )
@@ -7471,9 +7471,9 @@ function PluginsSidebarEmptyState() {
         className="mb-3 size-8 text-border"
         data-testid="plugins-empty-sidebar-icon"
       />
-      <p className="mb-1 text-sm text-muted-foreground">No plugins</p>
+      <p className="mb-1 text-sm text-muted-foreground">暂无 Plugins</p>
       <p className="text-[11px] text-muted-foreground/70">
-        Install plugins to ~/.claude/plugins/
+        将 plugins 安装到 ~/.claude/plugins/
       </p>
     </div>
   );
@@ -7486,9 +7486,9 @@ function PluginsDetailEmptyState() {
         className="mb-4 size-12 text-border"
         data-testid="plugins-empty-detail-icon"
       />
-      <p className="text-sm text-muted-foreground">No plugins installed</p>
+      <p className="text-sm text-muted-foreground">未安装 Plugins</p>
       <p className="mt-2 text-xs text-muted-foreground/70">
-        Install plugins to ~/.claude/plugins/marketplaces/
+        将 plugins 安装到 ~/.claude/plugins/marketplaces/
       </p>
     </div>
   );
@@ -7612,12 +7612,12 @@ function PluginDetailPanel({
                 plugin.isDisabled ? 'text-muted-foreground' : 'text-emerald-600',
               )}
             >
-              {plugin.isDisabled ? 'Disabled' : 'Active'}
+              {plugin.isDisabled ? '已停用' : '活跃'}
             </span>
             <PillSwitch
               checked={!plugin.isDisabled}
               disabled={isTogglingEnabled}
-              label={`Toggle ${plugin.name}`}
+              label={`切换 ${plugin.name}`}
               onChange={onToggleEnabled}
             />
           </div>
@@ -7739,9 +7739,9 @@ function ConfirmAiSettingsDeleteDialog({
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={disabled}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel disabled={disabled}>取消</AlertDialogCancel>
           <AlertDialogAction disabled={disabled} onClick={onConfirm}>
-            Delete
+            删除
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -7985,12 +7985,12 @@ function PluginMcpServerSection({
                       data-testid={`plugin-mcp-auth-spinner-${name}`}
                     />
                   ) : (
-                    'Sign in'
+                    '登录'
                   )}
                 </button>
               ) : isConnected ? (
                 <span className="shrink-0 text-[11px] text-emerald-600">
-                  Connected
+                  已连接
                 </span>
               ) : server?.status ? (
                 <span className="shrink-0 text-[11px] text-muted-foreground">
@@ -8641,13 +8641,13 @@ function isAnthropicAccount(account: AiAssistantAccount) {
 function getAccountStatusLabel(status: AiAssistantAccount['status']) {
   switch (status) {
     case 'connected':
-      return 'Connected';
+      return '已连接';
     case 'detected':
-      return 'Detected';
+      return '已检测';
     case 'misconfigured':
-      return 'Needs setup';
+      return '需要配置';
     case 'missing':
-      return 'Missing';
+      return '缺失';
   }
 }
 

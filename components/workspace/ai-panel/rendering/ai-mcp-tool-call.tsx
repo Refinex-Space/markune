@@ -77,7 +77,7 @@ export const AiMcpToolCall = memo(function AiMcpToolCall({ part }: AiMcpToolCall
                 ))}
             </div>
           )}
-          {output && (
+          {output != null && (
             <div
               className={
                 'max-h-[200px] overflow-y-auto px-2.5 py-1.5 text-[10px]' +
