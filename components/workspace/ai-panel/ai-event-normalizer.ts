@@ -135,7 +135,6 @@ export class AiEventNormalizer {
 
       default: {
         // 未知事件不应中断流；记录并产出 error chunk
-        // eslint-disable-next-line no-console
         console.warn(
           '[AiEventNormalizer] 未处理的事件类型',
           (event as { type: string }).type,
