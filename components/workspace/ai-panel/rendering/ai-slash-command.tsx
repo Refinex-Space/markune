@@ -26,7 +26,10 @@ export function AiSlashCommandPopover({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => setSelectedIndex(0), [options]);
+  // 选项变化时重置选中（microtask 延迟避免 effect 内同步 setState）
+  useEffect(() => {
+    void Promise.resolve().then(() => setSelectedIndex(0));
+  }, [options]);
 
   useEffect(() => {
     const list = listRef.current;

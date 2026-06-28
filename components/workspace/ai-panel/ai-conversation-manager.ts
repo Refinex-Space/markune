@@ -59,7 +59,16 @@ export function useConversationManager(
   }, [workspaceRoot]);
 
   useEffect(() => {
-    void refresh();
+    // mount 时初始化加载对话列表。用 microtask 延迟，避免 effect 内同步 setState
+    // 触发 react 编译器的 cascading renders 警告。
+    let cancelled = false;
+    void Promise.resolve().then(async () => {
+      if (cancelled) return;
+      await refresh();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [refresh]);
 
   const selectConversation = useCallback(

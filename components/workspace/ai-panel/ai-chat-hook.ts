@@ -46,11 +46,13 @@ export function useAiChat(
       const reader = stream.getReader();
       readerRef.current = reader;
       try {
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          store.consumeChunk(value);
+        let done = false;
+        while (!done) {
+          const result = await reader.read();
+          done = result.done;
+          if (!done && result.value) {
+            store.consumeChunk(result.value);
+          }
         }
       } catch {
         // 流被取消或出错，静默处理（错误已通过 error chunk 进 store）

@@ -33,11 +33,6 @@ export function AiMentionPopover({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // 选项变化时重置选中
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [options]);
-
   // 滚动选中项到可视区
   useEffect(() => {
     const list = listRef.current;
