@@ -12,6 +12,7 @@ import { AiTextPart } from './ai-text-part';
 import { AiPlanningPlaceholder } from './ai-planning-placeholder';
 import { AiToolCall } from './ai-tool-call';
 import { AiMcpToolCall } from './ai-mcp-tool-call';
+import { AiEditTool } from './ai-edit-tool';
 import { getToolMeta, parseMcpToolType } from './ai-tool-registry';
 
 export interface AiAssistantMessageProps {
@@ -92,6 +93,11 @@ function renderPart(
       // MCP 工具用折叠卡片
       if (parseMcpToolType(part.type)) {
         return <AiMcpToolCall key={`tool-${index}`} part={part} />;
+      }
+      // Edit/Write 工具用专用 diff 卡片
+      if (part.type === 'tool-Edit' || part.type === 'tool-Write') {
+        const { isPending } = getToolStatus(part, ctx.chatStatus);
+        return <AiEditTool key={`tool-${index}`} part={part} isPending={isPending} />;
       }
       // 普通工具用 registry 元数据驱动单行卡片
       const meta = getToolMeta(part.type);
