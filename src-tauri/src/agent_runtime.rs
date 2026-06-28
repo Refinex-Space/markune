@@ -684,6 +684,98 @@ pub fn save_ai_conversation(
     Ok(conversation_summary(&record))
 }
 
+// v2 会话存储：parts 纵向流格式，与 v1 物理隔离（.v2.json 后缀）。
+// 用 serde_json::Value 容器，避免 v1 的强类型 AiConversationMessage.content 约束。
+// @author refinex
+
+fn ai_conversation_v2_path(root: &Path, id: &str) -> PathBuf {
+    ai_conversations_dir(root).join(format!("{id}.v2.json"))
+}
+
+#[tauri::command]
+pub fn read_ai_conversation_v2(
+    root_path: String,
+    conversation_id: String,
+) -> Result<Option<serde_json::Value>, String> {
+    let root = validate_agent_root(&root_path)?;
+    let id = validate_conversation_id(&conversation_id)?;
+    let path = ai_conversation_v2_path(&root, id);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw = fs::read_to_string(&path).map_err(|_| "无法读取 AI 会话 v2".to_string())?;
+    let value: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|_| "AI 会话 v2 格式无效".to_string())?;
+    Ok(Some(value))
+}
+
+#[tauri::command]
+pub fn save_ai_conversation_v2(
+    root_path: String,
+    record: serde_json::Value,
+) -> Result<(), String> {
+    let root = validate_agent_root(&root_path)?;
+    // 从 record.id 取会话 id 做校验
+    let id = record
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "AI 会话 v2 缺少 id".to_string())?;
+    validate_conversation_id(id)?;
+
+    let directory = ai_conversations_dir(&root);
+    fs::create_dir_all(&directory).map_err(|_| "无法创建 AI 会话目录".to_string())?;
+    write_json_pretty(&ai_conversation_v2_path(&root, id), &record)
+        .map_err(|_| "无法保存 AI 会话 v2".to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn list_ai_conversations_v2(
+    root_path: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    let root = validate_agent_root(&root_path)?;
+    let directory = ai_conversations_dir(&root);
+    if !directory.exists() {
+        return Ok(Vec::new());
+    }
+    let mut summaries = Vec::new();
+    let entries = match fs::read_dir(&directory) {
+        Ok(e) => e,
+        Err(_) => return Ok(Vec::new()),
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.to_string_lossy().ends_with(".v2.json") {
+            continue;
+        }
+        if let Ok(raw) = fs::read_to_string(&path) {
+            if let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&raw) {
+                // 列表只返回摘要字段，剥离 messages 数组以减小体积
+                if let Some(obj) = value.as_object_mut() {
+                    let message_count = obj
+                        .get("messages")
+                        .and_then(|m| m.as_array())
+                        .map(|a| a.len())
+                        .unwrap_or(0);
+                    obj.remove("messages");
+                    obj.insert(
+                        "messageCount".to_string(),
+                        serde_json::Value::Number(message_count.into()),
+                    );
+                }
+                summaries.push(value);
+            }
+        }
+    }
+    // 按 updatedAt 倒序
+    summaries.sort_by(|a, b| {
+        let ta = a.get("updatedAt").and_then(|v| v.as_u64()).unwrap_or(0);
+        let tb = b.get("updatedAt").and_then(|v| v.as_u64()).unwrap_or(0);
+        tb.cmp(&ta)
+    });
+    Ok(summaries)
+}
+
 #[tauri::command]
 pub fn start_ai_session(
     app: AppHandle,
