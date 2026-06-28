@@ -1,29 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { render } from '@testing-library/react';
-import { Provider } from 'jotai';
 import type { ReactNode } from 'react';
 
 import { AiMessageList } from '../../rendering/ai-message-list';
 import { AiMessageItem } from '../../rendering/ai-message-item';
-import { createAiMessageStore, useSetMessageStore } from '../../ai-message-store';
+import {
+  AiMessageStoreProvider,
+  createAiMessageStore,
+} from '../../ai-message-store';
 import type { AiMessage } from '../../ai-contracts';
-import { useEffect } from 'react';
 
-// 辅助：在 Jotai Provider 内注入 store 后渲染子树
+// 辅助：在 AiMessageStoreProvider 内注入预载入消息的 store 后渲染子树
 function renderWithStore(messages: AiMessage[], children: ReactNode) {
-  function Harness() {
-    const setStore = useSetMessageStore();
-    const store = createAiMessageStore();
-    useEffect(() => {
-      store.loadMessages(messages);
-      setStore(store);
-    }, [store, setStore]);
-    return <>{children}</>;
-  }
+  const store = createAiMessageStore();
+  store.loadMessages(messages);
   return render(
-    <Provider>
-      <Harness />
-    </Provider>,
+    <AiMessageStoreProvider store={store}>{children}</AiMessageStoreProvider>,
   );
 }
 

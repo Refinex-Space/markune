@@ -1,12 +1,17 @@
 // @author refinex
-// atomFamily 消息隔离 store：流式 delta 只重渲染目标消息。
-// store 逻辑（createAiMessageStore）是框架无关的纯对象，可在测试中直接断言；
-// React hooks（useMessageStore / useMessage / useMessageIds）基于 Jotai 桥接，
-// atomFamily 按 messageId 隔离，保证流式时只重渲染目标消息组件。
+// 消息隔离 store：流式 delta 只重渲染目标消息。
+// store 逻辑（createAiMessageStore）是框架无关的可变对象，可在测试中直接断言；
+// React hooks（useMessageStore / useMessage / useMessageIds）用 useSyncExternalStore 桥接，
+// store 通过 subscribe/notify 模式驱动响应式更新，保证流式时只重渲染目标消息组件。
 
-import { atom, useAtomValue, useSetAtom } from 'jotai';
-import { atomFamily } from 'jotai/utils';
-import { useMemo } from 'react';
+import {
+  createElement,
+  createContext,
+  useContext,
+  useMemo,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 
 import {
   createMessageId,
@@ -34,6 +39,20 @@ export function createAiMessageStore() {
     chatStatus: 'ready',
     metadata: {},
   };
+  // 订阅者集合：每次状态变更后通知（useSyncExternalStore 桥接）
+  const listeners = new Set<() => void>();
+  const emit = () => {
+    // 同步 messageIds 快照（仅在实际变化时更新引用，保证 getSnapshot 稳定）
+    if (
+      messageIdsSnapshot.length !== state.messageIds.length ||
+      messageIdsSnapshot.some((id, i) => id !== state.messageIds[i])
+    ) {
+      messageIdsSnapshot = [...state.messageIds];
+    }
+    for (const l of listeners) l();
+  };
+  // messageIds 快照缓存：useSyncExternalStore 要求 getSnapshot 返回稳定引用
+  let messageIdsSnapshot: string[] = [];
 
   function ensureCurrentMessage(): AiMessage {
     if (state.currentMessageId && state.messages.has(state.currentMessageId)) {
@@ -57,9 +76,9 @@ export function createAiMessageStore() {
     return -1;
   }
 
-  return {
+  const store = {
     getMessageIds(): string[] {
-      return [...state.messageIds];
+      return messageIdsSnapshot;
     },
     getMessage(id: string): AiMessage | undefined {
       return state.messages.get(id);
@@ -75,6 +94,7 @@ export function createAiMessageStore() {
       state.messages = new Map(messages.map((m) => [m.id, m]));
       state.messageIds = messages.map((m) => m.id);
       state.currentMessageId = null;
+      emit();
     },
     reset(): void {
       state.messageIds = [];
@@ -82,10 +102,23 @@ export function createAiMessageStore() {
       state.currentMessageId = null;
       state.chatStatus = 'ready';
       state.metadata = {};
+      emit();
     },
-    /** 消费一个 chunk，精确更新目标消息。 */
+    /** 订阅 store 变更（useSyncExternalStore 桥接用）。 */
+    subscribe(listener: () => void): () => void {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    /** 消费一个 chunk，精确更新目标消息（变更后自动通知订阅者）。 */
     consumeChunk(chunk: UiMessageChunk): void {
-      switch (chunk.type) {
+      applyChunk(chunk);
+      emit();
+    },
+  };
+
+  /** chunk 应用逻辑（不含通知）。 */
+  function applyChunk(chunk: UiMessageChunk): void {
+    switch (chunk.type) {
         case 'start': {
           const id = chunk.messageId ?? createMessageId();
           if (!state.messages.has(id)) {
@@ -220,43 +253,63 @@ export function createAiMessageStore() {
         default:
           return;
       }
-    },
-  };
+  }
+
+  return store;
 }
 
 export type AiMessageStore = ReturnType<typeof createAiMessageStore>;
 
 // —— React 桥接（C 子项目起使用）——
+// store 是可变对象（consumeChunk 就地修改内部状态）。
+// 用 React Context 同步提供 store 实例 + useSyncExternalStore 订阅变更，
+// 保证 consumeChunk 后订阅者正确重渲染（store 首次 render 即同步可用）。
 
-const storeAtom = atom<AiMessageStore | null>(null);
+const AiMessageStoreContext = createContext<AiMessageStore | null>(null);
+
+/** Provider：在 Context 内同步提供 store 实例。 */
+export function AiMessageStoreProvider({
+  store,
+  children,
+}: {
+  store: AiMessageStore;
+  children: ReactNode;
+}) {
+  return createElement(
+    AiMessageStoreContext.Provider,
+    { value: store },
+    children,
+  );
+}
 
 /** 取当前注入的 store。 */
 export function useMessageStore(): AiMessageStore | null {
-  return useAtomValue(storeAtom);
+  return useContext(AiMessageStoreContext);
 }
 
-const messageIdsAtom = atom<string[]>((get) => {
-  const store = get(storeAtom);
-  return store ? store.getMessageIds() : [];
-});
-
+/** 订阅消息 id 列表（useSyncExternalStore 驱动响应式）。 */
 export function useMessageIds(): string[] {
-  return useAtomValue(messageIdsAtom);
+  const store = useContext(AiMessageStoreContext);
+  return useSyncExternalStore(
+    (listener) => (store ? store.subscribe(listener) : () => {}),
+    () => store?.getMessageIds() ?? EMPTY_IDS,
+    () => EMPTY_IDS,
+  );
 }
 
-export const messageAtomFamily = atomFamily((id: string) =>
-  atom<AiMessage | undefined>((get) => get(storeAtom)?.getMessage(id)),
-);
+const EMPTY_IDS: string[] = [];
 
+/** 订阅单条消息（按 id 隔离，useSyncExternalStore 驱动）。 */
 export function useMessage(id: string): AiMessage | undefined {
-  return useAtomValue(messageAtomFamily(id));
+  const store = useContext(AiMessageStoreContext);
+  return useSyncExternalStore(
+    (listener) => (store ? store.subscribe(listener) : () => {}),
+    () => store?.getMessage(id),
+    () => undefined,
+  );
 }
 
-export function useSetMessageStore() {
-  return useSetAtom(storeAtom);
-}
-
-/** Hook：为当前 conversation 创建并注入 store。 */
+/** Hook：为当前 conversation 创建一个稳定的 store 实例。 */
 export function useCreateMessageStore() {
   return useMemo(() => createAiMessageStore(), []);
 }
