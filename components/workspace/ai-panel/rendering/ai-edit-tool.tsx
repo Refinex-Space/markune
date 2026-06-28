@@ -9,14 +9,31 @@ import { memo, useMemo, useState } from 'react';
 import type { MessagePart } from '../ai-contracts';
 import { AiDiffView } from './ai-diff-view';
 import { computeLineDiff, diffStats } from './ai-diff';
+import { useApplyEdit } from './ai-apply-context';
 
 export interface AiEditToolProps {
   part: MessagePart;
   isPending?: boolean;
+  /** 应用建议：上层执行文件替换+保存（未传则从 AiApplyEditContext 取）。 */
+  onApply?: (input: {
+    filePath: string;
+    oldString: string;
+    newString: string;
+  }) => void;
+  /** 是否已应用（应用后隐藏按钮）。 */
+  applied?: boolean;
 }
 
-export const AiEditTool = memo(function AiEditTool({ part, isPending = false }: AiEditToolProps) {
+export const AiEditTool = memo(function AiEditTool({
+  part,
+  isPending = false,
+  onApply: onApplyProp,
+  applied = false,
+}: AiEditToolProps) {
+  const contextApply = useApplyEdit();
+  const onApply = onApplyProp ?? contextApply;
   const [isExpanded, setIsExpanded] = useState(false);
+  const [localApplied, setLocalApplied] = useState(false);
   const input = (part.input ?? {}) as {
     file_path?: string;
     old_string?: string;
@@ -75,6 +92,27 @@ export const AiEditTool = memo(function AiEditTool({ part, isPending = false }: 
       {isExpanded && hasDiff && (
         <div className="mt-1">
           <AiDiffView lines={diffLines} />
+          {onApply && !(applied || localApplied) && (
+            <button
+              type="button"
+              onClick={() => {
+                onApply({
+                  filePath: input.file_path ?? '',
+                  oldString: oldText,
+                  newString: newText,
+                });
+                setLocalApplied(true);
+              }}
+              className="mt-1 rounded border border-primary/40 bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/20"
+            >
+              应用此修改
+            </button>
+          )}
+          {(applied || localApplied) && (
+            <span className="mt-1 inline-block text-[11px] text-green-600 dark:text-green-400">
+              ✓ 已应用
+            </span>
+          )}
         </div>
       )}
     </div>

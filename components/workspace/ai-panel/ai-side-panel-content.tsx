@@ -22,6 +22,7 @@ import { AiConversationView } from './rendering/ai-conversation-view';
 import { AiComposer } from './rendering/ai-composer';
 import { AiModeSelector, type AiMode } from './rendering/ai-mode-selector';
 import { AiPermissionPrompt } from './rendering/ai-permission-prompt';
+import { AiApplyEditContext } from './rendering/ai-apply-context';
 import type { MentionOption } from './rendering/ai-mention-serializer';
 
 export interface AiSidePanelContentProps {
@@ -42,6 +43,7 @@ export function AiSidePanelContent({
   settingsVersion = 0,
   workspaceRootPath,
   onOpenSettings,
+  onMarkdownDocumentApplied,
 }: AiSidePanelContentProps) {
   const [profiles, setProfiles] = React.useState<AiAgentProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = React.useState<string | null>(null);
@@ -167,6 +169,31 @@ export function AiSidePanelContent({
     [transport],
   );
 
+  // 应用 Edit 建议：读取当前文档 → 替换 old_string → 保存
+  const handleApplyEdit = React.useCallback(
+    async (input: { filePath: string; oldString: string; newString: string }) => {
+      if (!workspaceRootPath || !documentPanelData || !currentDocument) return;
+      try {
+        const { saveMarkdownDocument } = await import('../workspace-api');
+        const current = documentPanelData.markdown;
+        // 替换首个匹配的 old_string
+        const updated = current.includes(input.oldString)
+          ? current.replace(input.oldString, input.newString)
+          : current + '\n' + input.newString;
+        await saveMarkdownDocument(
+          workspaceRootPath,
+          currentDocument.absolutePath,
+          updated,
+          null,
+        );
+        onMarkdownDocumentApplied?.(currentDocument.absolutePath, updated);
+      } catch {
+        // 应用失败静默（错误可通过 toast 提示，后续增强）
+      }
+    },
+    [workspaceRootPath, documentPanelData, currentDocument, onMarkdownDocumentApplied],
+  );
+
   // transport 创建/重建（profile/mode 变化时）。microtask 延迟避免 effect 内同步 setState。
   React.useEffect(() => {
     if (!selectedProfile || !workspaceRootPath) return;
@@ -214,14 +241,16 @@ export function AiSidePanelContent({
       {/* 对话视图 */}
       <div className="min-h-0 flex-1">
         {transport ? (
-          <AiConversationView
-            transport={transport}
-            rootPath={workspaceRootPath ?? ''}
-            profileId={selectedProfileId ?? ''}
-            mode={mode}
-            modelId={selectedProfile?.modelId}
-            isStreaming={isStreaming}
-          />
+          <AiApplyEditContext.Provider value={handleApplyEdit}>
+            <AiConversationView
+              transport={transport}
+              rootPath={workspaceRootPath ?? ''}
+              profileId={selectedProfileId ?? ''}
+              mode={mode}
+              modelId={selectedProfile?.modelId}
+              isStreaming={isStreaming}
+            />
+          </AiApplyEditContext.Provider>
         ) : (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
             {workspaceRootPath ? '准备就绪…' : '请先打开工作区'}

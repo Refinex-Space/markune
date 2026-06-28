@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, act } from '@testing-library/react';
 
 import { AiEditTool } from '../../rendering/ai-edit-tool';
@@ -78,6 +78,50 @@ describe('AiEditTool', () => {
     };
     const { container } = render(<AiEditTool part={part} isPending />);
     expect(container.querySelector('.ai-tool-shimmer')).not.toBeNull();
+  });
+
+  it('onApply 展开后显示应用按钮，点击触发回调', () => {
+    const onApply = vi.fn();
+    const part: MessagePart = {
+      type: 'tool-Edit',
+      toolCallId: 'e4',
+      state: 'output-available',
+      input: { file_path: '/a.ts', old_string: 'old', new_string: 'new' },
+      output: {},
+    };
+    const { getByRole, getByText } = render(<AiEditTool part={part} onApply={onApply} />);
+    // 先展开 diff
+    act(() => {
+      getByRole('button').click();
+    });
+    // 点击应用
+    act(() => {
+      getByText('应用此修改').click();
+    });
+    expect(onApply).toHaveBeenCalledWith({
+      filePath: '/a.ts',
+      oldString: 'old',
+      newString: 'new',
+    });
+  });
+
+  it('applied=true 时不显示应用按钮，显示已应用', () => {
+    const onApply = vi.fn();
+    const part: MessagePart = {
+      type: 'tool-Edit',
+      toolCallId: 'e5',
+      state: 'output-available',
+      input: { file_path: '/a.ts', old_string: 'o', new_string: 'n' },
+      output: {},
+    };
+    const { getByRole, getByText, queryByText } = render(
+      <AiEditTool part={part} onApply={onApply} applied />,
+    );
+    act(() => {
+      getByRole('button').click();
+    });
+    expect(queryByText('应用此修改')).toBeNull();
+    expect(getByText('✓ 已应用')).toBeTruthy();
   });
 });
 
