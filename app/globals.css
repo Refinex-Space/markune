@@ -785,3 +785,29 @@
 .terminal-surface .xterm-scrollable-element > .scrollbar.vertical > .slider:hover {
   background: color-mix(in oklab, var(--muted-foreground) 34%, transparent) !important;
 }
+
+/* AI 工具卡片 pending 扫光动画（@author refinex） */
+.ai-tool-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--muted-foreground) 0%,
+    var(--muted-foreground) 40%,
+    color-mix(in oklab, var(--muted-foreground) 30%, transparent) 50%,
+    var(--muted-foreground) 60%,
+    var(--muted-foreground) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: ai-tool-shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes ai-tool-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}

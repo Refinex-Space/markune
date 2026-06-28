@@ -58,7 +58,7 @@ describe('AiAssistantMessage', () => {
     expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
   });
 
-  it('tool-* part 渲染占位（D 子项目接入工具卡）', () => {
+  it('tool-* part 用 registry 元数据渲染（D 子项目已接入工具卡）', () => {
     const message: AiMessage = {
       id: 'a4',
       role: 'assistant',
@@ -68,8 +68,9 @@ describe('AiAssistantMessage', () => {
       createdAt: 1,
     };
     const { container } = render(<AiAssistantMessage message={message} />);
-    // 占位渲染 toolCallId 用于后续 D 子项目接入
-    expect(container.textContent).toContain('Bash');
+    // registry title: output-available → 'Ran command'；subtitle: 'ls'
+    expect(container.textContent).toContain('Ran command');
+    expect(container.textContent).toContain('ls');
   });
 
   it('reasoning part 渲染占位（F 子项目接入思考卡）', () => {

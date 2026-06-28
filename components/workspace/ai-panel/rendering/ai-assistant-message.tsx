@@ -7,9 +7,12 @@
 
 import { memo } from 'react';
 
-import type { AiMessage, MessagePart } from '../ai-contracts';
+import { getToolStatus, type AiMessage, type MessagePart } from '../ai-contracts';
 import { AiTextPart } from './ai-text-part';
 import { AiPlanningPlaceholder } from './ai-planning-placeholder';
+import { AiToolCall } from './ai-tool-call';
+import { AiMcpToolCall } from './ai-mcp-tool-call';
+import { getToolMeta, parseMcpToolType } from './ai-tool-registry';
 
 export interface AiAssistantMessageProps {
   message: AiMessage;
@@ -47,7 +50,13 @@ export const AiAssistantMessage = memo(function AiAssistantMessage({
 
   return (
     <div className="ai-assistant-message space-y-2">
-      {parts.map((part, index) => renderPart(part, index, { lastTextIndex, isStreaming }))}
+      {parts.map((part, index) =>
+        renderPart(part, index, {
+          lastTextIndex,
+          isStreaming,
+          chatStatus: isStreaming ? 'streaming' : undefined,
+        }),
+      )}
     </div>
   );
 });
@@ -55,7 +64,7 @@ export const AiAssistantMessage = memo(function AiAssistantMessage({
 function renderPart(
   part: MessagePart,
   index: number,
-  ctx: { lastTextIndex: number; isStreaming: boolean },
+  ctx: { lastTextIndex: number; isStreaming: boolean; chatStatus: 'ready' | 'submitted' | 'streaming' | 'error' | 'stopped' | undefined },
 ) {
   switch (part.type) {
     case 'text':
@@ -68,7 +77,7 @@ function renderPart(
         />
       );
     case 'reasoning':
-      // F 子项目接入思考折叠卡；C 先用简单文本占位
+      // F 子项目接入思考折叠卡；D 先用简单文本占位
       return (
         <div
           key={`reasoning-${index}`}
@@ -79,26 +88,24 @@ function renderPart(
         </div>
       );
     default: {
-      // tool-* part：D 子项目接入工具注册表与卡片
-      if (part.type.startsWith('tool-')) {
-        return (
-          <div
-            key={`tool-${index}`}
-            className="rounded-md border bg-muted/30 px-2.5 py-1.5 text-xs"
-            data-tool-name={part.type.replace('tool-', '')}
-            data-tool-state={part.state}
-          >
-            <span className="font-medium text-foreground">
-              {part.type.replace('tool-', '')}
-            </span>
-            {part.state === 'input-streaming' || part.state === 'input-available' ? (
-              <span className="ml-1.5 text-muted-foreground">运行中…</span>
-            ) : null}
-          </div>
-        );
+      if (!part.type.startsWith('tool-')) return null;
+      // MCP 工具用折叠卡片
+      if (parseMcpToolType(part.type)) {
+        return <AiMcpToolCall key={`tool-${index}`} part={part} />;
       }
-      // data-image 等其他类型：附件子项目接入
-      return null;
+      // 普通工具用 registry 元数据驱动单行卡片
+      const meta = getToolMeta(part.type);
+      const { isPending, isError } = getToolStatus(part, ctx.chatStatus);
+      return (
+        <AiToolCall
+          key={`tool-${index}`}
+          title={meta.title(part)}
+          subtitle={meta.subtitle?.(part)}
+          tooltipContent={meta.tooltipContent?.(part)}
+          isPending={isPending}
+          isError={isError}
+        />
+      );
     }
   }
 }
