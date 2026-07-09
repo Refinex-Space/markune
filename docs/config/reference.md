@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-06-25
+updated: 2026-07-09
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -64,4 +64,4 @@ Do not persist API keys, access tokens, or session credentials in app settings. 
 
 打开文档时通过 `record_recent_document` 命令即时落盘；已删除/重命名的路径在展示层用工作区快照过滤，不从文件清理。旧的 `recentDocumentPath`（单数）字段在读取时迁移进新列表后即淘汰，新写入的文件不再包含该字段。
 
-本地资源文件存储在 `.madora/assets` 下，Markdown 文档中的本地资源引用格式为 `madora-asset://{assetId}`。
+本地资源文件存储在 `.madora/assets/files/{shard}/{hash}.{ext}` 下。新上传资源写入 Markdown 时使用工作区根相对路径，例如 `.madora/assets/files/ab/{hash}.png`。旧 `madora-asset://{assetId}` 仅作为 legacy 读取、预览和清理兼容格式保留，不作为新写入格式。

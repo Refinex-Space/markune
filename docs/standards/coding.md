@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-06-19
+updated: 2026-07-09
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -19,7 +19,8 @@ referenced_by: AGENTS.md#knowledge-map
 
 - Workspace UI is client-heavy and centered around `components/workspace/workspace-layout.tsx`.
 - Use existing component tests under `components/**/__tests__` as the first verification target for UI behavior.
-- Keep Markora page-width behavior aligned across `settings.rs`, frontend default settings, and settings UI.
+- Keep Markweave editor page-width behavior aligned across `settings.rs`, frontend default settings, editor wrapper classes, and settings UI.
+- Keep `MarkdownEditor` as a Markdown string boundary: parse frontmatter before passing content to Markweave and serialize it back when saving.
 - Avoid broad UI rewrites when a narrow component-level change is enough.
 
 ## Rust/Tauri

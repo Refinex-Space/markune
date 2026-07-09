@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { githubDark, githubLight } from '@uiw/codemirror-theme-github';
+import { MarkweaveEditor } from '@markweave/react';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -35,12 +35,6 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { ThemeEnum } from 'mardora/editor';
-import { allPlugins } from 'mardora/plugins';
-import {
-  generateCSS,
-  preview,
-} from 'mardora/preview';
 import Image from 'next/image';
 import { useTheme } from 'next-themes';
 
@@ -192,11 +186,6 @@ type SettingsSectionId =
 type ConcreteSettingsSectionId = Exclude<SettingsSectionId, 'ai'>;
 const AI_SETTINGS_AVAILABLE = true;
 const AI_MCP_GLOBAL_PROJECT = '__global__';
-const AI_SETTINGS_MARDORA_FONTS = {
-  code: "var(--madora-code-font, var(--font-jetbrains-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace))",
-  document: "var(--madora-document-font, var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif))",
-  ui: "var(--madora-ui-font, var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif))",
-};
 const AI_PREFERRED_EDITOR_ICON_PATHS = {
   clion: '/icons/app-icons/clion.svg',
   cursor: '/icons/app-icons/cursor.svg',
@@ -478,7 +467,7 @@ const STORAGE_FIELD_DEFINITIONS = [
   {
     id: 'asset-url',
     label: '引用格式',
-    value: () => 'madora-asset://{assetId}',
+    value: () => '.madora/assets/files/{shard}/{hash}.{ext}',
     terms: ['引用格式', '引用', '格式', 'url', 'assetid', 'madora-asset'],
   },
   {
@@ -4844,51 +4833,20 @@ function aiAuthoringDraftFromItem(item: AiAuthoringListItem): AiAuthoringDraft {
 }
 
 function AiSettingsMarkdownPreview({ content }: { content: string }) {
-  const { resolvedTheme } = useTheme();
-  const [previewState, setPreviewState] = React.useState<{
-    css: string;
-    html: string;
-  }>({ css: '', html: '' });
-  const isDark = resolvedTheme === 'dark';
-
-  React.useEffect(() => {
-    let cancelled = false;
-    const config = {
-      fonts: AI_SETTINGS_MARDORA_FONTS,
-      plugins: allPlugins,
-      syntaxTheme: isDark ? githubDark : githubLight,
-      theme: isDark ? ThemeEnum.DARK : ThemeEnum.LIGHT,
-      wrapperClass: 'mardora-preview',
-    };
-    const css = generateCSS({
-      ...config,
-      includeBase: true,
-    });
-
-    void preview(content, config)
-      .then((html) => {
-        if (!cancelled) {
-          setPreviewState({ css, html });
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setPreviewState({
-            css,
-            html: '<article class="mardora-preview"><p>Preview failed</p></article>',
-          });
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [content, isDark]);
-
   return (
-    <div data-testid="ai-settings-markdown-preview">
-      <style>{previewState.css}</style>
-      <div dangerouslySetInnerHTML={{ __html: previewState.html }} />
+    <div
+      className="ai-settings-markdown-preview"
+      data-testid="ai-settings-markdown-preview"
+    >
+      <MarkweaveEditor
+        ariaLabel="Markdown 预览"
+        content={content}
+        contentFormat="markdown"
+        editable={false}
+        innerToc={false}
+        lang="zh"
+        mode="view"
+      />
     </div>
   );
 }

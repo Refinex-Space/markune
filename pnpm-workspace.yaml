@@ -3,3 +3,8 @@ allowBuilds:
   msw: set this to true or false
   sharp: set this to true or false
   unrs-resolver: set this to true or false
+overrides:
+  '@tiptap/markdown': 3.27.3
+minimumReleaseAgeExclude:
+  - '@markweave/react@0.1.0'
+  - markweave@0.1.0

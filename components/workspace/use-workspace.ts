@@ -311,9 +311,10 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       path: string;
     }) => {
       if (currentDocument?.absolutePath === document.path) {
+        const modifiedAt = document.modifiedAt ?? Date.now();
         const content: MarkdownDocumentContent = {
           content: document.content,
-          modifiedAt: document.modifiedAt,
+          modifiedAt,
           path: document.path,
         };
 
@@ -323,7 +324,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         setDocumentVersion((version) => version + 1);
         setSaveState('saved');
         setSaveError(null);
-        setLastSavedAt(document.modifiedAt);
+        setLastSavedAt(modifiedAt);
         clearPendingSave();
       }
 

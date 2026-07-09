@@ -916,21 +916,40 @@ describe('WorkspaceLayout', () => {
 
   it('opens a daily note from the sidebar calendar', async () => {
     const user = userEvent.setup();
+    const targetDate = formatTestDailyDate(new Date());
+    const [targetYear = '1970', targetMonth = '01'] = targetDate.split('-');
+    const targetPath = `/repo/Daily/${targetYear}/${targetMonth}/${targetDate}.md`;
     const dailyNode = {
-      id: 'Daily/2026/06/2026-06-20.md',
-      name: '2026-06-20.md',
+      id: `Daily/${targetYear}/${targetMonth}/${targetDate}.md`,
+      name: `${targetDate}.md`,
       kind: 'document' as const,
-      relativePath: 'Daily/2026/06/2026-06-20.md',
-      absolutePath: '/repo/Daily/2026/06/2026-06-20.md',
-      title: '2026-06-20',
+      relativePath: `Daily/${targetYear}/${targetMonth}/${targetDate}.md`,
+      absolutePath: targetPath,
+      title: targetDate,
     };
 
+    ensureWorkspaceMock.mockResolvedValue({
+      schemaVersion: 1,
+      recentDocumentPaths: [],
+      expandedPaths: [],
+      sortOrder: {},
+      gitSync: {
+        conflictResolution: 'abort',
+        enabled: true,
+        intervalMinutes: 10,
+        lastSyncedAt: null,
+      },
+      dailyNotes: {
+        selectedDate: targetDate,
+        entries: {},
+      },
+    });
     listDailyNotesForMonthMock.mockResolvedValue({
-      month: '2026-06',
+      month: `${targetYear}-${targetMonth}`,
       entries: [
         {
-          date: '2026-06-20',
-          documentPath: '/repo/Daily/2026/06/2026-06-20.md',
+          date: targetDate,
+          documentPath: targetPath,
           hasContent: true,
           updatedAt: 1,
         },
@@ -939,13 +958,13 @@ describe('WorkspaceLayout', () => {
     openDailyNoteMock.mockResolvedValue({
       node: dailyNode,
       content: markdownDocument({
-        path: '/repo/Daily/2026/06/2026-06-20.md',
-        title: '2026-06-20',
+        path: targetPath,
+        title: targetDate,
       }),
     });
     readMarkdownDocumentMock.mockResolvedValueOnce(markdownDocument({
-      path: '/repo/Daily/2026/06/2026-06-20.md',
-      title: '2026-06-20',
+      path: targetPath,
+      title: targetDate,
     }));
     loadWorkspaceTreeMock.mockResolvedValue({
       ...snapshot,
@@ -954,17 +973,19 @@ describe('WorkspaceLayout', () => {
 
     render(<WorkspaceLayout initialSnapshot={snapshot} />);
 
-    expect(await screen.findByTestId('daily-note-marker-2026-06-20')).toBeTruthy();
-    await user.click(screen.getByTestId('daily-note-day-2026-06-20'));
+    expect(
+      await screen.findByTestId(`daily-note-marker-${targetDate}`),
+    ).toBeTruthy();
+    await user.click(screen.getByTestId(`daily-note-day-${targetDate}`));
 
     await waitFor(() => {
-      expect(openDailyNoteMock).toHaveBeenCalledWith('/repo', '2026-06-20');
+      expect(openDailyNoteMock).toHaveBeenCalledWith('/repo', targetDate);
     });
     expect(readMarkdownDocumentMock).toHaveBeenCalledWith(
       '/repo',
-      '/repo/Daily/2026/06/2026-06-20.md',
+      targetPath,
     );
-    expect(await screen.findByRole('tab', { name: /2026-06-20/ })).toBeTruthy();
+    expect(await screen.findByRole('tab', { name: targetDate })).toBeTruthy();
   });
 
   it('keeps sidebar system entry hover backgrounds inset from the divider', () => {
@@ -1988,7 +2009,7 @@ describe('WorkspaceLayout', () => {
     await user.click(aiButton);
 
     expect(await screen.findByTestId('ai-panel-island')).toBeTruthy();
-    // 新 AI 面板（parts 纵向流重建）渲染输入编辑器（role=textbox）
+    // 完整 AI 面板渲染输入编辑器（role=textbox）
     expect(screen.getByRole('textbox')).toBeTruthy();
   });
 
@@ -2295,7 +2316,7 @@ describe('WorkspaceLayout', () => {
     expect(screen.getByText('本地存储配置')).toBeTruthy();
     expect(screen.getByDisplayValue('/repo/.madora/assets')).toBeTruthy();
     expect(
-      screen.getByDisplayValue('madora-asset://{assetId}'),
+      screen.getByDisplayValue('.madora/assets/files/{shard}/{hash}.{ext}'),
     ).toBeTruthy();
 
     await user.click(screen.getByRole('button', { name: '应用' }));
@@ -6818,7 +6839,9 @@ describe('WorkspaceLayout', () => {
 
     await user.type(searchInput, '引用');
 
-    expect(screen.getByDisplayValue('madora-asset://{assetId}')).toBeTruthy();
+    expect(
+      screen.getByDisplayValue('.madora/assets/files/{shard}/{hash}.{ext}'),
+    ).toBeTruthy();
     expect(screen.queryByText('资源目录')).toBeNull();
     expect(screen.queryByText('清理策略')).toBeNull();
 

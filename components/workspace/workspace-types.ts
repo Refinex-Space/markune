@@ -194,6 +194,7 @@ export interface UploadWorkspaceAssetInput {
 export interface UploadedWorkspaceAsset {
   id: string;
   url: string;
+  relativePath: string;
   name: string;
   mediaType: string;
   size: number;

@@ -10,7 +10,6 @@ import { generateReactHelpers } from '@uploadthing/react';
 import { toast } from 'sonner';
 import { z } from 'zod';
 
-import { useWorkspaceAssetContext } from '@/components/editor/workspace-asset-context';
 import {
   isTauriRuntime,
   uploadWorkspaceAsset,
@@ -25,14 +24,15 @@ interface UseUploadFileProps
   > {
   onUploadComplete?: (file: UploadedFile) => void;
   onUploadError?: (error: unknown) => void;
+  workspaceRootPath?: string | null;
 }
 
 export function useUploadFile({
   onUploadComplete,
   onUploadError,
+  workspaceRootPath = null,
   ...props
 }: UseUploadFileProps = {}) {
-  const assetContext = useWorkspaceAssetContext();
   const [uploadedFile, setUploadedFile] = React.useState<UploadedFile>();
   const [uploadingFile, setUploadingFile] = React.useState<File>();
   const [progress, setProgress] = React.useState<number>(0);
@@ -42,24 +42,20 @@ export function useUploadFile({
     setIsUploading(true);
     setUploadingFile(file);
 
-    if (
-      assetContext.mode === 'workspace' &&
-      assetContext.rootPath &&
-      isTauriRuntime()
-    ) {
+    if (workspaceRootPath && isTauriRuntime()) {
       try {
-        const uploaded = await uploadWorkspaceAsset(assetContext.rootPath, {
+        const uploaded = await uploadWorkspaceAsset(workspaceRootPath, {
           base64Data: await fileToBase64(file),
           fileName: file.name,
           mediaType: file.type || 'application/octet-stream',
         });
         const localUploadedFile = {
           key: uploaded.id,
-          appUrl: uploaded.url,
+          appUrl: uploaded.relativePath,
           name: uploaded.name,
           size: uploaded.size,
           type: uploaded.mediaType,
-          url: uploaded.url,
+          url: uploaded.relativePath,
         } as UploadedFile;
 
         setProgress(100);

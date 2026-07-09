@@ -11,13 +11,6 @@ import {
   Search,
 } from 'lucide-react';
 
-import { allPlugins } from 'mardora/plugins';
-import {
-  generateCSS,
-  preview,
-} from 'mardora/preview';
-import { ThemeEnum } from 'mardora/editor';
-
 import { parseMarkdownMetadata } from '@/components/editor/markdown-frontmatter';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -29,8 +22,6 @@ type DirectoryViewMode = 'grid' | 'list';
 
 interface DocumentPreview {
   createdAt: number | string | null;
-  css: string;
-  html: string;
   modifiedAt: number | null;
   text: string;
   updatedAt: number | string | null;
@@ -125,8 +116,6 @@ export function DirectoryPage({
               node.absolutePath,
               {
                 createdAt: null,
-                css: '',
-                html: '',
                 modifiedAt: null,
                 text: '',
                 updatedAt: null,
@@ -432,7 +421,6 @@ function DocumentCard({
           <DocumentThumbnail
             className="h-[70px] w-[50px] shrink-0 rounded-sm"
             preview={preview}
-            scale={0.12}
           />
           <div className="min-w-0 flex-1 space-y-1">
             <h3 className="truncate text-sm font-semibold leading-5">
@@ -475,7 +463,7 @@ function DocumentCard({
         </p>
       </div>
 
-      <DocumentThumbnail className="mx-5 h-52" preview={preview} scale={0.26} />
+      <DocumentThumbnail className="mx-5 h-52" preview={preview} />
 
       <div className="flex items-center justify-between px-5 pb-4 pt-2 text-[11px] text-muted-foreground">
         <span className="truncate">
@@ -507,14 +495,12 @@ function DocumentListHeader() {
 function DocumentThumbnail({
   className,
   preview: previewData,
-  scale = 0.28,
 }: {
   className?: string;
   preview?: DocumentPreview;
-  scale?: number;
 }) {
-  const html = previewData?.html ?? '';
-  const css = previewData?.css ?? '';
+  const text = previewData?.text ?? '';
+  const lines = text ? splitPreviewLines(text) : [];
 
   return (
     <div
@@ -525,13 +511,19 @@ function DocumentThumbnail({
         className,
       )}
     >
-      {html ? (
-        <div
-          className="pointer-events-none h-[740px] w-[760px] origin-top-left px-8 py-5 text-[15px] leading-normal"
-          style={{ transform: `scale(${scale})` }}
-        >
-          <style dangerouslySetInnerHTML={{ __html: css }} />
-          <div dangerouslySetInnerHTML={{ __html: html }} />
+      {lines.length > 0 ? (
+        <div className="h-full space-y-3 px-5 py-4">
+          <div className="space-y-1.5">
+            <div className="h-2 w-2/3 rounded bg-foreground/25" />
+            <div className="h-2 w-full rounded bg-muted-foreground/20" />
+          </div>
+          <div className="space-y-2 text-[11px] leading-5 text-muted-foreground">
+            {lines.map((line, index) => (
+              <p className="line-clamp-2" key={`${line}-${index}`}>
+                {line}
+              </p>
+            ))}
+          </div>
         </div>
       ) : (
         <div className="h-full space-y-2 px-5 py-4">
@@ -673,29 +665,18 @@ async function createDocumentPreview(
   body: string,
   meta: Pick<DocumentPreview, 'createdAt' | 'modifiedAt' | 'updatedAt'>,
 ): Promise<DocumentPreview> {
-  const [html, css] = await Promise.all([
-    preview(body, {
-      theme: ThemeEnum.LIGHT,
-      plugins: allPlugins,
-      markdown: [],
-      sanitize: true,
-      wrapperTag: 'div',
-      wrapperClass: 'mardora-preview',
-    }),
-    generateCSS({
-      theme: ThemeEnum.LIGHT,
-      plugins: allPlugins,
-      wrapperClass: 'mardora-preview',
-      includeBase: true,
-    }),
-  ]);
-
   return {
     ...meta,
-    css,
-    html,
     text: trimPreviewText(extractPlainText(body)),
   };
+}
+
+function splitPreviewLines(text: string) {
+  return text
+    .split(/[。！？.!?]\s*/u)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 4);
 }
 
 function extractPlainText(markdown: string): string {

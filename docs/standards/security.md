@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-06-25
+updated: 2026-07-09
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -23,6 +23,7 @@ referenced_by: AGENTS.md#knowledge-map
 ## Uploads And AI
 
 - UploadThing accepts broad file categories for editor uploads. Validate any expansion of upload behavior against user data exposure and storage expectations.
+- Markweave local file uploads must stay inside the workspace asset directory and return display URLs through Tauri asset handling. Persisted Markdown should store only workspace-root relative `.madora/assets/files/...` paths or legacy `madora-asset://...` references already present in user documents; do not widen the Tauri asset protocol scope for editor uploads.
 - AI route changes must preserve abort handling and must not expose keys or raw upstream errors to the client.
 - AI conversation history may contain user prompts, assistant output, tool inputs, and local command/file references. Store it only inside the selected workspace metadata area and never include API keys, auth tokens, or provider secrets.
 - AI Assistant Models > API Keys may collect Codex, OpenAI, or Anthropic Override tokens, but the UI must send them only to the Tauri secret-store commands. App settings may store non-secret model/base URL override metadata, never raw tokens.

@@ -57,7 +57,7 @@ import type {
 } from './workspace-types';
 
 /**
- * 导出/导入格式（导出与 HTML/Word 导入能力后续基于 mardora 重新设计，
+ * 导出/导入格式（导出与 HTML/Word 导入能力后续基于 Markdown-first 编辑器重新设计，
  * 当前 document-tree 仅保留可选回调签名，不实际触发）。
  */
 type WorkspaceExportFormat = 'html' | 'pdf' | 'image' | 'markdown' | 'word';

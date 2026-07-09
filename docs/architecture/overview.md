@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-06-23
+updated: 2026-07-09
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -12,7 +12,7 @@ Madora is a desktop-first local knowledge-base app. The default page renders `Wo
 ## Runtime Shape
 
 - Web shell: Next.js App Router with React client components.
-- Editor: `components/editor/markdown-editor.tsx` wraps `mardora` and CodeMirror-oriented Markdown behavior.
+- Editor: `components/editor/markdown-editor.tsx` wraps `@markweave/react` / `markweave` as a controlled Markdown editor. The app shell keeps frontmatter serialization, save shortcuts, page-width classes, workspace asset URL conversion, and selection context for the right AI panel.
 - Desktop shell: Tauri v2 from `src-tauri`, with `src-tauri/tauri.conf.json` pointing production desktop builds at `../out`.
 - Native boundary: React calls Tauri commands through `components/workspace/workspace-api.ts`; command implementations live in `src-tauri/src`.
 - Local state: app settings are persisted by `src-tauri/src/settings.rs`; browser panel widths use local storage keys in `workspace-layout.tsx`; AI panel conversation history is persisted per workspace under `.madora/ai-sessions/`.
@@ -30,6 +30,8 @@ Madora is a desktop-first local knowledge-base app. The default page renders `Wo
 ## Storage And Editor Boundary
 
 Persisted knowledge documents are Markdown files. Keep the disk format, in-memory draft model, and editor input/output aligned around Markdown strings. Do not introduce a second rich-text projection layer unless a separate plan explicitly covers migration, compatibility, and rollback.
+
+Markweave receives only the Markdown body after frontmatter parsing. Save paths must serialize the protected frontmatter back around `onUpdate.markdown`. New local uploads are written into Markdown as workspace-root relative paths under `.madora/assets/files/{shard}/{hash}.{ext}`. Existing `madora-asset://{assetId}` references are legacy read/preview compatible and should not be batch-migrated without a separate content migration plan.
 
 ## Desktop Build Boundary
 
