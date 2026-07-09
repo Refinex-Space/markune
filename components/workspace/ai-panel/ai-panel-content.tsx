@@ -3,6 +3,7 @@
 import * as React from 'react';
 import {
   AlertTriangle,
+  ArrowUp,
   Brain,
   Check,
   ChevronDown,
@@ -13,13 +14,13 @@ import {
   FileText,
   Globe,
   History,
+  Infinity as InfinityIcon,
   ListChecks,
   LoaderCircle,
   Paperclip,
   Pencil,
   Plus,
   Search,
-  Send,
   Settings,
   ShieldAlert,
   Sparkles,
@@ -107,6 +108,8 @@ interface AiAppliedMarkdownDocument {
   path: string;
 }
 
+type AiAgentMode = AppSettings['ai']['defaultAgentMode'];
+
 type AiMentionKind = 'agent' | 'command' | 'file' | 'mcp-tool' | 'skill';
 
 interface AiMentionReference {
@@ -147,9 +150,12 @@ export function AiPanelContent({
   );
   const [appSettings, setAppSettings] =
     React.useState(DEFAULT_APP_SETTINGS);
+  const [agentMode, setAgentMode] = React.useState<AiAgentMode>(
+    DEFAULT_APP_SETTINGS.ai.defaultAgentMode,
+  );
   const [prompt, setPrompt] = React.useState('');
   const [activePopover, setActivePopover] = React.useState<
-    'actions' | 'history' | 'models' | null
+    'actions' | 'history' | 'mode' | 'models' | null
   >(null);
   const [models, setModels] = React.useState<AiDetectedModel[]>([]);
   const [modelsLoadedForRoot, setModelsLoadedForRoot] = React.useState<
@@ -221,6 +227,7 @@ export function AiPanelContent({
           );
 
           setAppSettings(normalizedSettings);
+          setAgentMode(normalizedSettings.ai.defaultAgentMode);
           dispatch({
             profiles,
             selectedProfileId,
@@ -307,11 +314,12 @@ export function AiPanelContent({
   const sessionStartOptions = React.useMemo(
     () =>
       buildSessionStartOptions({
+        agentMode,
         modelId: effectiveSelectedModelId,
         profile: profileMetadata,
         settings: appSettings,
       }),
-    [appSettings, effectiveSelectedModelId, profileMetadata],
+    [agentMode, appSettings, effectiveSelectedModelId, profileMetadata],
   );
   const settingsDisabled =
     Boolean(workspaceRootPath) &&
@@ -1030,20 +1038,21 @@ export function AiPanelContent({
 
       {activePopover === 'models' ? (
         <FloatingPanel
-          className="bottom-[92px] left-3 right-3 max-w-[calc(100vw-2rem)] overflow-hidden p-0 sm:right-auto sm:w-[320px]"
+          className="bottom-[84px] left-3 right-3 max-w-[calc(100vw-2rem)] overflow-hidden border-neutral-800 bg-[#202020] p-0 text-neutral-100 shadow-2xl sm:right-auto sm:w-[320px]"
           testId="ai-model-popover"
         >
-          <div className="flex h-12 items-center gap-2 border-b px-3">
+          <div className="flex h-12 items-center gap-2 border-b border-neutral-800 px-3">
+            <Search className="text-neutral-500" size={16} />
             <input
-              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              className="min-w-0 flex-1 bg-transparent text-sm text-neutral-100 outline-none placeholder:text-neutral-500"
               placeholder="Search models..."
               value={modelSearch}
               onChange={(event) => setModelSearch(event.currentTarget.value)}
             />
-            <Search size={16} />
           </div>
           <ModelList
             models={modelOptions}
+            onOpenSettings={onOpenSettings}
             query={modelSearch}
             selectedModelId={effectiveSelectedModelId}
             onSelect={(model) => {
@@ -1055,19 +1064,31 @@ export function AiPanelContent({
         </FloatingPanel>
       ) : null}
 
+      {activePopover === 'mode' ? (
+        <FloatingPanel className="bottom-[84px] left-3 w-[136px] overflow-hidden p-1">
+          <ModeList
+            selectedMode={agentMode}
+            onSelect={(nextMode) => {
+              setAgentMode(nextMode);
+              setActivePopover(null);
+            }}
+          />
+        </FloatingPanel>
+      ) : null}
+
       {state.error ? (
         <p className="border-t px-3 py-2 text-xs text-destructive">{state.error}</p>
       ) : null}
 
       <form
-        className="border-t bg-background p-3"
+        className="border-t bg-background px-3 pb-3 pt-2"
         onSubmit={(event) => {
           event.preventDefault();
           submitPrompt(prompt);
         }}
       >
         <div
-          className="rounded-xl border bg-background p-3 shadow-sm"
+          className="rounded-[18px] border border-input bg-background px-3 py-2 shadow-sm transition-colors focus-within:border-ring/45 focus-within:ring-2 focus-within:ring-ring/10"
           data-testid="ai-composer"
           onDragOver={(event) => {
             if (event.dataTransfer.types.includes('Files')) {
@@ -1096,7 +1117,7 @@ export function AiPanelContent({
             }}
           />
           <textarea
-            className="min-h-20 w-full resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
+            className="field-sizing-content max-h-[160px] min-h-[44px] w-full resize-none overflow-y-auto bg-transparent p-1 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
             disabled={!workspaceRootPath || !runtimeReady}
             placeholder="向 AI 询问当前工作区..."
             value={prompt}
@@ -1111,17 +1132,38 @@ export function AiPanelContent({
             />
           ) : null}
           <div
-            className="mt-2 flex items-center justify-between gap-2"
+            className="mt-1 flex min-h-8 w-full items-center justify-between gap-2"
             data-testid="ai-composer-footer"
           >
-            <div className="relative flex min-w-0 items-center gap-2">
+            <div className="relative flex min-w-0 flex-1 items-center gap-0.5">
               <Button
-                aria-label="选择模型"
-                className="max-w-[160px] justify-start truncate px-2 text-xs"
+                aria-label="选择模式"
+                className="h-7 max-w-[112px] justify-start gap-1.5 truncate rounded-md px-2 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                 disabled={!workspaceRootPath}
                 size="sm"
                 type="button"
-                variant="outline"
+                variant="ghost"
+                onClick={() =>
+                  setActivePopover(activePopover === 'mode' ? null : 'mode')
+                }
+              >
+                {agentMode === 'plan' ? (
+                  <ListChecks size={14} />
+                ) : (
+                  <InfinityIcon size={14} />
+                )}
+                <span className="truncate">
+                  {agentMode === 'plan' ? 'Plan' : 'Agent'}
+                </span>
+                <ChevronDown className="ml-auto" size={13} />
+              </Button>
+              <Button
+                aria-label="选择模型"
+                className="h-7 max-w-[168px] justify-start gap-1.5 truncate rounded-md px-2 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                disabled={!workspaceRootPath}
+                size="sm"
+                type="button"
+                variant="ghost"
                 onClick={() => {
                   const nextOpen = activePopover !== 'models';
                   setActivePopover(nextOpen ? 'models' : null);
@@ -1141,21 +1183,18 @@ export function AiPanelContent({
                 </span>
                 <ChevronDown className="ml-auto" size={13} />
               </Button>
-              <span className="truncate rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
-                Current Note {documentPanelData?.markdown?.length ?? 0} ch
-              </span>
               {referenceCount > 0 ? (
-                <span className="truncate rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+                <span className="truncate rounded-md bg-muted/70 px-2 py-1 text-xs text-muted-foreground">
                   +{referenceCount} referenced
                 </span>
               ) : null}
               {imageCount > 0 ? (
-                <span className="truncate rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+                <span className="truncate rounded-md bg-muted/70 px-2 py-1 text-xs text-muted-foreground">
                   {imageCount} image{imageCount === 1 ? '' : 's'}
                 </span>
               ) : null}
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex shrink-0 items-center gap-0.5">
               <input
                 ref={fileInputRef}
                 accept="image/*,.md,.markdown,.mdx,.txt,.csv,.json,.yaml,.yml,.toml,.xml,.html,.css,.ts,.tsx,.js,.jsx"
@@ -1174,6 +1213,7 @@ export function AiPanelContent({
               />
               <Button
                 aria-label="添加上下文文件"
+                className="size-7 rounded-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                 disabled={!workspaceRootPath || !runtimeReady}
                 size="icon"
                 type="button"
@@ -1184,6 +1224,7 @@ export function AiPanelContent({
               </Button>
               <Button
                 aria-label="停止"
+                className="size-7 rounded-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-40"
                 disabled={!state.session || state.status !== 'streaming'}
                 size="icon"
                 type="button"
@@ -1194,15 +1235,25 @@ export function AiPanelContent({
                   }
                 }}
               >
-                <Square size={15} />
+                {state.status === 'streaming' ? (
+                  <Square size={14} />
+                ) : (
+                  <Circle size={17} />
+                )}
               </Button>
               <Button
                 aria-label="发送"
+                className={cn(
+                  'size-9 rounded-full p-0 transition-colors disabled:opacity-100',
+                  canSend
+                    ? 'bg-foreground text-background hover:bg-foreground/90'
+                    : 'bg-muted text-muted-foreground hover:bg-muted',
+                )}
                 disabled={!canSend}
                 size="icon"
                 type="submit"
               >
-                <Send size={15} />
+                <ArrowUp size={18} />
               </Button>
             </div>
           </div>
@@ -4479,11 +4530,13 @@ function JsonPreview({
 
 function ModelList({
   models,
+  onOpenSettings,
   query,
   selectedModelId,
   onSelect,
 }: {
   models: AiDetectedModel[];
+  onOpenSettings?: () => void;
   query: string;
   selectedModelId: string | null;
   onSelect: (model: AiDetectedModel) => void;
@@ -4520,7 +4573,7 @@ function ModelList({
 
   if (models.length === 0) {
     return (
-      <div className="p-4 text-sm leading-6 text-muted-foreground">
+      <div className="p-4 text-sm leading-6 text-neutral-400">
         当前本地助手没有返回可选择模型。
       </div>
     );
@@ -4529,13 +4582,16 @@ function ModelList({
   return (
     <div className="max-h-[360px] overflow-auto p-2">
       {providerGroups.map((group) => (
-        <div className="grid gap-1 border-b py-2 last:border-b-0" key={group.providerId}>
-          <div className="px-2 text-xs font-medium text-muted-foreground">
+        <div
+          className="grid gap-1 border-b border-neutral-800 py-2 last:border-b-0"
+          key={group.providerId}
+        >
+          <div className="px-2 text-xs font-medium text-neutral-500">
             {group.providerLabel} Models
           </div>
           {group.models.map((model) => (
             <button
-              className="grid h-9 grid-cols-[minmax(0,1fr)_auto] items-center rounded-md px-2 text-left text-sm hover:bg-muted"
+              className="grid h-9 grid-cols-[minmax(0,1fr)_auto] items-center rounded-md px-2 text-left text-sm text-neutral-100 hover:bg-neutral-800"
               key={model.id}
               type="button"
               onClick={() => onSelect(model)}
@@ -4547,8 +4603,67 @@ function ModelList({
         </div>
       ))}
       {providerGroups.length === 0 ? (
-        <div className="p-2 text-sm text-muted-foreground">没有匹配模型。</div>
+        <div className="p-2 text-sm text-neutral-400">没有匹配模型。</div>
       ) : null}
+      <button
+        className="mt-1 grid h-10 w-full grid-cols-[minmax(0,1fr)_auto] items-center rounded-md px-2 text-left text-sm font-medium text-neutral-100 hover:bg-neutral-800 disabled:cursor-not-allowed disabled:text-neutral-500"
+        disabled={!onOpenSettings}
+        type="button"
+        onClick={onOpenSettings}
+      >
+        <span>Add Models</span>
+        <ChevronDown className="-rotate-90 text-neutral-500" size={14} />
+      </button>
+    </div>
+  );
+}
+
+function ModeList({
+  selectedMode,
+  onSelect,
+}: {
+  selectedMode: AiAgentMode;
+  onSelect: (mode: AiAgentMode) => void;
+}) {
+  const modes: Array<{
+    description: string;
+    icon: React.ReactNode;
+    label: string;
+    value: AiAgentMode;
+  }> = [
+    {
+      description: 'Apply changes directly',
+      icon: <InfinityIcon size={15} />,
+      label: 'Agent',
+      value: 'agent',
+    },
+    {
+      description: 'Create a plan first',
+      icon: <ListChecks size={15} />,
+      label: 'Plan',
+      value: 'plan',
+    },
+  ];
+
+  return (
+    <div className="grid gap-1">
+      {modes.map((mode) => (
+        <button
+          className="grid min-h-10 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-muted"
+          key={mode.value}
+          type="button"
+          onClick={() => onSelect(mode.value)}
+        >
+          <span className="text-muted-foreground">{mode.icon}</span>
+          <span className="min-w-0">
+            <span className="block truncate font-medium">{mode.label}</span>
+            <span className="block truncate text-[11px] text-muted-foreground">
+              {mode.description}
+            </span>
+          </span>
+          {selectedMode === mode.value ? <Check size={14} /> : null}
+        </button>
+      ))}
     </div>
   );
 }
@@ -4592,10 +4707,12 @@ function getPreferredModelId({
 }
 
 function buildSessionStartOptions({
+  agentMode,
   modelId,
   profile,
   settings,
 }: {
+  agentMode: AiAgentMode;
   modelId: string | null;
   profile:
     | {
@@ -4606,7 +4723,7 @@ function buildSessionStartOptions({
   settings: AppSettings;
 }) {
   return {
-    agentMode: settings.ai.defaultAgentMode,
+    agentMode,
     codexThinking:
       profile?.providerId === 'codex'
         ? settings.ai.lastSelectedCodexThinking

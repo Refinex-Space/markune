@@ -2,7 +2,7 @@
 
 // @author refinex
 // Edit 建议应用上下文：透传 onApplyEdit 回调，避免 props 多层穿透。
-// AiEditTool 从此 Context 取 onApply；AiSidePanelContent 在顶层 Provider 注入。
+// AiEditTool 从此 Context 取 onApply；上层面板可在顶层 Provider 注入。
 
 import { createContext, useContext } from 'react';
 

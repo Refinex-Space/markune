@@ -30,7 +30,11 @@ export class AiEventNormalizer {
           this.textPartMessageId = event.messageId;
           chunks.push({ type: 'text-start', id: this.textPartId });
         }
-        chunks.push({ type: 'text-delta', id: this.textPartId, delta: event.delta });
+        const textPartId = this.textPartId;
+        if (!textPartId) {
+          return chunks;
+        }
+        chunks.push({ type: 'text-delta', id: textPartId, delta: event.delta });
         return chunks;
       }
 
@@ -55,7 +59,11 @@ export class AiEventNormalizer {
           chunks.push({ type: 'reasoning', id: this.reasoningId, text: event.delta });
           return chunks;
         }
-        chunks.push({ type: 'reasoning-delta', id: this.reasoningId, delta: event.delta });
+        const reasoningId = this.reasoningId;
+        if (!reasoningId) {
+          return chunks;
+        }
+        chunks.push({ type: 'reasoning-delta', id: reasoningId, delta: event.delta });
         return chunks;
       }
 

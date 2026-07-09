@@ -542,6 +542,35 @@ describe('AiPanelContent', () => {
     );
   });
 
+  it('uses the composer footer mode selector when starting a session', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <AiPanelContent
+        currentDocument={currentDocument}
+        documentPanelData={documentPanelData}
+        workspaceRootPath="/repo"
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: '选择模式' }));
+    await user.click(await screen.findByRole('button', { name: /Plan/ }));
+    await user.type(
+      await screen.findByPlaceholderText('向 AI 询问当前工作区...'),
+      '先规划',
+    );
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() => expect(mocks.startAiSession).toHaveBeenCalled());
+    expect(mocks.startAiSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentMode: 'plan',
+        profileId: 'fake-echo',
+        rootPath: '/repo',
+      }),
+    );
+  });
+
   it('falls back to detected local assistants when runtime model list is empty', async () => {
     const user = userEvent.setup();
 
