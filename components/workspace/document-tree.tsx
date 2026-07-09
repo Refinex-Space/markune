@@ -3,6 +3,7 @@
 import * as React from 'react';
 import {
   Download,
+  ExternalLink,
   FileInput,
   FilePlus2,
   FolderClosed,
@@ -56,7 +57,7 @@ import type {
 } from './workspace-types';
 
 /**
- * 导出/导入格式（导出与 HTML/Word 导入能力后续基于 mardora 重新设计，
+ * 导出/导入格式（导出与 HTML/Word 导入能力后续基于 Markdown-first 编辑器重新设计，
  * 当前 document-tree 仅保留可选回调签名，不实际触发）。
  */
 type WorkspaceExportFormat = 'html' | 'pdf' | 'image' | 'markdown' | 'word';
@@ -86,6 +87,8 @@ interface DocumentTreeProps {
   onImportMarkdown: (targetDir: string) => void;
   onMoveNode?: (request: WorkspaceMoveRequest) => Promise<void> | void;
   onOpenInFileManager?: (node: WorkspaceNode) => Promise<void> | void;
+  onOpenInPreferredEditor?: (node: WorkspaceNode) => Promise<void> | void;
+  preferredEditorLabel?: string;
   onPendingRenameConsumed?: () => void;
   revealDirectoryPath?: string | null;
   onSelectDirectory?: (node: WorkspaceNode) => Promise<void> | void;
@@ -111,6 +114,8 @@ export function DocumentTree({
   onImportMarkdown,
   onMoveNode,
   onOpenInFileManager,
+  onOpenInPreferredEditor,
+  preferredEditorLabel,
   onPendingRenameConsumed,
   revealDirectoryPath,
   onSelectDirectory,
@@ -319,6 +324,7 @@ export function DocumentTree({
             onExportNode={onExportNode}
             onImportDocuments={onImportDocuments}
             onOpenInFileManager={onOpenInFileManager}
+            onOpenInPreferredEditor={onOpenInPreferredEditor}
             onDropPreviewChange={setDropPreview}
             onExpandedChange={setExpanded}
             onMoveNode={onMoveNode}
@@ -331,6 +337,7 @@ export function DocumentTree({
             onTreeDragEnd={handleDragEnd}
             onTreeDragStart={handleDragStart}
             onSelectDocument={onSelectDocument}
+            preferredEditorLabel={preferredEditorLabel}
           />
         ))}
       </div>
@@ -379,6 +386,7 @@ function TreeNode({
   onExportNode,
   onImportDocuments,
   onOpenInFileManager,
+  onOpenInPreferredEditor,
   onDropPreviewChange,
   onExpandedChange,
   onMoveNode,
@@ -391,6 +399,7 @@ function TreeNode({
   onTreeDragEnd,
   onTreeDragStart,
   onSelectDocument,
+  preferredEditorLabel,
 }: TreeNodeProps) {
   const isDirectory = node.kind === 'directory';
   const isExpanded =
@@ -624,6 +633,8 @@ function TreeNode({
               onExportNode={onExportNode}
               onImportDocuments={onImportDocuments}
               onOpenInFileManager={onOpenInFileManager}
+              onOpenInPreferredEditor={onOpenInPreferredEditor}
+              preferredEditorLabel={preferredEditorLabel}
               onRenameRequest={onRenameRequest}
               onTogglePinned={onTogglePinned}
             />
@@ -641,6 +652,8 @@ function TreeNode({
             onExportNode={onExportNode}
             onImportDocuments={onImportDocuments}
             onOpenInFileManager={onOpenInFileManager}
+            onOpenInPreferredEditor={onOpenInPreferredEditor}
+            preferredEditorLabel={preferredEditorLabel}
             onRenameRequest={onRenameRequest}
             onTogglePinned={onTogglePinned}
           />
@@ -668,6 +681,7 @@ function TreeNode({
               onExportNode={onExportNode}
               onImportDocuments={onImportDocuments}
               onOpenInFileManager={onOpenInFileManager}
+              onOpenInPreferredEditor={onOpenInPreferredEditor}
               onDropPreviewChange={onDropPreviewChange}
               onExpandedChange={onExpandedChange}
               onMoveNode={onMoveNode}
@@ -680,6 +694,7 @@ function TreeNode({
               onTreeDragEnd={onTreeDragEnd}
               onTreeDragStart={onTreeDragStart}
               onSelectDocument={onSelectDocument}
+              preferredEditorLabel={preferredEditorLabel}
             />
           ))
         : null}
@@ -713,6 +728,8 @@ interface TreeNodeProps {
     format: WorkspaceImportFormat,
   ) => Promise<void> | void;
   onOpenInFileManager?: (node: WorkspaceNode) => Promise<void> | void;
+  onOpenInPreferredEditor?: (node: WorkspaceNode) => Promise<void> | void;
+  preferredEditorLabel?: string;
   onDropPreviewChange: (preview: DropPreview | null) => void;
   onExpandedChange: React.Dispatch<React.SetStateAction<Set<string>>>;
   onMoveNode?: (request: WorkspaceMoveRequest) => Promise<void> | void;
@@ -873,6 +890,8 @@ function NodeActionDropdown({
   onExportNode,
   onImportDocuments,
   onOpenInFileManager,
+  onOpenInPreferredEditor,
+  preferredEditorLabel,
   onRenameRequest,
   onTogglePinned,
 }: NodeActionProps) {
@@ -902,6 +921,8 @@ function NodeActionDropdown({
           onExportNode={onExportNode}
           onImportDocuments={onImportDocuments}
           onOpenInFileManager={onOpenInFileManager}
+          onOpenInPreferredEditor={onOpenInPreferredEditor}
+          preferredEditorLabel={preferredEditorLabel}
           onRenameRequest={onRenameRequest}
           onTogglePinned={onTogglePinned}
         />
@@ -926,6 +947,8 @@ interface NodeActionProps {
     format: WorkspaceImportFormat,
   ) => Promise<void> | void;
   onOpenInFileManager?: (node: WorkspaceNode) => Promise<void> | void;
+  onOpenInPreferredEditor?: (node: WorkspaceNode) => Promise<void> | void;
+  preferredEditorLabel?: string;
   onRenameRequest: (node: WorkspaceNode) => void;
   onTogglePinned?: (node: WorkspaceNode) => void;
 }
@@ -938,6 +961,8 @@ function NodeDropdownActions({
   onExportNode,
   onImportDocuments,
   onOpenInFileManager,
+  onOpenInPreferredEditor,
+  preferredEditorLabel,
   onRenameRequest,
   onTogglePinned,
 }: NodeActionProps) {
@@ -972,6 +997,14 @@ function NodeDropdownActions({
           >
             <FolderOpen />
             在文件夹中打开
+          </DropdownMenuItem>
+        ) : null}
+        {onOpenInPreferredEditor && preferredEditorLabel ? (
+          <DropdownMenuItem
+            onSelect={() => void onOpenInPreferredEditor(node)}
+          >
+            <ExternalLink />
+            在 {preferredEditorLabel} 中打开
           </DropdownMenuItem>
         ) : null}
         <DropdownMenuItem
@@ -1040,6 +1073,14 @@ function NodeDropdownActions({
           在文件夹中打开
         </DropdownMenuItem>
       ) : null}
+      {onOpenInPreferredEditor && preferredEditorLabel ? (
+        <DropdownMenuItem
+          onSelect={() => void onOpenInPreferredEditor(node)}
+        >
+          <ExternalLink />
+          在 {preferredEditorLabel} 中打开
+        </DropdownMenuItem>
+      ) : null}
       <DropdownMenuItem
         variant="destructive"
         onSelect={() => onDeleteRequest(node)}
@@ -1076,6 +1117,8 @@ function NodeContextActions({
   onExportNode,
   onImportDocuments,
   onOpenInFileManager,
+  onOpenInPreferredEditor,
+  preferredEditorLabel,
   onRenameRequest,
   onTogglePinned,
 }: NodeActionProps) {
@@ -1110,6 +1153,14 @@ function NodeContextActions({
           >
             <FolderOpen />
             在文件夹中打开
+          </ContextMenuItem>
+        ) : null}
+        {onOpenInPreferredEditor && preferredEditorLabel ? (
+          <ContextMenuItem
+            onSelect={() => void onOpenInPreferredEditor(node)}
+          >
+            <ExternalLink />
+            在 {preferredEditorLabel} 中打开
           </ContextMenuItem>
         ) : null}
         <ContextMenuItem
@@ -1176,6 +1227,14 @@ function NodeContextActions({
         >
           <FolderOpen />
           在文件夹中打开
+        </ContextMenuItem>
+      ) : null}
+      {onOpenInPreferredEditor && preferredEditorLabel ? (
+        <ContextMenuItem
+          onSelect={() => void onOpenInPreferredEditor(node)}
+        >
+          <ExternalLink />
+          在 {preferredEditorLabel} 中打开
         </ContextMenuItem>
       ) : null}
       <ContextMenuItem

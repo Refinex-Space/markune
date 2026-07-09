@@ -26,4 +26,89 @@ describe('workspace settings', () => {
       pageWidthMode: 'standard',
     });
   });
+
+  it('includes 1Code-style AI preference defaults', () => {
+    expect(DEFAULT_APP_SETTINGS.ai).toMatchObject({
+      customClaudeConfig: {
+        baseUrl: '',
+        model: '',
+      },
+      analyticsOptOut: false,
+      autoAdvanceTarget: 'next',
+      ctrlTabTarget: 'workspaces',
+      defaultAgentMode: 'agent',
+      desktopNotificationsEnabled: true,
+      extendedThinkingEnabled: true,
+      hiddenModelIds: ['gpt-5.1-codex-max', 'gpt-5.1-codex-mini'],
+      includeCoAuthoredBy: true,
+      lastSelectedCodexModelId: 'gpt-5.3-codex',
+      lastSelectedCodexThinking: 'high',
+      lastSelectedModelId: 'opus',
+      notifyWhenFocused: false,
+      preferredEditor: 'cursor',
+      settingsSidebarWidths: {
+        agents: 240,
+        mcp: 240,
+        plugins: 240,
+        skills: 240,
+      },
+      soundNotificationsEnabled: true,
+    });
+  });
+
+  it('normalizes legacy AI settings with 1Code-style AI preference defaults', () => {
+    expect(
+      withDefaultAppSettings({
+        ai: {
+          enabledProfileId: null,
+          profiles: [],
+        },
+    }).ai,
+    ).toMatchObject({
+      customClaudeConfig: {
+        baseUrl: '',
+        model: '',
+      },
+      analyticsOptOut: false,
+      autoAdvanceTarget: 'next',
+      ctrlTabTarget: 'workspaces',
+      defaultAgentMode: 'agent',
+      desktopNotificationsEnabled: true,
+      extendedThinkingEnabled: true,
+      hiddenModelIds: ['gpt-5.1-codex-max', 'gpt-5.1-codex-mini'],
+      includeCoAuthoredBy: true,
+      lastSelectedCodexModelId: 'gpt-5.3-codex',
+      lastSelectedCodexThinking: 'high',
+      lastSelectedModelId: 'opus',
+      notifyWhenFocused: false,
+      preferredEditor: 'cursor',
+      settingsSidebarWidths: {
+        agents: 240,
+        mcp: 240,
+        plugins: 240,
+        skills: 240,
+      },
+      soundNotificationsEnabled: true,
+    });
+  });
+
+  it('normalizes 1Code-style AI settings sidebar widths within resize bounds', () => {
+    expect(
+      withDefaultAppSettings({
+        ai: {
+          settingsSidebarWidths: {
+            agents: 120,
+            mcp: 460,
+            plugins: 300,
+            skills: 280,
+          },
+        },
+      }).ai.settingsSidebarWidths,
+    ).toEqual({
+      agents: 200,
+      mcp: 400,
+      plugins: 300,
+      skills: 280,
+    });
+  });
 });

@@ -89,6 +89,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   const [initialRecentDocumentPaths, setInitialRecentDocumentPaths] =
     React.useState<string[]>([]);
 
+  const suppressNextAutoRestoreRef = React.useRef(false);
   const currentDirectory = React.useMemo(() => {
     if (!snapshot || !currentDirectoryPath) {
       return null;
@@ -303,6 +304,35 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     }
   }, [currentDocument, openDocument]);
 
+  const syncAppliedMarkdownDocument = React.useCallback(
+    async (document: {
+      content: string;
+      modifiedAt: number | null;
+      path: string;
+    }) => {
+      if (currentDocument?.absolutePath === document.path) {
+        const modifiedAt = document.modifiedAt ?? Date.now();
+        const content: MarkdownDocumentContent = {
+          content: document.content,
+          modifiedAt,
+          path: document.path,
+        };
+
+        setDocumentContent(content);
+        setDraftDocument(createMarkdownDraft(content, currentDocument.name));
+        lastSavedMarkdownRef.current = document.content;
+        setDocumentVersion((version) => version + 1);
+        setSaveState('saved');
+        setSaveError(null);
+        setLastSavedAt(modifiedAt);
+        clearPendingSave();
+      }
+
+      await refreshWorkspaceTree();
+    },
+    [clearPendingSave, currentDocument, refreshWorkspaceTree],
+  );
+
   const selectDirectory = React.useCallback(
     async (node: WorkspaceNode) => {
       if (!snapshot || node.kind !== 'directory') {
@@ -484,7 +514,17 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         '未命名文档',
       );
       setPendingRenameNodePath(created.node.absolutePath);
-      await refreshWorkspaceTree();
+      const nextSnapshot = insertWorkspaceNode(
+        snapshot,
+        parentPath,
+        created.node,
+      );
+
+      if (nextSnapshot) {
+        setSnapshot(nextSnapshot);
+      } else {
+        await refreshWorkspaceTree();
+      }
       await openDocument(created.node);
 
       return created.node;
@@ -504,7 +544,13 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         '未命名目录',
       );
       setPendingRenameNodePath(created.absolutePath);
-      await refreshWorkspaceTree();
+      const nextSnapshot = insertWorkspaceNode(snapshot, parentPath, created);
+
+      if (nextSnapshot) {
+        setSnapshot(nextSnapshot);
+      } else {
+        await refreshWorkspaceTree();
+      }
 
       return created;
     },
@@ -703,6 +749,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       setStoredWorkspaceHistory(removeWorkspaceHistory(rootPath));
 
       if (snapshot?.rootPath === rootPath) {
+        suppressNextAutoRestoreRef.current = true;
         setSnapshot(null);
         resetDocumentState();
         setSearchQuery('');
@@ -768,6 +815,11 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       return;
     }
 
+    if (suppressNextAutoRestoreRef.current) {
+      suppressNextAutoRestoreRef.current = false;
+      return;
+    }
+
     const recentPath = getRecentWorkspacePath();
 
     if (recentPath) {
@@ -822,6 +874,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     setRightPanelMode,
     setSearchQuery,
     setSidebarCollapsed,
+    syncAppliedMarkdownDocument,
     clearPendingRenameNode,
     snapshot,
     switchWorkspace: loadWorkspace,
@@ -944,6 +997,79 @@ function findNodeByAbsolutePath(
   }
 
   return null;
+}
+
+function insertWorkspaceNode(
+  snapshot: WorkspaceSnapshot,
+  parentPath: string,
+  node: WorkspaceNode,
+): WorkspaceSnapshot | null {
+  if (!parentPath) {
+    return {
+      ...snapshot,
+      nodes: [...snapshot.nodes, node],
+    };
+  }
+
+  const nextNodes = insertWorkspaceNodeIntoChildren(
+    snapshot.nodes,
+    parentPath,
+    node,
+  );
+
+  if (!nextNodes) {
+    return null;
+  }
+
+  return {
+    ...snapshot,
+    nodes: nextNodes,
+  };
+}
+
+function insertWorkspaceNodeIntoChildren(
+  nodes: WorkspaceNode[],
+  parentPath: string,
+  node: WorkspaceNode,
+): WorkspaceNode[] | null {
+  let inserted = false;
+  const nextNodes = nodes.map((currentNode) => {
+    if (
+      currentNode.kind === 'directory' &&
+      (currentNode.relativePath === parentPath ||
+        currentNode.absolutePath === parentPath)
+    ) {
+      inserted = true;
+
+      return {
+        ...currentNode,
+        children: [...(currentNode.children ?? []), node],
+      };
+    }
+
+    if (currentNode.kind !== 'directory' || !currentNode.children) {
+      return currentNode;
+    }
+
+    const nextChildren = insertWorkspaceNodeIntoChildren(
+      currentNode.children,
+      parentPath,
+      node,
+    );
+
+    if (!nextChildren) {
+      return currentNode;
+    }
+
+    inserted = true;
+
+    return {
+      ...currentNode,
+      children: nextChildren,
+    };
+  });
+
+  return inserted ? nextNodes : null;
 }
 
 function getMovedNodePath(

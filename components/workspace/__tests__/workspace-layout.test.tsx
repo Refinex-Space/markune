@@ -4,10 +4,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createMarkdownDocument,
+  deleteAiAnthropicAccount,
+  deleteAiProviderSecret,
+  openAiClaudeCodeOAuthUrl,
   createWorkspaceDirectory,
   createWorkspaceRoot,
   detectAiAccounts,
   ensureWorkspace,
+  getAiProviderSecretStatus,
+  getCodexIntegration,
   gitBranches,
   gitCommit,
   gitCommitFileDiff,
@@ -24,8 +29,16 @@ import {
   gitStage,
   gitStatus,
   gitUnstage,
+  listAiCommands,
   listDailyNotesForMonth,
+  listAiAgentModels,
   listAiAgentProfiles,
+  listAiAnthropicAccounts,
+  listAiCustomAgents,
+  listAiMcpServers,
+  listAiPlugins,
+  logoutCodexAccount,
+  listAiSkills,
   listSystemFonts,
   listenAiEvents,
   listenTerminalData,
@@ -33,21 +46,47 @@ import {
   listenTerminalExit,
   loadWorkspaceTree,
   openDailyNote,
+  openCodexLoginUrl,
   openPathInFileManager,
+  openPathInPreferredEditor,
   readAppSettings,
   readMarkdownDocument,
   readWorkspaceAssetData,
   recordRecentDocument,
   recordWorkspaceHistory,
   resolveWorkspaceAsset,
+  saveAiProviderSecret,
+  cancelCodexLogin,
+  getCodexLoginSession,
+  importAiAnthropicAccountToken,
+  pollAiClaudeCodeAuthStatus,
+  renameAiAnthropicAccount,
+  setAiAnthropicAccountActive,
   saveAppSettings,
   saveWorkspaceGitSyncSettings,
+  startAiClaudeCodeAuth,
+  startCodexLogin,
   selectWorkspaceAssetDownloadPath,
   selectWorkspaceParentDirectory,
+  setAiClaudeIncludeCoAuthoredBy,
+  setAiPluginEnabled,
+  setAiPluginMcpServerApproved,
+  setAiPluginMcpServersApproved,
+  setAiMcpServerEnabled,
   setWorkspaceNodeState,
   closeAppWindow,
   cancelAiTurn,
+  createAiCommand,
+  createAiCustomAgent,
+  createAiMcpServer,
+  authenticateAiMcpServer,
+  createAiSkill,
   minimizeAppWindow,
+  deleteAiCommand,
+  deleteAiCustomAgent,
+  deleteAiMcpServer,
+  deleteAiSkill,
+  logoutAiMcpServer,
   sendAiPrompt,
   startAiSession,
   stopAiSession,
@@ -56,6 +95,11 @@ import {
   terminalResize,
   terminalSpawn,
   terminalWrite,
+  submitAiClaudeCodeAuthCode,
+  updateAiCommand,
+  updateAiCustomAgent,
+  updateAiMcpServer,
+  updateAiSkill,
   writeExportFile,
 } from '../workspace-api';
 import { WorkspaceLayout } from '../workspace-layout';
@@ -161,10 +205,28 @@ vi.mock('../workspace-api', async (importOriginal) => {
   return {
     ...actual,
     createMarkdownDocument: vi.fn(),
+    deleteAiAnthropicAccount: vi.fn(),
+    deleteAiProviderSecret: vi.fn(),
+    openAiClaudeCodeOAuthUrl: vi.fn(),
+    createAiCommand: vi.fn(),
+    createAiCustomAgent: vi.fn(),
+    createAiMcpServer: vi.fn(),
+    authenticateAiMcpServer: vi.fn(),
+    createAiSkill: vi.fn(),
     createWorkspaceDirectory: vi.fn(),
     createWorkspaceRoot: vi.fn(),
+    deleteAiCommand: vi.fn(),
+    deleteAiCustomAgent: vi.fn(),
+    deleteAiMcpServer: vi.fn(),
+    deleteAiSkill: vi.fn(),
+    logoutAiMcpServer: vi.fn(),
+    logoutCodexAccount: vi.fn(),
     detectAiAccounts: vi.fn(),
     ensureWorkspace: vi.fn(),
+    getAiProviderSecretStatus: vi.fn(),
+    getCodexIntegration: vi.fn(),
+    importAiAnthropicAccountToken: vi.fn(),
+    pollAiClaudeCodeAuthStatus: vi.fn(),
     gitBranches: vi.fn(),
     gitCommit: vi.fn(),
     gitCommitFileDiff: vi.fn(),
@@ -181,8 +243,15 @@ vi.mock('../workspace-api', async (importOriginal) => {
     gitStage: vi.fn(),
     gitStatus: vi.fn(),
     gitUnstage: vi.fn(),
+    listAiCommands: vi.fn(),
     listDailyNotesForMonth: vi.fn(),
+    listAiAgentModels: vi.fn(),
     listAiAgentProfiles: vi.fn(),
+    listAiAnthropicAccounts: vi.fn(),
+    listAiCustomAgents: vi.fn(),
+    listAiMcpServers: vi.fn(),
+    listAiPlugins: vi.fn(),
+    listAiSkills: vi.fn(),
     listSystemFonts: vi.fn(),
     listenAiEvents: vi.fn(),
     listenTerminalData: vi.fn(),
@@ -190,16 +259,30 @@ vi.mock('../workspace-api', async (importOriginal) => {
     listenTerminalExit: vi.fn(),
     loadWorkspaceTree: vi.fn(),
     openDailyNote: vi.fn(),
+    openCodexLoginUrl: vi.fn(),
     openPathInFileManager: vi.fn(),
+    openPathInPreferredEditor: vi.fn(),
     readMarkdownDocument: vi.fn(),
     readWorkspaceAssetData: vi.fn(),
     recordRecentDocument: vi.fn(),
     resolveWorkspaceAsset: vi.fn(),
     readAppSettings: vi.fn(),
+    cancelCodexLogin: vi.fn(),
+    getCodexLoginSession: vi.fn(),
+    saveAiProviderSecret: vi.fn(),
+    renameAiAnthropicAccount: vi.fn(),
+    setAiAnthropicAccountActive: vi.fn(),
     saveAppSettings: vi.fn(),
     saveWorkspaceGitSyncSettings: vi.fn(),
     selectWorkspaceAssetDownloadPath: vi.fn(),
     selectWorkspaceParentDirectory: vi.fn(),
+    startAiClaudeCodeAuth: vi.fn(),
+    startCodexLogin: vi.fn(),
+    setAiClaudeIncludeCoAuthoredBy: vi.fn(),
+    setAiPluginEnabled: vi.fn(),
+    setAiPluginMcpServerApproved: vi.fn(),
+    setAiPluginMcpServersApproved: vi.fn(),
+    setAiMcpServerEnabled: vi.fn(),
     setWorkspaceNodeState: vi.fn(),
     setAppWindowTitle: vi.fn(),
     closeAppWindow: vi.fn(),
@@ -213,15 +296,38 @@ vi.mock('../workspace-api', async (importOriginal) => {
     terminalResize: vi.fn(),
     terminalSpawn: vi.fn(),
     terminalWrite: vi.fn(),
+    submitAiClaudeCodeAuthCode: vi.fn(),
+    updateAiCommand: vi.fn(),
+    updateAiCustomAgent: vi.fn(),
+    updateAiMcpServer: vi.fn(),
+    updateAiSkill: vi.fn(),
     writeExportFile: vi.fn(),
   };
 });
 
 const createMarkdownDocumentMock = vi.mocked(createMarkdownDocument);
+const deleteAiAnthropicAccountMock = vi.mocked(deleteAiAnthropicAccount);
+const openAiClaudeCodeOAuthUrlMock = vi.mocked(openAiClaudeCodeOAuthUrl);
+const createAiCommandMock = vi.mocked(createAiCommand);
+const createAiCustomAgentMock = vi.mocked(createAiCustomAgent);
+const createAiMcpServerMock = vi.mocked(createAiMcpServer);
+const authenticateAiMcpServerMock = vi.mocked(authenticateAiMcpServer);
+const createAiSkillMock = vi.mocked(createAiSkill);
 const createWorkspaceDirectoryMock = vi.mocked(createWorkspaceDirectory);
 const createWorkspaceRootMock = vi.mocked(createWorkspaceRoot);
+const deleteAiCommandMock = vi.mocked(deleteAiCommand);
+const deleteAiCustomAgentMock = vi.mocked(deleteAiCustomAgent);
+const deleteAiMcpServerMock = vi.mocked(deleteAiMcpServer);
+const deleteAiProviderSecretMock = vi.mocked(deleteAiProviderSecret);
+const deleteAiSkillMock = vi.mocked(deleteAiSkill);
+const logoutAiMcpServerMock = vi.mocked(logoutAiMcpServer);
+const logoutCodexAccountMock = vi.mocked(logoutCodexAccount);
 const detectAiAccountsMock = vi.mocked(detectAiAccounts);
 const ensureWorkspaceMock = vi.mocked(ensureWorkspace);
+const getAiProviderSecretStatusMock = vi.mocked(getAiProviderSecretStatus);
+const getCodexIntegrationMock = vi.mocked(getCodexIntegration);
+const importAiAnthropicAccountTokenMock = vi.mocked(importAiAnthropicAccountToken);
+const pollAiClaudeCodeAuthStatusMock = vi.mocked(pollAiClaudeCodeAuthStatus);
 const gitBranchesMock = vi.mocked(gitBranches);
 const gitCommitMock = vi.mocked(gitCommit);
 const gitCommitFileDiffMock = vi.mocked(gitCommitFileDiff);
@@ -238,8 +344,15 @@ const gitSyncNowMock = vi.mocked(gitSyncNow);
 const gitStageMock = vi.mocked(gitStage);
 const gitStatusMock = vi.mocked(gitStatus);
 const gitUnstageMock = vi.mocked(gitUnstage);
+const listAiCommandsMock = vi.mocked(listAiCommands);
 const listDailyNotesForMonthMock = vi.mocked(listDailyNotesForMonth);
+const listAiAgentModelsMock = vi.mocked(listAiAgentModels);
 const listAiAgentProfilesMock = vi.mocked(listAiAgentProfiles);
+const listAiAnthropicAccountsMock = vi.mocked(listAiAnthropicAccounts);
+const listAiCustomAgentsMock = vi.mocked(listAiCustomAgents);
+const listAiMcpServersMock = vi.mocked(listAiMcpServers);
+const listAiPluginsMock = vi.mocked(listAiPlugins);
+const listAiSkillsMock = vi.mocked(listAiSkills);
 const listSystemFontsMock = vi.mocked(listSystemFonts);
 const listenAiEventsMock = vi.mocked(listenAiEvents);
 const listenTerminalDataMock = vi.mocked(listenTerminalData);
@@ -247,12 +360,19 @@ const listenTerminalErrorMock = vi.mocked(listenTerminalError);
 const listenTerminalExitMock = vi.mocked(listenTerminalExit);
 const loadWorkspaceTreeMock = vi.mocked(loadWorkspaceTree);
 const openDailyNoteMock = vi.mocked(openDailyNote);
+const openCodexLoginUrlMock = vi.mocked(openCodexLoginUrl);
 const openPathInFileManagerMock = vi.mocked(openPathInFileManager);
+const openPathInPreferredEditorMock = vi.mocked(openPathInPreferredEditor);
 const readAppSettingsMock = vi.mocked(readAppSettings);
 const readMarkdownDocumentMock = vi.mocked(readMarkdownDocument);
 const readWorkspaceAssetDataMock = vi.mocked(readWorkspaceAssetData);
 const recordRecentDocumentMock = vi.mocked(recordRecentDocument);
 const resolveWorkspaceAssetMock = vi.mocked(resolveWorkspaceAsset);
+const saveAiProviderSecretMock = vi.mocked(saveAiProviderSecret);
+const cancelCodexLoginMock = vi.mocked(cancelCodexLogin);
+const getCodexLoginSessionMock = vi.mocked(getCodexLoginSession);
+const renameAiAnthropicAccountMock = vi.mocked(renameAiAnthropicAccount);
+const setAiAnthropicAccountActiveMock = vi.mocked(setAiAnthropicAccountActive);
 const saveAppSettingsMock = vi.mocked(saveAppSettings);
 const saveWorkspaceGitSyncSettingsMock = vi.mocked(
   saveWorkspaceGitSyncSettings,
@@ -263,6 +383,19 @@ const selectWorkspaceAssetDownloadPathMock = vi.mocked(
 const selectWorkspaceParentDirectoryMock = vi.mocked(
   selectWorkspaceParentDirectory,
 );
+const startAiClaudeCodeAuthMock = vi.mocked(startAiClaudeCodeAuth);
+const startCodexLoginMock = vi.mocked(startCodexLogin);
+const setAiClaudeIncludeCoAuthoredByMock = vi.mocked(
+  setAiClaudeIncludeCoAuthoredBy,
+);
+const setAiPluginEnabledMock = vi.mocked(setAiPluginEnabled);
+const setAiPluginMcpServerApprovedMock = vi.mocked(
+  setAiPluginMcpServerApproved,
+);
+const setAiPluginMcpServersApprovedMock = vi.mocked(
+  setAiPluginMcpServersApproved,
+);
+const setAiMcpServerEnabledMock = vi.mocked(setAiMcpServerEnabled);
 const setWorkspaceNodeStateMock = vi.mocked(setWorkspaceNodeState);
 const closeAppWindowMock = vi.mocked(closeAppWindow);
 const cancelAiTurnMock = vi.mocked(cancelAiTurn);
@@ -275,6 +408,11 @@ const terminalKillMock = vi.mocked(terminalKill);
 const terminalResizeMock = vi.mocked(terminalResize);
 const terminalSpawnMock = vi.mocked(terminalSpawn);
 const terminalWriteMock = vi.mocked(terminalWrite);
+const submitAiClaudeCodeAuthCodeMock = vi.mocked(submitAiClaudeCodeAuthCode);
+const updateAiCommandMock = vi.mocked(updateAiCommand);
+const updateAiCustomAgentMock = vi.mocked(updateAiCustomAgent);
+const updateAiMcpServerMock = vi.mocked(updateAiMcpServer);
+const updateAiSkillMock = vi.mocked(updateAiSkill);
 const writeExportFileMock = vi.mocked(writeExportFile);
 
 const snapshot: WorkspaceSnapshot = {
@@ -429,6 +567,17 @@ const defaultAiSettings = DEFAULT_AI_SETTINGS;
 
 const defaultAppSettings = DEFAULT_APP_SETTINGS;
 
+function getSettingsCreateButton() {
+  const buttons = screen.getAllByRole('button', { name: '新建' });
+  const button = buttons.at(-1);
+
+  if (!button) {
+    throw new Error('新建 button not found');
+  }
+
+  return button as HTMLButtonElement;
+}
+
 function markdownDocument({
   body = '正文',
   modifiedAt = 1,
@@ -453,10 +602,27 @@ describe('WorkspaceLayout', () => {
     delete (window as unknown as { __TAURI_INTERNALS__?: unknown })
       .__TAURI_INTERNALS__;
     createMarkdownDocumentMock.mockReset();
+    deleteAiAnthropicAccountMock.mockReset();
+    openAiClaudeCodeOAuthUrlMock.mockReset();
+    createAiCommandMock.mockReset();
+    createAiCustomAgentMock.mockReset();
+    createAiMcpServerMock.mockReset();
+    authenticateAiMcpServerMock.mockReset();
+    createAiSkillMock.mockReset();
     createWorkspaceDirectoryMock.mockReset();
     createWorkspaceRootMock.mockReset();
+    deleteAiCommandMock.mockReset();
+    deleteAiCustomAgentMock.mockReset();
+    deleteAiMcpServerMock.mockReset();
+    deleteAiProviderSecretMock.mockReset();
+    deleteAiSkillMock.mockReset();
+    logoutAiMcpServerMock.mockReset();
     detectAiAccountsMock.mockReset();
     ensureWorkspaceMock.mockReset();
+    getAiProviderSecretStatusMock.mockReset();
+    getCodexIntegrationMock.mockReset();
+    importAiAnthropicAccountTokenMock.mockReset();
+    pollAiClaudeCodeAuthStatusMock.mockReset();
     gitBranchesMock.mockReset();
     gitCommitMock.mockReset();
     gitCommitFileDiffMock.mockReset();
@@ -473,8 +639,15 @@ describe('WorkspaceLayout', () => {
     gitStageMock.mockReset();
     gitStatusMock.mockReset();
     gitUnstageMock.mockReset();
+    listAiCommandsMock.mockReset();
     listDailyNotesForMonthMock.mockReset();
+    listAiAgentModelsMock.mockReset();
     listAiAgentProfilesMock.mockReset();
+    listAiAnthropicAccountsMock.mockReset();
+    listAiCustomAgentsMock.mockReset();
+    listAiMcpServersMock.mockReset();
+    listAiPluginsMock.mockReset();
+    listAiSkillsMock.mockReset();
     listSystemFontsMock.mockReset();
     listenAiEventsMock.mockReset();
     listenTerminalDataMock.mockReset();
@@ -482,16 +655,30 @@ describe('WorkspaceLayout', () => {
     listenTerminalExitMock.mockReset();
     loadWorkspaceTreeMock.mockReset();
     openDailyNoteMock.mockReset();
+    openCodexLoginUrlMock.mockReset();
     openPathInFileManagerMock.mockReset();
+    openPathInPreferredEditorMock.mockReset();
     readAppSettingsMock.mockReset();
     readMarkdownDocumentMock.mockReset();
     readWorkspaceAssetDataMock.mockReset();
     recordRecentDocumentMock.mockReset();
     resolveWorkspaceAssetMock.mockReset();
+    saveAiProviderSecretMock.mockReset();
+    cancelCodexLoginMock.mockReset();
+    getCodexLoginSessionMock.mockReset();
+    renameAiAnthropicAccountMock.mockReset();
+    setAiAnthropicAccountActiveMock.mockReset();
     saveAppSettingsMock.mockReset();
     saveWorkspaceGitSyncSettingsMock.mockReset();
     selectWorkspaceAssetDownloadPathMock.mockReset();
     selectWorkspaceParentDirectoryMock.mockReset();
+    startAiClaudeCodeAuthMock.mockReset();
+    startCodexLoginMock.mockReset();
+    setAiClaudeIncludeCoAuthoredByMock.mockReset();
+    setAiPluginEnabledMock.mockReset();
+    setAiPluginMcpServerApprovedMock.mockReset();
+    setAiPluginMcpServersApprovedMock.mockReset();
+    setAiMcpServerEnabledMock.mockReset();
     setWorkspaceNodeStateMock.mockReset();
     closeAppWindowMock.mockReset();
     cancelAiTurnMock.mockReset();
@@ -504,6 +691,11 @@ describe('WorkspaceLayout', () => {
     terminalResizeMock.mockReset();
     terminalSpawnMock.mockReset();
     terminalWriteMock.mockReset();
+    submitAiClaudeCodeAuthCodeMock.mockReset();
+    updateAiCommandMock.mockReset();
+    updateAiCustomAgentMock.mockReset();
+    updateAiMcpServerMock.mockReset();
+    updateAiSkillMock.mockReset();
     writeExportFileMock.mockReset();
     setThemeMock.mockReset();
     closeAppWindowMock.mockResolvedValue(undefined);
@@ -523,6 +715,14 @@ describe('WorkspaceLayout', () => {
     listenTerminalExitMock.mockResolvedValue(vi.fn());
     listenAiEventsMock.mockResolvedValue(vi.fn());
     listAiAgentProfilesMock.mockResolvedValue([fakeEchoProfile]);
+    listAiAgentModelsMock.mockResolvedValue([]);
+    listAiAnthropicAccountsMock.mockResolvedValue([]);
+    listAiCommandsMock.mockResolvedValue([]);
+    listAiCustomAgentsMock.mockResolvedValue([]);
+    listAiMcpServersMock.mockResolvedValue([]);
+    listAiPluginsMock.mockResolvedValue([]);
+    listAiSkillsMock.mockResolvedValue([]);
+    updateAiMcpServerMock.mockResolvedValue('/repo/.mcp.json');
     listSystemFontsMock.mockResolvedValue({
       code: ['JetBrains Mono', 'SF Mono', 'Menlo'],
       document: ['Songti SC', 'PingFang SC'],
@@ -534,6 +734,11 @@ describe('WorkspaceLayout', () => {
       ui: ['SF Pro Text', 'PingFang SC', 'Geist'],
     });
     detectAiAccountsMock.mockResolvedValue([]);
+    setAiClaudeIncludeCoAuthoredByMock.mockResolvedValue(undefined);
+    setAiPluginEnabledMock.mockResolvedValue(undefined);
+    setAiPluginMcpServerApprovedMock.mockResolvedValue(undefined);
+    setAiPluginMcpServersApprovedMock.mockResolvedValue(undefined);
+    setAiMcpServerEnabledMock.mockResolvedValue(undefined);
     terminalKillMock.mockResolvedValue(undefined);
     terminalResizeMock.mockResolvedValue(undefined);
     terminalSpawnMock.mockResolvedValue({
@@ -542,6 +747,77 @@ describe('WorkspaceLayout', () => {
       shell: '/bin/zsh',
     });
     terminalWriteMock.mockResolvedValue(undefined);
+    createAiCommandMock.mockResolvedValue('/repo/.claude/commands/git/commit.md');
+    createAiCustomAgentMock.mockResolvedValue('/repo/.claude/agents/reviewer.md');
+    createAiMcpServerMock.mockResolvedValue('/repo/.mcp.json');
+    authenticateAiMcpServerMock.mockResolvedValue(undefined);
+    createAiSkillMock.mockResolvedValue('/repo/.claude/skills/doc/SKILL.md');
+    deleteAiCommandMock.mockResolvedValue(undefined);
+    deleteAiCustomAgentMock.mockResolvedValue(undefined);
+    deleteAiMcpServerMock.mockResolvedValue(undefined);
+    deleteAiProviderSecretMock.mockResolvedValue({ status: 'missing' });
+    deleteAiSkillMock.mockResolvedValue(undefined);
+    logoutAiMcpServerMock.mockResolvedValue(undefined);
+    logoutCodexAccountMock.mockResolvedValue({
+      isConnected: false,
+      logoutExitCode: 0,
+      logoutOutput: 'logged out',
+      state: 'not_logged_in',
+      statusOutput: 'not logged in',
+      success: true,
+    });
+    getCodexIntegrationMock.mockResolvedValue({
+      exitCode: 0,
+      isConnected: false,
+      rawOutput: 'not logged in',
+      state: 'not_logged_in',
+    });
+    getAiProviderSecretStatusMock.mockResolvedValue({ status: 'missing' });
+    importAiAnthropicAccountTokenMock.mockResolvedValue({
+      connectedAt: '2026-06-24T12:30:00.000Z',
+      displayName: 'Imported Claude',
+      email: 'imported@example.com',
+      id: 'acct-imported',
+      isActive: true,
+      lastUsedAt: '2026-06-24T12:30:00.000Z',
+    });
+    openAiClaudeCodeOAuthUrlMock.mockResolvedValue({ success: true });
+    openCodexLoginUrlMock.mockResolvedValue({ success: true });
+    cancelCodexLoginMock.mockResolvedValue({ found: true, success: true });
+    getCodexLoginSessionMock.mockResolvedValue({
+      error: null,
+      exitCode: null,
+      output: 'Open https://chatgpt.com/auth',
+      sessionId: 'codex-login-1',
+      state: 'running',
+      url: 'https://chatgpt.com/auth',
+    });
+    pollAiClaudeCodeAuthStatusMock.mockResolvedValue({
+      error: null,
+      oauthUrl: 'https://claude.ai/oauth',
+      state: 'has_url',
+    });
+    startAiClaudeCodeAuthMock.mockResolvedValue({
+      sandboxId: 'sandbox-1',
+      sandboxUrl: 'https://sandbox.example',
+      sessionId: 'session-1',
+    });
+    startCodexLoginMock.mockResolvedValue({
+      error: null,
+      exitCode: null,
+      output: 'Open https://chatgpt.com/auth',
+      sessionId: 'codex-login-1',
+      state: 'running',
+      url: 'https://chatgpt.com/auth',
+    });
+    submitAiClaudeCodeAuthCodeMock.mockResolvedValue({ success: true });
+    saveAiProviderSecretMock.mockResolvedValue({ status: 'configured' });
+    deleteAiAnthropicAccountMock.mockResolvedValue(undefined);
+    renameAiAnthropicAccountMock.mockResolvedValue(undefined);
+    setAiAnthropicAccountActiveMock.mockResolvedValue(undefined);
+    updateAiCommandMock.mockResolvedValue('/repo/.claude/commands/git/commit.md');
+    updateAiCustomAgentMock.mockResolvedValue('/repo/.claude/agents/reviewer.md');
+    updateAiSkillMock.mockResolvedValue('/repo/.claude/skills/doc/SKILL.md');
     readAppSettingsMock.mockResolvedValue(defaultAppSettings);
     saveAppSettingsMock.mockResolvedValue(defaultAppSettings);
     gitProbeMock.mockResolvedValue({
@@ -640,21 +916,40 @@ describe('WorkspaceLayout', () => {
 
   it('opens a daily note from the sidebar calendar', async () => {
     const user = userEvent.setup();
+    const targetDate = formatTestDailyDate(new Date());
+    const [targetYear = '1970', targetMonth = '01'] = targetDate.split('-');
+    const targetPath = `/repo/Daily/${targetYear}/${targetMonth}/${targetDate}.md`;
     const dailyNode = {
-      id: 'Daily/2026/06/2026-06-20.md',
-      name: '2026-06-20.md',
+      id: `Daily/${targetYear}/${targetMonth}/${targetDate}.md`,
+      name: `${targetDate}.md`,
       kind: 'document' as const,
-      relativePath: 'Daily/2026/06/2026-06-20.md',
-      absolutePath: '/repo/Daily/2026/06/2026-06-20.md',
-      title: '2026-06-20',
+      relativePath: `Daily/${targetYear}/${targetMonth}/${targetDate}.md`,
+      absolutePath: targetPath,
+      title: targetDate,
     };
 
+    ensureWorkspaceMock.mockResolvedValue({
+      schemaVersion: 1,
+      recentDocumentPaths: [],
+      expandedPaths: [],
+      sortOrder: {},
+      gitSync: {
+        conflictResolution: 'abort',
+        enabled: true,
+        intervalMinutes: 10,
+        lastSyncedAt: null,
+      },
+      dailyNotes: {
+        selectedDate: targetDate,
+        entries: {},
+      },
+    });
     listDailyNotesForMonthMock.mockResolvedValue({
-      month: '2026-06',
+      month: `${targetYear}-${targetMonth}`,
       entries: [
         {
-          date: '2026-06-20',
-          documentPath: '/repo/Daily/2026/06/2026-06-20.md',
+          date: targetDate,
+          documentPath: targetPath,
           hasContent: true,
           updatedAt: 1,
         },
@@ -663,13 +958,13 @@ describe('WorkspaceLayout', () => {
     openDailyNoteMock.mockResolvedValue({
       node: dailyNode,
       content: markdownDocument({
-        path: '/repo/Daily/2026/06/2026-06-20.md',
-        title: '2026-06-20',
+        path: targetPath,
+        title: targetDate,
       }),
     });
     readMarkdownDocumentMock.mockResolvedValueOnce(markdownDocument({
-      path: '/repo/Daily/2026/06/2026-06-20.md',
-      title: '2026-06-20',
+      path: targetPath,
+      title: targetDate,
     }));
     loadWorkspaceTreeMock.mockResolvedValue({
       ...snapshot,
@@ -678,17 +973,19 @@ describe('WorkspaceLayout', () => {
 
     render(<WorkspaceLayout initialSnapshot={snapshot} />);
 
-    expect(await screen.findByTestId('daily-note-marker-2026-06-20')).toBeTruthy();
-    await user.click(screen.getByTestId('daily-note-day-2026-06-20'));
+    expect(
+      await screen.findByTestId(`daily-note-marker-${targetDate}`),
+    ).toBeTruthy();
+    await user.click(screen.getByTestId(`daily-note-day-${targetDate}`));
 
     await waitFor(() => {
-      expect(openDailyNoteMock).toHaveBeenCalledWith('/repo', '2026-06-20');
+      expect(openDailyNoteMock).toHaveBeenCalledWith('/repo', targetDate);
     });
     expect(readMarkdownDocumentMock).toHaveBeenCalledWith(
       '/repo',
-      '/repo/Daily/2026/06/2026-06-20.md',
+      targetPath,
     );
-    expect(await screen.findByRole('tab', { name: /2026-06-20/ })).toBeTruthy();
+    expect(await screen.findByRole('tab', { name: targetDate })).toBeTruthy();
   });
 
   it('keeps sidebar system entry hover backgrounds inset from the divider', () => {
@@ -716,6 +1013,22 @@ describe('WorkspaceLayout', () => {
     await user.click(screen.getByRole('menuitem', { name: '在文件夹中打开' }));
 
     expect(openPathInFileManagerMock).toHaveBeenCalledWith('/repo/README.md');
+  });
+
+  it('opens a sidebar document in the preferred editor from the context menu', async () => {
+    const user = userEvent.setup();
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.pointer({
+      keys: '[MouseRight]',
+      target: screen.getByText('项目说明'),
+    });
+    await user.click(screen.getByRole('menuitem', { name: '在 Cursor 中打开' }));
+
+    expect(openPathInPreferredEditorMock).toHaveBeenCalledWith(
+      '/repo/README.md',
+      'cursor',
+    );
   });
 
   it('renders the selected daily calendar day without a square today backing', () => {
@@ -1127,6 +1440,92 @@ describe('WorkspaceLayout', () => {
       '/repo',
       '/repo/a.md',
     );
+  });
+
+  it('uses the 1Code Quick Switch preference to swap Ctrl+Tab targets', async () => {
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    readAppSettingsMock.mockResolvedValueOnce({
+      ...defaultAppSettings,
+      ai: {
+        ...defaultAppSettings.ai,
+        ctrlTabTarget: 'agents',
+      },
+    });
+    readMarkdownDocumentMock
+      .mockResolvedValueOnce(markdownDocument({
+        path: '/repo/a.md',
+        title: '文档 A',
+      }))
+      .mockResolvedValueOnce(markdownDocument({
+        path: '/repo/b.md',
+        title: '文档 B',
+      }))
+      .mockResolvedValueOnce(markdownDocument({
+        path: '/repo/a.md',
+        title: '文档 A',
+      }));
+    const user = userEvent.setup();
+
+    render(<WorkspaceLayout initialSnapshot={multiDocumentSnapshot} />);
+    await waitFor(() => expect(readAppSettingsMock).toHaveBeenCalled());
+
+    await user.click(screen.getByText('文档 A'));
+    await user.click(screen.getByText('文档 B'));
+    expect(
+      screen.getByRole('tab', { name: /文档 B/ }).getAttribute('aria-selected'),
+    ).toBe('true');
+
+    fireEvent.keyDown(window, { ctrlKey: true, key: 'Tab' });
+    expect(await screen.findByTestId('ai-panel-island')).toBeTruthy();
+    expect(
+      screen.getByRole('tab', { name: /文档 B/ }).getAttribute('aria-selected'),
+    ).toBe('true');
+
+    fireEvent.keyDown(window, { altKey: true, ctrlKey: true, key: 'Tab' });
+    await waitFor(() => {
+      expect(
+        screen.getByRole('tab', { name: /文档 A/ }).getAttribute('aria-selected'),
+      ).toBe('true');
+    });
+  });
+
+  it('uses the 1Code Quick Switch default to keep Ctrl+Tab on workspace tabs', async () => {
+    readMarkdownDocumentMock
+      .mockResolvedValueOnce(markdownDocument({
+        path: '/repo/a.md',
+        title: '文档 A',
+      }))
+      .mockResolvedValueOnce(markdownDocument({
+        path: '/repo/b.md',
+        title: '文档 B',
+      }))
+      .mockResolvedValueOnce(markdownDocument({
+        path: '/repo/a.md',
+        title: '文档 A',
+      }));
+    const user = userEvent.setup();
+
+    render(<WorkspaceLayout initialSnapshot={multiDocumentSnapshot} />);
+
+    await user.click(screen.getByText('文档 A'));
+    await user.click(screen.getByText('文档 B'));
+    expect(
+      screen.getByRole('tab', { name: /文档 B/ }).getAttribute('aria-selected'),
+    ).toBe('true');
+
+    fireEvent.keyDown(window, { ctrlKey: true, key: 'Tab' });
+    await waitFor(() => {
+      expect(
+        screen.getByRole('tab', { name: /文档 A/ }).getAttribute('aria-selected'),
+      ).toBe('true');
+    });
+    expect(screen.queryByTestId('ai-panel-island')).toBeNull();
+
+    fireEvent.keyDown(window, { altKey: true, ctrlKey: true, key: 'Tab' });
+    expect(await screen.findByTestId('ai-panel-island')).toBeTruthy();
   });
 
   it('does not show split actions in the tab context menu', async () => {
@@ -1595,32 +1994,34 @@ describe('WorkspaceLayout', () => {
     expect(await screen.findByText('提交差异')).toBeTruthy();
   });
 
-  it('keeps the AI panel entry visible but temporarily unavailable', async () => {
+  it('opens the AI panel from the right tool rail', async () => {
     const user = userEvent.setup();
     render(<WorkspaceLayout initialSnapshot={snapshot} />);
 
     expect(screen.getByTestId('right-tool-rail')).toBeTruthy();
     expect(screen.getByTestId('ai-panel-icon')).toBeTruthy();
     expect(screen.queryByTestId('ai-panel-island')).toBeNull();
-    expect(screen.queryByText('总结此页面')).toBeNull();
+    expect(screen.queryByRole('button', { name: '快捷动作' })).toBeNull();
 
-    const aiButton = screen.getByRole('button', { name: 'AI 面板暂不可用' });
-    expect(aiButton.getAttribute('disabled')).not.toBeNull();
-    expect(aiButton.className).toContain('opacity-45');
+    const aiButton = screen.getByRole('button', { name: '展开 AI 面板' });
+    expect(aiButton.getAttribute('disabled')).toBeNull();
 
     await user.click(aiButton);
 
-    expect(screen.queryByTestId('ai-panel-island')).toBeNull();
+    expect(await screen.findByTestId('ai-panel-island')).toBeTruthy();
+    // 完整 AI 面板渲染输入编辑器（role=textbox）
+    expect(screen.getByRole('textbox')).toBeTruthy();
   });
 
-  it('does not open the AI panel while the entry is temporarily disabled', async () => {
+  it('toggles the AI panel from the right rail', async () => {
     const user = userEvent.setup();
     render(<WorkspaceLayout initialSnapshot={snapshot} />);
 
     await user.click(screen.getByTestId('ai-panel-icon-button'));
+    expect(await screen.findByTestId('ai-panel-island')).toBeTruthy();
+    await user.click(screen.getByTestId('ai-panel-icon-button'));
 
     expect(screen.queryByTestId('ai-panel-island')).toBeNull();
-    expect(screen.queryByText('AI 助手')).toBeNull();
   });
 
   it('shows document metadata, resources, and downloads a resource from the right rail', async () => {
@@ -1811,10 +2212,19 @@ describe('WorkspaceLayout', () => {
     expect(screen.queryByRole('button', { name: '切换主题' })).toBeNull();
     expect(screen.queryByTestId('sidebar-chrome-toggle')).toBeNull();
     expect(screen.getByRole('button', { name: '返回应用' })).toBeTruthy();
+    const settingsSidebar = screen.getByTestId('workspace-settings-sidebar');
+    expect(within(settingsSidebar).getByText('个人')).toBeTruthy();
+    expect(within(settingsSidebar).getByText('集成')).toBeTruthy();
+    expect(within(settingsSidebar).getByText('编码')).toBeTruthy();
     expect(screen.getByRole('button', { name: '外观' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '存储' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'AI' })).toBeNull();
-    expect(screen.queryByText('AI 模型')).toBeNull();
+    expect(screen.queryByText('AI Assistant')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Models' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Skills' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Custom Agents' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'MCP Servers' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Plugins' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'AI Account' })).toBeNull();
     expect(screen.getByRole('radio', { name: '跟随系统' })).toBeTruthy();
     expect(screen.getByRole('radio', { name: '亮色' })).toBeTruthy();
     expect(screen.getByRole('radio', { name: '暗色' })).toBeTruthy();
@@ -1906,7 +2316,7 @@ describe('WorkspaceLayout', () => {
     expect(screen.getByText('本地存储配置')).toBeTruthy();
     expect(screen.getByDisplayValue('/repo/.madora/assets')).toBeTruthy();
     expect(
-      screen.getByDisplayValue('madora-asset://{assetId}'),
+      screen.getByDisplayValue('.madora/assets/files/{shard}/{hash}.{ext}'),
     ).toBeTruthy();
 
     await user.click(screen.getByRole('button', { name: '应用' }));
@@ -2114,20 +2524,4104 @@ describe('WorkspaceLayout', () => {
     ).toBeTruthy();
   });
 
-  it('hides AI settings from the settings navigation and search results', async () => {
+  it('shows 1Code-style AI Assistant models settings', async () => {
     const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    detectAiAccountsMock.mockResolvedValue([
+      {
+        commandPath: '/usr/local/bin/codex',
+        id: 'codex',
+        label: 'Codex',
+        message: 'Codex app-server 可用。',
+        models: [
+          {
+            available: true,
+            id: 'codex-default',
+            label: 'Codex',
+            profileId: 'codex:local',
+            providerId: 'codex',
+            providerLabel: 'Codex',
+          },
+        ],
+        providerId: 'codex',
+        providerLabel: 'Codex',
+        status: 'connected',
+        transport: 'app-server',
+        version: 'codex-cli 0.130.0',
+      },
+      {
+        commandPath: '/usr/local/bin/claude',
+        id: 'claude',
+        label: 'Claude Code',
+        message: 'Claude Code stream-json 可用。',
+        models: [
+          {
+            available: true,
+            id: 'claude-code',
+            label: 'Claude Code',
+            profileId: 'claude:local',
+            providerId: 'claude',
+            providerLabel: 'Claude',
+          },
+        ],
+        providerId: 'claude',
+        providerLabel: 'Claude',
+        status: 'connected',
+        transport: 'stream-json',
+        version: '2.1.161 (Claude Code)',
+      },
+    ]);
+    listAiSkillsMock.mockResolvedValue([
+      {
+        content: 'Use this skill for Java docs.',
+        description: 'AgentScope Java expert skill',
+        name: 'agentscope-java-expert',
+        path: '~/.claude/skills/agentscope-java-expert/SKILL.md',
+        pluginName: null,
+        source: 'user',
+      },
+    ]);
+    listAiCommandsMock.mockResolvedValue([
+      {
+        argumentHint: '<message>',
+        content: 'Create a commit message.',
+        description: 'Commit workflow command',
+        name: 'git:commit',
+        path: '~/.claude/commands/git/commit.md',
+        pluginName: null,
+        source: 'user',
+      },
+    ]);
+    listAiCustomAgentsMock.mockResolvedValue([
+      {
+        description: 'Reviews code changes',
+        disallowedTools: ['Bash'],
+        model: 'sonnet',
+        name: 'reviewer',
+        path: '~/.claude/agents/reviewer.md',
+        pluginName: null,
+        prompt: 'Review carefully.',
+        source: 'user',
+        tools: ['Read', 'Grep'],
+      },
+    ]);
+    listAiMcpServersMock.mockResolvedValue([
+      {
+        args: ['-y', '@z_ai/mcp-server'],
+        command: 'npx',
+        connectionType: 'stdio',
+        enabled: true,
+        envKeys: ['Z_AI_API_KEY'],
+        groupName: 'Global',
+        name: 'zai-mcp-server',
+        pluginName: null,
+        projectPath: null,
+        provider: 'claude-code',
+        source: 'global',
+        status: 'configured',
+        url: null,
+      },
+    ]);
+    listAiPluginsMock.mockResolvedValue([
+      {
+        category: null,
+        components: {
+          agents: [{ description: 'Review code', name: 'reviewer' }],
+          commands: [{ description: 'Commit workflow', name: 'commit' }],
+          mcpServers: ['context7'],
+          skills: [{ description: 'Document processing suite', name: 'docx' }],
+        },
+        description: 'Collection of document processing suite',
+        homepage: null,
+        isDisabled: false,
+        marketplace: 'anthropic-agent-skills',
+        name: 'document-skills',
+        path: '~/.claude/plugins/marketplaces/anthropic/document-skills',
+        source: 'anthropic-agent-skills:document-skills',
+        tags: [],
+        version: '0.0.0',
+      },
+    ]);
     render(<WorkspaceLayout initialSnapshot={snapshot} />);
 
     await user.click(screen.getByRole('button', { name: '打开设置' }));
 
     expect(await screen.findByTestId('workspace-settings-page')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'AI' })).toBeNull();
-    expect(screen.queryByText('AI 模型')).toBeNull();
+    const settingsSidebar = screen.getByTestId('workspace-settings-sidebar');
+    expect(within(settingsSidebar).getByText('个人')).toBeTruthy();
+    expect(within(settingsSidebar).getByText('集成')).toBeTruthy();
+    expect(within(settingsSidebar).getByText('编码')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Preferences' })).toBeTruthy();
+    expect(screen.queryByText('AI Assistant')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Models' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Skills' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Custom Agents' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'MCP Servers' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Plugins' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'AI Account' })).toBeNull();
 
     await user.type(screen.getByRole('searchbox', { name: '搜索设置' }), 'AI');
 
-    expect(screen.queryByRole('button', { name: 'AI' })).toBeNull();
-    expect(screen.queryByText('AI 模型')).toBeNull();
+    expect(within(settingsSidebar).getByText('集成')).toBeTruthy();
+    expect(within(settingsSidebar).getByText('编码')).toBeTruthy();
+    expect(screen.queryByText('AI Assistant')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Models' }));
+
+    expect(await screen.findByRole('heading', { name: 'Models' })).toBeTruthy();
+    expect(screen.getByPlaceholderText('添加或搜索 model')).toBeTruthy();
+    expect(screen.getByTestId('ai-models-settings-shell').className).toContain(
+      'space-y-6',
+    );
+    expect(screen.getByTestId('ai-model-search-container').className).toContain(
+      'px-1.5',
+    );
+    expect(screen.getByTestId('ai-model-search-field').className).toContain(
+      'h-7',
+    );
+    expect(screen.getByTestId('ai-model-row-opus').className).toContain('py-3');
+    expect(screen.getByTestId('ai-model-row-opus').className).not.toContain(
+      'min-h-16',
+    );
+    expect(screen.getByTestId('ai-model-label-opus').className).toContain(
+      'font-medium',
+    );
+    expect(screen.getByTestId('ai-model-label-opus').className).not.toContain(
+      'font-semibold',
+    );
+    expect(screen.getByText('Opus 4.6')).toBeTruthy();
+    expect(screen.getByText('Sonnet 4.6')).toBeTruthy();
+    expect(screen.getByText('Haiku 4.5')).toBeTruthy();
+    expect(screen.getByText('Codex 5.3')).toBeTruthy();
+    expect(screen.getByText('Codex 5.2')).toBeTruthy();
+    expect(screen.getByText('Codex 5.1 Max')).toBeTruthy();
+    expect(screen.getByText('Anthropic Accounts')).toBeTruthy();
+    expect(screen.getByText('Codex Account')).toBeTruthy();
+    expect(screen.getByText('Codex Subscription')).toBeTruthy();
+    expect(screen.getByText('API Keys')).toBeTruthy();
+    expect(screen.getByText('已连接')).toBeTruthy();
+    expect(screen.queryByText('本地 AI 助手')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Skills' }));
+    expect(await screen.findByRole('heading', { name: 'Skills' })).toBeTruthy();
+    expect(screen.getByTestId('workspace-settings-content').className).toContain(
+      'h-full',
+    );
+    expect(screen.getByTestId('ai-skills-settings-shell').className).toContain(
+      'h-full',
+    );
+    expect(screen.getByTestId('ai-skills-settings-shell').className).not.toContain(
+      'mx-auto',
+    );
+    expect(screen.getByTestId('ai-skills-settings-sidebar').className).toContain(
+      'bg-background',
+    );
+    expect(screen.getByTestId('ai-skills-search-row').className).toContain(
+      'px-2',
+    );
+    expect(screen.getByTestId('ai-skills-search-input').className).toContain(
+      'h-7',
+    );
+    expect(screen.getByTestId('ai-skills-search-input').className).not.toContain(
+      'h-9',
+    );
+    expect(screen.getAllByText('agentscope-java-expert').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('git:commit').length).toBeGreaterThan(0);
+    expect(
+      within(screen.getByRole('button', { name: /agentscope-java-expert/ }))
+        .getByText('@'),
+    ).toBeTruthy();
+    expect(
+      within(screen.getByRole('button', { name: /git:commit/ })).getByText('/'),
+    ).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: 'Custom Agents' }));
+    expect(
+      await screen.findByRole('heading', { name: 'Custom Agents' }),
+    ).toBeTruthy();
+    expect(screen.getByTestId('workspace-settings-content').className).toContain(
+      'h-full',
+    );
+    expect(screen.getByTestId('ai-agents-settings-shell').className).toContain(
+      'h-full',
+    );
+    expect(screen.getByTestId('ai-agents-settings-shell').className).not.toContain(
+      'mx-auto',
+    );
+    expect(screen.getByTestId('ai-agents-search-row').className).toContain(
+      'px-2',
+    );
+    expect(screen.getByTestId('ai-agents-search-input').className).toContain(
+      'h-7',
+    );
+    expect(screen.getAllByText('reviewer').length).toBeGreaterThan(0);
+    expect(screen.getByText('Reviews code changes')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '仅已选择' })).toBeTruthy();
+    expect(screen.getByText('读取文件')).toBeTruthy();
+    expect(screen.getByText('搜索内容')).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: 'MCP Servers' }));
+    expect(
+      await screen.findByRole('heading', { name: 'MCP Servers' }),
+    ).toBeTruthy();
+    expect(screen.getAllByText('zai-mcp-server').length).toBeGreaterThan(0);
+    expect(screen.getByText('stdio')).toBeTruthy();
+    expect(screen.getByText('Z_AI_API_KEY')).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: 'Plugins' }));
+    expect(await screen.findByRole('heading', { name: 'Plugins' })).toBeTruthy();
+    expect(screen.getAllByText('Document Skills').length).toBeGreaterThan(0);
+    expect(screen.getByText('anthropic-agent-skills:document-skills')).toBeTruthy();
+    expect(screen.getByText('Skills (1)')).toBeTruthy();
+    expect(screen.getByText('MCP Servers (1)')).toBeTruthy();
+  });
+
+  it('shows 1Code-style Anthropic account rows with actions', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    detectAiAccountsMock.mockResolvedValue([
+      {
+        commandPath: '/usr/local/bin/claude',
+        id: 'claude-work',
+        label: 'Work Claude',
+        message: 'work@example.com',
+        models: [],
+        providerId: 'claude',
+        providerLabel: 'Claude',
+        status: 'connected',
+        transport: 'stream-json',
+        version: '2.1.161',
+      },
+      {
+        commandPath: '/usr/local/bin/claude',
+        id: 'claude-personal',
+        label: 'Personal Claude',
+        message: 'personal@example.com',
+        models: [],
+        providerId: 'claude',
+        providerLabel: 'Claude',
+        status: 'detected',
+        transport: 'stream-json',
+        version: '2.1.161',
+      },
+    ]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Models' }));
+
+    expect(await screen.findByText('Work Claude')).toBeTruthy();
+    expect(screen.getByText('work@example.com')).toBeTruthy();
+    expect(screen.getByText('Personal Claude')).toBeTruthy();
+    expect(screen.getByText('personal@example.com')).toBeTruthy();
+    expect(screen.getAllByText('活跃').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: '切换' })).toBeTruthy();
+
+    await user.click(
+      screen.getByRole('button', { name: 'Work Claude 的 account 操作' }),
+    );
+    expect(await screen.findByRole('menuitem', { name: '重命名' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: '移除' })).toBeTruthy();
+  });
+
+  it('switches renames and removes 1Code-style Anthropic accounts', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    listAiAnthropicAccountsMock
+      .mockResolvedValueOnce([
+        {
+          connectedAt: '2026-06-24T10:00:00.000Z',
+          displayName: 'Work Claude',
+          email: 'work@example.com',
+          id: 'acct-work',
+          isActive: true,
+          lastUsedAt: null,
+        },
+        {
+          connectedAt: '2026-06-24T11:00:00.000Z',
+          displayName: 'Personal Claude',
+          email: 'personal@example.com',
+          id: 'acct-personal',
+          isActive: false,
+          lastUsedAt: null,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          connectedAt: '2026-06-24T10:00:00.000Z',
+          displayName: 'Work Claude',
+          email: 'work@example.com',
+          id: 'acct-work',
+          isActive: false,
+          lastUsedAt: null,
+        },
+        {
+          connectedAt: '2026-06-24T11:00:00.000Z',
+          displayName: 'Personal Claude',
+          email: 'personal@example.com',
+          id: 'acct-personal',
+          isActive: true,
+          lastUsedAt: '2026-06-24T12:00:00.000Z',
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          connectedAt: '2026-06-24T10:00:00.000Z',
+          displayName: 'Work Claude',
+          email: 'work@example.com',
+          id: 'acct-work',
+          isActive: false,
+          lastUsedAt: null,
+        },
+        {
+          connectedAt: '2026-06-24T11:00:00.000Z',
+          displayName: 'Personal Renamed',
+          email: 'personal@example.com',
+          id: 'acct-personal',
+          isActive: true,
+          lastUsedAt: '2026-06-24T12:00:00.000Z',
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          connectedAt: '2026-06-24T10:00:00.000Z',
+          displayName: 'Work Claude',
+          email: 'work@example.com',
+          id: 'acct-work',
+          isActive: true,
+          lastUsedAt: null,
+        },
+      ]);
+    vi.spyOn(window, 'prompt').mockReturnValueOnce('Personal Renamed');
+    vi.spyOn(window, 'confirm').mockReturnValueOnce(true);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Models' }));
+
+    expect(await screen.findByText('Personal Claude')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '切换' }));
+
+    await waitFor(() => {
+      expect(setAiAnthropicAccountActiveMock).toHaveBeenCalledWith('acct-personal');
+    });
+
+    await user.click(
+      screen.getByRole('button', { name: 'Personal Claude 的 account 操作' }),
+    );
+    await user.click(await screen.findByRole('menuitem', { name: '重命名' }));
+
+    await waitFor(() => {
+      expect(renameAiAnthropicAccountMock).toHaveBeenCalledWith(
+        'acct-personal',
+        'Personal Renamed',
+      );
+    });
+
+    await user.click(
+      screen.getByRole('button', { name: 'Personal Renamed 的 account 操作' }),
+    );
+    await user.click(await screen.findByRole('menuitem', { name: '移除' }));
+
+    await waitFor(() => {
+      expect(deleteAiAnthropicAccountMock).toHaveBeenCalledWith('acct-personal');
+    });
+    expect(window.confirm).toHaveBeenCalledWith(
+      '确定要移除 "Personal Renamed" 吗？再次使用前需要重新认证。',
+    );
+  });
+
+  it('imports a 1Code-style Anthropic account from the Models Add flow', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    listAiAnthropicAccountsMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          connectedAt: '2026-06-24T12:30:00.000Z',
+          displayName: 'Imported Claude',
+          email: 'imported@example.com',
+          id: 'acct-imported',
+          isActive: true,
+          lastUsedAt: '2026-06-24T12:30:00.000Z',
+        },
+      ]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Models' }));
+    await user.click(await screen.findByRole('button', { name: '连接' }));
+
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: '手动导入 token' }));
+    await user.type(screen.getByLabelText('显示名称'), 'Imported Claude');
+    await user.type(screen.getByLabelText('Email'), 'imported@example.com');
+    await user.type(screen.getByLabelText('OAuth token'), 'oauth-token');
+    await user.click(screen.getByRole('button', { name: '导入 account' }));
+
+    await waitFor(() => {
+      expect(importAiAnthropicAccountTokenMock).toHaveBeenCalledWith({
+        displayName: 'Imported Claude',
+        email: 'imported@example.com',
+        token: 'oauth-token',
+      });
+    });
+    expect(await screen.findByText('Imported Claude')).toBeTruthy();
+    expect(screen.getByText('imported@example.com')).toBeTruthy();
+  });
+
+  it('connects Claude Code accounts with the 1Code-style OAuth modal', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    listAiAnthropicAccountsMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          connectedAt: '2026-06-24T12:40:00.000Z',
+          displayName: 'Anthropic Account',
+          email: null,
+          id: 'acct-oauth',
+          isActive: true,
+          lastUsedAt: '2026-06-24T12:40:00.000Z',
+        },
+      ]);
+    pollAiClaudeCodeAuthStatusMock.mockResolvedValueOnce({
+      error: null,
+      oauthUrl: 'https://claude.ai/oauth',
+      state: 'has_url',
+    });
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Models' }));
+    await user.click(await screen.findByRole('button', { name: '连接' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: 'Claude Code' })).toBeTruthy();
+
+    await user.click(within(dialog).getByRole('button', { name: '连接' }));
+
+    await waitFor(() => {
+      expect(startAiClaudeCodeAuthMock).toHaveBeenCalledTimes(1);
+    });
+    expect(pollAiClaudeCodeAuthStatusMock).toHaveBeenCalledWith({
+      sandboxUrl: 'https://sandbox.example',
+      sessionId: 'session-1',
+    });
+    expect(openAiClaudeCodeOAuthUrlMock).toHaveBeenCalledWith(
+      'https://claude.ai/oauth',
+    );
+
+    await user.type(
+      within(dialog).getByLabelText('Authentication code'),
+      'oauth#code',
+    );
+    await user.click(within(dialog).getByRole('button', { name: '继续' }));
+
+    await waitFor(() => {
+      expect(submitAiClaudeCodeAuthCodeMock).toHaveBeenCalledWith({
+        code: 'oauth#code',
+        sandboxUrl: 'https://sandbox.example',
+        sessionId: 'session-1',
+      });
+    });
+    expect(await screen.findByText('Anthropic Account')).toBeTruthy();
+  });
+
+  it('shows and saves 1Code-style AI preferences', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Preferences' }));
+
+    expect(await screen.findByRole('heading', { name: '偏好设置' })).toBeTruthy();
+    expect(screen.getByTestId('ai-preferences-settings-shell').className).toContain(
+      'p-6',
+    );
+    expect(
+      screen.getByTestId('ai-preferences-settings-title').className,
+    ).toContain('text-sm');
+    expect(
+      screen.getByTestId('ai-preferences-settings-description').className,
+    ).toContain('text-xs');
+    expect(screen.getByTestId('ai-preferences-row-extended-thinking').className)
+      .toContain('flex');
+    expect(screen.getByTestId('ai-preferences-row-extended-thinking').className)
+      .toContain('justify-between');
+    expect(screen.getByText('配置 Claude 的行为和功能')).toBeTruthy();
+    expect(screen.getByText('启用 Extended Thinking')).toBeTruthy();
+    expect(
+      screen.getByText(
+        '使用更多 thinking tokens 进行更深入推理（会消耗更多 credits）。启用后将关闭响应流式输出。',
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText('默认 Agent 模式')).toBeTruthy();
+    expect(
+      screen.getByText('新建 agent 使用的模式（Plan = 只读，Agent = 可编辑）'),
+    ).toBeTruthy();
+    expect(screen.getByText('包含 Co-Authored-By')).toBeTruthy();
+    expect(
+      screen.getByText('为 Claude 创建的 Git commit 添加 "Co-authored-by: Claude"'),
+    ).toBeTruthy();
+    expect(screen.getByText('默认 Claude 模型')).toBeTruthy();
+    expect(screen.queryByText('Default Codex Model')).toBeNull();
+    expect(screen.getByText('Codex Thinking 强度')).toBeTruthy();
+    expect(screen.getByText('桌面通知')).toBeTruthy();
+    expect(
+      screen.getByText(
+        '当 agent 需要输入或完成工作时显示系统通知',
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText('声音通知')).toBeTruthy();
+    expect(
+      screen.getByText('当你离开期间 agent 完成工作时播放提示音'),
+    ).toBeTruthy();
+    expect(screen.getByText('窗口聚焦时仍通知')).toBeTruthy();
+    expect(
+      screen.getByText('即使应用窗口处于活动状态也显示通知'),
+    ).toBeTruthy();
+    expect(screen.getByText('快速切换')).toBeTruthy();
+    expect(
+      screen.getByText(
+        (_, node) => node?.textContent === '设置 ⌃Tab 在哪些目标之间切换',
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText('归档后跳转')).toBeTruthy();
+    expect(screen.getByText('归档 workspace 后跳转到哪里')).toBeTruthy();
+    expect(screen.getByText('首选 Editor')).toBeTruthy();
+    expect(screen.getByText('打开 workspace 时默认使用的应用')).toBeTruthy();
+    expect(screen.getByText('共享使用分析')).toBeTruthy();
+    expect(
+      screen.getByText(
+        '共享匿名使用数据，帮助我们改进 Agents。我们只跟踪功能使用和应用性能，不会跟踪你的代码、prompts 或消息，也不会用你的数据训练 AI。',
+      ),
+    ).toBeTruthy();
+
+    await user.click(
+      screen.getByRole('switch', { name: '启用 Extended Thinking' }),
+    );
+    await user.click(
+      screen.getByRole('switch', { name: '包含 Co-Authored-By' }),
+    );
+    expect(setAiClaudeIncludeCoAuthoredByMock).toHaveBeenCalledWith(false);
+    await user.click(screen.getByRole('combobox', { name: '默认 Agent 模式' }));
+    await user.click(await screen.findByRole('option', { name: 'Plan' }));
+    await user.click(screen.getByRole('button', { name: '极高' }));
+    await user.click(screen.getByRole('switch', { name: '桌面通知' }));
+    await user.click(screen.getByRole('switch', { name: '声音通知' }));
+    await user.click(screen.getByRole('combobox', { name: '快速切换' }));
+    await user.click(await screen.findByRole('option', { name: 'Agents' }));
+    await user.click(screen.getByRole('combobox', { name: '归档后跳转' }));
+    await user.click(
+      await screen.findByRole('option', { name: '关闭 workspace' }),
+    );
+    await user.click(
+      screen.getByRole('button', { name: '首选 Editor: Cursor' }),
+    );
+    expect(screen.getAllByTestId('preferred-editor-icon-cursor').length).toBeGreaterThan(0);
+    expect(await screen.findByTestId('preferred-editor-icon-warp')).toBeTruthy();
+    await user.click(await screen.findByRole('menuitem', { name: 'Warp' }));
+    expect(screen.getByTestId('preferred-editor-icon-warp')).toBeTruthy();
+    await user.click(
+      screen.getByRole('switch', { name: '共享使用分析' }),
+    );
+    await user.click(screen.getByRole('button', { name: '应用' }));
+
+    expect(saveAppSettingsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ai: expect.objectContaining({
+          analyticsOptOut: true,
+          autoAdvanceTarget: 'close',
+          ctrlTabTarget: 'agents',
+          defaultAgentMode: 'plan',
+          desktopNotificationsEnabled: false,
+          extendedThinkingEnabled: false,
+          includeCoAuthoredBy: false,
+          lastSelectedCodexThinking: 'xhigh',
+          preferredEditor: 'warp',
+          soundNotificationsEnabled: false,
+        }),
+      }),
+    );
+  });
+
+  it('shows and saves 1Code-style model API key and override settings without persisting secrets', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Models' }));
+    await user.click(screen.getByRole('button', { name: 'API Keys' }));
+
+    expect(screen.getByText('Codex API Key')).toBeTruthy();
+    expect(screen.getByText('优先级高于 subscription')).toBeTruthy();
+    expect(screen.getByText('OpenAI API Key')).toBeTruthy();
+    expect(
+      screen.getByText('语音转写需要使用（Whisper API）'),
+    ).toBeTruthy();
+    expect(screen.getByText('Override Model')).toBeTruthy();
+    expect(screen.getByText('Model name')).toBeTruthy();
+    expect(screen.getByText('请求时使用的 model identifier')).toBeTruthy();
+    expect(screen.getByText('API token')).toBeTruthy();
+    expect(screen.getByText('ANTHROPIC_AUTH_TOKEN env')).toBeTruthy();
+    expect(screen.getByText('Base URL')).toBeTruthy();
+    expect(screen.getByText('ANTHROPIC_BASE_URL env')).toBeTruthy();
+
+    const codexInput = screen.getByLabelText('Codex API Key');
+    await user.type(codexInput, 'sk-codex-test');
+    fireEvent.blur(codexInput);
+    await waitFor(() => {
+      expect(saveAiProviderSecretMock).toHaveBeenCalledWith(
+        'codex',
+        'sk-codex-test',
+      );
+    });
+
+    const openAiInput = screen.getByLabelText('OpenAI API Key');
+    await user.type(openAiInput, 'sk-openai-test');
+    fireEvent.blur(openAiInput);
+    await waitFor(() => {
+      expect(saveAiProviderSecretMock).toHaveBeenCalledWith(
+        'openai',
+        'sk-openai-test',
+      );
+    });
+
+    await user.type(screen.getByLabelText('Model name'), 'claude-opus-test');
+    await user.type(screen.getByLabelText('Base URL'), 'https://anthropic.test');
+    const tokenInput = screen.getByLabelText('API token');
+    await user.type(tokenInput, 'sk-ant-test');
+    fireEvent.blur(tokenInput);
+
+    await waitFor(() => {
+      expect(saveAiProviderSecretMock).toHaveBeenCalledWith(
+        'anthropic-override',
+        'sk-ant-test',
+      );
+    });
+
+    await user.click(screen.getByRole('button', { name: '应用' }));
+
+    expect(saveAppSettingsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ai: expect.objectContaining({
+          customClaudeConfig: {
+            baseUrl: 'https://anthropic.test',
+            model: 'claude-opus-test',
+          },
+        }),
+      }),
+    );
+    expect(JSON.stringify(saveAppSettingsMock.mock.calls.at(-1)?.[0])).not.toContain(
+      'sk-ant-test',
+    );
+  });
+
+  it('connects Codex subscription with the 1Code-style login modal', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    getCodexIntegrationMock
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        isConnected: false,
+        rawOutput: 'not logged in',
+        state: 'not_logged_in',
+      })
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        isConnected: false,
+        rawOutput: 'not logged in',
+        state: 'not_logged_in',
+      })
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        isConnected: true,
+        rawOutput: 'logged in using ChatGPT',
+        state: 'connected_chatgpt',
+      });
+    getCodexLoginSessionMock.mockResolvedValueOnce({
+      error: null,
+      exitCode: 0,
+      output: 'Logged in',
+      sessionId: 'codex-login-1',
+      state: 'success',
+      url: 'https://chatgpt.com/auth',
+    });
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Models' }));
+
+    expect(await screen.findByText('未连接')).toBeTruthy();
+    await user.click(await screen.findByRole('button', { name: '连接 Codex' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(
+      within(dialog).getByRole('heading', { name: '连接 OpenAI Codex' }),
+    ).toBeTruthy();
+
+    await user.click(within(dialog).getByRole('button', { name: '连接' }));
+
+    await waitFor(() => {
+      expect(startCodexLoginMock).toHaveBeenCalledTimes(1);
+    });
+    expect(openCodexLoginUrlMock).toHaveBeenCalledWith('https://chatgpt.com/auth');
+
+    await waitFor(() => {
+      expect(getCodexLoginSessionMock).toHaveBeenCalledWith('codex-login-1');
+    });
+    await waitFor(() => {
+      expect(getCodexIntegrationMock).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  it('shows 1Code-style Codex API key status when no subscription is connected', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    getCodexIntegrationMock.mockResolvedValue({
+      exitCode: 0,
+      isConnected: true,
+      rawOutput: 'logged in using api key',
+      state: 'connected_api_key',
+    });
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Models' }));
+
+    expect(await screen.findByText('未连接 subscription')).toBeTruthy();
+  });
+
+  it('logs out Codex subscription from the Models account section', async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    getCodexIntegrationMock.mockResolvedValue({
+      exitCode: 0,
+      isConnected: true,
+      rawOutput: 'logged in using ChatGPT',
+      state: 'connected_chatgpt',
+    });
+    detectAiAccountsMock
+      .mockResolvedValueOnce([
+        {
+          commandPath: '/usr/local/bin/codex',
+          id: 'codex',
+          label: 'Codex',
+          message: 'connected',
+          models: [],
+          providerId: 'codex',
+          providerLabel: 'Codex',
+          status: 'connected',
+          transport: 'app-server',
+          version: 'codex-cli 0.130.0',
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          commandPath: '/usr/local/bin/codex',
+          id: 'codex',
+          label: 'Codex',
+          message: 'not logged in',
+          models: [],
+          providerId: 'codex',
+          providerLabel: 'Codex',
+          status: 'missing',
+          transport: null,
+          version: 'codex-cli 0.130.0',
+        },
+      ]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Models' }));
+    await user.click(await screen.findByRole('button', { name: '退出' }));
+
+    await waitFor(() => {
+      expect(logoutCodexAccountMock).toHaveBeenCalledTimes(1);
+    });
+    expect(confirmSpy).toHaveBeenCalledWith('要在这台设备上退出 Codex 吗？');
+    expect(detectAiAccountsMock).toHaveBeenCalledTimes(2);
+
+    confirmSpy.mockRestore();
+  });
+
+  it('validates 1Code-style model API keys before saving secrets', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Models' }));
+    await user.click(screen.getByRole('button', { name: 'API Keys' }));
+
+    const codexInput = screen.getByLabelText('Codex API Key');
+    await user.type(codexInput, 'codex-token');
+    fireEvent.blur(codexInput);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Codex API key 格式无效，key 应以 'sk-' 开头。",
+        ),
+      ).toBeTruthy();
+    });
+    expect(saveAiProviderSecretMock).not.toHaveBeenCalled();
+    expect((codexInput as HTMLInputElement).value).toBe('');
+
+    const openAiInput = screen.getByLabelText('OpenAI API Key');
+    await user.type(openAiInput, 'openai-token');
+    fireEvent.blur(openAiInput);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "OpenAI API key 格式无效，key 应以 'sk-' 开头。",
+        ),
+      ).toBeTruthy();
+    });
+    expect(saveAiProviderSecretMock).not.toHaveBeenCalled();
+  });
+
+  it('does not persist incomplete 1Code-style override model settings', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Models' }));
+    await user.click(screen.getByRole('button', { name: 'API Keys' }));
+
+    await user.type(screen.getByLabelText('Model name'), 'claude-opus-test');
+    await user.type(screen.getByLabelText('Base URL'), 'https://anthropic.test');
+    await user.click(screen.getByRole('button', { name: '应用' }));
+
+    expect(saveAiProviderSecretMock).not.toHaveBeenCalledWith(
+      'anthropic-override',
+      expect.any(String),
+    );
+    expect(saveAppSettingsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ai: expect.objectContaining({
+          customClaudeConfig: {
+            baseUrl: '',
+            model: '',
+          },
+        }),
+      }),
+    );
+  });
+
+  it('creates updates and deletes AI skills and commands from settings', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const docSkill = {
+      content: '### Use docs\n\n- Read carefully.',
+      description: 'Write docs',
+      name: 'doc',
+      path: '~/.claude/skills/doc/SKILL.md',
+      pluginName: null,
+      source: 'user' as const,
+    };
+    const descriptionUpdatedSkill = {
+      ...docSkill,
+      description: 'Write updated docs',
+    };
+    const updatedSkill = {
+      ...descriptionUpdatedSkill,
+      content: 'Use updated docs.',
+    };
+    const gitCommand = {
+      argumentHint: '<message>',
+      content: 'Commit changes.',
+      description: 'Commit',
+      name: 'git:commit',
+      path: '.claude/commands/git/commit.md',
+      pluginName: null,
+      source: 'project' as const,
+    };
+    const updatedCommand = {
+      ...gitCommand,
+      argumentHint: null,
+      description: 'Commit updated',
+    };
+    const contentUpdatedCommand = {
+      ...updatedCommand,
+      content: 'Commit updated changes.',
+    };
+
+    listAiSkillsMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([docSkill])
+      .mockResolvedValueOnce([descriptionUpdatedSkill])
+      .mockResolvedValueOnce([updatedSkill])
+      .mockResolvedValueOnce([updatedSkill])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    listAiCommandsMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([gitCommand])
+      .mockResolvedValueOnce([updatedCommand])
+      .mockResolvedValueOnce([contentUpdatedCommand])
+      .mockResolvedValueOnce([contentUpdatedCommand])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Skills' }));
+
+    await user.click(screen.getByTitle('新建 Skill 或 command'));
+    await user.type(screen.getByLabelText('Name'), 'doc');
+    await user.type(screen.getByLabelText('描述'), 'Write docs');
+    await user.type(screen.getByLabelText('Instructions'), 'Use docs.');
+    await user.click(getSettingsCreateButton());
+
+    expect(createAiSkillMock).toHaveBeenCalledWith('/repo', {
+      content: 'Use docs.',
+      description: 'Write docs',
+      name: 'doc',
+      source: 'user',
+    });
+    await waitFor(() => {
+      expect(screen.getAllByText('doc').length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByRole('button', { name: '保存' })).toBeNull();
+
+    await user.clear(screen.getByLabelText('描述'));
+    await user.type(screen.getByLabelText('描述'), 'Write updated docs');
+    await user.click(screen.getByRole('button', { name: '编辑 markdown' }));
+    const skillEditor = await screen.findByLabelText('Instructions');
+    await user.clear(skillEditor);
+    await user.type(skillEditor, 'Use updated docs.');
+    expect(screen.getByRole('button', { name: '保存' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    expect(updateAiSkillMock).toHaveBeenCalledWith('/repo', {
+      content: 'Use updated docs.',
+      description: 'Write updated docs',
+      name: 'doc',
+      source: 'user',
+    });
+
+    expect(screen.getByTestId('ai-skills-delete-row').className).toContain(
+      'border-t',
+    );
+    await user.click(screen.getByRole('button', { name: '删除 Skill' }));
+    expect(deleteAiSkillMock).not.toHaveBeenCalled();
+    let deleteDialog = await screen.findByRole('alertdialog');
+    expect(within(deleteDialog).getByText(/确定要删除/)).toBeTruthy();
+    await user.click(within(deleteDialog).getByRole('button', { name: '删除' }));
+    expect(deleteAiSkillMock).toHaveBeenCalledWith('/repo', {
+      name: 'doc',
+      source: 'user',
+    });
+
+    await user.click(screen.getByTitle('新建 Skill 或 command'));
+    await user.click(screen.getByRole('combobox', { name: '类型' }));
+    await user.click(
+      await screen.findByRole('option', {
+        name: 'Command（通过 /slash 触发）',
+      }),
+    );
+    await user.click(screen.getByRole('combobox', { name: 'Scope' }));
+    await user.click(
+      await screen.findByRole('option', {
+        name: 'Project: repo (.claude/commands/)',
+      }),
+    );
+    await user.type(screen.getByLabelText('Name'), 'git/commit');
+    await user.type(screen.getByLabelText('描述'), 'Commit');
+    await user.type(screen.getByLabelText('参数提示'), '<message>');
+    await user.type(screen.getByLabelText('Instructions'), 'Commit changes.');
+    await user.click(getSettingsCreateButton());
+
+    expect(createAiCommandMock).toHaveBeenCalledWith('/repo', {
+      argumentHint: '<message>',
+      content: 'Commit changes.',
+      description: 'Commit',
+      name: 'git/commit',
+      source: 'project',
+    });
+    await waitFor(() => {
+      expect(screen.getAllByText('git:commit').length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByRole('button', { name: '保存' })).toBeNull();
+
+    await user.clear(screen.getByLabelText('参数提示'));
+    await user.clear(screen.getByLabelText('描述'));
+    await user.type(screen.getByLabelText('描述'), 'Commit updated');
+    await user.click(screen.getByRole('button', { name: '编辑 markdown' }));
+    const commandEditor = await screen.findByLabelText('Instructions');
+    await user.clear(commandEditor);
+    await user.type(commandEditor, 'Commit updated changes.');
+    expect(screen.getByRole('button', { name: '保存' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    expect(updateAiCommandMock).toHaveBeenCalledWith('/repo', {
+      argumentHint: null,
+      content: 'Commit updated changes.',
+      description: 'Commit updated',
+      name: 'git:commit',
+      source: 'project',
+    });
+
+    await user.click(screen.getByRole('button', { name: '删除 command' }));
+    expect(deleteAiCommandMock).not.toHaveBeenCalled();
+    deleteDialog = await screen.findByRole('alertdialog');
+    expect(within(deleteDialog).getByText(/确定要删除/)).toBeTruthy();
+    await user.click(within(deleteDialog).getByRole('button', { name: '删除' }));
+    expect(deleteAiCommandMock).toHaveBeenCalledWith('/repo', {
+      name: 'git:commit',
+      source: 'project',
+    });
+  });
+
+  it('matches 1Code skill detail preview edit toggle and blur autosave', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const docSkill = {
+      content: '### Use docs\n\n- Read carefully.',
+      description: 'Write docs',
+      name: 'doc',
+      path: '~/.claude/skills/doc/SKILL.md',
+      pluginName: null,
+      source: 'user' as const,
+    };
+
+    listAiSkillsMock.mockResolvedValue([docSkill]);
+    listAiCommandsMock.mockResolvedValue([]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Skills' }));
+
+    expect(await screen.findByText('用法')).toBeTruthy();
+    expect(screen.getAllByText('@doc').length).toBeGreaterThan(0);
+    expect(
+      await screen.findByRole('heading', { level: 3, name: 'Use docs' }),
+    ).toBeTruthy();
+    expect(screen.queryByText('### Use docs')).toBeNull();
+    expect(screen.queryByLabelText('Instructions')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: '编辑 markdown' }));
+    const editor = await screen.findByLabelText('Instructions');
+    expect((editor as HTMLTextAreaElement).rows).toBe(16);
+    await user.clear(editor);
+    await user.type(editor, 'Use updated docs.');
+    fireEvent.blur(editor);
+
+    await waitFor(() => {
+      expect(updateAiSkillMock).toHaveBeenCalledWith('/repo', {
+        content: 'Use updated docs.',
+        description: 'Write docs',
+        name: 'doc',
+        source: 'user',
+      });
+    });
+  });
+
+  it('matches 1Code-style skills create form placeholders and project labels', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    listAiSkillsMock.mockResolvedValue([]);
+    listAiCommandsMock.mockResolvedValue([]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Skills' }));
+    await user.click(screen.getByTitle('新建 Skill 或 command'));
+
+    expect(await screen.findByRole('heading', { name: '新建 Skill' })).toBeTruthy();
+    expect(screen.getByPlaceholderText('my-skill')).toBeTruthy();
+    expect(
+      screen.getByText(
+        '会转换为 kebab-case（小写字母、数字和连字符）',
+      ),
+    ).toBeTruthy();
+    expect(screen.getByPlaceholderText('这个 Skill 的用途...')).toBeTruthy();
+    const skillInstructions = screen.getByPlaceholderText(
+      'Skill instructions（markdown）...',
+    ) as HTMLTextAreaElement;
+    expect(skillInstructions).toBeTruthy();
+    expect(skillInstructions.rows).toBe(12);
+
+    await user.click(screen.getByRole('combobox', { name: 'Scope' }));
+    expect(
+      await screen.findByRole('option', {
+        name: 'Project: repo (.claude/skills/)',
+      }),
+    ).toBeTruthy();
+    await user.keyboard('{Escape}');
+
+    await user.click(screen.getByRole('combobox', { name: '类型' }));
+    await user.click(
+      await screen.findByRole('option', {
+        name: 'Command（通过 /slash 触发）',
+      }),
+    );
+
+    expect(screen.getByPlaceholderText('my-command')).toBeTruthy();
+    expect(
+      screen.getByPlaceholderText('这个 command 的用途...'),
+    ).toBeTruthy();
+    expect(
+      screen.getByPlaceholderText('Command prompt（markdown）...'),
+    ).toBeTruthy();
+    expect(
+      (
+        screen.getByPlaceholderText(
+          'Command prompt（markdown）...',
+        ) as HTMLTextAreaElement
+      ).rows,
+    ).toBe(12);
+
+    await user.click(screen.getByRole('combobox', { name: 'Scope' }));
+    expect(
+      await screen.findByRole('option', {
+        name: 'Project: repo (.claude/commands/)',
+      }),
+    ).toBeTruthy();
+  });
+
+  it('creates updates and deletes custom agents from settings', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const reviewerAgent = {
+      description: 'Review code',
+      disallowedTools: ['Bash'],
+      model: 'sonnet' as const,
+      name: 'reviewer',
+      path: '.claude/agents/reviewer.md',
+      pluginName: null,
+      prompt: 'Review carefully.',
+      source: 'project' as const,
+      tools: ['Read', 'Grep'],
+    };
+    const updatedAgent = {
+      ...reviewerAgent,
+      description: 'Review code deeply',
+      disallowedTools: [],
+      model: null,
+      prompt: 'Review more carefully.',
+      tools: ['Read'],
+    };
+
+    listAiCustomAgentsMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([reviewerAgent])
+      .mockResolvedValueOnce([updatedAgent])
+      .mockResolvedValueOnce([updatedAgent])
+      .mockResolvedValueOnce([]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'Custom Agents' }),
+    );
+
+    await user.click(screen.getByRole('button', { name: '新建 Agent' }));
+    await user.click(screen.getByRole('combobox', { name: 'Scope' }));
+    await user.click(
+      await screen.findByRole('option', {
+        name: 'Project (.claude/agents/)',
+      }),
+    );
+    await user.type(screen.getByLabelText('Name'), 'reviewer');
+    await user.type(screen.getByLabelText('描述'), 'Review code');
+    expect(screen.queryByLabelText('允许的 Tools')).toBeNull();
+    expect(screen.queryByLabelText('禁用的 Tools')).toBeNull();
+    await user.type(screen.getByLabelText('System Prompt'), 'Review carefully.');
+    await user.click(getSettingsCreateButton());
+
+    expect(createAiCustomAgentMock).toHaveBeenCalledWith('/repo', {
+      description: 'Review code',
+      disallowedTools: [],
+      model: 'inherit',
+      name: 'reviewer',
+      prompt: 'Review carefully.',
+      source: 'project',
+      tools: [],
+    });
+    await waitFor(() => {
+      expect(screen.getAllByText('reviewer').length).toBeGreaterThan(0);
+    });
+    expect(screen.getByText('Tools')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '仅已选择' })).toBeTruthy();
+    expect(screen.getByText('读取文件')).toBeTruthy();
+    expect(screen.getByText('搜索内容')).toBeTruthy();
+    expect(screen.getByText('Bash Commands')).toBeTruthy();
+    expect(screen.queryByLabelText('允许的 Tools')).toBeNull();
+    expect(screen.queryByLabelText('禁用的 Tools')).toBeNull();
+    expect(screen.queryByRole('button', { name: '保存' })).toBeNull();
+
+    await user.clear(screen.getByLabelText('描述'));
+    await user.type(screen.getByLabelText('描述'), 'Review code deeply');
+    await user.clear(screen.getByLabelText('System Prompt'));
+    await user.type(
+      screen.getByLabelText('System Prompt'),
+      'Review more carefully.',
+    );
+    expect(screen.getByRole('button', { name: '保存' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    expect(updateAiCustomAgentMock).toHaveBeenCalledWith('/repo', {
+      description: 'Review code deeply',
+      disallowedTools: ['Bash'],
+      model: 'sonnet',
+      name: 'reviewer',
+      prompt: 'Review more carefully.',
+      source: 'project',
+      tools: ['Read', 'Grep'],
+    });
+
+    await user.click(screen.getByRole('button', { name: '删除 Agent' }));
+    expect(deleteAiCustomAgentMock).not.toHaveBeenCalled();
+    const deleteDialog = await screen.findByRole('alertdialog');
+    expect(within(deleteDialog).getByText(/确定要删除/)).toBeTruthy();
+    await user.click(within(deleteDialog).getByRole('button', { name: '删除' }));
+    expect(deleteAiCustomAgentMock).toHaveBeenCalledWith('/repo', {
+      name: 'reviewer',
+      source: 'project',
+    });
+  });
+
+  it('shows 1Code-style empty state for custom agents', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    listAiCustomAgentsMock.mockResolvedValue([]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'Custom Agents' }),
+    );
+
+    expect(await screen.findByText('暂无 Agents')).toBeTruthy();
+    expect(screen.getByTestId('agents-empty-sidebar-icon')).toBeTruthy();
+    expect(screen.getByText('未找到 Custom Agents')).toBeTruthy();
+    expect(screen.getByTestId('agents-empty-detail-icon')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '新建 Agent' })).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: '新建第一个 Agent' }),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText('描述')).toBeNull();
+  });
+
+  it('matches 1Code-style custom agents sidebar and create form', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    listAiCustomAgentsMock.mockResolvedValue([
+      {
+        description: 'Review code',
+        disallowedTools: ['Bash'],
+        model: 'sonnet',
+        name: 'reviewer',
+        path: '.claude/agents/reviewer.md',
+        pluginName: null,
+        prompt: 'Review carefully.',
+        source: 'project',
+        tools: ['Read', 'Grep'],
+      },
+    ]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'Custom Agents' }),
+    );
+
+    const reviewerButton = await screen.findByRole('button', {
+      name: /reviewer/,
+    });
+    expect(within(reviewerButton).getByText('sonnet')).toBeTruthy();
+    expect(within(reviewerButton).queryByText(/\.claude\/agents/)).toBeNull();
+    expect(within(reviewerButton).queryByText(/Read, Grep/)).toBeNull();
+
+    await user.click(screen.getByTitle('新建 Agent'));
+
+    expect(
+      await screen.findByRole('heading', { name: '新建 Agent' }),
+    ).toBeTruthy();
+    expect(screen.getByTestId('ai-agents-detail-inner').className).toContain(
+      'max-w-2xl',
+    );
+    expect(screen.getByTestId('ai-agents-detail-inner').className).toContain(
+      'p-6',
+    );
+    expect(screen.getByRole('heading', { name: '新建 Agent' }).className).toContain(
+      'text-sm',
+    );
+    expect(
+      screen.getByRole('heading', { name: '新建 Agent' }).className,
+    ).not.toContain('text-[18px]');
+    expect(
+      (screen.getByLabelText('System Prompt') as HTMLTextAreaElement).rows,
+    ).toBe(12);
+    expect(screen.getByPlaceholderText('my-agent')).toBeTruthy();
+    expect(
+      screen.getByText('小写字母、数字和连字符'),
+    ).toBeTruthy();
+    expect(screen.getByPlaceholderText('这个 Agent 的用途...')).toBeTruthy();
+    expect(
+      screen.getByPlaceholderText('你是一个专用 agent，负责...'),
+    ).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: '取消' }).length).toBeGreaterThan(0);
+    expect(
+      getSettingsCreateButton().disabled,
+    ).toBe(true);
+    await user.type(screen.getByLabelText('Name'), 'reviewer-lite');
+    expect(
+      getSettingsCreateButton().disabled,
+    ).toBe(false);
+  });
+
+  it('matches 1Code-style custom agent tool access selector on create and edit', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const reviewerAgent = {
+      description: 'Review code',
+      disallowedTools: [],
+      model: 'inherit' as const,
+      name: 'reviewer',
+      path: '.claude/agents/reviewer.md',
+      pluginName: null,
+      prompt: 'Review carefully.',
+      source: 'project' as const,
+      tools: ['Read', 'Grep'],
+    };
+    const editedAgent = {
+      ...reviewerAgent,
+      tools: ['Read'],
+    };
+
+    listAiCustomAgentsMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([reviewerAgent])
+      .mockResolvedValueOnce([editedAgent]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'Custom Agents' }),
+    );
+
+    await user.click(screen.getByRole('button', { name: '新建 Agent' }));
+    expect(await screen.findByText('Tools')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '所有 Tools' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '仅已选择' }));
+
+    expect(await screen.findByText('文件操作')).toBeTruthy();
+    expect(screen.getByText('System')).toBeTruthy();
+    expect(screen.getByText('已选择 0 个')).toBeTruthy();
+    expect(
+      screen.getByText('Agent 只能访问已选择的 tools'),
+    ).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: /读取文件/ }));
+    await user.click(screen.getByRole('button', { name: /Bash Commands/ }));
+    expect(screen.getByText('已选择 2 个')).toBeTruthy();
+
+    await user.click(screen.getByRole('combobox', { name: 'Scope' }));
+    await user.click(
+      await screen.findByRole('option', {
+        name: 'Project (.claude/agents/)',
+      }),
+    );
+    await user.type(screen.getByLabelText('Name'), 'reviewer');
+    await user.type(screen.getByLabelText('描述'), 'Review code');
+    await user.type(screen.getByLabelText('System Prompt'), 'Review carefully.');
+    await user.click(getSettingsCreateButton());
+
+    expect(createAiCustomAgentMock).toHaveBeenCalledWith('/repo', {
+      description: 'Review code',
+      disallowedTools: [],
+      model: 'inherit',
+      name: 'reviewer',
+      prompt: 'Review carefully.',
+      source: 'project',
+      tools: ['Read', 'Bash'],
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('reviewer').length).toBeGreaterThan(0);
+    });
+    expect(screen.getByRole('button', { name: '仅已选择' })).toBeTruthy();
+    expect(screen.getByText('已选择 2 个')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: /搜索内容/ }));
+    expect(screen.getByText('已选择 1 个')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    expect(updateAiCustomAgentMock).toHaveBeenCalledWith('/repo', {
+      description: 'Review code',
+      disallowedTools: [],
+      model: 'inherit',
+      name: 'reviewer',
+      prompt: 'Review carefully.',
+      source: 'project',
+      tools: ['Read'],
+    });
+  });
+
+  it('hides project scope controls in 1Code-style create forms without a workspace', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+
+    render(<WorkspaceLayout initialSnapshot={null} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Skills' }));
+    await user.click(screen.getByTitle('新建 Skill 或 command'));
+
+    expect(await screen.findByRole('heading', { name: '新建 Skill' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Project' })).toBeNull();
+    expect(screen.queryByText('Project (.claude/skills/)')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Custom Agents' }));
+    await user.click(screen.getByRole('button', { name: '新建 Agent' }));
+
+    expect(await screen.findByRole('heading', { name: '新建 Agent' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Project' })).toBeNull();
+    expect(screen.queryByText('Project (.claude/agents/)')).toBeNull();
+  });
+
+  it('shows 1Code-style empty state for skills and commands', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    listAiSkillsMock.mockResolvedValue([]);
+    listAiCommandsMock.mockResolvedValue([]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Skills' }));
+
+    expect(await screen.findByText('暂无 Skills 或 commands')).toBeTruthy();
+    expect(screen.getByTestId('skills-empty-sidebar-icon')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '新建' })).toBeTruthy();
+    expect(screen.getByText('未找到 Skills 或 commands')).toBeTruthy();
+    expect(screen.getByTestId('skills-empty-detail-icon')).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: '新建第一个 Skill 或 command' }),
+    ).toBeTruthy();
+  });
+
+  it('creates user skills commands and agents without a workspace like 1Code', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const globalRoot = '__global__';
+
+    listAiSkillsMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          content: '',
+          description: '',
+          name: 'global-skill',
+          path: '~/.claude/skills/global-skill/SKILL.md',
+          pluginName: null,
+          source: 'user',
+        },
+      ])
+      .mockResolvedValue([
+        {
+          content: '',
+          description: '',
+          name: 'global-skill',
+          path: '~/.claude/skills/global-skill/SKILL.md',
+          pluginName: null,
+          source: 'user',
+        },
+      ]);
+    listAiCommandsMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([
+        {
+          argumentHint: null,
+          content: '',
+          description: '',
+          name: 'global-command',
+          path: '~/.claude/commands/global-command.md',
+          pluginName: null,
+          source: 'user',
+        },
+      ]);
+    listAiCustomAgentsMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          description: '',
+          disallowedTools: [],
+          model: null,
+          name: 'global-agent',
+          path: '~/.claude/agents/global-agent.md',
+          pluginName: null,
+          prompt: '',
+          source: 'user',
+          tools: [],
+        },
+      ])
+      .mockResolvedValue([
+        {
+          description: '',
+          disallowedTools: [],
+          model: null,
+          name: 'global-agent',
+          path: '~/.claude/agents/global-agent.md',
+          pluginName: null,
+          prompt: '',
+          source: 'user',
+          tools: [],
+        },
+      ]);
+
+    render(<WorkspaceLayout initialSnapshot={null} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Skills' }));
+
+    await user.click(screen.getByTitle('新建 Skill 或 command'));
+    await user.type(screen.getByLabelText('Name'), 'global-skill');
+    expect(
+      getSettingsCreateButton().disabled,
+    ).toBe(false);
+    await user.click(getSettingsCreateButton());
+    expect(createAiSkillMock).toHaveBeenCalledWith(globalRoot, {
+      content: '',
+      description: '',
+      name: 'global-skill',
+      source: 'user',
+    });
+
+    await user.click(screen.getByTitle('新建 Skill 或 command'));
+    await user.click(screen.getByRole('combobox', { name: '类型' }));
+    await user.click(
+      await screen.findByRole('option', {
+        name: 'Command（通过 /slash 触发）',
+      }),
+    );
+    await user.type(screen.getByLabelText('Name'), 'global-command');
+    await user.click(getSettingsCreateButton());
+    expect(createAiCommandMock).toHaveBeenCalledWith(globalRoot, {
+      argumentHint: null,
+      content: '',
+      description: '',
+      name: 'global-command',
+      source: 'user',
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Custom Agents' }));
+    await user.click(screen.getByRole('button', { name: '新建 Agent' }));
+    await user.type(screen.getByLabelText('Name'), 'global-agent');
+    expect(
+      getSettingsCreateButton().disabled,
+    ).toBe(false);
+    await user.click(getSettingsCreateButton());
+    expect(createAiCustomAgentMock).toHaveBeenCalledWith(globalRoot, {
+      description: '',
+      disallowedTools: [],
+      model: 'inherit',
+      name: 'global-agent',
+      prompt: '',
+      source: 'user',
+      tools: [],
+    });
+  });
+
+  it('uses 1Code-style Scope selects only while creating skills and agents', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    listAiSkillsMock.mockResolvedValue([
+      {
+        content: 'Use docs.',
+        description: 'Write docs',
+        name: 'doc',
+        path: '~/.claude/skills/doc/SKILL.md',
+        pluginName: null,
+        source: 'user',
+      },
+    ]);
+    listAiCustomAgentsMock.mockResolvedValue([
+      {
+        description: 'Review code',
+        disallowedTools: [],
+        model: 'sonnet',
+        name: 'reviewer',
+        path: '.claude/agents/reviewer.md',
+        pluginName: null,
+        prompt: 'Review carefully.',
+        source: 'project',
+        tools: [],
+      },
+    ]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Skills' }));
+
+    expect(await screen.findByText('Use docs.')).toBeTruthy();
+    expect(screen.queryByText('Source')).toBeNull();
+    await user.click(screen.getByTitle('新建 Skill 或 command'));
+    expect(await screen.findByRole('combobox', { name: 'Scope' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Project' })).toBeNull();
+    await user.click(screen.getByRole('combobox', { name: 'Scope' }));
+    expect(
+      await screen.findByRole('option', {
+        name: 'Project: repo (.claude/skills/)',
+      }),
+    ).toBeTruthy();
+
+    await user.keyboard('{Escape}');
+    await user.click(screen.getByRole('button', { name: 'Custom Agents' }));
+
+    expect(await screen.findByLabelText('System Prompt')).toBeTruthy();
+    expect(screen.queryByText('Source')).toBeNull();
+    await user.click(screen.getByTitle('新建 Agent'));
+    expect(await screen.findByRole('combobox', { name: 'Scope' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Project' })).toBeNull();
+    await user.click(screen.getByRole('combobox', { name: 'Scope' }));
+    expect(
+      await screen.findByRole('option', {
+        name: 'Project (.claude/agents/)',
+      }),
+    ).toBeTruthy();
+  });
+
+  it('autosaves custom agent detail edits on blur like 1Code', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const reviewerAgent = {
+      description: 'Review code',
+      disallowedTools: ['Bash'],
+      model: 'sonnet' as const,
+      name: 'reviewer',
+      path: '.claude/agents/reviewer.md',
+      pluginName: null,
+      prompt: 'Review carefully.',
+      source: 'project' as const,
+      tools: ['Read', 'Grep'],
+    };
+    const descriptionUpdatedAgent = {
+      ...reviewerAgent,
+      description: 'Review code deeply',
+    };
+    const promptUpdatedAgent = {
+      ...descriptionUpdatedAgent,
+      prompt: 'Review more carefully.',
+    };
+
+    listAiCustomAgentsMock
+      .mockResolvedValueOnce([reviewerAgent])
+      .mockResolvedValueOnce([descriptionUpdatedAgent])
+      .mockResolvedValueOnce([promptUpdatedAgent]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'Custom Agents' }),
+    );
+
+    const description = await screen.findByLabelText('描述');
+    await user.clear(description);
+    await user.type(description, 'Review code deeply');
+    fireEvent.blur(description);
+
+    await waitFor(() => {
+      expect(updateAiCustomAgentMock).toHaveBeenCalledWith('/repo', {
+        description: 'Review code deeply',
+        disallowedTools: ['Bash'],
+        model: 'sonnet',
+        name: 'reviewer',
+        prompt: 'Review carefully.',
+        source: 'project',
+        tools: ['Read', 'Grep'],
+      });
+    });
+
+    const prompt = await screen.findByLabelText('System Prompt');
+    expect((prompt as HTMLTextAreaElement).rows).toBe(16);
+    await user.clear(prompt);
+    await user.type(prompt, 'Review more carefully.');
+    fireEvent.blur(prompt);
+
+    await waitFor(() => {
+      expect(updateAiCustomAgentMock).toHaveBeenCalledWith('/repo', {
+        description: 'Review code deeply',
+        disallowedTools: ['Bash'],
+        model: 'sonnet',
+        name: 'reviewer',
+        prompt: 'Review more carefully.',
+        source: 'project',
+        tools: ['Read', 'Grep'],
+      });
+    });
+  });
+
+  it('creates 1Code-style skills commands and agents when only name is provided', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const minimalSkill = {
+      content: '',
+      description: '',
+      name: 'minimal-skill',
+      path: '~/.claude/skills/minimal-skill/SKILL.md',
+      pluginName: null,
+      source: 'user' as const,
+    };
+    const minimalCommand = {
+      argumentHint: null,
+      content: '',
+      description: '',
+      name: 'minimal-command',
+      path: '~/.claude/commands/minimal-command.md',
+      pluginName: null,
+      source: 'user' as const,
+    };
+    const minimalAgent = {
+      description: '',
+      disallowedTools: [],
+      model: null,
+      name: 'minimal-agent',
+      path: '~/.claude/agents/minimal-agent.md',
+      pluginName: null,
+      prompt: '',
+      source: 'user' as const,
+      tools: [],
+    };
+
+    listAiSkillsMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([minimalSkill])
+      .mockResolvedValue([minimalSkill]);
+    listAiCommandsMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([minimalCommand]);
+    listAiCustomAgentsMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([minimalAgent])
+      .mockResolvedValue([minimalAgent]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Skills' }));
+
+    await user.click(screen.getByTitle('新建 Skill 或 command'));
+    await user.type(screen.getByLabelText('Name'), 'minimal-skill');
+    await user.click(getSettingsCreateButton());
+    expect(createAiSkillMock).toHaveBeenCalledWith('/repo', {
+      content: '',
+      description: '',
+      name: 'minimal-skill',
+      source: 'user',
+    });
+
+    await user.click(screen.getByTitle('新建 Skill 或 command'));
+    await user.click(screen.getByRole('combobox', { name: '类型' }));
+    await user.click(
+      await screen.findByRole('option', {
+        name: 'Command（通过 /slash 触发）',
+      }),
+    );
+    await user.type(screen.getByLabelText('Name'), 'minimal-command');
+    await user.click(getSettingsCreateButton());
+    expect(createAiCommandMock).toHaveBeenCalledWith('/repo', {
+      argumentHint: null,
+      content: '',
+      description: '',
+      name: 'minimal-command',
+      source: 'user',
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Custom Agents' }));
+    await user.click(screen.getByRole('button', { name: '新建 Agent' }));
+    await user.type(screen.getByLabelText('Name'), 'minimal-agent');
+    await user.click(getSettingsCreateButton());
+    expect(createAiCustomAgentMock).toHaveBeenCalledWith('/repo', {
+      description: '',
+      disallowedTools: [],
+      model: 'inherit',
+      name: 'minimal-agent',
+      prompt: '',
+      source: 'user',
+      tools: [],
+    });
+  });
+
+  it('groups AI skills commands and custom agents by source like 1Code', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    listAiSkillsMock.mockResolvedValue([
+      {
+        content: 'User instructions.',
+        description: 'User skill',
+        name: 'user-skill',
+        path: '~/.claude/skills/user-skill/SKILL.md',
+        pluginName: null,
+        source: 'user',
+      },
+      {
+        content: 'Plugin instructions.',
+        description: 'Plugin skill',
+        name: 'plugin-skill',
+        path: '~/.claude/plugins/marketplaces/market/plugin/skills/plugin-skill/SKILL.md',
+        pluginName: 'market:plugin',
+        source: 'plugin',
+      },
+    ]);
+    listAiCommandsMock.mockResolvedValue([
+      {
+        argumentHint: null,
+        content: 'Project command.',
+        description: 'Project command',
+        name: 'project-command',
+        path: '.claude/commands/project-command.md',
+        pluginName: null,
+        source: 'project',
+      },
+    ]);
+    listAiCustomAgentsMock.mockResolvedValue([
+      {
+        description: 'User agent',
+        disallowedTools: [],
+        model: null,
+        name: 'user-agent',
+        path: '~/.claude/agents/user-agent.md',
+        pluginName: null,
+        prompt: 'User prompt.',
+        source: 'user',
+        tools: [],
+      },
+      {
+        description: 'Project agent',
+        disallowedTools: [],
+        model: 'sonnet',
+        name: 'project-agent',
+        path: '.claude/agents/project-agent.md',
+        pluginName: null,
+        prompt: 'Project prompt.',
+        source: 'project',
+        tools: [],
+      },
+    ]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Skills' }));
+
+    expect(await screen.findByText('Plugin')).toBeTruthy();
+    expect(screen.getByText('plugin-skill')).toBeTruthy();
+    expect(screen.getByText('project-command')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: /plugin-skill/ }));
+    const readonlyDescription = await screen.findByTestId(
+      'ai-skills-readonly-description',
+    );
+    expect(readonlyDescription.textContent).toBe('Plugin skill');
+    expect(readonlyDescription.className).toContain('bg-muted/50');
+    expect(screen.queryByLabelText('描述')).toBeNull();
+    expect(screen.queryByRole('button', { name: '编辑 markdown' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '删除 Skill' })).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Custom Agents' }));
+    expect(await screen.findByText('project-agent')).toBeTruthy();
+    expect(screen.getAllByText('Project').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Source')).toBeNull();
+  });
+
+  it('supports 1Code-style keyboard navigation in Skills Agents and MCP lists', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    listAiSkillsMock.mockResolvedValue([
+      {
+        content: 'Use docs.',
+        description: 'User skill',
+        name: 'alpha-skill',
+        path: '~/.claude/skills/alpha-skill/SKILL.md',
+        pluginName: null,
+        source: 'user',
+      },
+      {
+        content: 'Use tests.',
+        description: 'Project skill',
+        name: 'beta-skill',
+        path: '.claude/skills/beta-skill/SKILL.md',
+        pluginName: null,
+        source: 'project',
+      },
+    ]);
+    listAiCommandsMock.mockResolvedValue([]);
+    listAiCustomAgentsMock.mockResolvedValue([
+      {
+        description: 'User agent',
+        disallowedTools: [],
+        model: null,
+        name: 'alpha-agent',
+        path: '~/.claude/agents/alpha-agent.md',
+        pluginName: null,
+        prompt: 'User prompt.',
+        source: 'user',
+        tools: [],
+      },
+      {
+        description: 'Project agent',
+        disallowedTools: [],
+        model: 'sonnet',
+        name: 'beta-agent',
+        path: '.claude/agents/beta-agent.md',
+        pluginName: null,
+        prompt: 'Project prompt.',
+        source: 'project',
+        tools: [],
+      },
+    ]);
+    listAiMcpServersMock.mockResolvedValue([
+      {
+        args: ['-y', '@upstash/context7'],
+        command: 'npx',
+        connectionType: 'stdio',
+        enabled: true,
+        envKeys: [],
+        groupName: 'Global',
+        name: 'alpha-server',
+        pluginName: null,
+        projectPath: null,
+        provider: 'claude-code',
+        source: 'global',
+        status: 'connected',
+        tools: [],
+        url: null,
+      },
+      {
+        args: ['-y', '@modelcontextprotocol/server-filesystem'],
+        command: 'npx',
+        connectionType: 'stdio',
+        enabled: true,
+        envKeys: [],
+        groupName: 'Global',
+        name: 'beta-server',
+        pluginName: null,
+        projectPath: null,
+        provider: 'claude-code',
+        source: 'global',
+        status: 'connected',
+        tools: [],
+        url: null,
+      },
+    ]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+
+    await user.click(await screen.findByRole('button', { name: 'Skills' }));
+    const skillsSearch = await screen.findByRole('searchbox', {
+      name: '搜索 Skills 和 commands',
+    });
+    skillsSearch.focus();
+    await user.keyboard('{ArrowDown}');
+    await waitFor(() => {
+      const betaSkill = screen.getByRole('button', { name: /beta-skill/ });
+      expect(betaSkill.getAttribute('aria-current')).toBe('true');
+      expect(document.activeElement).toBe(betaSkill);
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Custom Agents' }));
+    const agentsSearch = await screen.findByRole('searchbox', {
+      name: '搜索 Agents',
+    });
+    agentsSearch.focus();
+    await user.keyboard('{ArrowDown}');
+    await waitFor(() => {
+      const betaAgent = screen.getByRole('button', { name: /beta-agent/ });
+      expect(betaAgent.getAttribute('aria-current')).toBe('true');
+      expect(document.activeElement).toBe(betaAgent);
+    });
+
+    await user.click(screen.getByRole('button', { name: 'MCP Servers' }));
+    const serversSearch = await screen.findByRole('searchbox', {
+      name: '搜索 MCP servers',
+    });
+    serversSearch.focus();
+    await user.keyboard('{ArrowDown}');
+    await waitFor(() => {
+      const betaServer = screen.getByRole('button', { name: /beta-server/ });
+      expect(betaServer.getAttribute('aria-current')).toBe('true');
+      expect(document.activeElement).toBe(betaServer);
+    });
+  });
+
+  it('resizes 1Code-style AI settings list sidebars and persists widths', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    listAiSkillsMock.mockResolvedValue([
+      {
+        content: 'Use docs.',
+        description: 'User skill',
+        name: 'alpha-skill',
+        path: '~/.claude/skills/alpha-skill/SKILL.md',
+        pluginName: null,
+        source: 'user',
+      },
+    ]);
+    listAiCommandsMock.mockResolvedValue([]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Skills' }));
+
+    const handle = await screen.findByRole('separator', {
+      name: '调整 Skills 设置列表宽度',
+    });
+    expect(handle.getAttribute('aria-valuenow')).toBe('240');
+
+    fireEvent.pointerDown(handle, { clientX: 240, pointerId: 1 });
+    await waitFor(() =>
+      expect(handle.getAttribute('data-dragging')).toBe('true'),
+    );
+    fireEvent.pointerMove(document, { clientX: 280, pointerId: 1 });
+    fireEvent.pointerUp(document, { pointerId: 1 });
+
+    await waitFor(() => expect(handle.getAttribute('aria-valuenow')).toBe('280'));
+    await user.click(screen.getByRole('button', { name: '应用' }));
+
+    await waitFor(() => {
+      expect(saveAppSettingsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ai: expect.objectContaining({
+            settingsSidebarWidths: expect.objectContaining({
+              skills: 280,
+            }),
+          }),
+        }),
+      );
+    });
+  });
+
+  it('matches 1Code-style skills command sidebar and unified create form', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    listAiSkillsMock.mockResolvedValue([
+      {
+        content: 'Use docs.',
+        description: 'Write docs',
+        name: 'docx',
+        path: '~/.claude/skills/docx/SKILL.md',
+        pluginName: null,
+        source: 'user',
+      },
+    ]);
+    listAiCommandsMock.mockResolvedValue([
+      {
+        argumentHint: '<message>',
+        content: 'Commit changes.',
+        description: 'Commit',
+        name: 'git:commit',
+        path: '.claude/commands/git/commit.md',
+        pluginName: null,
+        source: 'project',
+      },
+    ]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Skills' }));
+
+    expect(screen.queryByRole('button', { name: 'New skill' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'New command' })).toBeNull();
+
+    const skillButton = await screen.findByRole('button', { name: /docx/ });
+    expect(within(skillButton).getByText('@')).toBeTruthy();
+    expect(within(skillButton).queryByText('Skill')).toBeNull();
+    expect(within(skillButton).queryByText(/~\/\.claude\/skills/)).toBeNull();
+
+    const commandButton = screen.getByRole('button', { name: /git:commit/ });
+    expect(within(commandButton).getByText('/')).toBeTruthy();
+    expect(within(commandButton).queryByText('Command')).toBeNull();
+    expect(within(commandButton).queryByText(/\.claude\/commands/)).toBeNull();
+
+    await user.click(screen.getByTitle('新建 Skill 或 command'));
+
+    expect(await screen.findByRole('heading', { name: '新建 Skill' })).toBeTruthy();
+    expect(screen.getByTestId('ai-skills-detail-inner').className).toContain(
+      'max-w-2xl',
+    );
+    expect(screen.getByTestId('ai-skills-detail-inner').className).toContain(
+      'p-6',
+    );
+    expect(screen.getByRole('heading', { name: '新建 Skill' }).className).toContain(
+      'text-sm',
+    );
+    expect(
+      screen.getByRole('heading', { name: '新建 Skill' }).className,
+    ).not.toContain('text-[18px]');
+    expect(screen.getByRole('combobox', { name: '类型' })).toBeTruthy();
+    await user.click(screen.getByRole('combobox', { name: '类型' }));
+    await user.click(
+      await screen.findByRole('option', {
+        name: 'Command（通过 /slash 触发）',
+      }),
+    );
+    expect(screen.getByRole('heading', { name: '新建 Command' })).toBeTruthy();
+  });
+
+  it('toggles AI plugins from settings', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const enabledPlugin = {
+      category: null,
+	      components: {
+	        agents: [],
+	        commands: [],
+	        mcpServers: ['context7', 'browser'],
+	        skills: [],
+	      },
+      description: 'Plugin enabled',
+      homepage: null,
+      isDisabled: false,
+      marketplace: 'market',
+      name: 'plugin-one',
+      path: '~/.claude/plugins/marketplaces/market/plugin-one',
+      source: 'market:plugin-one',
+      tags: [],
+      version: '1.0.0',
+    };
+    const disabledPlugin = {
+      ...enabledPlugin,
+      isDisabled: true,
+    };
+
+    listAiPluginsMock
+      .mockResolvedValueOnce([enabledPlugin])
+      .mockResolvedValueOnce([disabledPlugin]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Plugins' }));
+    await user.click(
+      await screen.findByRole('switch', { name: '切换 plugin-one' }),
+    );
+
+	    expect(setAiPluginEnabledMock).toHaveBeenCalledWith(
+	      'market:plugin-one',
+	      false,
+	    );
+	    expect(setAiPluginMcpServersApprovedMock).toHaveBeenCalledWith(
+	      'market:plugin-one',
+	      ['context7', 'browser'],
+	      false,
+	    );
+	    expect(await screen.findByText('已停用')).toBeTruthy();
+
+	    listAiPluginsMock.mockResolvedValueOnce([enabledPlugin]);
+	    await user.click(
+	      await screen.findByRole('switch', { name: '切换 plugin-one' }),
+	    );
+	    expect(setAiPluginEnabledMock).toHaveBeenLastCalledWith(
+	      'market:plugin-one',
+	      true,
+	    );
+	    expect(setAiPluginMcpServersApprovedMock).toHaveBeenLastCalledWith(
+	      'market:plugin-one',
+	      ['context7', 'browser'],
+	      true,
+	    );
+	  });
+
+  it('shows the 1Code-style plugins empty state with install guidance', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    listAiPluginsMock.mockResolvedValue([]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Plugins' }));
+
+    expect(await screen.findByTestId('plugins-empty-sidebar-icon')).toBeTruthy();
+    expect(screen.getByTestId('plugins-empty-detail-icon')).toBeTruthy();
+    expect(await screen.findAllByText('暂无 Plugins')).toHaveLength(1);
+    expect(screen.getByText('未安装 Plugins')).toBeTruthy();
+    expect(screen.getByText('将 plugins 安装到 ~/.claude/plugins/')).toBeTruthy();
+    expect(
+      screen.getByText('将 plugins 安装到 ~/.claude/plugins/marketplaces/'),
+    ).toBeTruthy();
+  });
+
+  it('refreshes plugin MCP server status after plugin approval changes', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const disabledPlugin = {
+      category: 'tools',
+      components: {
+        agents: [],
+        commands: [],
+        mcpServers: ['context7'],
+        skills: [],
+      },
+      description: 'Context7 MCP integration',
+      homepage: null,
+      isDisabled: true,
+      marketplace: 'claude-plugins-official',
+      name: 'context7',
+      path: '~/.claude/plugins/marketplaces/claude-plugins-official/context7',
+      source: 'claude-plugins-official:context7',
+      tags: [],
+      version: '1.0.0',
+    };
+    const enabledPlugin = {
+      ...disabledPlugin,
+      isDisabled: false,
+    };
+    const pendingPluginServer = {
+      args: ['-y', '@upstash/context7-mcp'],
+      command: 'npx',
+      connectionType: 'stdio',
+      enabled: true,
+      envKeys: [],
+      groupName: 'Plugin: claude-plugins-official:context7',
+      name: 'context7',
+      needsAuth: false,
+      pluginName: 'claude-plugins-official:context7',
+      projectPath: null,
+      provider: 'claude-code',
+      source: 'plugin',
+      status: 'pending-approval',
+      tools: [],
+      url: null,
+    };
+    const connectedPluginServer = {
+      ...pendingPluginServer,
+      status: 'connected',
+    };
+
+    listAiPluginsMock
+      .mockResolvedValueOnce([disabledPlugin])
+      .mockResolvedValue([enabledPlugin]);
+    listAiMcpServersMock
+      .mockResolvedValueOnce([pendingPluginServer])
+      .mockResolvedValue([connectedPluginServer]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Plugins' }));
+
+    expect(await screen.findByText('pending-approval')).toBeTruthy();
+    await user.click(
+      await screen.findByRole('switch', { name: '切换 context7' }),
+    );
+
+    expect(setAiPluginEnabledMock).toHaveBeenCalledWith(
+      'claude-plugins-official:context7',
+      true,
+    );
+    expect(setAiPluginMcpServersApprovedMock).toHaveBeenCalledWith(
+      'claude-plugins-official:context7',
+      ['context7'],
+      true,
+    );
+    await waitFor(() => {
+      expect(listAiMcpServersMock).toHaveBeenCalledTimes(2);
+    });
+    expect(await screen.findByText('已连接')).toBeTruthy();
+  });
+
+  it('shows 1Code-style plugin list detail layout and navigates component rows', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const enabledPlugin = {
+      category: 'productivity',
+      components: {
+        agents: [{ description: 'Review code changes', name: 'reviewer' }],
+        commands: [{ description: 'Commit workflow', name: 'commit' }],
+        mcpServers: ['context7'],
+        skills: [{ description: 'Write documents', name: 'docx' }],
+      },
+      description: 'Collection of document processing suite',
+      homepage: 'https://example.com/document-skills',
+      isDisabled: false,
+      marketplace: 'anthropic-agent-skills',
+      name: 'document-skills',
+      path: '~/.claude/plugins/marketplaces/anthropic/document-skills',
+      source: 'anthropic-agent-skills:document-skills',
+      tags: ['docs'],
+      version: '0.0.0',
+    };
+    const disabledPlugin = {
+      ...enabledPlugin,
+      category: 'tools',
+      components: {
+        agents: [],
+        commands: [],
+        mcpServers: [],
+        skills: [{ description: 'Search docs', name: 'context7' }],
+      },
+      description: 'Context7 MCP integration',
+      homepage: null,
+      isDisabled: true,
+      marketplace: 'claude-plugins-official',
+      name: 'context7',
+      source: 'claude-plugins-official:context7',
+      tags: [],
+      version: '1.0.0',
+    };
+
+    listAiMcpServersMock.mockResolvedValue([
+      {
+        args: ['-y', '@upstash/context7-mcp'],
+        command: 'npx',
+        connectionType: 'stdio',
+        enabled: true,
+        envKeys: [],
+        groupName: 'Plugin: anthropic-agent-skills:document-skills',
+        name: 'context7',
+        needsAuth: true,
+        pluginName: 'anthropic-agent-skills:document-skills',
+        provider: 'claude',
+        source: 'plugin',
+        status: 'needs-auth',
+        tools: [],
+      },
+    ]);
+    listAiPluginsMock.mockResolvedValue([enabledPlugin, disabledPlugin]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Plugins' }));
+
+    expect(
+      await screen.findByRole('searchbox', { name: '搜索 Plugins' }),
+    ).toBeTruthy();
+    expect(screen.getByTestId('workspace-settings-content').className).toContain(
+      'h-full',
+    );
+    expect(screen.getByTestId('ai-plugins-settings-shell').className).toContain(
+      'h-full',
+    );
+    expect(screen.getByTestId('ai-plugins-settings-shell').className).not.toContain(
+      'mx-auto',
+    );
+    expect(screen.getByTestId('ai-plugins-settings-sidebar').className).toContain(
+      'bg-background',
+    );
+    expect(screen.getByTestId('ai-plugins-search-row').className).toContain(
+      'px-2',
+    );
+    expect(screen.getByTestId('ai-plugins-search-input').className).toContain(
+      'h-7',
+    );
+    expect(screen.getByText('已启用')).toBeTruthy();
+    expect(screen.getByText('claude-plugins-official')).toBeTruthy();
+    expect(
+      screen
+        .getByRole('button', { name: /Document Skills/ })
+        .getAttribute('aria-current'),
+    ).toBe('true');
+    expect(
+      screen.getByRole('heading', { name: 'Document Skills' }),
+    ).toBeTruthy();
+    expect(screen.getByTestId('ai-plugin-detail-shell').className).toContain(
+      'h-full',
+    );
+    expect(screen.getByTestId('ai-plugin-detail-scroll').className).toContain(
+      'overflow-y-auto',
+    );
+    expect(screen.getByTestId('ai-plugin-detail-inner').className).toContain(
+      'max-w-2xl',
+    );
+    expect(screen.getByTestId('ai-plugin-detail-inner').className).toContain(
+      'p-6',
+    );
+    expect(screen.getByTestId('ai-plugin-detail-title').className).toContain(
+      'text-sm',
+    );
+    expect(screen.getByTestId('ai-plugin-detail-title').className).not.toContain(
+      'text-[18px]',
+    );
+    expect(screen.getByText('productivity')).toBeTruthy();
+    expect(screen.getByText('Version')).toBeTruthy();
+    expect(screen.getByText('Source')).toBeTruthy();
+    expect(screen.getByText('Tags')).toBeTruthy();
+    expect(screen.getByText('Commands (1)')).toBeTruthy();
+    expect(screen.getByText('/commit')).toBeTruthy();
+    expect(screen.getByText('/commit').className).toContain('text-xs');
+    expect(screen.getByText('Commit workflow').className).toContain('text-[11px]');
+    expect(screen.getByText('Skills (1)')).toBeTruthy();
+    expect(screen.getByTestId('plugin-skill-icon-docx')).toBeTruthy();
+    expect(screen.getByText('Agents (1)')).toBeTruthy();
+    expect(screen.getByTestId('plugin-agent-icon-reviewer')).toBeTruthy();
+    expect(screen.getByText('MCP Servers (1)')).toBeTruthy();
+    expect(screen.getByTestId('plugin-mcp-icon-context7')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '登录' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '登录' }));
+    expect(authenticateAiMcpServerMock).toHaveBeenCalledWith('/repo', {
+      name: 'context7',
+      projectPath: null,
+      provider: 'claude',
+    });
+
+    await user.type(screen.getByRole('searchbox', { name: '搜索 Plugins' }), 'Search docs');
+    expect(screen.queryByRole('button', { name: /Document Skills/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /Context7/ })).toBeTruthy();
+
+    await user.clear(screen.getByRole('searchbox', { name: '搜索 Plugins' }));
+    await user.click(screen.getByRole('button', { name: /Document Skills/ }));
+    await user.click(screen.getByRole('button', { name: /docx/ }));
+    expect(
+      (await screen.findAllByRole('heading', { name: 'Skills' })).length,
+    ).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole('button', { name: 'Plugins' }));
+    await user.click(await screen.findByRole('button', { name: /Document Skills/ }));
+    await user.click(screen.getByRole('button', { name: /reviewer/ }));
+    expect(
+      (await screen.findAllByRole('heading', { name: 'Custom Agents' })).length,
+    ).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole('button', { name: 'Plugins' }));
+    await user.click(await screen.findByRole('button', { name: /Document Skills/ }));
+    await user.click(screen.getByRole('button', { name: /context7/ }));
+    expect(
+      (await screen.findAllByRole('heading', { name: 'MCP Servers' })).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('shows a spinner while authenticating plugin MCP servers like 1Code', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const plugin = {
+      category: 'productivity',
+      components: {
+        agents: [],
+        commands: [],
+        mcpServers: ['context7'],
+        skills: [],
+      },
+      description: 'Context7 integration',
+      homepage: null,
+      isDisabled: false,
+      marketplace: 'claude-plugins-official',
+      name: 'context7',
+      path: '~/.claude/plugins/marketplaces/context7',
+      source: 'claude-plugins-official:context7',
+      tags: [],
+      version: '1.0.0',
+    };
+    listAiPluginsMock.mockResolvedValue([plugin]);
+    listAiMcpServersMock.mockResolvedValue([
+      {
+        args: ['-y', '@upstash/context7-mcp'],
+        command: 'npx',
+        connectionType: 'stdio',
+        enabled: true,
+        envKeys: [],
+        groupName: 'Plugin: claude-plugins-official:context7',
+        name: 'context7',
+        needsAuth: true,
+        pluginName: 'claude-plugins-official:context7',
+        projectPath: null,
+        provider: 'claude-code',
+        source: 'plugin',
+        status: 'needs-auth',
+        tools: [],
+        url: null,
+      },
+    ]);
+    let resolveAuth: (() => void) | null = null;
+    authenticateAiMcpServerMock.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveAuth = resolve;
+      }),
+    );
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Plugins' }));
+    await user.click(await screen.findByRole('button', { name: '登录' }));
+
+    expect(screen.getByTestId('plugin-mcp-auth-spinner-context7')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '登录' })).toBeNull();
+
+    resolveAuth?.();
+    await waitFor(() => expect(authenticateAiMcpServerMock).toHaveBeenCalled());
+  });
+
+  it('authenticates plugin MCP servers globally without a workspace like 1Code', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    listAiMcpServersMock.mockResolvedValue([
+      {
+        args: ['-y', '@upstash/context7-mcp'],
+        command: 'npx',
+        connectionType: 'stdio',
+        enabled: true,
+        envKeys: [],
+        groupName: 'Plugin: anthropic-agent-skills:document-skills',
+        name: 'context7',
+        needsAuth: true,
+        pluginName: 'anthropic-agent-skills:document-skills',
+        provider: 'claude-code',
+        source: 'plugin',
+        status: 'needs-auth',
+        tools: [],
+      },
+    ]);
+    listAiPluginsMock.mockResolvedValue([
+      {
+        category: 'productivity',
+        components: {
+          agents: [],
+          commands: [],
+          mcpServers: ['context7'],
+          skills: [],
+        },
+        description: 'Collection of document processing skills.',
+        homepage: null,
+        isDisabled: false,
+        marketplace: 'anthropic-agent-skills',
+        name: 'document-skills',
+        path: '~/.claude/plugins/marketplaces/anthropic/document-skills',
+        source: 'anthropic-agent-skills:document-skills',
+        tags: [],
+        version: '0.0.0',
+      },
+    ]);
+
+    render(<WorkspaceLayout initialSnapshot={null} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Plugins' }));
+
+    expect(listAiMcpServersMock).toHaveBeenCalledWith('__global__');
+    expect(await screen.findByRole('button', { name: '登录' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '登录' }));
+
+    expect(authenticateAiMcpServerMock).toHaveBeenCalledWith('__global__', {
+      name: 'context7',
+      projectPath: '__global__',
+      provider: 'claude-code',
+    });
+  });
+
+  it('supports 1Code-style keyboard navigation in the Plugins list', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const enabledPlugin = {
+      category: 'productivity',
+      components: {
+        agents: [],
+        commands: [],
+        mcpServers: [],
+        skills: [],
+      },
+      description: 'Collection of document processing suite',
+      homepage: null,
+      isDisabled: false,
+      marketplace: 'anthropic-agent-skills',
+      name: 'document-skills',
+      path: '~/.claude/plugins/document-skills',
+      source: 'anthropic-agent-skills:document-skills',
+      tags: [],
+      version: '0.0.0',
+    };
+    const disabledPlugin = {
+      ...enabledPlugin,
+      description: 'Context7 MCP integration',
+      isDisabled: true,
+      marketplace: 'claude-plugins-official',
+      name: 'context7',
+      source: 'claude-plugins-official:context7',
+      version: '1.0.0',
+    };
+
+    listAiPluginsMock.mockResolvedValue([enabledPlugin, disabledPlugin]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(await screen.findByRole('button', { name: 'Plugins' }));
+
+    const search = await screen.findByRole('searchbox', {
+      name: '搜索 Plugins',
+    });
+    await waitFor(() => {
+      expect(
+        screen
+          .getByRole('button', { name: /Document Skills/ })
+          .getAttribute('aria-current'),
+      ).toBe('true');
+    });
+
+    search.focus();
+    await user.keyboard('{ArrowDown}');
+
+    await waitFor(() => {
+      const context7Button = screen.getByRole('button', { name: /Context7/ });
+      expect(context7Button.getAttribute('aria-current')).toBe('true');
+      expect(document.activeElement).toBe(context7Button);
+    });
+
+    await user.keyboard('{ArrowUp}');
+
+    await waitFor(() => {
+      const documentSkillsButton = screen.getByRole('button', {
+        name: /Document Skills/,
+      });
+      expect(documentSkillsButton.getAttribute('aria-current')).toBe('true');
+      expect(document.activeElement).toBe(documentSkillsButton);
+    });
+  });
+
+  it('focuses 1Code-style AI settings search fields with slash', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    listAiSkillsMock.mockResolvedValue([
+      {
+        content: 'Use docs.',
+        description: 'User skill',
+        name: 'alpha-skill',
+        path: '~/.claude/skills/alpha-skill/SKILL.md',
+        pluginName: null,
+        source: 'user',
+      },
+    ]);
+    listAiCommandsMock.mockResolvedValue([]);
+    listAiCustomAgentsMock.mockResolvedValue([
+      {
+        description: 'User agent',
+        disallowedTools: [],
+        model: null,
+        name: 'alpha-agent',
+        path: '~/.claude/agents/alpha-agent.md',
+        pluginName: null,
+        prompt: 'User prompt.',
+        source: 'user',
+        tools: [],
+      },
+    ]);
+    listAiMcpServersMock.mockResolvedValue([
+      {
+        args: ['-y', '@upstash/context7'],
+        command: 'npx',
+        connectionType: 'stdio',
+        enabled: true,
+        envKeys: [],
+        groupName: 'Global',
+        name: 'alpha-server',
+        pluginName: null,
+        projectPath: null,
+        provider: 'claude-code',
+        source: 'global',
+        status: 'connected',
+        tools: [],
+        url: null,
+      },
+    ]);
+    listAiPluginsMock.mockResolvedValue([
+      {
+        category: 'productivity',
+        components: {
+          agents: [],
+          commands: [],
+          mcpServers: [],
+          skills: [],
+        },
+        description: 'Example plugin',
+        homepage: null,
+        isDisabled: false,
+        marketplace: 'claude-plugins-official',
+        name: 'example-plugin',
+        path: '~/.claude/plugins/example-plugin',
+        source: 'claude-plugins-official:example-plugin',
+        tags: [],
+        version: '0.0.0',
+      },
+    ]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+
+    const cases = [
+      ['Skills', '搜索 Skills 和 commands'],
+      ['Custom Agents', '搜索 Agents'],
+      ['MCP Servers', '搜索 MCP servers'],
+      ['Plugins', '搜索 Plugins'],
+    ] as const;
+
+    for (const [tabName, searchName] of cases) {
+      await user.click(await screen.findByRole('button', { name: tabName }));
+      screen.getByRole('button', { name: '应用' }).focus();
+      await user.keyboard('/');
+
+      const search = await screen.findByRole('searchbox', { name: searchName });
+      expect(document.activeElement).toBe(search);
+
+      await user.keyboard('/');
+      expect((search as HTMLInputElement).value).toBe('/');
+      await user.clear(search);
+    }
+  });
+
+  it('creates toggles and deletes MCP servers from settings', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const enabledServer = {
+      args: ['-y', '@upstash/context7'],
+      command: 'npx',
+      connectionType: 'stdio',
+      enabled: true,
+      envKeys: [],
+      groupName: 'repo',
+      name: 'context7',
+      pluginName: null,
+      projectPath: '/repo',
+      provider: 'claude-code',
+      source: 'project',
+      status: 'configured',
+      url: null,
+    };
+    const disabledServer = {
+      ...enabledServer,
+      enabled: false,
+      status: 'disabled',
+    };
+
+    listAiMcpServersMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([enabledServer])
+      .mockResolvedValueOnce([disabledServer])
+      .mockResolvedValueOnce([]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'MCP Servers' }),
+    );
+    await user.click(screen.getByRole('button', { name: '添加第一个 server' }));
+    await user.type(screen.getByLabelText('Name'), 'context7');
+    await user.type(screen.getByLabelText('Command'), 'npx');
+    await user.type(screen.getByLabelText('Arguments'), '-y @upstash/context7');
+    await user.click(screen.getByRole('button', { name: '添加' }));
+
+    expect(createAiMcpServerMock).toHaveBeenCalledWith('/repo', {
+      args: ['-y', '@upstash/context7'],
+      authType: null,
+      bearerToken: null,
+      command: 'npx',
+      connectionType: 'stdio',
+      env: {},
+      name: 'context7',
+      provider: 'claude-code',
+      source: 'global',
+      url: null,
+    });
+    await waitFor(() => {
+      expect(screen.getAllByText('context7').length).toBeGreaterThan(0);
+    });
+
+    await user.click(
+      screen.getByRole('switch', { name: '切换 MCP context7' }),
+    );
+    expect(setAiMcpServerEnabledMock).toHaveBeenCalledWith('/repo', {
+      enabled: false,
+      name: 'context7',
+      provider: 'claude-code',
+      source: 'project',
+    });
+    expect((await screen.findAllByText('已停用')).length).toBeGreaterThanOrEqual(2);
+
+    await user.click(screen.getByRole('button', { name: '删除 server' }));
+    expect(deleteAiMcpServerMock).not.toHaveBeenCalled();
+    const deleteDialog = await screen.findByRole('alertdialog');
+    expect(
+      within(deleteDialog).getByRole('heading', { name: '删除 MCP Server' }),
+    ).toBeTruthy();
+    expect(
+      within(deleteDialog).getByText(
+        '确定要删除 context7 吗？这会移除 server 配置，且无法撤销。',
+      ),
+    ).toBeTruthy();
+    await user.click(within(deleteDialog).getByRole('button', { name: '删除' }));
+    expect(deleteAiMcpServerMock).toHaveBeenCalledWith('/repo', {
+      name: 'context7',
+      provider: 'claude-code',
+      source: 'project',
+    });
+  });
+
+  it('shows 1Code-style MCP create form select controls', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    listAiMcpServersMock.mockResolvedValue([]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'MCP Servers' }),
+    );
+    await user.click(screen.getByRole('button', { name: '添加第一个 server' }));
+
+    expect(screen.getByRole('combobox', { name: 'Provider' })).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Transport' })).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Scope' })).toBeTruthy();
+    expect(screen.getByPlaceholderText('my-server')).toBeTruthy();
+    expect(screen.getByPlaceholderText('npx, python, node...')).toBeTruthy();
+    expect(screen.getByLabelText('Arguments')).toBeTruthy();
+    expect(screen.queryByLabelText('Args')).toBeNull();
+    expect(screen.getByPlaceholderText('-m mcp_server --port 3000')).toBeTruthy();
+    expect(screen.getByText('用空格分隔 arguments')).toBeTruthy();
+
+    await user.click(screen.getByRole('combobox', { name: 'Transport' }));
+    expect(
+      await screen.findByRole('option', { name: 'stdio（本地 command）' }),
+    ).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'HTTP (SSE)' })).toBeTruthy();
+    await user.click(screen.getByRole('option', { name: 'HTTP (SSE)' }));
+    expect(screen.getByPlaceholderText('http://localhost:3000/sse')).toBeTruthy();
+  });
+
+  it('matches 1Code-style MCP create form actions and validation', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    listAiMcpServersMock.mockResolvedValue([]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'MCP Servers' }),
+    );
+
+    expect(
+      await screen.findByRole('button', { name: '添加第一个 server' }),
+    ).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '添加 MCP server' }));
+
+    expect(
+      await screen.findByRole('heading', { name: '新建 MCP Server' }),
+    ).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: '取消' }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: '保存 server' })).toBeNull();
+    expect(
+      (screen.getByRole('button', { name: '添加' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+
+    await user.type(screen.getByLabelText('Name'), 'context7');
+    expect(
+      (screen.getByRole('button', { name: '添加' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+
+    await user.type(screen.getByLabelText('Command'), 'npx');
+    expect(
+      (screen.getByRole('button', { name: '添加' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+  });
+
+  it('hides Claude MCP project scope in create form without a workspace like 1Code', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    listAiMcpServersMock.mockResolvedValue([]);
+
+    render(<WorkspaceLayout initialSnapshot={null} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'MCP Servers' }),
+    );
+    await user.click(screen.getByRole('button', { name: '添加 MCP server' }));
+
+    expect(
+      await screen.findByRole('heading', { name: '新建 MCP Server' }),
+    ).toBeTruthy();
+    expect(screen.getByText('Claude Code')).toBeTruthy();
+    expect(screen.queryByRole('combobox', { name: 'Scope' })).toBeNull();
+    expect(screen.queryByText('Global (~/.claude.json)')).toBeNull();
+    expect(screen.queryByText('Project')).toBeNull();
+
+    await user.click(screen.getByRole('combobox', { name: 'Provider' }));
+    await user.click(await screen.findByRole('option', { name: 'OpenAI Codex' }));
+
+    expect(await screen.findByRole('combobox', { name: 'Scope' })).toBeTruthy();
+    expect(screen.getByText('Global (~/.codex/config.toml)')).toBeTruthy();
+  });
+
+  it('creates global Claude MCP servers without a workspace like 1Code', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const globalRoot = '__global__';
+    const globalServer = {
+      args: ['-y', '@upstash/context7'],
+      command: 'npx',
+      connectionType: 'stdio',
+      enabled: true,
+      envKeys: [],
+      groupName: 'Global',
+      name: 'context7',
+      pluginName: null,
+      projectPath: null,
+      provider: 'claude-code',
+      source: 'global',
+      status: 'configured',
+      tools: [],
+      url: null,
+    };
+    const disabledGlobalServer = {
+      ...globalServer,
+      enabled: false,
+      status: 'disabled',
+    };
+
+    listAiMcpServersMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([globalServer])
+      .mockResolvedValueOnce([disabledGlobalServer])
+      .mockResolvedValueOnce([]);
+
+    render(<WorkspaceLayout initialSnapshot={null} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'MCP Servers' }),
+    );
+    await user.click(screen.getByRole('button', { name: '添加 MCP server' }));
+    await user.type(screen.getByLabelText('Name'), 'context7');
+    await user.type(screen.getByLabelText('Command'), 'npx');
+    await user.type(screen.getByLabelText('Arguments'), '-y @upstash/context7');
+
+    expect(
+      (screen.getByRole('button', { name: '添加' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+    await user.click(screen.getByRole('button', { name: '添加' }));
+
+    expect(createAiMcpServerMock).toHaveBeenCalledWith(globalRoot, {
+      args: ['-y', '@upstash/context7'],
+      authType: null,
+      bearerToken: null,
+      command: 'npx',
+      connectionType: 'stdio',
+      env: {},
+      name: 'context7',
+      provider: 'claude-code',
+      source: 'global',
+      url: null,
+    });
+    expect(await screen.findByRole('heading', { name: 'context7' })).toBeTruthy();
+
+    await user.click(
+      screen.getByRole('switch', { name: '切换 MCP context7' }),
+    );
+    expect(setAiMcpServerEnabledMock).toHaveBeenCalledWith(globalRoot, {
+      enabled: false,
+      name: 'context7',
+      provider: 'claude-code',
+      source: 'global',
+    });
+    expect((await screen.findAllByText('已停用')).length).toBeGreaterThanOrEqual(2);
+
+    await user.click(screen.getByRole('button', { name: '删除 server' }));
+    const deleteDialog = await screen.findByRole('alertdialog');
+    await user.click(within(deleteDialog).getByRole('button', { name: '删除' }));
+    expect(deleteAiMcpServerMock).toHaveBeenCalledWith(globalRoot, {
+      name: 'context7',
+      provider: 'claude-code',
+      source: 'global',
+    });
+  });
+
+  it('sorts MCP servers by 1Code status priority and selects connected first', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const failedServer = {
+      args: [],
+      command: null,
+      connectionType: 'http',
+      enabled: true,
+      envKeys: [],
+      groupName: 'Global',
+      name: 'failed-server',
+      pluginName: null,
+      projectPath: null,
+      provider: 'claude-code',
+      source: 'global',
+      status: 'failed',
+      tools: [],
+      url: 'https://failed.example.com/mcp',
+    };
+    const needsAuthServer = {
+      ...failedServer,
+      name: 'needs-auth-server',
+      needsAuth: true,
+      status: 'needs-auth',
+      url: 'https://auth.example.com/mcp',
+    };
+    const connectedServer = {
+      ...failedServer,
+      name: 'connected-server',
+      needsAuth: false,
+      status: 'connected',
+      tools: [{ description: 'Read docs', name: 'read_docs' }],
+      url: 'https://connected.example.com/mcp',
+    };
+
+    listAiMcpServersMock.mockResolvedValue([
+      failedServer,
+      needsAuthServer,
+      connectedServer,
+    ]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'MCP Servers' }),
+    );
+
+    const connectedButton = await screen.findByRole('button', {
+      name: /connected-server/,
+    });
+    const needsAuthButton = screen.getByRole('button', {
+      name: /needs-auth-server/,
+    });
+    const failedButton = screen.getByRole('button', { name: /failed-server/ });
+    expect(
+      connectedButton.compareDocumentPosition(needsAuthButton) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      needsAuthButton.compareDocumentPosition(failedButton) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      await screen.findByRole('heading', { name: 'connected-server' }),
+    ).toBeTruthy();
+    expect(screen.getByText('read_docs')).toBeTruthy();
+  });
+
+  it('renders pending MCP servers with a loading indicator like 1Code', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    listAiMcpServersMock.mockResolvedValue([
+      {
+        args: ['-y', '@upstash/context7'],
+        command: 'npx',
+        connectionType: 'stdio',
+        enabled: true,
+        envKeys: [],
+        groupName: 'Global',
+        name: 'pending-server',
+        pluginName: null,
+        projectPath: null,
+        provider: 'claude-code',
+        source: 'global',
+        status: 'pending',
+        tools: [],
+        url: null,
+      },
+    ]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'MCP Servers' }),
+    );
+
+    const pendingButton = await screen.findByRole('button', {
+      name: /pending-server/,
+    });
+    expect(within(pendingButton).getByTestId('mcp-status-loading-dot')).toBeTruthy();
+    expect(within(pendingButton).queryByText('pending')).toBeNull();
+  });
+
+  it('edits writable MCP servers from settings', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const stdioServer = {
+      args: ['-y', '@upstash/context7'],
+      command: 'npx',
+      connectionType: 'stdio',
+      enabled: true,
+      envKeys: ['CONTEXT7_API_KEY'],
+      groupName: 'repo',
+      name: 'context7',
+      pluginName: null,
+      projectPath: '/repo',
+      provider: 'claude-code',
+      source: 'project',
+      status: 'configured',
+      url: null,
+    };
+    const httpServer = {
+      ...stdioServer,
+      args: [],
+      command: null,
+      connectionType: 'http',
+      envKeys: [],
+      url: 'https://mcp.example.com',
+    };
+
+    listAiMcpServersMock
+      .mockResolvedValueOnce([stdioServer])
+      .mockResolvedValueOnce([httpServer]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'MCP Servers' }),
+    );
+    await user.click(await screen.findByRole('button', { name: '编辑 server' }));
+    await user.click(screen.getByRole('combobox', { name: 'Transport' }));
+    await user.click(await screen.findByRole('option', { name: 'HTTP (SSE)' }));
+    await user.clear(screen.getByLabelText('URL'));
+    await user.type(screen.getByLabelText('URL'), 'https://mcp.example.com');
+    await user.click(screen.getByRole('button', { name: '保存更改' }));
+
+    expect(updateAiMcpServerMock).toHaveBeenCalledWith('/repo', {
+      args: [],
+      authType: 'none',
+      bearerToken: null,
+      command: null,
+      connectionType: 'http',
+      env: {},
+      name: 'context7',
+      provider: 'claude-code',
+      source: 'project',
+      url: 'https://mcp.example.com',
+    });
+    expect(await screen.findByText('https://mcp.example.com')).toBeTruthy();
+  });
+
+  it('creates HTTP bearer MCP servers from settings', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const httpServer = {
+      args: [],
+      authType: 'bearer',
+      command: null,
+      connectionType: 'http',
+      enabled: true,
+      envKeys: [],
+      groupName: 'repo',
+      hasAuthHeader: true,
+      name: 'search-prime',
+      pluginName: null,
+      projectPath: '/repo',
+      provider: 'claude-code',
+      source: 'project',
+      status: 'needs-auth',
+      tools: [],
+      url: 'https://mcp.example.com',
+    };
+
+    listAiMcpServersMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([httpServer]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'MCP Servers' }),
+    );
+    await user.click(screen.getByRole('button', { name: '添加第一个 server' }));
+    await user.click(screen.getByRole('combobox', { name: 'Scope' }));
+    await user.click(await screen.findByRole('option', { name: 'Project: repo' }));
+    await user.click(screen.getByRole('combobox', { name: 'Transport' }));
+    await user.click(await screen.findByRole('option', { name: 'HTTP (SSE)' }));
+    await user.type(screen.getByLabelText('Name'), 'search-prime');
+    await user.type(screen.getByLabelText('URL'), 'https://mcp.example.com');
+    await user.click(screen.getByRole('button', { name: 'Bearer Token' }));
+    await user.type(screen.getByLabelText('Bearer token'), 'mcp-token');
+    await user.click(screen.getByRole('button', { name: '添加' }));
+
+    expect(createAiMcpServerMock).toHaveBeenCalledWith('/repo', {
+      args: [],
+      authType: 'bearer',
+      bearerToken: 'mcp-token',
+      command: null,
+      connectionType: 'http',
+      env: {},
+      name: 'search-prime',
+      provider: 'claude-code',
+      source: 'project',
+      url: 'https://mcp.example.com',
+    });
+    expect(await screen.findByText('Authorization 已配置')).toBeTruthy();
+  });
+
+  it('creates Codex MCP servers with global scope from settings', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const codexServer = {
+      args: [],
+      authStatus: 'not_logged_in',
+      command: null,
+      connectionType: 'http',
+      enabled: true,
+      envKeys: [],
+      groupName: 'Global',
+      name: 'codex-http',
+      needsAuth: true,
+      pluginName: null,
+      projectPath: null,
+      provider: 'codex',
+      source: 'global',
+      status: 'needs-auth',
+      tools: [],
+      url: 'https://mcp.example.com',
+    };
+
+    listAiMcpServersMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([codexServer]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'MCP Servers' }),
+    );
+    await user.click(screen.getByRole('button', { name: '添加第一个 server' }));
+    await user.click(screen.getByRole('combobox', { name: 'Provider' }));
+    await user.click(
+      await screen.findByRole('option', { name: 'OpenAI Codex' }),
+    );
+    await user.click(screen.getByRole('combobox', { name: 'Transport' }));
+    await user.click(await screen.findByRole('option', { name: 'HTTP (SSE)' }));
+    await user.type(screen.getByLabelText('Name'), 'codex-http');
+    await user.type(screen.getByLabelText('URL'), 'https://mcp.example.com');
+    await user.click(screen.getByRole('button', { name: '添加' }));
+
+    expect(createAiMcpServerMock).toHaveBeenCalledWith('/repo', {
+      args: [],
+      authType: null,
+      bearerToken: null,
+      command: null,
+      connectionType: 'http',
+      env: {},
+      name: 'codex-http',
+      provider: 'codex',
+      source: 'global',
+      url: 'https://mcp.example.com',
+    });
+    expect(await screen.findByText('CODEX')).toBeTruthy();
+  });
+
+  it('authenticates and logs out Codex MCP servers from settings', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const unauthenticatedServer = {
+      args: [],
+      authStatus: 'not_logged_in',
+      command: null,
+      connectionType: 'http',
+      enabled: true,
+      envKeys: [],
+      groupName: 'Global',
+      name: 'codex-http',
+      needsAuth: true,
+      pluginName: null,
+      projectPath: null,
+      provider: 'codex',
+      source: 'global',
+      status: 'needs-auth',
+      tools: [],
+      url: 'https://mcp.example.com',
+    };
+    const authenticatedServer = {
+      ...unauthenticatedServer,
+      authStatus: 'o_auth',
+      needsAuth: false,
+      status: 'connected',
+    };
+
+    listAiMcpServersMock
+      .mockResolvedValueOnce([unauthenticatedServer])
+      .mockResolvedValueOnce([authenticatedServer])
+      .mockResolvedValueOnce([unauthenticatedServer]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'MCP Servers' }),
+    );
+    await user.click(await screen.findByRole('button', { name: '认证' }));
+
+    expect(authenticateAiMcpServerMock).toHaveBeenCalledWith('/repo', {
+      name: 'codex-http',
+      projectPath: null,
+      provider: 'codex',
+    });
+    await user.click(await screen.findByRole('button', { name: '退出' }));
+
+    expect(logoutAiMcpServerMock).toHaveBeenCalledWith('/repo', {
+      name: 'codex-http',
+      projectPath: null,
+      provider: 'codex',
+    });
+  });
+
+  it('only shows Codex MCP logout for OAuth or bearer-token auth status like 1Code', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    listAiMcpServersMock.mockResolvedValue([
+      {
+        args: [],
+        authStatus: 'not_logged_in',
+        authType: 'bearer',
+        command: null,
+        connectionType: 'http',
+        enabled: true,
+        envKeys: [],
+        groupName: 'Global',
+        hasAuthHeader: true,
+        name: 'codex-http',
+        needsAuth: false,
+        pluginName: null,
+        projectPath: null,
+        provider: 'codex',
+        source: 'global',
+        status: 'connected',
+        tools: [],
+        url: 'https://mcp.example.com',
+      },
+    ]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'MCP Servers' }),
+    );
+
+    expect(await screen.findByRole('heading', { name: 'codex-http' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '退出' })).toBeNull();
+  });
+
+  it('authenticates and logs out Claude HTTP MCP servers from settings', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const unauthenticatedServer = {
+      args: [],
+      authType: 'oauth',
+      command: null,
+      connectionType: 'http',
+      enabled: true,
+      envKeys: [],
+      groupName: 'repo',
+      hasAuthHeader: false,
+      name: 'figma',
+      needsAuth: true,
+      pluginName: null,
+      projectPath: '/repo',
+      provider: 'claude-code',
+      source: 'project',
+      status: 'needs-auth',
+      tools: [],
+      url: 'https://mcp.example.com/mcp',
+    };
+    const authenticatedServer = {
+      ...unauthenticatedServer,
+      hasAuthHeader: true,
+      needsAuth: false,
+      status: 'connected',
+    };
+
+    listAiMcpServersMock
+      .mockResolvedValueOnce([unauthenticatedServer])
+      .mockResolvedValueOnce([authenticatedServer])
+      .mockResolvedValueOnce([unauthenticatedServer]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'MCP Servers' }),
+    );
+    await user.click(await screen.findByRole('button', { name: '认证' }));
+
+    expect(authenticateAiMcpServerMock).toHaveBeenCalledWith('/repo', {
+      name: 'figma',
+      projectPath: '/repo',
+      provider: 'claude-code',
+    });
+    await user.click(await screen.findByRole('button', { name: '退出' }));
+
+    expect(logoutAiMcpServerMock).toHaveBeenCalledWith('/repo', {
+      name: 'figma',
+      projectPath: '/repo',
+      provider: 'claude-code',
+    });
+  });
+
+  it('shows Reconnect for connected MCP servers that still need auth like 1Code', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    listAiMcpServersMock.mockResolvedValue([
+      {
+        args: [],
+        authType: 'oauth',
+        command: null,
+        connectionType: 'http',
+        enabled: true,
+        envKeys: [],
+        groupName: 'repo',
+        hasAuthHeader: true,
+        name: 'figma',
+        needsAuth: true,
+        pluginName: null,
+        projectPath: '/repo',
+        provider: 'claude-code',
+        source: 'project',
+        status: 'connected',
+        tools: [],
+        url: 'https://mcp.example.com/mcp',
+      },
+    ]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'MCP Servers' }),
+    );
+    await user.click(await screen.findByRole('button', { name: '重新连接' }));
+
+    expect(screen.queryByRole('button', { name: '认证' })).toBeNull();
+    expect(authenticateAiMcpServerMock).toHaveBeenCalledWith('/repo', {
+      name: 'figma',
+      projectPath: '/repo',
+      provider: 'claude-code',
+    });
+  });
+
+  it('keeps the promoted global MCP server selected after plugin authentication like 1Code', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const pluginServer = {
+      args: [],
+      authType: 'oauth',
+      command: null,
+      connectionType: 'http',
+      enabled: true,
+      envKeys: [],
+      groupName: 'Plugin: market:plugin-one',
+      hasAuthHeader: false,
+      name: 'figma',
+      needsAuth: true,
+      pluginName: 'market:plugin-one',
+      projectPath: null,
+      provider: 'claude-code',
+      source: 'plugin',
+      status: 'needs-auth',
+      tools: [],
+      url: 'https://mcp.example.com/mcp',
+    };
+    const unrelatedServer = {
+      ...pluginServer,
+      groupName: 'Global',
+      hasAuthHeader: true,
+      name: 'alpha',
+      needsAuth: false,
+      pluginName: null,
+      source: 'global',
+      status: 'connected',
+    };
+    const promotedServer = {
+      ...pluginServer,
+      groupName: 'Global',
+      hasAuthHeader: true,
+      needsAuth: false,
+      pluginName: null,
+      source: 'global',
+      status: 'connected',
+      tools: [{ description: 'Open Figma files', name: 'open_file' }],
+    };
+
+    listAiMcpServersMock
+      .mockResolvedValueOnce([pluginServer])
+      .mockResolvedValueOnce([unrelatedServer, promotedServer]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'MCP Servers' }),
+    );
+    await user.click(await screen.findByRole('button', { name: '认证' }));
+
+    expect(authenticateAiMcpServerMock).toHaveBeenCalledWith('/repo', {
+      name: 'figma',
+      projectPath: null,
+      provider: 'claude-code',
+    });
+    expect(await screen.findByRole('heading', { name: 'figma' })).toBeTruthy();
+    expect(screen.getByText('open_file')).toBeTruthy();
+    expect(
+      screen
+        .getByRole('button', { name: /figma/ })
+        .getAttribute('aria-current'),
+    ).toBe('true');
+  });
+
+  it('approves pending plugin MCP servers from settings', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const pendingPluginServer = {
+      args: ['-y', '@upstash/context7'],
+      command: 'npx',
+      connectionType: 'stdio',
+      enabled: true,
+      envKeys: ['CONTEXT7_API_KEY'],
+      groupName: 'Plugin: market:plugin-one',
+      name: 'context7',
+      pluginName: 'market:plugin-one',
+      projectPath: null,
+      provider: 'claude-code',
+      source: 'plugin',
+      status: 'pending-approval',
+      tools: [],
+      url: null,
+    };
+    const approvedPluginServer = {
+      ...pendingPluginServer,
+      status: 'connected',
+      tools: [{ description: 'Resolve docs', name: 'resolve-library-id' }],
+    };
+
+    listAiMcpServersMock
+      .mockResolvedValueOnce([pendingPluginServer])
+      .mockResolvedValueOnce([approvedPluginServer]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'MCP Servers' }),
+    );
+    expect((await screen.findAllByText('pending-approval')).length).toBeGreaterThan(0);
+    await user.click(
+      screen.getByRole('button', { name: '批准 plugin MCP server' }),
+    );
+
+    expect(setAiPluginMcpServerApprovedMock).toHaveBeenCalledWith(
+      'market:plugin-one',
+      'context7',
+      true,
+    );
+    expect(await screen.findByText('resolve-library-id')).toBeTruthy();
+  });
+
+  it('revokes approved plugin MCP servers from settings', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const approvedPluginServer = {
+      args: ['-y', '@upstash/context7'],
+      command: 'npx',
+      connectionType: 'stdio',
+      enabled: true,
+      envKeys: [],
+      groupName: 'Plugin: market:plugin-one',
+      name: 'context7',
+      pluginName: 'market:plugin-one',
+      projectPath: null,
+      provider: 'claude-code',
+      source: 'plugin',
+      status: 'connected',
+      tools: [{ description: 'Resolve docs', name: 'resolve-library-id' }],
+      url: null,
+    };
+    const pendingPluginServer = {
+      ...approvedPluginServer,
+      status: 'pending-approval',
+      tools: [],
+    };
+
+    listAiMcpServersMock
+      .mockResolvedValueOnce([approvedPluginServer])
+      .mockResolvedValueOnce([pendingPluginServer]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'MCP Servers' }),
+    );
+    expect(await screen.findByText('resolve-library-id')).toBeTruthy();
+    await user.click(
+      screen.getByRole('button', {
+        name: '撤销 plugin MCP server 批准',
+      }),
+    );
+
+    expect(setAiPluginMcpServerApprovedMock).toHaveBeenCalledWith(
+      'market:plugin-one',
+      'context7',
+      false,
+    );
+    expect((await screen.findAllByText('pending-approval')).length).toBeGreaterThan(
+      0,
+    );
+  });
+
+  it('shows 1Code-style empty state for MCP servers', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    listAiMcpServersMock.mockResolvedValue([]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'MCP Servers' }),
+    );
+
+    expect(await screen.findByTestId('mcp-empty-sidebar-icon')).toBeTruthy();
+    expect(screen.getByTestId('mcp-empty-detail-icon')).toBeTruthy();
+    expect(screen.getByText('暂无 MCP servers')).toBeTruthy();
+    expect(screen.getByText('未配置 MCP servers')).toBeTruthy();
+  });
+
+  it('shows No tools for connected Claude MCP servers without tools like 1Code', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    listAiMcpServersMock.mockResolvedValue([
+      {
+        args: ['-y', '@upstash/context7'],
+        command: 'npx',
+        connectionType: 'stdio',
+        enabled: true,
+        envKeys: [],
+        groupName: 'Global',
+        name: 'context7',
+        pluginName: null,
+        projectPath: null,
+        provider: 'claude-code',
+        source: 'global',
+        status: 'connected',
+        tools: [],
+        url: null,
+      },
+    ]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'MCP Servers' }),
+    );
+
+    const serverButton = await screen.findByRole('button', { name: /context7/ });
+    expect(within(serverButton).getByText('无 tools')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'context7' })).toBeTruthy();
+    expect(screen.getAllByText('无 tools').length).toBeGreaterThanOrEqual(1);
+    expect(within(serverButton).queryByText('connected')).toBeNull();
+  });
+
+  it('shows 1Code-style MCP server list detail layout and filters servers', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const claudeServer = {
+      args: ['-y', '@z_ai/mcp-server'],
+      command: 'npx',
+      connectionType: 'stdio',
+      enabled: true,
+      envKeys: ['Z_AI_API_KEY'],
+      error: 'MCP initialize failed: missing Z_AI_API_KEY',
+      groupName: 'Global',
+      name: 'zai-mcp-server',
+      pluginName: null,
+      projectPath: null,
+      provider: 'claude-code',
+      source: 'global',
+      status: 'connected',
+      tools: [
+        {
+          description: 'Convert UI screenshots into artifacts',
+          name: 'ui_to_artifact',
+        },
+        {
+          description: 'Extract text from screenshots',
+          name: 'extract_text_from_screenshot',
+        },
+      ],
+      url: null,
+    };
+    const codexServer = {
+      args: [],
+      command: null,
+      connectionType: 'http',
+      enabled: true,
+      envKeys: [],
+      groupName: 'Global',
+      name: 'context7',
+      pluginName: null,
+      projectPath: null,
+      provider: 'codex',
+      source: 'global',
+      status: 'connected',
+      tools: [{ description: 'Resolve docs', name: 'resolve-library-id' }],
+      url: 'https://mcp.context7.com/sse',
+    };
+
+    listAiMcpServersMock.mockResolvedValue([claudeServer, codexServer]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'MCP Servers' }),
+    );
+
+    expect(
+      await screen.findByRole('searchbox', { name: '搜索 MCP servers' }),
+    ).toBeTruthy();
+    expect(screen.getByTestId('workspace-settings-content').className).toContain(
+      'h-full',
+    );
+    expect(screen.getByTestId('ai-mcp-settings-shell').className).toContain(
+      'h-full',
+    );
+    expect(screen.getByTestId('ai-mcp-settings-shell').className).not.toContain(
+      'mx-auto',
+    );
+    expect(screen.getByTestId('ai-mcp-settings-sidebar').className).toContain(
+      'bg-background',
+    );
+    expect(screen.getByTestId('ai-mcp-search-row').className).toContain('px-2');
+    expect(screen.getByTestId('ai-mcp-search-input').className).toContain('h-7');
+    expect(screen.getByTestId('ai-mcp-search-input').className).not.toContain(
+      'h-9',
+    );
+    expect(screen.getByText('CLAUDE CODE')).toBeTruthy();
+    expect(screen.getByText('CODEX')).toBeTruthy();
+    expect(
+      screen
+        .getByRole('button', { name: /zai-mcp-server/ })
+        .getAttribute('aria-current'),
+    ).toBe('true');
+    expect(
+      screen.getByRole('heading', { name: 'zai-mcp-server' }),
+    ).toBeTruthy();
+    expect(screen.getByTestId('ai-mcp-detail-shell').className).toContain(
+      'h-full',
+    );
+    expect(screen.getByTestId('ai-mcp-detail-shell').className).toContain(
+      'overflow-y-auto',
+    );
+    expect(screen.getByTestId('ai-mcp-detail-inner').className).toContain(
+      'max-w-2xl',
+    );
+    expect(screen.getByTestId('ai-mcp-detail-inner').className).toContain(
+      'p-6',
+    );
+    expect(screen.getByTestId('ai-mcp-detail-title').className).toContain(
+      'text-sm',
+    );
+    expect(screen.getByTestId('ai-mcp-detail-title').className).not.toContain(
+      'text-[18px]',
+    );
+    expect(screen.getAllByText('2 个 tool').length).toBeGreaterThan(0);
+    expect(screen.getByText('启用')).toBeTruthy();
+    expect(screen.getByText('连接')).toBeTruthy();
+    expect(screen.getByText('连接').className).toContain('text-xs');
+    expect(screen.getByText('Tools (2)')).toBeTruthy();
+    expect(screen.getByText('ui_to_artifact')).toBeTruthy();
+    expect(screen.getByText('ui_to_artifact').className).toContain('text-[13px]');
+    expect(
+      screen.getByText('Convert UI screenshots into artifacts').className,
+    ).toContain('text-xs');
+    expect(screen.getByText('Z_AI_API_KEY')).toBeTruthy();
+    expect(screen.getByText('错误')).toBeTruthy();
+    expect(
+      screen.getByText('MCP initialize failed: missing Z_AI_API_KEY'),
+    ).toBeTruthy();
+
+    await user.type(
+      screen.getByRole('searchbox', { name: '搜索 MCP servers' }),
+      'context',
+    );
+    expect(screen.queryByRole('button', { name: /zai-mcp-server/ })).toBeNull();
+    const codexServerButton = screen.getByRole('button', { name: /context7/ });
+    expect(within(codexServerButton).getByText('已连接')).toBeTruthy();
+    expect(within(codexServerButton).queryByText('1 个 tool')).toBeNull();
+    await user.click(codexServerButton);
+    expect(screen.getByText('https://mcp.context7.com/sse')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Tools' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Tools (1)' })).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: '添加 MCP server' }));
+    expect(screen.getByRole('heading', { name: '新建 MCP Server' })).toBeTruthy();
+    expect(screen.getByText('Provider')).toBeTruthy();
+    expect(screen.getByText('Transport')).toBeTruthy();
+  });
+
+  it('keeps Claude and Codex MCP servers with the same name selectable independently', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    const claudeServer = {
+      args: ['-y', '@upstash/context7-mcp'],
+      command: 'npx',
+      connectionType: 'stdio',
+      enabled: true,
+      envKeys: [],
+      groupName: 'Global',
+      name: 'context7',
+      pluginName: null,
+      projectPath: null,
+      provider: 'claude-code',
+      source: 'global',
+      status: 'connected',
+      tools: [{ description: 'Resolve docs via Claude', name: 'resolve' }],
+      url: null,
+    };
+    const codexServer = {
+      ...claudeServer,
+      args: [],
+      command: null,
+      connectionType: 'http',
+      provider: 'codex',
+      tools: [{ description: 'Resolve docs via Codex', name: 'resolve' }],
+      url: 'https://mcp.context7.com/sse',
+    };
+
+    listAiMcpServersMock.mockResolvedValue([claudeServer, codexServer]);
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'MCP Servers' }),
+    );
+
+    const serverButtons = await screen.findAllByRole('button', {
+      name: /context7/,
+    });
+    expect(serverButtons).toHaveLength(2);
+    expect(serverButtons[0].getAttribute('aria-current')).toBe('true');
+    expect(serverButtons[1].getAttribute('aria-current')).toBe(null);
+
+    await user.click(serverButtons[1]);
+
+    expect(serverButtons[0].getAttribute('aria-current')).toBe(null);
+    expect(serverButtons[1].getAttribute('aria-current')).toBe('true');
+    expect(screen.getByText('https://mcp.context7.com/sse')).toBeTruthy();
+    expect(screen.queryByText('npx')).toBeNull();
   });
 
   it('filters appearance settings with the settings search input', async () => {
@@ -2345,7 +6839,9 @@ describe('WorkspaceLayout', () => {
 
     await user.type(searchInput, '引用');
 
-    expect(screen.getByDisplayValue('madora-asset://{assetId}')).toBeTruthy();
+    expect(
+      screen.getByDisplayValue('.madora/assets/files/{shard}/{hash}.{ext}'),
+    ).toBeTruthy();
     expect(screen.queryByText('资源目录')).toBeNull();
     expect(screen.queryByText('清理策略')).toBeNull();
 
@@ -2600,10 +7096,6 @@ describe('WorkspaceLayout', () => {
       }),
       node: createdNode,
     });
-    loadWorkspaceTreeMock.mockResolvedValueOnce({
-      ...snapshot,
-      nodes: [createdNode],
-    });
     readMarkdownDocumentMock.mockResolvedValueOnce(markdownDocument({
       body: '',
       path: createdNode.absolutePath,
@@ -2618,6 +7110,7 @@ describe('WorkspaceLayout', () => {
       '',
       '未命名文档',
     );
+    expect(loadWorkspaceTreeMock).not.toHaveBeenCalled();
     expect(await screen.findByTestId('markdown-editor')).toBeTruthy();
   });
 
@@ -2631,19 +7124,6 @@ describe('WorkspaceLayout', () => {
       absolutePath: '/repo/未命名目录',
       children: [],
     });
-    loadWorkspaceTreeMock.mockResolvedValueOnce({
-      ...snapshot,
-      nodes: [
-        {
-          id: '未命名目录',
-          name: '未命名目录',
-          kind: 'directory',
-          relativePath: '未命名目录',
-          absolutePath: '/repo/未命名目录',
-          children: [],
-        },
-      ],
-    });
     render(<WorkspaceLayout initialSnapshot={{ ...snapshot, nodes: [] }} />);
 
     await user.click(screen.getAllByRole('button', { name: '新建目录' })[1]);
@@ -2653,6 +7133,7 @@ describe('WorkspaceLayout', () => {
       '',
       '未命名目录',
     );
+    expect(loadWorkspaceTreeMock).not.toHaveBeenCalled();
     expect(await screen.findByDisplayValue('未命名目录')).toBeTruthy();
   });
 
@@ -2712,10 +7193,6 @@ describe('WorkspaceLayout', () => {
       absolutePath: '/repo/未命名目录',
       children: [],
     });
-    loadWorkspaceTreeMock.mockResolvedValue({
-      ...snapshot,
-      nodes: snapshot.nodes,
-    });
     readMarkdownDocumentMock.mockResolvedValueOnce(markdownDocument({
       body: '',
       path: '/repo/未命名文档.md',
@@ -2738,6 +7215,7 @@ describe('WorkspaceLayout', () => {
       '',
       '未命名目录',
     );
+    expect(loadWorkspaceTreeMock).not.toHaveBeenCalled();
   });
 
   it('does not render the duplicated bottom workspace switcher', () => {
@@ -2813,6 +7291,154 @@ describe('WorkspaceLayout', () => {
     });
     expect(screen.queryByText('/repo')).toBeNull();
     expect(screen.getByText('打开一个工作区')).toBeTruthy();
+  });
+
+  it('auto-advances to the next workspace when removing the current workspace', async () => {
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    readAppSettingsMock.mockResolvedValueOnce({
+      ...defaultAppSettings,
+      ai: {
+        ...defaultAppSettings.ai,
+        autoAdvanceTarget: 'next',
+      },
+    });
+    const user = userEvent.setup();
+    const docsSnapshot: WorkspaceSnapshot = {
+      rootName: 'docs',
+      rootPath: '/docs',
+      nodes: [],
+    };
+
+    loadWorkspaceTreeMock.mockResolvedValueOnce(docsSnapshot);
+    window.localStorage.setItem(
+      'madora:workspace-history',
+      JSON.stringify([
+        {
+          rootName: 'repo',
+          rootPath: '/repo',
+          lastOpenedAt: 3,
+        },
+        {
+          rootName: 'docs',
+          rootPath: '/docs',
+          lastOpenedAt: 2,
+        },
+      ]),
+    );
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+    await waitFor(() => expect(readAppSettingsMock).toHaveBeenCalled());
+
+    await user.click(screen.getByRole('button', { name: '打开工作区菜单' }));
+    await user.click(screen.getByRole('button', { name: '移除工作区 repo' }));
+
+    await waitFor(() => {
+      expect(loadWorkspaceTreeMock).toHaveBeenCalledWith('/docs');
+      expect(screen.getAllByText('docs').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('/docs').length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByText('打开一个工作区')).toBeNull();
+  });
+
+  it('auto-advances to the previous workspace when removing the current workspace', async () => {
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    readAppSettingsMock.mockResolvedValueOnce({
+      ...defaultAppSettings,
+      ai: {
+        ...defaultAppSettings.ai,
+        autoAdvanceTarget: 'previous',
+      },
+    });
+    const user = userEvent.setup();
+    const notesSnapshot: WorkspaceSnapshot = {
+      rootName: 'notes',
+      rootPath: '/notes',
+      nodes: [],
+    };
+
+    loadWorkspaceTreeMock.mockResolvedValueOnce(notesSnapshot);
+    window.localStorage.setItem(
+      'madora:workspace-history',
+      JSON.stringify([
+        {
+          rootName: 'notes',
+          rootPath: '/notes',
+          lastOpenedAt: 4,
+        },
+        {
+          rootName: 'repo',
+          rootPath: '/repo',
+          lastOpenedAt: 3,
+        },
+        {
+          rootName: 'docs',
+          rootPath: '/docs',
+          lastOpenedAt: 2,
+        },
+      ]),
+    );
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+    await waitFor(() => expect(readAppSettingsMock).toHaveBeenCalled());
+
+    await user.click(screen.getByRole('button', { name: '打开工作区菜单' }));
+    await user.click(screen.getByRole('button', { name: '移除工作区 repo' }));
+
+    await waitFor(() => {
+      expect(loadWorkspaceTreeMock).toHaveBeenCalledWith('/notes');
+      expect(screen.getAllByText('notes').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('/notes').length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByText('打开一个工作区')).toBeNull();
+  });
+
+  it('keeps the workspace closed when auto-advance is set to close', async () => {
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    readAppSettingsMock.mockResolvedValueOnce({
+      ...defaultAppSettings,
+      ai: {
+        ...defaultAppSettings.ai,
+        autoAdvanceTarget: 'close',
+      },
+    });
+    const user = userEvent.setup();
+
+    window.localStorage.setItem(
+      'madora:workspace-history',
+      JSON.stringify([
+        {
+          rootName: 'repo',
+          rootPath: '/repo',
+          lastOpenedAt: 3,
+        },
+        {
+          rootName: 'docs',
+          rootPath: '/docs',
+          lastOpenedAt: 2,
+        },
+      ]),
+    );
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+    await waitFor(() => expect(readAppSettingsMock).toHaveBeenCalled());
+
+    await user.click(screen.getByRole('button', { name: '打开工作区菜单' }));
+    await user.click(screen.getByRole('button', { name: '移除工作区 repo' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('打开一个工作区')).toBeTruthy();
+    });
+    expect(loadWorkspaceTreeMock).not.toHaveBeenCalled();
+    expect(screen.queryByText('/repo')).toBeNull();
   });
 
   it('removes duplicated workspace display above search box', () => {

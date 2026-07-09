@@ -17,8 +17,11 @@ interface WorkspaceSidebarProps {
   onCreateDocument?: (parentPath: string) => Promise<WorkspaceNode | null> | void;
   onOpenDailyNote?: () => void;
   onOpenInFileManager?: (node: WorkspaceNode) => void;
+  onOpenInPreferredEditor?: (node: WorkspaceNode) => void;
   onOpenViews?: () => void;
   onOpenSettings?: () => void;
+  onRemoveWorkspace?: (rootPath: string) => void;
+  preferredEditorLabel?: string;
   revealDirectoryPath?: string | null;
   onSelectDirectory?: (node: WorkspaceNode) => Promise<void> | void;
   onSelectDocument?: (node: WorkspaceNode) => void;
@@ -33,8 +36,11 @@ export function WorkspaceSidebar({
   onCreateDocument,
   onOpenDailyNote,
   onOpenInFileManager,
+  onOpenInPreferredEditor,
   onOpenViews,
   onOpenSettings,
+  onRemoveWorkspace,
+  preferredEditorLabel,
   revealDirectoryPath,
   onSelectDirectory,
   onSelectDocument,
@@ -79,6 +85,7 @@ export function WorkspaceSidebar({
           workspace={workspace}
           onCreateDirectory={() => void workspace.createDirectory('')}
           onCreateDocument={() => void createDocument('')}
+          onRemoveWorkspace={onRemoveWorkspace}
         />
 
         {workspace.snapshot ? (
@@ -135,7 +142,9 @@ export function WorkspaceSidebar({
               onImportMarkdown={workspace.importMarkdownDocuments}
               onMoveNode={workspace.moveNode}
               onOpenInFileManager={onOpenInFileManager}
+              onOpenInPreferredEditor={onOpenInPreferredEditor}
               onPendingRenameConsumed={workspace.clearPendingRenameNode}
+              preferredEditorLabel={preferredEditorLabel}
               revealDirectoryPath={revealDirectoryPath}
               onRenameNode={workspace.renameNode}
               onSelectDirectory={selectDirectory}
@@ -184,10 +193,12 @@ function WorkspaceSidebarHeader({
   workspace,
   onCreateDirectory,
   onCreateDocument,
+  onRemoveWorkspace,
 }: {
   workspace: ReturnType<typeof useWorkspace>;
   onCreateDirectory: () => void;
   onCreateDocument: () => void;
+  onRemoveWorkspace?: (rootPath: string) => void;
 }) {
   const [searchExpanded, setSearchExpanded] = useState(false);
   const searchRootRef = useRef<HTMLDivElement>(null);
@@ -235,7 +246,7 @@ function WorkspaceSidebarHeader({
           onCreateDocument={onCreateDocument}
           onCreateWorkspace={workspace.createWorkspace}
           onOpenWorkspace={workspace.openWorkspace}
-          onRemoveWorkspace={workspace.removeWorkspace}
+          onRemoveWorkspace={onRemoveWorkspace ?? workspace.removeWorkspace}
           onSwitchWorkspace={workspace.switchWorkspace}
         />
 

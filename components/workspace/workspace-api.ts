@@ -1,12 +1,22 @@
 import type {
   AiAssistantAccount,
+  CodexIntegrationStatus,
+  CodexLoginCancelResult,
+  CodexLoginOpenUrlResult,
+  CodexLoginSession,
+  CodexLogoutResult,
   AiAgentProfile,
+  AiDetectedModel,
+  AiConversationRecord,
+  AiConversationSummary,
   AiRuntimeEvent,
   AiSessionInfo,
+  RespondAiPermissionInput,
   SendAiPromptInput,
   StartAiSessionInput,
 } from './ai-panel/ai-types';
 import type {
+  AiPreferredEditor,
   CreatedMarkdownDocument,
   AppSettings,
   DailyNoteDocument,
@@ -41,6 +51,31 @@ import type {
   SystemFontOptions,
 } from './workspace-types';
 import type { AiProviderJsonRequest } from './ai-provider/provider-requests';
+import type {
+  AiCommandDeleteInput,
+  AiCommandItem,
+  AiCommandWriteInput,
+  AiAnthropicAccountItem,
+  AiAnthropicAccountImportInput,
+  AiClaudeCodeAuthCodeInput,
+  AiClaudeCodeAuthStartResult,
+  AiClaudeCodeAuthStatus,
+  AiClaudeCodeAuthStatusInput,
+  AiClaudeCodeAuthSuccessResult,
+  AiCustomAgentDeleteInput,
+  AiCustomAgentItem,
+  AiCustomAgentWriteInput,
+  AiMcpServerItem,
+  AiMcpServerAuthInput,
+  AiMcpServerDeleteInput,
+  AiMcpServerToggleInput,
+  AiMcpServerUpdateInput,
+  AiMcpServerWriteInput,
+  AiPluginItem,
+  AiSkillDeleteInput,
+  AiSkillItem,
+  AiSkillWriteInput,
+} from './ai-settings/ai-settings-types';
 import { getParentPath } from './workspace-paths';
 
 import type { UnlistenFn } from '@tauri-apps/api/event';
@@ -359,6 +394,19 @@ export async function openPathInFileManager(path: string) {
   await revealItemInDir(path);
 }
 
+export async function openPathInPreferredEditor(
+  path: string,
+  app: AiPreferredEditor,
+) {
+  if (!isTauriRuntime()) {
+    return;
+  }
+
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  await invoke<void>('open_path_in_preferred_editor', { app, path });
+}
+
 export async function readAppSettings() {
   const { invoke } = await import('@tauri-apps/api/core');
 
@@ -605,6 +653,388 @@ export async function detectAiAccounts() {
   return invoke<AiAssistantAccount[]>('detect_ai_accounts');
 }
 
+export async function logoutCodexAccount() {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<CodexLogoutResult>('logout_codex_account');
+}
+
+export async function getCodexIntegration() {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<CodexIntegrationStatus>('get_codex_integration');
+}
+
+export async function startCodexLogin() {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<CodexLoginSession>('start_codex_login');
+}
+
+export async function getCodexLoginSession(sessionId: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<CodexLoginSession>('get_codex_login_session', { sessionId });
+}
+
+export async function cancelCodexLogin(sessionId: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<CodexLoginCancelResult>('cancel_codex_login', { sessionId });
+}
+
+export async function openCodexLoginUrl(url: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<CodexLoginOpenUrlResult>('open_codex_login_url', { url });
+}
+
+export async function listAiAgentModels(rootPath: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<AiDetectedModel[]>('list_ai_agent_models', { rootPath });
+}
+
+export async function listAiAnthropicAccounts() {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<AiAnthropicAccountItem[]>('list_ai_anthropic_accounts');
+}
+
+export async function importAiAnthropicAccountToken(
+  input: AiAnthropicAccountImportInput,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<AiAnthropicAccountItem>('import_ai_anthropic_account_token', {
+    displayName: input.displayName ?? null,
+    email: input.email ?? null,
+    token: input.token,
+  });
+}
+
+export async function setAiAnthropicAccountActive(accountId: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('set_ai_anthropic_account_active', { accountId });
+}
+
+export async function renameAiAnthropicAccount(
+  accountId: string,
+  displayName: string,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('rename_ai_anthropic_account', { accountId, displayName });
+}
+
+export async function deleteAiAnthropicAccount(accountId: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('delete_ai_anthropic_account', { accountId });
+}
+
+export async function startAiClaudeCodeAuth() {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<AiClaudeCodeAuthStartResult>('start_ai_claude_code_auth');
+}
+
+export async function pollAiClaudeCodeAuthStatus(
+  input: AiClaudeCodeAuthStatusInput,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<AiClaudeCodeAuthStatus>('poll_ai_claude_code_auth_status', {
+    sandboxUrl: input.sandboxUrl,
+    sessionId: input.sessionId,
+  });
+}
+
+export async function submitAiClaudeCodeAuthCode(
+  input: AiClaudeCodeAuthCodeInput,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<AiClaudeCodeAuthSuccessResult>('submit_ai_claude_code_auth_code', {
+    code: input.code,
+    sandboxUrl: input.sandboxUrl,
+    sessionId: input.sessionId,
+  });
+}
+
+export async function openAiClaudeCodeOAuthUrl(url: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<AiClaudeCodeAuthSuccessResult>('open_ai_claude_code_oauth_url', {
+    url,
+  });
+}
+
+export async function listAiSkills(rootPath: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<AiSkillItem[]>('list_ai_skills', { rootPath });
+}
+
+export async function listAiCommands(rootPath: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<AiCommandItem[]>('list_ai_commands', { rootPath });
+}
+
+export async function createAiSkill(rootPath: string, input: AiSkillWriteInput) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<string>('create_ai_skill', { rootPath, ...input });
+}
+
+export async function updateAiSkill(rootPath: string, input: AiSkillWriteInput) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<string>('update_ai_skill', { rootPath, ...input });
+}
+
+export async function deleteAiSkill(
+  rootPath: string,
+  input: AiSkillDeleteInput,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('delete_ai_skill', { rootPath, ...input });
+}
+
+export async function createAiCommand(
+  rootPath: string,
+  input: AiCommandWriteInput,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<string>('create_ai_command', { rootPath, ...input });
+}
+
+export async function updateAiCommand(
+  rootPath: string,
+  input: AiCommandWriteInput,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<string>('update_ai_command', { rootPath, ...input });
+}
+
+export async function deleteAiCommand(
+  rootPath: string,
+  input: AiCommandDeleteInput,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('delete_ai_command', { rootPath, ...input });
+}
+
+export async function listAiCustomAgents(rootPath: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<AiCustomAgentItem[]>('list_ai_custom_agents', { rootPath });
+}
+
+export async function createAiCustomAgent(
+  rootPath: string,
+  input: AiCustomAgentWriteInput,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<string>('create_ai_custom_agent', { rootPath, ...input });
+}
+
+export async function updateAiCustomAgent(
+  rootPath: string,
+  input: AiCustomAgentWriteInput,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<string>('update_ai_custom_agent', { rootPath, ...input });
+}
+
+export async function deleteAiCustomAgent(
+  rootPath: string,
+  input: AiCustomAgentDeleteInput,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('delete_ai_custom_agent', { rootPath, ...input });
+}
+
+export async function listAiMcpServers(rootPath: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<AiMcpServerItem[]>('list_ai_mcp_servers', { rootPath });
+}
+
+export async function createAiMcpServer(
+  rootPath: string,
+  input: AiMcpServerWriteInput,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<string>('create_ai_mcp_server', { rootPath, ...input });
+}
+
+export async function setAiMcpServerEnabled(
+  rootPath: string,
+  input: AiMcpServerToggleInput,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('set_ai_mcp_server_enabled', { rootPath, ...input });
+}
+
+export async function updateAiMcpServer(
+  rootPath: string,
+  input: AiMcpServerUpdateInput,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<string>('update_ai_mcp_server', { rootPath, ...input });
+}
+
+export async function deleteAiMcpServer(
+  rootPath: string,
+  input: AiMcpServerDeleteInput,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('delete_ai_mcp_server', { rootPath, ...input });
+}
+
+export async function authenticateAiMcpServer(
+  rootPath: string,
+  input: AiMcpServerAuthInput,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('authenticate_ai_mcp_server', { rootPath, ...input });
+}
+
+export async function logoutAiMcpServer(
+  rootPath: string,
+  input: AiMcpServerAuthInput,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('logout_ai_mcp_server', { rootPath, ...input });
+}
+
+export async function listAiPlugins() {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<AiPluginItem[]>('list_ai_plugins');
+}
+
+export async function setAiClaudeIncludeCoAuthoredBy(enabled: boolean) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('set_ai_claude_include_co_authored_by', { enabled });
+}
+
+export async function setAiPluginEnabled(source: string, enabled: boolean) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('set_ai_plugin_enabled', { source, enabled });
+}
+
+export async function setAiPluginMcpServerApproved(
+  pluginSource: string,
+  serverName: string,
+  approved: boolean,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('set_ai_plugin_mcp_server_approved', {
+    pluginSource,
+    serverName,
+    approved,
+  });
+}
+
+export async function setAiPluginMcpServersApproved(
+  pluginSource: string,
+  serverNames: string[],
+  approved: boolean,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('set_ai_plugin_mcp_servers_approved', {
+    pluginSource,
+    serverNames,
+    approved,
+  });
+}
+
+export async function listAiConversations(rootPath: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<AiConversationSummary[]>('list_ai_conversations', {
+    rootPath,
+  });
+}
+
+export async function readAiConversation(
+  rootPath: string,
+  conversationId: string,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<AiConversationRecord>('read_ai_conversation', {
+    conversationId,
+    rootPath,
+  });
+}
+
+export async function saveAiConversation(
+  rootPath: string,
+  record: AiConversationRecord,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<AiConversationSummary>('save_ai_conversation', {
+    record,
+    rootPath,
+  });
+}
+
+// v2 会话存储（parts 纵向流）。@author refinex
+// 与 v1 物理隔离（.v2.json 后缀），用于 B-J 子项目的 parts 纵向流渲染。
+export async function readAiConversationV2(
+  rootPath: string,
+  conversationId: string,
+): Promise<Record<string, unknown> | null> {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<Record<string, unknown> | null>('read_ai_conversation_v2', {
+    conversationId,
+    rootPath,
+  });
+}
+
+export async function saveAiConversationV2(
+  rootPath: string,
+  record: Record<string, unknown>,
+): Promise<void> {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  await invoke<void>('save_ai_conversation_v2', { record, rootPath });
+}
+
+export async function listAiConversationsV2(
+  rootPath: string,
+): Promise<Array<Record<string, unknown>>> {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<Array<Record<string, unknown>>>('list_ai_conversations_v2', {
+    rootPath,
+  });
+}
+
 export interface AiProviderSecretStatus {
   status: 'configured' | 'missing';
 }
@@ -678,6 +1108,12 @@ export async function cancelAiTurn(sessionId: string) {
   const { invoke } = await import('@tauri-apps/api/core');
 
   return invoke<void>('cancel_ai_turn', { sessionId });
+}
+
+export async function respondAiPermission(input: RespondAiPermissionInput) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('respond_ai_permission', { input });
 }
 
 export async function stopAiSession(sessionId: string) {

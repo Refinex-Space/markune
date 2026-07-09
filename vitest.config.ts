@@ -5,7 +5,7 @@ import { defineConfig } from 'vitest/config';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// mardora 的插件会 import katex/mermaid 等 CSS；测试环境下重定向到空模块。
+// Markweave 会 import katex/mermaid 等 CSS；测试环境下重定向到空模块。
 const cssStub = {
   name: 'css-stub',
   resolveId(source: string) {
@@ -33,11 +33,11 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     include: ['components/**/*.test.{ts,tsx}'],
-    // mardora 的 math/mermaid 插件 import CSS；强制 Vite 转换 mardora 包，
+    // Markweave 的 math/mermaid 插件 import CSS；强制 Vite 转换相关包，
     // 让 cssStub 插件能拦截 .css 导入。
     server: {
       deps: {
-        inline: ['mardora'],
+        inline: ['@markweave/react', 'markweave'],
       },
     },
   },

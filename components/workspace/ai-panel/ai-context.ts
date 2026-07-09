@@ -1,12 +1,21 @@
 import type { DocumentPanelData } from '@/components/workspace/ai-side-panel';
 import type { WorkspaceNode } from '@/components/workspace/workspace-types';
 
-import type { AiContextPack, AiIntent } from './ai-types';
+import type {
+  AiContextPack,
+  AiContextImage,
+  AiContextReference,
+  AiIntent,
+  AiSelectionContext,
+} from './ai-types';
 
 interface BuildAiContextPackInput {
   currentDocument: WorkspaceNode | null;
   documentPanelData: DocumentPanelData | null;
   intent: AiIntent;
+  images?: AiContextImage[];
+  references?: AiContextReference[];
+  selection?: AiSelectionContext | null;
   workspaceRootPath: string;
 }
 
@@ -14,10 +23,16 @@ export function buildAiContextPack({
   currentDocument,
   documentPanelData,
   intent,
+  images,
+  references,
+  selection,
   workspaceRootPath,
 }: BuildAiContextPackInput): AiContextPack {
   const context: AiContextPack = {
+    images,
     intent,
+    references,
+    selection: selection ?? undefined,
     workspaceRootPath,
   };
 

@@ -26,12 +26,13 @@ import { cn } from '@/lib/utils';
 
 import { DocumentMetaPanel } from './document-meta-panel';
 import { AiPanelContent } from './ai-panel/ai-panel-content';
+import type { AiSelectionContext } from './ai-panel/ai-types';
 import type {
   RightPanelMode,
   WorkspaceNode,
 } from './workspace-types';
 
-const AI_PANEL_AVAILABLE = false;
+const AI_PANEL_AVAILABLE = true;
 
 export interface DocumentPanelData {
   frontmatter: Record<string, string>;
@@ -44,10 +45,17 @@ interface RightSidePanelProps {
   documentPanelData: DocumentPanelData | null;
   documentReadOnly: boolean;
   mode: RightPanelMode;
+  selectedTextContext?: AiSelectionContext | null;
   settingsVersion: number;
   width: number;
   workspaceRootPath: string | null;
   onToggleDocumentReadOnly?: () => void;
+  onClearSelectedTextContext?: () => void;
+  onMarkdownDocumentApplied?: (document: {
+    content: string;
+    modifiedAt: number | null;
+    path: string;
+  }) => void;
   onOpenSettings: () => void;
 }
 
@@ -64,10 +72,13 @@ export function RightSidePanel({
   documentPanelData,
   documentReadOnly,
   mode,
+  selectedTextContext = null,
   settingsVersion,
   width,
   workspaceRootPath,
   onToggleDocumentReadOnly,
+  onClearSelectedTextContext,
+  onMarkdownDocumentApplied,
   onOpenSettings,
 }: RightSidePanelProps) {
   if (!mode) {
@@ -84,8 +95,11 @@ export function RightSidePanel({
         <AiPanelContent
           currentDocument={currentDocument}
           documentPanelData={documentPanelData}
+          selectedTextContext={selectedTextContext}
           settingsVersion={settingsVersion}
           workspaceRootPath={workspaceRootPath}
+          onClearSelectedTextContext={onClearSelectedTextContext}
+          onMarkdownDocumentApplied={onMarkdownDocumentApplied}
           onOpenSettings={onOpenSettings}
         />
       ) : (
@@ -122,9 +136,12 @@ export function RightToolRail({
         )}
         data-testid="right-tool-rail"
       >
-        <RightToolTooltip label="AI 面板暂不可用" orientation={orientation}>
+        <RightToolTooltip
+          label={mode === 'ai' ? '折叠 AI 面板' : '展开 AI 面板'}
+          orientation={orientation}
+        >
           <button
-            aria-label="AI 面板暂不可用"
+            aria-label={mode === 'ai' ? '折叠 AI 面板' : '展开 AI 面板'}
             className={cn(
               rightToolButtonClassName(),
               !AI_PANEL_AVAILABLE &&
@@ -132,7 +149,7 @@ export function RightToolRail({
             )}
             data-testid="ai-panel-icon-button"
             disabled={!AI_PANEL_AVAILABLE}
-            title="AI 面板暂不可用"
+            title={mode === 'ai' ? '折叠 AI 面板' : '展开 AI 面板'}
             type="button"
             onClick={() => onModeChange(nextMode('ai'))}
           >

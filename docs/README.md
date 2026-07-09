@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-06-19
+updated: 2026-06-23
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -41,6 +41,7 @@ These files are retained as historical planning/spec evidence. Prefer current so
 - `docs/superpowers/plans/2026-06-17-markora-editor-replacement.md`: [open](superpowers/plans/2026-06-17-markora-editor-replacement.md)
 - `docs/superpowers/plans/2026-06-19-ai-panel-agent-runtime-v0-1.md`: [open](superpowers/plans/2026-06-19-ai-panel-agent-runtime-v0-1.md)
 - `docs/superpowers/plans/2026-06-19-ai-provider-runtime-secret-store.md`: [open](superpowers/plans/2026-06-19-ai-provider-runtime-secret-store.md)
+- `docs/superpowers/plans/2026-06-23-1code-ai-settings-parity.md`: [open](superpowers/plans/2026-06-23-1code-ai-settings-parity.md)
 - `docs/superpowers/specs/2026-05-30-markdown-document-edit-save-design.md`: [open](superpowers/specs/2026-05-30-markdown-document-edit-save-design.md)
 - `docs/superpowers/specs/2026-05-30-native-plate-workspace-design.md`: [open](superpowers/specs/2026-05-30-native-plate-workspace-design.md)
 - `docs/superpowers/specs/2026-05-30-workspace-main-layout-design.md`: [open](superpowers/specs/2026-05-30-workspace-main-layout-design.md)

@@ -56,6 +56,27 @@ describe('extractResourceReferencesFromMarkdown', () => {
     });
   });
 
+  it('提取 .madora/assets/files 相对路径图片引用', () => {
+    const markdown =
+      '![图](.madora/assets/files/ab/hash-a.png)\n![图2](.madora/assets/files/cd/hash-b.webp)';
+    const refs = extractResourceReferencesFromMarkdown(markdown);
+
+    expect(refs).toEqual([
+      {
+        id: 'hash-a',
+        nodeType: 'image',
+        source: 'local',
+        url: '.madora/assets/files/ab/hash-a.png',
+      },
+      {
+        id: 'hash-b',
+        nodeType: 'image',
+        source: 'local',
+        url: '.madora/assets/files/cd/hash-b.webp',
+      },
+    ]);
+  });
+
   it('不提取旧 refinex-asset:// 图片引用', () => {
     expect(
       extractResourceReferencesFromMarkdown('![图](refinex-asset://legacy)'),
@@ -78,10 +99,25 @@ describe('extractResourceReferencesFromMarkdown', () => {
 
   it('识别图片 vs 文件链接的 nodeType', () => {
     const markdown =
-      '![图](madora-asset://img1)\n[文件](madora-asset://file1)';
+      '![图](madora-asset://img1)\n[文件](.madora/assets/files/aa/file1.pdf)';
     const refs = extractResourceReferencesFromMarkdown(markdown);
     expect(refs.find((r) => r.id === 'img1')?.nodeType).toBe('image');
     expect(refs.find((r) => r.id === 'file1')?.nodeType).toBe('file');
+  });
+
+  it('提取 HTML 本地媒体引用', () => {
+    const refs = extractResourceReferencesFromMarkdown(
+      '<video src=".madora/assets/files/ab/video1.mp4"></video>',
+    );
+
+    expect(refs).toEqual([
+      {
+        id: 'video1',
+        nodeType: 'video',
+        source: 'local',
+        url: '.madora/assets/files/ab/video1.mp4',
+      },
+    ]);
   });
 
   it('保留引用出现顺序', () => {

@@ -1,39 +1,166 @@
 'use client';
 
 import * as React from 'react';
-import type { MardoraAttachmentUploader } from 'mardora/editor';
+import { convertFileSrc } from '@tauri-apps/api/core';
+import type {
+  MarkweaveSlashCommandUploadHandler,
+  MarkweaveUploadResult,
+} from '@markweave/react';
 
-import { uploadWorkspaceAsset } from '@/components/workspace/workspace-api';
-import { LOCAL_ASSET_URL_PREFIX } from '@/components/workspace/workspace-local-assets';
+import {
+  resolveWorkspaceAsset,
+  uploadWorkspaceAsset,
+} from '@/components/workspace/workspace-api';
+import {
+  extractWorkspaceAssetReferences,
+  getWorkspaceAssetIdFromReference,
+} from '@/components/workspace/workspace-local-assets';
 
-/**
- * 把 mardora 的附件 uploader 适配到 Tauri workspace 资产存储。
- * 上传成功后返回 madora-asset:// URL，写入 workspace 的 assets 目录。
- */
+export interface WorkspaceAssetUploadBridge {
+  editorMarkdown: string;
+  onSlashCommandUpload: MarkweaveSlashCommandUploadHandler;
+  toStorageMarkdown: (markdown: string) => string;
+}
+
 export function useWorkspaceAssetUploader(
   rootPath: string | null,
-): MardoraAttachmentUploader {
-  return React.useCallback(
-    async (file, _context) => {
+  storageMarkdown: string,
+): WorkspaceAssetUploadBridge {
+  const [editorMarkdown, setEditorMarkdown] =
+    React.useState(storageMarkdown);
+  const displayToStorageRef = React.useRef(new Map<string, string>());
+  const storageToDisplayRef = React.useRef(new Map<string, string>());
+
+  React.useEffect(() => {
+    displayToStorageRef.current.clear();
+    storageToDisplayRef.current.clear();
+  }, [rootPath]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function resolveStorageMarkdown() {
+      if (!rootPath) {
+        setEditorMarkdown(storageMarkdown);
+        return;
+      }
+
+      const references = extractWorkspaceAssetReferences(storageMarkdown);
+
+      if (references.length === 0) {
+        setEditorMarkdown(storageMarkdown);
+        return;
+      }
+
+      const replacements = new Map<string, string>();
+
+      await Promise.all(
+        references.map(async (reference) => {
+          const assetId = getWorkspaceAssetIdFromReference(reference);
+
+          if (!assetId) {
+            return;
+          }
+
+          try {
+            const asset = await resolveWorkspaceAsset(rootPath, assetId);
+            const displayUrl = convertFileSrc(asset.absolutePath);
+
+            replacements.set(reference, displayUrl);
+            storageToDisplayRef.current.set(reference, displayUrl);
+            displayToStorageRef.current.set(displayUrl, reference);
+          } catch (error) {
+            console.warn('Failed to resolve workspace asset.', error);
+          }
+        }),
+      );
+
+      if (!cancelled) {
+        setEditorMarkdown(replaceMappedValues(storageMarkdown, replacements));
+      }
+    }
+
+    void resolveStorageMarkdown();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [rootPath, storageMarkdown]);
+
+  const toStorageMarkdown = React.useCallback((markdown: string) => {
+    return replaceMappedValues(markdown, displayToStorageRef.current);
+  }, []);
+
+  const onSlashCommandUpload = React.useCallback<MarkweaveSlashCommandUploadHandler>(
+    async (request) => {
+      if (request.source.type !== 'file') {
+        return createDirectUploadResult(request.source.value, request.source.mimeType);
+      }
+
+      const file = request.source.file;
+
+      if (!file) {
+        throw new Error('未选择上传文件。');
+      }
+
       if (!rootPath) {
         throw new Error('未打开工作区，无法上传附件。');
       }
 
-      const base64Data = await fileToBase64(file);
       const uploaded = await uploadWorkspaceAsset(rootPath, {
         fileName: file.name,
         mediaType: file.type || 'application/octet-stream',
-        base64Data,
+        base64Data: await fileToBase64(file),
       });
+      const displayUrl = convertFileSrc(uploaded.absolutePath);
+      const storageReference = uploaded.relativePath || uploaded.url;
+
+      displayToStorageRef.current.set(displayUrl, storageReference);
+      storageToDisplayRef.current.set(storageReference, displayUrl);
 
       return {
-        url: `${LOCAL_ASSET_URL_PREFIX}${uploaded.id}`,
+        src: displayUrl,
         name: uploaded.name,
         mimeType: uploaded.mediaType,
+        size: uploaded.size,
       };
     },
     [rootPath],
   );
+
+  return {
+    editorMarkdown,
+    onSlashCommandUpload,
+    toStorageMarkdown,
+  };
+}
+
+function createDirectUploadResult(
+  value: string | undefined,
+  mimeType: string | undefined,
+): MarkweaveUploadResult {
+  const src = value ?? '';
+
+  return {
+    src,
+    name: src.split('/').filter(Boolean).at(-1),
+    mimeType,
+  };
+}
+
+function replaceMappedValues(
+  markdown: string,
+  replacements: ReadonlyMap<string, string>,
+) {
+  let next = markdown;
+
+  for (const [from, to] of Array.from(replacements.entries()).sort(
+    ([left], [right]) => right.length - left.length,
+  )) {
+    next = next.split(from).join(to);
+  }
+
+  return next;
 }
 
 function fileToBase64(file: File): Promise<string> {

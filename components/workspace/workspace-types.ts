@@ -119,10 +119,61 @@ export interface AiConfiguredProfile {
   isTestRuntime: boolean;
 }
 
+export interface AiCustomClaudeConfig {
+  baseUrl: string;
+  model: string;
+}
+
+export type AiPreferredEditor =
+  | 'clion'
+  | 'cursor'
+  | 'fleet'
+  | 'ghostty'
+  | 'goland'
+  | 'intellij'
+  | 'iterm'
+  | 'phpstorm'
+  | 'pycharm'
+  | 'rider'
+  | 'rustrover'
+  | 'sublime'
+  | 'terminal'
+  | 'trae'
+  | 'vscode'
+  | 'vscode-insiders'
+  | 'warp'
+  | 'webstorm'
+  | 'windsurf'
+  | 'xcode'
+  | 'zed';
+
+export interface AiSettingsSidebarWidths {
+  agents: number;
+  mcp: number;
+  plugins: number;
+  skills: number;
+}
+
 export interface AiSettings {
+  analyticsOptOut: boolean;
+  autoAdvanceTarget: 'close' | 'next' | 'previous';
+  customClaudeConfig: AiCustomClaudeConfig;
+  ctrlTabTarget: 'agents' | 'workspaces';
+  defaultAgentMode: 'agent' | 'plan';
+  desktopNotificationsEnabled: boolean;
   enabledProfileId: string | null;
+  extendedThinkingEnabled: boolean;
+  hiddenModelIds: string[];
+  includeCoAuthoredBy: boolean;
+  lastSelectedCodexModelId: string;
+  lastSelectedCodexThinking: 'low' | 'medium' | 'high' | 'xhigh';
+  lastSelectedModelId: string;
+  notifyWhenFocused: boolean;
+  preferredEditor: AiPreferredEditor;
   profiles: AiConfiguredProfile[];
   providers: AiProviderSettings;
+  settingsSidebarWidths: AiSettingsSidebarWidths;
+  soundNotificationsEnabled: boolean;
 }
 
 export interface AppSettings {
@@ -143,6 +194,7 @@ export interface UploadWorkspaceAssetInput {
 export interface UploadedWorkspaceAsset {
   id: string;
   url: string;
+  relativePath: string;
   name: string;
   mediaType: string;
   size: number;

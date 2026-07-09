@@ -9,6 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const ASSET_SCHEMA_VERSION: u32 = 1;
 const ASSET_URL_PREFIX: &str = "madora-asset://";
+const ASSET_RELATIVE_PREFIX: &str = ".madora/assets/files/";
 const WORKSPACE_PRIVATE_DIR: &str = ".madora";
 const MAX_LOCAL_ASSET_BYTES: usize = 100 * 1024 * 1024;
 
@@ -45,6 +46,7 @@ pub struct UploadWorkspaceAssetInput {
 pub struct UploadedWorkspaceAsset {
     pub id: String,
     pub url: String,
+    pub relative_path: String,
     pub name: String,
     pub media_type: String,
     pub size: u64,
@@ -124,6 +126,7 @@ pub fn upload_workspace_asset(
     Ok(UploadedWorkspaceAsset {
         id: asset_id.clone(),
         url: format!("{ASSET_URL_PREFIX}{asset_id}"),
+        relative_path: record.relative_path.clone(),
         name: original_name,
         media_type: record.media_type,
         size: record.size,
@@ -187,25 +190,31 @@ pub fn extract_asset_ids(value: &Value) -> BTreeSet<String> {
 
 pub fn extract_asset_ids_from_markdown(markdown: &str) -> BTreeSet<String> {
     let mut ids = BTreeSet::new();
-    let mut remaining = markdown;
+    collect_asset_ids_from_markdown_prefix(markdown, ASSET_URL_PREFIX, &mut ids);
+    collect_asset_ids_from_markdown_prefix(markdown, ASSET_RELATIVE_PREFIX, &mut ids);
 
-    while let Some(index) = remaining.find(ASSET_URL_PREFIX) {
-        let after_prefix = &remaining[index + ASSET_URL_PREFIX.len()..];
-        let id = after_prefix
+    ids
+}
+
+fn collect_asset_ids_from_markdown_prefix(
+    markdown: &str,
+    prefix: &str,
+    ids: &mut BTreeSet<String>,
+) {
+    let mut remaining = markdown;
+    while let Some(index) = remaining.find(prefix) {
+        let after_prefix = &remaining[index..];
+        let reference = after_prefix
             .chars()
-            .take_while(|character| {
-                character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
-            })
+            .take_while(|character| !is_markdown_asset_reference_terminator(*character))
             .collect::<String>();
 
-        if !id.is_empty() {
+        if let Some(id) = extract_asset_id_from_reference(&reference) {
             ids.insert(id);
         }
 
-        remaining = after_prefix;
+        remaining = &after_prefix[prefix.len().min(after_prefix.len())..];
     }
-
-    ids
 }
 
 pub fn cleanup_unreferenced_assets(
@@ -252,10 +261,8 @@ fn collect_asset_ids(value: &Value, ids: &mut BTreeSet<String>) {
     match value {
         Value::Object(map) => {
             if let Some(Value::String(url)) = map.get("url") {
-                if let Some(id) = url.strip_prefix(ASSET_URL_PREFIX) {
-                    if !id.is_empty() {
-                        ids.insert(id.to_string());
-                    }
+                if let Some(id) = extract_asset_id_from_reference(url) {
+                    ids.insert(id);
                 }
             }
 
@@ -270,6 +277,48 @@ fn collect_asset_ids(value: &Value, ids: &mut BTreeSet<String>) {
         }
         _ => {}
     }
+}
+
+fn extract_asset_id_from_reference(reference: &str) -> Option<String> {
+    if let Some(id) = reference.strip_prefix(ASSET_URL_PREFIX) {
+        return is_valid_asset_id(id).then(|| id.to_string());
+    }
+
+    if !reference.starts_with(ASSET_RELATIVE_PREFIX) {
+        return None;
+    }
+
+    let without_query = reference
+        .split('?')
+        .next()
+        .unwrap_or(reference)
+        .split('#')
+        .next()
+        .unwrap_or(reference);
+    let file_name = without_query.rsplit('/').next().unwrap_or("");
+
+    if file_name.is_empty() {
+        return None;
+    }
+
+    let asset_id = file_name.split('.').next().unwrap_or("");
+
+    is_valid_asset_id(asset_id).then(|| asset_id.to_string())
+}
+
+fn is_valid_asset_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
+}
+
+fn is_markdown_asset_reference_terminator(character: char) -> bool {
+    character.is_whitespace()
+        || matches!(
+            character,
+            '"' | '\'' | '<' | '>' | '(' | ')' | '[' | ']' | '{' | '}' | '\\'
+        )
 }
 
 fn collect_workspace_asset_references(root: &Path) -> Result<BTreeSet<String>, String> {
@@ -476,6 +525,7 @@ mod tests {
         assert_eq!(uploaded.media_type, "image/png");
         assert_eq!(uploaded.size, 9);
         assert!(uploaded.url.starts_with("madora-asset://"));
+        assert!(uploaded.relative_path.starts_with(".madora/assets/files/"));
         assert!(Path::new(&uploaded.absolute_path).is_file());
         assert!(uploaded.absolute_path.contains(".madora/assets/files"));
         assert!(temp_dir.path().join(".madora/assets/index.json").is_file());
@@ -595,13 +645,18 @@ mod tests {
         let value = serde_json::json!([
             { "type": "img", "url": "madora-asset://asset-a", "children": [{ "text": "" }] },
             { "type": "video", "url": "https://example.com/a.mp4", "children": [{ "text": "" }] },
+            { "type": "img", "url": ".madora/assets/files/ab/asset-c.png", "children": [{ "text": "" }] },
             { "type": "file", "url": "madora-asset://asset-b", "children": [{ "text": "" }] },
             { "type": "file", "url": "refinex-asset://legacy", "children": [{ "text": "" }] }
         ]);
 
         assert_eq!(
             extract_asset_ids(&value),
-            BTreeSet::from(["asset-a".to_string(), "asset-b".to_string()])
+            BTreeSet::from([
+                "asset-a".to_string(),
+                "asset-b".to_string(),
+                "asset-c".to_string()
+            ])
         );
     }
 
@@ -612,12 +667,20 @@ mod tests {
 
 <refinex-file src="madora-asset://asset-b" />
 
+<video src=".madora/assets/files/ab/asset-c.mp4"></video>
+
+![new](.madora/assets/files/de/asset-d.png)
+
 ![remote](https://example.com/image.png)
 "#;
 
         assert_eq!(
             extract_asset_ids_from_markdown(markdown),
-            BTreeSet::from(["asset-b".to_string()])
+            BTreeSet::from([
+                "asset-b".to_string(),
+                "asset-c".to_string(),
+                "asset-d".to_string()
+            ])
         );
     }
 }

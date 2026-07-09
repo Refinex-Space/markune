@@ -85,4 +85,55 @@ describe('buildAiContextPack', () => {
 
     expect(context.document).toBeUndefined();
   });
+
+  it('explain-selection 意图携带选区上下文', () => {
+    const context = buildAiContextPack({
+      currentDocument: {
+        absolutePath: '/repo/note.md',
+        id: '/repo/note.md',
+        kind: 'document',
+        name: 'note.md',
+        relativePath: 'note.md',
+      },
+      documentPanelData: {
+        frontmatter: {},
+        markdown: '# 笔记\n需要解释的段落',
+        metadata: { createdAt: '', title: '笔记', updatedAt: '' },
+      },
+      selection: {
+        markdown: '需要解释的段落',
+        from: 1,
+        to: 2,
+      },
+      intent: 'explain-selection',
+      workspaceRootPath: '/repo',
+    });
+
+    expect(context.intent).toBe('explain-selection');
+    expect(context.selection).toBeDefined();
+    expect(context.selection?.markdown).toBe('需要解释的段落');
+    expect(context.document?.markdown).toContain('笔记');
+  });
+
+  it('chat 意图无选区时 selection 为 undefined', () => {
+    const context = buildAiContextPack({
+      currentDocument: {
+        absolutePath: '/repo/a.md',
+        id: '/repo/a.md',
+        kind: 'document',
+        name: 'a.md',
+        relativePath: 'a.md',
+      },
+      documentPanelData: {
+        frontmatter: {},
+        markdown: '内容',
+        metadata: { createdAt: '', title: '', updatedAt: '' },
+      },
+      intent: 'chat',
+      workspaceRootPath: '/repo',
+    });
+
+    expect(context.selection).toBeUndefined();
+    expect(context.intent).toBe('chat');
+  });
 });

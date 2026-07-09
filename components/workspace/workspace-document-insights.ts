@@ -1,4 +1,9 @@
-import { LOCAL_ASSET_URL_PREFIX } from './workspace-local-assets';
+import {
+  extractWorkspaceAssetReferences,
+  getWorkspaceAssetIdFromReference,
+  LOCAL_ASSET_RELATIVE_PREFIX,
+  LOCAL_ASSET_URL_PREFIX,
+} from './workspace-local-assets';
 
 export interface DocumentResourceReference {
   id: string;
@@ -8,6 +13,8 @@ export interface DocumentResourceReference {
 }
 
 const ASSET_URL_PATTERN = buildAssetUrlPattern();
+const HTML_LOCAL_MEDIA_PATTERN =
+  /<(img|video|audio)\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
 const REMOTE_MARKDOWN_IMAGE_PATTERN = /!\[[^\]]*]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/g;
 const REMOTE_HTML_IMAGE_PATTERN = /<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
 const LINK_PREVIEW_PATTERN = /<!--\s*octarine-link-preview:([\s\S]*?)-->/g;
@@ -47,7 +54,7 @@ export function extractResourceReferencesFromMarkdown(
       continue;
     }
 
-    const id = url.slice(LOCAL_ASSET_URL_PREFIX.length).trim();
+    const id = getWorkspaceAssetIdFromReference(url);
 
     if (!id || references.has(id)) {
       continue;
@@ -56,6 +63,38 @@ export function extractResourceReferencesFromMarkdown(
     references.set(id, {
       id,
       nodeType: isImage ? 'image' : 'file',
+      source: 'local',
+      url,
+    });
+  }
+
+  for (const match of markdown.matchAll(HTML_LOCAL_MEDIA_PATTERN)) {
+    const nodeType = match[1] ?? 'file';
+    const url = match[2];
+    const id = getWorkspaceAssetIdFromReference(url);
+
+    if (!id || references.has(id)) {
+      continue;
+    }
+
+    references.set(id, {
+      id,
+      nodeType,
+      source: 'local',
+      url,
+    });
+  }
+
+  for (const url of extractWorkspaceAssetReferences(markdown)) {
+    const id = getWorkspaceAssetIdFromReference(url);
+
+    if (!id || references.has(id)) {
+      continue;
+    }
+
+    references.set(id, {
+      id,
+      nodeType: 'file',
       source: 'local',
       url,
     });
@@ -78,11 +117,13 @@ export function extractResourceReferencesFromMarkdown(
 }
 
 function buildAssetUrlPattern(): RegExp {
-  const prefix = escapeRegExp(LOCAL_ASSET_URL_PREFIX);
+  const legacyPrefix = escapeRegExp(LOCAL_ASSET_URL_PREFIX);
+  const relativePrefix = escapeRegExp(LOCAL_ASSET_RELATIVE_PREFIX);
+  const reference = `(?:${legacyPrefix}[A-Za-z0-9._-]+|${relativePrefix}[^)\\s"']+)`;
 
   return new RegExp(
-    `!\\[[^\\]]*\\]\\((${prefix}[^)\\s]+)\\)|` +
-      `\\[[^\\]]*\\]\\((${prefix}[^)\\s]+)\\)`,
+    `!\\[[^\\]]*\\]\\((${reference})\\)|` +
+      `\\[[^\\]]*\\]\\((${reference})\\)`,
     'g',
   );
 }

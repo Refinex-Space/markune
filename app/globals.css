@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@xterm/xterm/css/xterm.css";
+@import "@markweave/react/styles.css";
 
 @plugin "tailwind-scrollbar-hide";
 @import "tw-animate-css";
@@ -488,101 +489,72 @@
     height: 0;
   }
 
-  .markdown-editor-preview-scrollarea {
-    margin-right: 12px;
+  .workspace-editor-shell {
+    background: var(--background);
+    color: var(--foreground);
+  }
+
+  .workspace-editor-shell .markdown-editor-scrollarea {
     scrollbar-color: color-mix(in oklab, var(--muted-foreground) 30%, transparent) transparent;
     scrollbar-width: thin;
   }
 
-  .markdown-editor-preview-scrollarea::-webkit-scrollbar {
+  .workspace-editor-shell .markdown-editor-scrollarea::-webkit-scrollbar {
     width: 4px;
     height: 4px;
     background: transparent;
   }
 
-  .markdown-editor-preview-scrollarea::-webkit-scrollbar-track,
-  .markdown-editor-preview-scrollarea::-webkit-scrollbar-track-piece,
-  .markdown-editor-preview-scrollarea::-webkit-scrollbar-corner {
+  .workspace-editor-shell .markdown-editor-scrollarea::-webkit-scrollbar-track,
+  .workspace-editor-shell .markdown-editor-scrollarea::-webkit-scrollbar-track-piece,
+  .workspace-editor-shell .markdown-editor-scrollarea::-webkit-scrollbar-corner {
     background: transparent;
   }
 
-  .markdown-editor-preview-scrollarea::-webkit-scrollbar-thumb {
+  .workspace-editor-shell .markdown-editor-scrollarea::-webkit-scrollbar-thumb {
     min-height: 48px;
     border-radius: 999px;
     background: color-mix(in oklab, var(--muted-foreground) 30%, transparent);
   }
 
-  .markdown-editor-preview-scrollarea::-webkit-scrollbar-thumb:hover {
+  .workspace-editor-shell .markdown-editor-scrollarea::-webkit-scrollbar-thumb:hover {
     background: color-mix(in oklab, var(--muted-foreground) 46%, transparent);
   }
 
-  .markdown-editor-preview-scrollarea::-webkit-scrollbar-button {
+  .workspace-editor-shell .markdown-editor-scrollarea::-webkit-scrollbar-button {
     display: none;
     width: 0;
     height: 0;
   }
 
-  .workspace-editor-shell .cm-editor {
-    background: transparent;
+  .workspace-editor-shell .markweave-editor-frame {
+    min-height: 100%;
+    padding: 2rem 2rem 8rem;
+    color: var(--foreground);
+    font-family: var(--madora-document-font);
+  }
+
+  .workspace-editor-shell .markweave-editor-surface {
+    caret-color: var(--foreground);
+    min-height: calc(100vh - 13rem);
+    margin-inline: auto;
     color: var(--foreground);
     font-family: var(--madora-document-font);
     font-size: 15px;
     line-height: 1.75;
   }
 
-  .workspace-editor-shell .cm-scroller {
-    margin-right: 12px;
-    scrollbar-color: color-mix(in oklab, var(--muted-foreground) 30%, transparent) transparent;
-    scrollbar-width: thin;
-  }
-
-  .workspace-editor-shell .cm-scroller::-webkit-scrollbar {
-    width: 4px;
-    height: 4px;
-    background: transparent;
-  }
-
-  .workspace-editor-shell .cm-scroller::-webkit-scrollbar-track,
-  .workspace-editor-shell .cm-scroller::-webkit-scrollbar-track-piece,
-  .workspace-editor-shell .cm-scroller::-webkit-scrollbar-corner {
-    background: transparent;
-  }
-
-  .workspace-editor-shell .cm-scroller::-webkit-scrollbar-thumb {
-    min-height: 48px;
-    border-radius: 999px;
-    background: color-mix(in oklab, var(--muted-foreground) 30%, transparent);
-  }
-
-  .workspace-editor-shell .cm-scroller::-webkit-scrollbar-thumb:hover {
-    background: color-mix(in oklab, var(--muted-foreground) 46%, transparent);
-  }
-
-  .workspace-editor-shell .cm-scroller::-webkit-scrollbar-button {
-    display: none;
-    width: 0;
-    height: 0;
-  }
-
-  .workspace-editor-shell .cm-mardora .cm-content {
-    caret-color: var(--foreground);
-    padding-bottom: 8rem;
-  }
-
-  .workspace-editor-shell.workspace-editor-page-standard .cm-mardora .cm-content {
+  .workspace-editor-shell.workspace-editor-page-standard .markweave-editor-surface {
     width: 100%;
     max-width: 48rem;
-    margin-inline: auto;
   }
 
-  .workspace-editor-shell.workspace-editor-page-wide .cm-mardora .cm-content {
+  .workspace-editor-shell.workspace-editor-page-wide .markweave-editor-surface {
     width: 100%;
     max-width: min(88rem, 75%);
-    margin-inline: auto;
   }
 
-  .workspace-editor-shell .cm-mardora h1,
-  .workspace-editor-shell .cm-mardora .cm-line:has(.tok-heading1) {
+  .workspace-editor-shell .markweave-editor-surface h1 {
     letter-spacing: 0;
   }
 
@@ -594,20 +566,46 @@
 
   .workspace-editor-shell pre,
   .workspace-editor-shell code,
-  .workspace-editor-shell .cm-mardora :is(.cm-mardora-code-inline, .cm-mardora-code-block, .cm-mardora-code-block-line, .cm-mardora-code-fence),
-  .markdown-editor-preview-scrollarea .mardora-preview :is(pre, code, kbd, samp, .cm-mardora-code-inline, .cm-mardora-code-block, .cm-mardora-code-block-line, .cm-mardora-code-fence) {
+  .workspace-editor-shell kbd,
+  .workspace-editor-shell samp {
     border-color: color-mix(in oklab, var(--border) 80%, transparent);
+    font-family: var(--madora-code-font);
   }
 
-  .mardora-toc-panel-scrollarea {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
+  .workspace-editor-shell .markweave-floating-toolbar,
+  .workspace-editor-shell .markweave-slash-menu,
+  .workspace-editor-shell .markweave-table-controls,
+  .workspace-editor-shell .markweave-inner-toc {
+    font-family: var(--madora-ui-font);
   }
 
-  .mardora-toc-panel-scrollarea::-webkit-scrollbar {
-    display: none;
-    width: 0;
-    height: 0;
+  .dark .workspace-editor-shell .markweave-editor-frame,
+  .dark .workspace-editor-shell .markweave-editor-surface,
+  .dark .workspace-editor-shell .markweave-inner-toc {
+    color: var(--foreground);
+  }
+
+  .dark .workspace-editor-shell .markweave-inner-toc-panel,
+  .dark .workspace-editor-shell .markweave-floating-toolbar,
+  .dark .workspace-editor-shell .markweave-slash-menu {
+    border-color: color-mix(in oklab, var(--border) 86%, transparent);
+    background: color-mix(in oklab, var(--background) 94%, transparent);
+    color: var(--foreground);
+  }
+
+  .ai-settings-markdown-preview .markweave-editor-frame {
+    min-height: auto;
+    color: var(--foreground);
+    font-family: var(--madora-document-font);
+  }
+
+  .ai-settings-markdown-preview .markweave-editor-surface {
+    min-height: auto;
+    padding: 0;
+    color: var(--foreground);
+    font-family: var(--madora-document-font);
+    font-size: 13px;
+    line-height: 1.65;
   }
 
   .directory-page-scrollarea {
@@ -784,4 +782,38 @@
 
 .terminal-surface .xterm-scrollable-element > .scrollbar.vertical > .slider:hover {
   background: color-mix(in oklab, var(--muted-foreground) 34%, transparent) !important;
+}
+
+/* AI 工具卡片 pending 扫光动画（@author refinex） */
+.ai-tool-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--muted-foreground) 0%,
+    var(--muted-foreground) 40%,
+    color-mix(in oklab, var(--muted-foreground) 30%, transparent) 50%,
+    var(--muted-foreground) 60%,
+    var(--muted-foreground) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: ai-tool-shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes ai-tool-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* @mention 编辑器占位符（@author refinex） */
+.ai-mentions-editor:empty:before {
+  content: attr(data-placeholder);
+  color: var(--muted-foreground);
+  pointer-events: none;
+  opacity: 0.6;
 }

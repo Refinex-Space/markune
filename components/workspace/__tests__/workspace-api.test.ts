@@ -5,8 +5,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   cancelAiTurn,
+  createAiCommand,
+  createAiCustomAgent,
+  createAiMcpServer,
+  authenticateAiMcpServer,
+  createAiSkill,
+  deleteAiAnthropicAccount,
+  openAiClaudeCodeOAuthUrl,
   createWorkspaceDirectory,
   createWorkspaceRoot,
+  deleteAiCommand,
+  deleteAiCustomAgent,
+  deleteAiMcpServer,
+  logoutAiMcpServer,
+  deleteAiSkill,
   deleteAiProviderSecret,
   deleteWorkspaceNode,
   detectAiAccounts,
@@ -14,6 +26,7 @@ import {
   getAiProviderSecretStatus,
   getRecentWorkspacePath,
   getWorkspaceHistory,
+  getCodexIntegration,
   gitBranches,
   gitCommit,
   gitCommitFileDiff,
@@ -28,7 +41,15 @@ import {
   gitStage,
   gitStatus,
   gitUnstage,
+  listAiCommands,
   listAiAgentProfiles,
+  listAiAnthropicAccounts,
+  listAiConversations,
+  listAiCustomAgents,
+  listAiMcpServers,
+  listAiPlugins,
+  logoutCodexAccount,
+  listAiSkills,
   listenAiEvents,
   listenTerminalData,
   listenTerminalError,
@@ -37,25 +58,47 @@ import {
   moveWorkspaceNode,
   openDailyNote,
   openPathInFileManager,
+  openPathInPreferredEditor,
   readMarkdownSourceFiles,
   readAppSettings,
+  readAiConversation,
   readWorkspaceAssetData,
   recordRecentDocument,
   resolveWorkspaceAsset,
   recordWorkspaceHistory,
   removeWorkspaceHistory,
   renameWorkspaceNode,
+  respondAiPermission,
   requestAiChat,
   requestAiProviderJson,
   saveAppSettings,
+  saveAiConversation,
   saveAiProviderSecret,
   sendAiPrompt,
+  startAiClaudeCodeAuth,
+  startCodexLogin,
+  getCodexLoginSession,
+  cancelCodexLogin,
+  openCodexLoginUrl,
+  importAiAnthropicAccountToken,
+  pollAiClaudeCodeAuthStatus,
+  renameAiAnthropicAccount,
+  setAiAnthropicAccountActive,
+  setAiPluginEnabled,
+  setAiPluginMcpServerApproved,
+  setAiPluginMcpServersApproved,
+  setAiMcpServerEnabled,
+  submitAiClaudeCodeAuthCode,
   startAiSession,
   stopAiSession,
   terminalKill,
   terminalResize,
   terminalSpawn,
   terminalWrite,
+  updateAiCommand,
+  updateAiCustomAgent,
+  updateAiMcpServer,
+  updateAiSkill,
   uploadWorkspaceAsset,
 } from '../workspace-api';
 import type { WorkspaceSnapshot } from '../workspace-types';
@@ -153,6 +196,20 @@ describe('workspace-api file manager opener', () => {
     await openPathInFileManager('/repo/README.md');
 
     expect(revealItemInDirMock).not.toHaveBeenCalled();
+  });
+
+  it('opens a path in the configured preferred editor through Tauri', async () => {
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+
+    await openPathInPreferredEditor('/repo/README.md', 'cursor');
+
+    expect(invokeMock).toHaveBeenCalledWith('open_path_in_preferred_editor', {
+      app: 'cursor',
+      path: '/repo/README.md',
+    });
   });
 });
 
@@ -527,11 +584,35 @@ describe('workspace-api AI runtime commands', () => {
       prompt: 'hello',
       sessionId: 'ai-1',
     });
+    await listAiConversations('/repo');
+    await readAiConversation('/repo', 'conversation-1');
+    await saveAiConversation('/repo', {
+      createdAt: 1,
+      documentPath: 'guide.md',
+      documentTitle: 'Guide',
+      id: 'conversation-1',
+      messages: [{ content: 'hello', id: 'm1', role: 'user' }],
+      permissions: [],
+      profileId: 'fake-echo',
+      profileLabel: 'Fake Echo',
+      providerId: 'local',
+      providerLabel: 'Local',
+      title: 'hello',
+      tools: [],
+      updatedAt: 2,
+    });
     await cancelAiTurn('ai-1');
+    await respondAiPermission({
+      behavior: 'allow',
+      requestId: 'req-1',
+      sessionId: 'ai-1',
+      updatedInput: { command: 'pwd' },
+    });
     await stopAiSession('ai-1');
     await getAiProviderSecretStatus('openai');
     await saveAiProviderSecret('openai', 'sk-test');
     await deleteAiProviderSecret('openai');
+    await logoutCodexAccount();
     await requestAiProviderJson({
       headers: {},
       method: 'GET',
@@ -563,23 +644,57 @@ describe('workspace-api AI runtime commands', () => {
         sessionId: 'ai-1',
       },
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(5, 'cancel_ai_turn', {
+    expect(invokeMock).toHaveBeenNthCalledWith(5, 'list_ai_conversations', {
+      rootPath: '/repo',
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(6, 'read_ai_conversation', {
+      conversationId: 'conversation-1',
+      rootPath: '/repo',
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(7, 'save_ai_conversation', {
+      record: {
+        createdAt: 1,
+        documentPath: 'guide.md',
+        documentTitle: 'Guide',
+        id: 'conversation-1',
+        messages: [{ content: 'hello', id: 'm1', role: 'user' }],
+        permissions: [],
+        profileId: 'fake-echo',
+        profileLabel: 'Fake Echo',
+        providerId: 'local',
+        providerLabel: 'Local',
+        title: 'hello',
+        tools: [],
+        updatedAt: 2,
+      },
+      rootPath: '/repo',
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(8, 'cancel_ai_turn', {
       sessionId: 'ai-1',
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(6, 'stop_ai_session', {
+    expect(invokeMock).toHaveBeenNthCalledWith(9, 'respond_ai_permission', {
+      input: {
+        behavior: 'allow',
+        requestId: 'req-1',
+        sessionId: 'ai-1',
+        updatedInput: { command: 'pwd' },
+      },
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(10, 'stop_ai_session', {
       sessionId: 'ai-1',
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(7, 'get_ai_provider_secret_status', {
+    expect(invokeMock).toHaveBeenNthCalledWith(11, 'get_ai_provider_secret_status', {
       providerId: 'openai',
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(8, 'save_ai_provider_secret', {
+    expect(invokeMock).toHaveBeenNthCalledWith(12, 'save_ai_provider_secret', {
       providerId: 'openai',
       secret: 'sk-test',
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(9, 'delete_ai_provider_secret', {
+    expect(invokeMock).toHaveBeenNthCalledWith(13, 'delete_ai_provider_secret', {
       providerId: 'openai',
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(10, 'request_ai_provider_json', {
+    expect(invokeMock).toHaveBeenNthCalledWith(14, 'logout_codex_account');
+    expect(invokeMock).toHaveBeenNthCalledWith(15, 'request_ai_provider_json', {
       request: {
         headers: {},
         method: 'GET',
@@ -587,7 +702,7 @@ describe('workspace-api AI runtime commands', () => {
         url: 'https://api.openai.com/v1/models',
       },
     });
-    expect(invokeMock).toHaveBeenNthCalledWith(11, 'request_ai_chat', {
+    expect(invokeMock).toHaveBeenNthCalledWith(16, 'request_ai_chat', {
       request: {
         body: '{"model":"gpt-5.4","input":"hello"}',
         headers: { 'OpenAI-Beta': 'responses=v1' },
@@ -606,6 +721,478 @@ describe('workspace-api AI runtime commands', () => {
     await listenAiEvents(onEvent);
 
     expect(listenMock).toHaveBeenCalledWith('ai:event', expect.any(Function));
+  });
+
+  it('wraps AI settings inventory commands', async () => {
+    invokeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    await listAiSkills('/repo');
+    await listAiCommands('/repo');
+    await listAiCustomAgents('/repo');
+    await listAiMcpServers('/repo');
+    await listAiPlugins();
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'list_ai_skills', {
+      rootPath: '/repo',
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'list_ai_commands', {
+      rootPath: '/repo',
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(3, 'list_ai_custom_agents', {
+      rootPath: '/repo',
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(4, 'list_ai_mcp_servers', {
+      rootPath: '/repo',
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(5, 'list_ai_plugins');
+  });
+
+  it('wraps AI skills and commands write commands', async () => {
+    invokeMock
+      .mockResolvedValueOnce('/home/.claude/skills/doc/SKILL.md')
+      .mockResolvedValueOnce('/home/.claude/skills/doc/SKILL.md')
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce('/repo/.claude/commands/git/commit.md')
+      .mockResolvedValueOnce('/repo/.claude/commands/git/commit.md')
+      .mockResolvedValueOnce(undefined);
+
+    await createAiSkill('/repo', {
+      source: 'user',
+      name: 'doc',
+      description: 'Write docs',
+      content: 'Use docs.',
+    });
+    await updateAiSkill('/repo', {
+      source: 'user',
+      name: 'doc',
+      description: 'Update docs',
+      content: 'Use updated docs.',
+    });
+    await deleteAiSkill('/repo', { source: 'user', name: 'doc' });
+    await createAiCommand('/repo', {
+      source: 'project',
+      name: 'git/commit',
+      description: 'Commit',
+      content: 'Commit changes.',
+      argumentHint: '<message>',
+    });
+    await updateAiCommand('/repo', {
+      source: 'project',
+      name: 'git/commit',
+      description: 'Commit updated',
+      content: 'Commit updated changes.',
+      argumentHint: null,
+    });
+    await deleteAiCommand('/repo', { source: 'project', name: 'git/commit' });
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'create_ai_skill', {
+      rootPath: '/repo',
+      source: 'user',
+      name: 'doc',
+      description: 'Write docs',
+      content: 'Use docs.',
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'update_ai_skill', {
+      rootPath: '/repo',
+      source: 'user',
+      name: 'doc',
+      description: 'Update docs',
+      content: 'Use updated docs.',
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(3, 'delete_ai_skill', {
+      rootPath: '/repo',
+      source: 'user',
+      name: 'doc',
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(4, 'create_ai_command', {
+      rootPath: '/repo',
+      source: 'project',
+      name: 'git/commit',
+      description: 'Commit',
+      content: 'Commit changes.',
+      argumentHint: '<message>',
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(5, 'update_ai_command', {
+      rootPath: '/repo',
+      source: 'project',
+      name: 'git/commit',
+      description: 'Commit updated',
+      content: 'Commit updated changes.',
+      argumentHint: null,
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(6, 'delete_ai_command', {
+      rootPath: '/repo',
+      source: 'project',
+      name: 'git/commit',
+    });
+  });
+
+  it('wraps AI custom agents write commands', async () => {
+    invokeMock
+      .mockResolvedValueOnce('/repo/.claude/agents/reviewer.md')
+      .mockResolvedValueOnce('/repo/.claude/agents/reviewer.md')
+      .mockResolvedValueOnce(undefined);
+
+    await createAiCustomAgent('/repo', {
+      source: 'project',
+      name: 'reviewer',
+      description: 'Review code',
+      prompt: 'Review carefully.',
+      tools: ['Read', 'Grep'],
+      disallowedTools: ['Bash'],
+      model: 'sonnet',
+    });
+    await updateAiCustomAgent('/repo', {
+      source: 'project',
+      name: 'reviewer',
+      description: 'Review code deeply',
+      prompt: 'Review more carefully.',
+      tools: ['Read'],
+      disallowedTools: [],
+      model: null,
+    });
+    await deleteAiCustomAgent('/repo', {
+      source: 'project',
+      name: 'reviewer',
+    });
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'create_ai_custom_agent', {
+      rootPath: '/repo',
+      source: 'project',
+      name: 'reviewer',
+      description: 'Review code',
+      prompt: 'Review carefully.',
+      tools: ['Read', 'Grep'],
+      disallowedTools: ['Bash'],
+      model: 'sonnet',
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'update_ai_custom_agent', {
+      rootPath: '/repo',
+      source: 'project',
+      name: 'reviewer',
+      description: 'Review code deeply',
+      prompt: 'Review more carefully.',
+      tools: ['Read'],
+      disallowedTools: [],
+      model: null,
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(3, 'delete_ai_custom_agent', {
+      rootPath: '/repo',
+      source: 'project',
+      name: 'reviewer',
+    });
+  });
+
+  it('wraps AI plugin enablement command', async () => {
+    invokeMock.mockResolvedValueOnce(undefined);
+
+    await setAiPluginEnabled('market:plugin', false);
+
+    expect(invokeMock).toHaveBeenCalledWith('set_ai_plugin_enabled', {
+      source: 'market:plugin',
+      enabled: false,
+    });
+  });
+
+  it('wraps AI plugin MCP approval command', async () => {
+    invokeMock.mockResolvedValueOnce(undefined);
+
+    await setAiPluginMcpServerApproved('market:plugin', 'context7', true);
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      'set_ai_plugin_mcp_server_approved',
+      {
+        pluginSource: 'market:plugin',
+        serverName: 'context7',
+        approved: true,
+      },
+    );
+  });
+
+  it('wraps AI plugin MCP batch approval command', async () => {
+    invokeMock.mockResolvedValueOnce(undefined);
+
+    await setAiPluginMcpServersApproved('market:plugin', ['context7', 'browser'], false);
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      'set_ai_plugin_mcp_servers_approved',
+      {
+        pluginSource: 'market:plugin',
+        serverNames: ['context7', 'browser'],
+        approved: false,
+      },
+    );
+  });
+
+  it('wraps 1Code-style Anthropic account management commands', async () => {
+    invokeMock
+      .mockResolvedValueOnce([
+        {
+          connectedAt: '2026-06-24T12:00:00.000Z',
+          displayName: 'Work Claude',
+          email: 'work@example.com',
+          id: 'acct-work',
+          isActive: true,
+          lastUsedAt: null,
+        },
+      ])
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({
+        connectedAt: '2026-06-24T12:30:00.000Z',
+        displayName: 'Imported Claude',
+        email: 'imported@example.com',
+        id: 'acct-imported',
+        isActive: true,
+        lastUsedAt: '2026-06-24T12:30:00.000Z',
+      })
+      .mockResolvedValueOnce(undefined);
+
+    await listAiAnthropicAccounts();
+    await setAiAnthropicAccountActive('acct-personal');
+    await renameAiAnthropicAccount('acct-personal', 'Personal Claude');
+    await importAiAnthropicAccountToken({
+      displayName: 'Imported Claude',
+      email: 'imported@example.com',
+      token: 'oauth-token',
+    });
+    await deleteAiAnthropicAccount('acct-personal');
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'list_ai_anthropic_accounts');
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'set_ai_anthropic_account_active', {
+      accountId: 'acct-personal',
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(3, 'rename_ai_anthropic_account', {
+      accountId: 'acct-personal',
+      displayName: 'Personal Claude',
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(4, 'import_ai_anthropic_account_token', {
+      displayName: 'Imported Claude',
+      email: 'imported@example.com',
+      token: 'oauth-token',
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(5, 'delete_ai_anthropic_account', {
+      accountId: 'acct-personal',
+    });
+  });
+
+  it('wraps 1Code-style Claude Code OAuth flow commands', async () => {
+    invokeMock
+      .mockResolvedValueOnce({
+        sandboxId: 'sandbox-1',
+        sandboxUrl: 'https://sandbox.example',
+        sessionId: 'session-1',
+      })
+      .mockResolvedValueOnce({
+        error: null,
+        oauthUrl: 'https://claude.ai/oauth',
+        state: 'has_url',
+      })
+      .mockResolvedValueOnce({ success: true })
+      .mockResolvedValueOnce({ success: true });
+
+    await startAiClaudeCodeAuth();
+    await pollAiClaudeCodeAuthStatus({
+      sandboxUrl: 'https://sandbox.example',
+      sessionId: 'session-1',
+    });
+    await submitAiClaudeCodeAuthCode({
+      code: 'auth#code',
+      sandboxUrl: 'https://sandbox.example',
+      sessionId: 'session-1',
+    });
+    await openAiClaudeCodeOAuthUrl('https://claude.ai/oauth');
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'start_ai_claude_code_auth');
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'poll_ai_claude_code_auth_status', {
+      sandboxUrl: 'https://sandbox.example',
+      sessionId: 'session-1',
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(3, 'submit_ai_claude_code_auth_code', {
+      code: 'auth#code',
+      sandboxUrl: 'https://sandbox.example',
+      sessionId: 'session-1',
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(4, 'open_ai_claude_code_oauth_url', {
+      url: 'https://claude.ai/oauth',
+    });
+  });
+
+  it('wraps 1Code-style Codex login session commands', async () => {
+    invokeMock
+      .mockResolvedValueOnce({
+        error: null,
+        exitCode: null,
+        output: 'Open https://chatgpt.com/auth',
+        sessionId: 'codex-login-1',
+        state: 'running',
+        url: 'https://chatgpt.com/auth',
+      })
+      .mockResolvedValueOnce({
+        error: null,
+        exitCode: 0,
+        output: 'Logged in',
+        sessionId: 'codex-login-1',
+        state: 'success',
+        url: 'https://chatgpt.com/auth',
+      })
+      .mockResolvedValueOnce({ found: true, success: true })
+      .mockResolvedValueOnce({ success: true });
+
+    await startCodexLogin();
+    await getCodexLoginSession('codex-login-1');
+    await cancelCodexLogin('codex-login-1');
+    await openCodexLoginUrl('https://chatgpt.com/auth');
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'start_codex_login');
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'get_codex_login_session', {
+      sessionId: 'codex-login-1',
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(3, 'cancel_codex_login', {
+      sessionId: 'codex-login-1',
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(4, 'open_codex_login_url', {
+      url: 'https://chatgpt.com/auth',
+    });
+  });
+
+  it('wraps 1Code-style Codex integration status command', async () => {
+    invokeMock.mockResolvedValueOnce({
+      exitCode: 0,
+      isConnected: true,
+      rawOutput: 'Logged in using ChatGPT',
+      state: 'connected_chatgpt',
+    });
+
+    await getCodexIntegration();
+
+    expect(invokeMock).toHaveBeenCalledWith('get_codex_integration');
+  });
+
+  it('wraps AI MCP server write commands', async () => {
+    invokeMock
+      .mockResolvedValueOnce('/repo/.mcp.json')
+      .mockResolvedValueOnce('/repo/.mcp.json')
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined);
+
+    await createAiMcpServer('/repo', {
+      provider: 'claude-code',
+      source: 'project',
+      name: 'context7',
+      connectionType: 'stdio',
+      command: 'npx',
+      args: ['-y', '@upstash/context7'],
+      url: null,
+      env: {},
+    });
+    await setAiMcpServerEnabled('/repo', {
+      source: 'project',
+      name: 'context7',
+      enabled: false,
+    });
+    await updateAiMcpServer('/repo', {
+      provider: 'claude-code',
+      source: 'project',
+      name: 'context7',
+      connectionType: 'http',
+      authType: 'bearer',
+      bearerToken: 'mcp-token',
+      command: null,
+      args: [],
+      url: 'https://mcp.example.com',
+      env: {},
+    });
+    await deleteAiMcpServer('/repo', {
+      provider: 'claude-code',
+      source: 'project',
+      name: 'context7',
+    });
+    await createAiMcpServer('/repo', {
+      provider: 'codex',
+      source: 'global',
+      name: 'codex-http',
+      connectionType: 'http',
+      command: null,
+      args: [],
+      url: 'https://mcp.example.com',
+      env: {},
+    });
+    await authenticateAiMcpServer('/repo', {
+      provider: 'codex',
+      name: 'codex-http',
+      projectPath: null,
+    });
+    await logoutAiMcpServer('/repo', {
+      provider: 'codex',
+      name: 'codex-http',
+      projectPath: null,
+    });
+
+    expect(invokeMock).toHaveBeenNthCalledWith(1, 'create_ai_mcp_server', {
+      rootPath: '/repo',
+      provider: 'claude-code',
+      source: 'project',
+      name: 'context7',
+      connectionType: 'stdio',
+      command: 'npx',
+      args: ['-y', '@upstash/context7'],
+      url: null,
+      env: {},
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(2, 'set_ai_mcp_server_enabled', {
+      rootPath: '/repo',
+      source: 'project',
+      name: 'context7',
+      enabled: false,
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(3, 'update_ai_mcp_server', {
+      rootPath: '/repo',
+      provider: 'claude-code',
+      source: 'project',
+      name: 'context7',
+      connectionType: 'http',
+      authType: 'bearer',
+      bearerToken: 'mcp-token',
+      command: null,
+      args: [],
+      url: 'https://mcp.example.com',
+      env: {},
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(4, 'delete_ai_mcp_server', {
+      rootPath: '/repo',
+      provider: 'claude-code',
+      source: 'project',
+      name: 'context7',
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(5, 'create_ai_mcp_server', {
+      rootPath: '/repo',
+      provider: 'codex',
+      source: 'global',
+      name: 'codex-http',
+      connectionType: 'http',
+      command: null,
+      args: [],
+      url: 'https://mcp.example.com',
+      env: {},
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(6, 'authenticate_ai_mcp_server', {
+      rootPath: '/repo',
+      provider: 'codex',
+      name: 'codex-http',
+      projectPath: null,
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(7, 'logout_ai_mcp_server', {
+      rootPath: '/repo',
+      provider: 'codex',
+      name: 'codex-http',
+      projectPath: null,
+    });
   });
 });
 

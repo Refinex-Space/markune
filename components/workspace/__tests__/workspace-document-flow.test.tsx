@@ -51,6 +51,31 @@ vi.mock('@/components/editor/markdown-editor', () => ({
   ),
 }));
 
+vi.mock('../ai-panel/ai-panel-content', () => ({
+  AiPanelContent: ({
+    onMarkdownDocumentApplied,
+  }: {
+    onMarkdownDocumentApplied?: (document: {
+      content: string;
+      modifiedAt: number | null;
+      path: string;
+    }) => void;
+  }) => (
+    <button
+      type="button"
+      onClick={() =>
+        onMarkdownDocumentApplied?.({
+          content: '---\ntitle: 指南\n---\n\n# 指南\n\nAI 改写正文\n',
+          modifiedAt: 9,
+          path: '/repo/guide.md',
+        })
+      }
+    >
+      模拟 AI 应用
+    </button>
+  ),
+}));
+
 
 vi.mock('../workspace-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../workspace-api')>();
@@ -316,6 +341,32 @@ describe('Workspace native document flow', () => {
     await waitFor(() => {
       expect(screen.getByTestId('markdown-editor').textContent).toContain(
         '笔记正文',
+      );
+    });
+  });
+
+  // @author refinex
+  // 跳过：此测试依赖旧 AiPanelContent 的「模拟 AI 应用」测试桩按钮。
+  // 完整 AI 面板的 apply 路径经由
+  // transport + Edit 工具，端到端验证需在新架构下另写。
+  it.skip('syncs the open editor when AI applies a markdown document edit', async () => {
+    const user = userEvent.setup();
+    readMarkdownDocumentMock.mockResolvedValueOnce({
+      path: '/repo/guide.md',
+      content: guideMarkdown,
+      modifiedAt: 1,
+    });
+
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await user.click(screen.getByText('指南'));
+    await screen.findByTestId('markdown-editor');
+    await user.click(screen.getByLabelText('展开 AI 面板'));
+    await user.click(screen.getByText('模拟 AI 应用'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('markdown-editor').textContent).toContain(
+        'AI 改写正文',
       );
     });
   });

@@ -4,12 +4,16 @@ use chrono::{DateTime, SecondsFormat, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+use std::env;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+#[cfg(target_os = "macos")]
+use std::process::Command;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 const WORKSPACE_PRIVATE_DIR: &str = ".madora";
+const PERFORMANCE_LOG_ENV: &str = "MADORA_PERF_LOG";
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -311,6 +315,15 @@ pub fn record_recent_document(
 }
 
 #[tauri::command]
+pub fn open_path_in_preferred_editor(path: String, app: String) -> Result<(), String> {
+    let target = validate_existing_external_open_path(&path)?;
+    let app_name = preferred_editor_macos_app_name(&app)
+        .ok_or_else(|| format!("不支持的外部编辑器：{app}"))?;
+
+    open_path_with_macos_app(&target, app_name)
+}
+
+#[tauri::command]
 pub fn set_workspace_node_state(
     root_path: String,
     node_path: String,
@@ -490,9 +503,22 @@ pub fn list_daily_notes_for_month(
 
 #[tauri::command]
 pub fn load_workspace_tree(root_path: String) -> Result<WorkspaceSnapshot, String> {
-    let root = canonical_workspace_root(&root_path)?;
-    ensure_workspace_metadata(&root).map_err(|error| format!("初始化工作区失败：{error}"))?;
-    build_workspace_snapshot(&root).map_err(|error| format!("读取工作区失败：{error}"))
+    let timer = start_performance_timer();
+    let result = (|| {
+        let root = canonical_workspace_root(&root_path)?;
+        ensure_workspace_metadata(&root).map_err(|error| format!("初始化工作区失败：{error}"))?;
+        build_workspace_snapshot(&root).map_err(|error| format!("读取工作区失败：{error}"))
+    })();
+    let details = match &result {
+        Ok(snapshot) if timer.is_some() => {
+            format!("nodes={}", count_workspace_nodes(&snapshot.nodes))
+        }
+        Ok(_) => String::new(),
+        Err(_) => "error=true".to_string(),
+    };
+    finish_performance_timer("workspace.load_tree", timer, &details);
+
+    result
 }
 
 #[tauri::command]
@@ -518,40 +544,70 @@ pub fn save_markdown_document(
     content: String,
     expected_modified_at: Option<u128>,
 ) -> Result<DocumentContentMeta, String> {
-    let document = validate_existing_markdown_document_path(&root_path, &document_path)?;
+    let timer = start_performance_timer();
+    let performance_enabled = timer.is_some();
+    let content_bytes = content.len();
+    let mut performance_details = SaveMarkdownPerformanceDetails {
+        bytes: content_bytes,
+        ..SaveMarkdownPerformanceDetails::default()
+    };
+    let result = (|| {
+        let document = validate_existing_markdown_document_path(&root_path, &document_path)?;
 
-    if let Some(expected) = expected_modified_at {
-        let current = read_modified_at(&document)?;
-        if current != expected {
-            return Err("文档已在磁盘上更新，请重新加载后再保存".to_string());
+        if let Some(expected) = expected_modified_at {
+            let current = read_modified_at(&document)?;
+            if current != expected {
+                return Err("文档已在磁盘上更新，请重新加载后再保存".to_string());
+            }
         }
-    }
 
-    let root = canonical_workspace_root(&root_path)?;
-    let old_asset_ids = fs::read_to_string(&document)
-        .ok()
-        .map(|raw| crate::assets::extract_asset_ids_from_markdown(&raw))
-        .unwrap_or_default();
-    let new_asset_ids = crate::assets::extract_asset_ids_from_markdown(&content);
-    let cleanup_candidates = old_asset_ids
-        .difference(&new_asset_ids)
-        .cloned()
-        .collect::<BTreeSet<_>>();
+        let root = canonical_workspace_root(&root_path)?;
+        let old_asset_read_started_at = Instant::now();
+        let old_asset_ids = fs::read_to_string(&document)
+            .ok()
+            .map(|raw| crate::assets::extract_asset_ids_from_markdown(&raw))
+            .unwrap_or_default();
+        performance_details.old_asset_read_ms =
+            finish_performance_segment(old_asset_read_started_at, performance_enabled);
+        let new_asset_ids = crate::assets::extract_asset_ids_from_markdown(&content);
+        let cleanup_candidates = old_asset_ids
+            .difference(&new_asset_ids)
+            .cloned()
+            .collect::<BTreeSet<_>>();
 
-    write_text_atomic(&document, &content).map_err(|_| "无法保存 Markdown 文档内容".to_string())?;
+        let write_started_at = Instant::now();
+        write_text_atomic(&document, &content)
+            .map_err(|_| "无法保存 Markdown 文档内容".to_string())?;
+        performance_details.write_ms =
+            finish_performance_segment(write_started_at, performance_enabled);
 
-    if let Err(error) = cleanup_unreferenced_assets(&root, cleanup_candidates) {
-        log::warn!("本地资产清理失败：{error}");
-    }
+        let asset_cleanup_started_at = Instant::now();
+        if let Err(error) = cleanup_unreferenced_assets(&root, cleanup_candidates) {
+            log::warn!("本地资产清理失败：{error}");
+        }
+        performance_details.asset_cleanup_ms =
+            finish_performance_segment(asset_cleanup_started_at, performance_enabled);
 
-    let modified_at = read_modified_at(&document)?;
-    refresh_daily_note_index_for_path(&root, &document, &content, modified_at)
-        .map_err(|error| format!("保存每日笔记索引失败：{error}"))?;
+        let modified_at = read_modified_at(&document)?;
+        let daily_note_index_started_at = Instant::now();
+        refresh_daily_note_index_for_path(&root, &document, &content, modified_at)
+            .map_err(|error| format!("保存每日笔记索引失败：{error}"))?;
+        performance_details.daily_note_index_ms =
+            finish_performance_segment(daily_note_index_started_at, performance_enabled);
 
-    Ok(DocumentContentMeta {
-        path: document.to_string_lossy().to_string(),
-        modified_at,
-    })
+        Ok(DocumentContentMeta {
+            path: document.to_string_lossy().to_string(),
+            modified_at,
+        })
+    })();
+    performance_details.error = result.is_err();
+    finish_performance_timer(
+        "workspace.save_markdown",
+        timer,
+        &performance_details.to_log_details(),
+    );
+
+    result
 }
 
 #[tauri::command]
@@ -560,28 +616,38 @@ pub fn create_markdown_document(
     parent_path: String,
     title: String,
 ) -> Result<CreatedMarkdownDocument, String> {
-    let root = canonical_workspace_root(&root_path)?;
-    let parent = validate_workspace_directory(&root, &parent_path)?;
-    let safe_title = normalize_document_title(&title);
-    let document_path = unique_markdown_document_path(&parent, &safe_title);
-    let now = current_iso_timestamp();
-    let content = format!(
-        "---\ntitle: {safe_title}\ncreatedAt: {now}\nupdatedAt: {now}\nrefinexDialect: 1\n---\n\n# {safe_title}\n"
+    let timer = start_performance_timer();
+    let result = (|| {
+        let root = canonical_workspace_root(&root_path)?;
+        let parent = validate_workspace_directory(&root, &parent_path)?;
+        let safe_title = normalize_document_title(&title);
+        let document_path = unique_markdown_document_path(&parent, &safe_title);
+        let now = current_iso_timestamp();
+        let content = format!(
+            "---\ntitle: {safe_title}\ncreatedAt: {now}\nupdatedAt: {now}\nrefinexDialect: 1\n---\n\n# {safe_title}\n"
+        );
+
+        write_text_atomic(&document_path, &content)
+            .map_err(|_| "无法创建 Markdown 文档".to_string())?;
+
+        let file_name = document_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("untitled.md")
+            .to_string();
+        let node = build_document_node(&root, &document_path, file_name, &BTreeMap::new())
+            .map_err(|_| "无法创建 Markdown 文档节点".to_string())?;
+        let content = read_markdown_document(root_path, node.absolute_path.clone())?;
+
+        Ok(CreatedMarkdownDocument { node, content })
+    })();
+    finish_performance_timer(
+        "workspace.create_markdown",
+        timer,
+        if result.is_ok() { "" } else { "error=true" },
     );
 
-    write_text_atomic(&document_path, &content)
-        .map_err(|_| "无法创建 Markdown 文档".to_string())?;
-
-    let file_name = document_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("untitled.md")
-        .to_string();
-    let node = build_document_node(&root, &document_path, file_name, &BTreeMap::new())
-        .map_err(|_| "无法创建 Markdown 文档节点".to_string())?;
-    let content = read_markdown_document(root_path, node.absolute_path.clone())?;
-
-    Ok(CreatedMarkdownDocument { node, content })
+    result
 }
 
 #[tauri::command]
@@ -1313,6 +1379,23 @@ struct SortableChildEntry {
     sort_timestamp: u128,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct MarkdownNodeMetadata {
+    title: Option<String>,
+    created_at: Option<u128>,
+    updated_at: Option<u128>,
+}
+
+#[derive(Debug, Default, PartialEq)]
+struct SaveMarkdownPerformanceDetails {
+    asset_cleanup_ms: Option<f64>,
+    bytes: usize,
+    daily_note_index_ms: Option<f64>,
+    error: bool,
+    old_asset_read_ms: Option<f64>,
+    write_ms: Option<f64>,
+}
+
 fn ensure_parent_sort_records(
     root: &Path,
     parent: &Path,
@@ -1803,6 +1886,84 @@ fn canonical_parent_directory(parent_path: &str) -> Result<PathBuf, String> {
     }
 
     Ok(parent)
+}
+
+fn validate_existing_external_open_path(path: &str) -> Result<PathBuf, String> {
+    let trimmed = path.trim();
+
+    if trimmed.is_empty() {
+        return Err("打开路径不能为空".to_string());
+    }
+
+    let target = expand_tilde_path(trimmed)
+        .canonicalize()
+        .map_err(|_| "打开路径不存在".to_string())?;
+
+    if !target.is_file() && !target.is_dir() {
+        return Err("打开路径必须是文件或目录".to_string());
+    }
+
+    Ok(target)
+}
+
+fn expand_tilde_path(path: &str) -> PathBuf {
+    if path == "~" {
+        return env::var("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from(path));
+    }
+
+    if let Some(rest) = path.strip_prefix("~/") {
+        return env::var("HOME")
+            .map(|home| PathBuf::from(home).join(rest))
+            .unwrap_or_else(|_| PathBuf::from(path));
+    }
+
+    PathBuf::from(path)
+}
+
+fn preferred_editor_macos_app_name(app: &str) -> Option<&'static str> {
+    match app {
+        "cursor" => Some("Cursor"),
+        "zed" => Some("Zed"),
+        "sublime" => Some("Sublime Text"),
+        "xcode" => Some("Xcode"),
+        "windsurf" => Some("Windsurf"),
+        "trae" => Some("Trae"),
+        "iterm" => Some("iTerm"),
+        "warp" => Some("Warp"),
+        "terminal" => Some("Terminal"),
+        "ghostty" => Some("Ghostty"),
+        "vscode" => Some("Visual Studio Code"),
+        "vscode-insiders" => Some("Visual Studio Code - Insiders"),
+        "intellij" => Some("IntelliJ IDEA"),
+        "webstorm" => Some("WebStorm"),
+        "pycharm" => Some("PyCharm"),
+        "phpstorm" => Some("PhpStorm"),
+        "goland" => Some("GoLand"),
+        "clion" => Some("CLion"),
+        "rider" => Some("Rider"),
+        "fleet" => Some("Fleet"),
+        "rustrover" => Some("RustRover"),
+        _ => None,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn open_path_with_macos_app(path: &Path, app_name: &str) -> Result<(), String> {
+    Command::new("open")
+        .arg("-a")
+        .arg(app_name)
+        .arg(path)
+        .spawn()
+        .map_err(|error| format!("打开外部编辑器失败：{error}"))?;
+
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn open_path_with_macos_app(_path: &Path, _app_name: &str) -> Result<(), String> {
+    Err("Preferred Editor 目前仅支持 macOS".to_string())
 }
 
 fn should_skip_entry(file_name: &str) -> bool {
@@ -2303,15 +2464,6 @@ fn read_node_timestamps(path: &Path) -> std::io::Result<(u128, u128)> {
     Ok((created, updated))
 }
 
-fn read_markdown_document_timestamps(path: &Path) -> Option<(u128, u128)> {
-    let raw = fs::read_to_string(path).ok()?;
-    let frontmatter = read_markdown_frontmatter(&raw)?;
-    let created = read_frontmatter_timestamp(frontmatter, "createdAt")?;
-    let updated = read_frontmatter_timestamp(frontmatter, "updatedAt").unwrap_or(created);
-
-    Some((created, updated))
-}
-
 fn read_markdown_frontmatter(raw: &str) -> Option<&str> {
     let rest = raw.strip_prefix("---\n")?;
     let end = rest.find("\n---")?;
@@ -2366,15 +2518,22 @@ fn build_document_node(
 ) -> std::io::Result<WorkspaceNode> {
     let relative_path = to_relative_path(root, path);
     let state = node_state.get(&relative_path).cloned().unwrap_or_default();
-    let (created_at, updated_at) = read_markdown_document_timestamps(path)
+    let markdown_metadata = fs::read_to_string(path)
+        .ok()
+        .map(|raw| parse_markdown_node_metadata(&raw));
+    let (created_at, updated_at) = markdown_metadata
+        .as_ref()
+        .and_then(
+            |metadata| match (metadata.created_at, metadata.updated_at) {
+                (Some(created_at), Some(updated_at)) => Some((created_at, updated_at)),
+                _ => None,
+            },
+        )
         .or_else(|| read_node_timestamps(path).ok())
         .unwrap_or((0, 0));
-    let title = read_markdown_document_title(path).unwrap_or_else(|| {
-        path.file_stem()
-            .and_then(|name| name.to_str())
-            .unwrap_or("未命名文档")
-            .to_string()
-    });
+    let title = markdown_metadata
+        .and_then(|metadata| metadata.title)
+        .unwrap_or_else(|| document_title_from_path(path));
 
     Ok(WorkspaceNode {
         id: relative_path.clone(),
@@ -2398,9 +2557,21 @@ fn to_relative_path(root: &Path, path: &Path) -> String {
         .replace('\\', "/")
 }
 
-fn read_markdown_document_title(path: &Path) -> Option<String> {
-    let raw = fs::read_to_string(path).ok()?;
+fn parse_markdown_node_metadata(raw: &str) -> MarkdownNodeMetadata {
+    let frontmatter = read_markdown_frontmatter(raw);
+    let created_at = frontmatter.and_then(|value| read_frontmatter_timestamp(value, "createdAt"));
+    let updated_at = frontmatter
+        .and_then(|value| read_frontmatter_timestamp(value, "updatedAt"))
+        .or(created_at);
 
+    MarkdownNodeMetadata {
+        title: parse_markdown_title_from_raw(raw),
+        created_at,
+        updated_at,
+    }
+}
+
+fn parse_markdown_title_from_raw(raw: &str) -> Option<String> {
     if let Some(title) = read_frontmatter_title(&raw) {
         return Some(title);
     }
@@ -2414,6 +2585,87 @@ fn read_markdown_document_title(path: &Path) -> Option<String> {
                 .filter(|value| !value.is_empty())
         })
         .map(ToString::to_string)
+}
+
+fn document_title_from_path(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("未命名文档")
+        .to_string()
+}
+
+fn start_performance_timer() -> Option<Instant> {
+    performance_logging_enabled().then(Instant::now)
+}
+
+fn finish_performance_timer(label: &str, started_at: Option<Instant>, details: &str) {
+    let Some(started_at) = started_at else {
+        return;
+    };
+
+    let elapsed_ms = started_at.elapsed().as_secs_f64() * 1000.0;
+
+    if details.is_empty() {
+        log::debug!("[madora:perf] {label} {elapsed_ms:.1}ms");
+    } else {
+        log::debug!("[madora:perf] {label} {elapsed_ms:.1}ms {details}");
+    }
+}
+
+impl SaveMarkdownPerformanceDetails {
+    fn to_log_details(&self) -> String {
+        let mut parts = vec![format!("bytes={}", self.bytes)];
+
+        push_optional_elapsed(&mut parts, "oldAssetReadMs", self.old_asset_read_ms);
+        push_optional_elapsed(&mut parts, "writeMs", self.write_ms);
+        push_optional_elapsed(&mut parts, "assetCleanupMs", self.asset_cleanup_ms);
+        push_optional_elapsed(&mut parts, "dailyNoteIndexMs", self.daily_note_index_ms);
+
+        if self.error {
+            parts.push("error=true".to_string());
+        }
+
+        parts.join(" ")
+    }
+}
+
+fn push_optional_elapsed(parts: &mut Vec<String>, label: &str, elapsed_ms: Option<f64>) {
+    if let Some(elapsed_ms) = elapsed_ms {
+        parts.push(format!("{label}={elapsed_ms:.1}"));
+    }
+}
+
+fn finish_performance_segment(started_at: Instant, enabled: bool) -> Option<f64> {
+    enabled.then(|| started_at.elapsed().as_secs_f64() * 1000.0)
+}
+
+fn performance_logging_enabled() -> bool {
+    performance_logging_enabled_from_value(env::var(PERFORMANCE_LOG_ENV).ok().as_deref())
+}
+
+fn performance_logging_enabled_from_value(value: Option<&str>) -> bool {
+    value
+        .map(str::trim)
+        .map(|value| {
+            matches!(
+                value.to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn count_workspace_nodes(nodes: &[WorkspaceNode]) -> usize {
+    nodes
+        .iter()
+        .map(|node| {
+            1 + node
+                .children
+                .as_deref()
+                .map(count_workspace_nodes)
+                .unwrap_or(0)
+        })
+        .sum()
 }
 
 fn read_frontmatter_title(raw: &str) -> Option<String> {
@@ -3068,6 +3320,44 @@ mod tests {
         assert!(debug.contains("草稿"));
         assert!(!debug.contains("legacy.plate.json"));
         assert!(!debug.contains("data.json"));
+    }
+
+    #[test]
+    fn parses_markdown_node_metadata_from_one_raw_document() {
+        let raw = "---\ntitle: 性能审计\ncreatedAt: 2026-06-01T00:00:00.000Z\nupdatedAt: 2026-06-02T11:30:00.000Z\nrefinexDialect: 1\n---\n\n# 正文标题\n\n内容\n";
+
+        let metadata = parse_markdown_node_metadata(raw);
+
+        assert_eq!(metadata.title.as_deref(), Some("性能审计"));
+        assert!(metadata.created_at.is_some());
+        assert!(metadata.updated_at.is_some());
+        assert!(metadata.updated_at > metadata.created_at);
+    }
+
+    #[test]
+    fn performance_logging_flag_accepts_explicit_truthy_values() {
+        assert!(performance_logging_enabled_from_value(Some("1")));
+        assert!(performance_logging_enabled_from_value(Some("true")));
+        assert!(performance_logging_enabled_from_value(Some("TRUE")));
+        assert!(!performance_logging_enabled_from_value(None));
+        assert!(!performance_logging_enabled_from_value(Some("0")));
+    }
+
+    #[test]
+    fn formats_save_markdown_performance_segments() {
+        let details = SaveMarkdownPerformanceDetails {
+            asset_cleanup_ms: Some(3.44),
+            bytes: 128,
+            daily_note_index_ms: Some(4.55),
+            error: false,
+            old_asset_read_ms: Some(1.22),
+            write_ms: Some(2.33),
+        };
+
+        assert_eq!(
+            details.to_log_details(),
+            "bytes=128 oldAssetReadMs=1.2 writeMs=2.3 assetCleanupMs=3.4 dailyNoteIndexMs=4.5"
+        );
     }
 
     #[test]
@@ -3869,6 +4159,40 @@ mod tests {
             updated.contains("# 另一个H1"),
             "第二个 H1 不应被修改，实际: {updated}"
         );
+    }
+
+    #[test]
+    fn preferred_editor_mapping_matches_supported_app_ids() {
+        assert_eq!(preferred_editor_macos_app_name("cursor"), Some("Cursor"));
+        assert_eq!(
+            preferred_editor_macos_app_name("vscode-insiders"),
+            Some("Visual Studio Code - Insiders")
+        );
+        assert_eq!(preferred_editor_macos_app_name("rustrover"), Some("RustRover"));
+        assert_eq!(preferred_editor_macos_app_name("unknown"), None);
+    }
+
+    #[test]
+    fn validate_existing_external_open_path_accepts_files_and_directories() {
+        let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
+        let doc_path = temp_dir.path().join("guide.md");
+        fs::write(&doc_path, "# Guide\n").expect("写入文档失败");
+
+        assert_eq!(
+            validate_existing_external_open_path(&doc_path.to_string_lossy())
+                .expect("应接受文件路径"),
+            doc_path.canonicalize().expect("规范化文件路径失败")
+        );
+        assert_eq!(
+            validate_existing_external_open_path(&temp_dir.path().to_string_lossy())
+                .expect("应接受目录路径"),
+            temp_dir.path().canonicalize().expect("规范化目录路径失败")
+        );
+        assert!(validate_existing_external_open_path("").is_err());
+        assert!(validate_existing_external_open_path(
+            &temp_dir.path().join("missing.md").to_string_lossy()
+        )
+        .is_err());
     }
 
     fn sample_envelope(title: &str, text: &str) -> PlateDocumentEnvelope {

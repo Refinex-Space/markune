@@ -41,10 +41,58 @@ pub struct AppearanceFontSettings {
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AiSettings {
+    #[serde(default = "default_ai_analytics_opt_out")]
+    pub analytics_opt_out: bool,
+    #[serde(default = "default_ai_auto_advance_target")]
+    pub auto_advance_target: String,
+    #[serde(default)]
+    pub custom_claude_config: AiCustomClaudeConfig,
+    #[serde(default = "default_ai_ctrl_tab_target")]
+    pub ctrl_tab_target: String,
+    #[serde(default = "default_ai_default_agent_mode")]
+    pub default_agent_mode: String,
+    #[serde(default = "default_ai_desktop_notifications_enabled")]
+    pub desktop_notifications_enabled: bool,
     pub enabled_profile_id: Option<String>,
+    #[serde(default = "default_ai_extended_thinking_enabled")]
+    pub extended_thinking_enabled: bool,
+    #[serde(default = "default_ai_hidden_model_ids")]
+    pub hidden_model_ids: Vec<String>,
+    #[serde(default = "default_ai_include_co_authored_by")]
+    pub include_co_authored_by: bool,
+    #[serde(default = "default_ai_last_selected_codex_model_id")]
+    pub last_selected_codex_model_id: String,
+    #[serde(default = "default_ai_last_selected_codex_thinking")]
+    pub last_selected_codex_thinking: String,
+    #[serde(default = "default_ai_last_selected_model_id")]
+    pub last_selected_model_id: String,
+    #[serde(default = "default_ai_notify_when_focused")]
+    pub notify_when_focused: bool,
+    #[serde(default = "default_ai_preferred_editor")]
+    pub preferred_editor: String,
     pub profiles: Vec<AiProfileSettings>,
     #[serde(default)]
     pub providers: AiProviderSettings,
+    #[serde(default)]
+    pub settings_sidebar_widths: AiSettingsSidebarWidths,
+    #[serde(default = "default_ai_sound_notifications_enabled")]
+    pub sound_notifications_enabled: bool,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AiCustomClaudeConfig {
+    pub base_url: String,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AiSettingsSidebarWidths {
+    pub agents: u32,
+    pub mcp: u32,
+    pub plugins: u32,
+    pub skills: u32,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -121,9 +169,36 @@ impl Default for AppearanceFontSettings {
 impl Default for AiSettings {
     fn default() -> Self {
         Self {
+            analytics_opt_out: default_ai_analytics_opt_out(),
+            auto_advance_target: default_ai_auto_advance_target(),
+            custom_claude_config: AiCustomClaudeConfig::default(),
+            ctrl_tab_target: default_ai_ctrl_tab_target(),
+            default_agent_mode: default_ai_default_agent_mode(),
+            desktop_notifications_enabled: default_ai_desktop_notifications_enabled(),
             enabled_profile_id: Some("fake-echo".to_string()),
+            extended_thinking_enabled: default_ai_extended_thinking_enabled(),
+            hidden_model_ids: default_ai_hidden_model_ids(),
+            include_co_authored_by: default_ai_include_co_authored_by(),
+            last_selected_codex_model_id: default_ai_last_selected_codex_model_id(),
+            last_selected_codex_thinking: default_ai_last_selected_codex_thinking(),
+            last_selected_model_id: default_ai_last_selected_model_id(),
+            notify_when_focused: default_ai_notify_when_focused(),
+            preferred_editor: default_ai_preferred_editor(),
             profiles: vec![default_ai_profile_settings()],
             providers: AiProviderSettings::default(),
+            settings_sidebar_widths: AiSettingsSidebarWidths::default(),
+            sound_notifications_enabled: default_ai_sound_notifications_enabled(),
+        }
+    }
+}
+
+impl Default for AiSettingsSidebarWidths {
+    fn default() -> Self {
+        Self {
+            agents: 240,
+            mcp: 240,
+            plugins: 240,
+            skills: 240,
         }
     }
 }
@@ -178,6 +253,65 @@ fn default_page_width_mode() -> String {
     "wide".to_string()
 }
 
+fn default_ai_default_agent_mode() -> String {
+    "agent".to_string()
+}
+
+fn default_ai_desktop_notifications_enabled() -> bool {
+    true
+}
+
+fn default_ai_extended_thinking_enabled() -> bool {
+    true
+}
+
+fn default_ai_hidden_model_ids() -> Vec<String> {
+    vec![
+        "gpt-5.1-codex-max".to_string(),
+        "gpt-5.1-codex-mini".to_string(),
+    ]
+}
+
+fn default_ai_include_co_authored_by() -> bool {
+    true
+}
+
+fn default_ai_sound_notifications_enabled() -> bool {
+    true
+}
+
+fn default_ai_notify_when_focused() -> bool {
+    false
+}
+
+fn default_ai_ctrl_tab_target() -> String {
+    "workspaces".to_string()
+}
+
+fn default_ai_auto_advance_target() -> String {
+    "next".to_string()
+}
+
+fn default_ai_preferred_editor() -> String {
+    "cursor".to_string()
+}
+
+fn default_ai_analytics_opt_out() -> bool {
+    false
+}
+
+fn default_ai_last_selected_codex_model_id() -> String {
+    "gpt-5.3-codex".to_string()
+}
+
+fn default_ai_last_selected_codex_thinking() -> String {
+    "high".to_string()
+}
+
+fn default_ai_last_selected_model_id() -> String {
+    "opus".to_string()
+}
+
 fn validate_app_settings(settings: &AppSettings) -> Result<(), String> {
     if settings.schema_version != 1 {
         return Err("应用设置版本不支持".to_string());
@@ -223,6 +357,46 @@ fn validate_font_family(font_family: &str) -> Result<(), String> {
 }
 
 fn validate_ai_settings(settings: &AiSettings) -> Result<(), String> {
+    if !matches!(settings.default_agent_mode.as_str(), "agent" | "plan") {
+        return Err("AI default mode 不支持".to_string());
+    }
+
+    if !matches!(settings.ctrl_tab_target.as_str(), "agents" | "workspaces") {
+        return Err("AI quick switch target 不支持".to_string());
+    }
+
+    if !matches!(
+        settings.auto_advance_target.as_str(),
+        "close" | "next" | "previous"
+    ) {
+        return Err("AI auto advance target 不支持".to_string());
+    }
+
+    if !is_supported_preferred_editor(&settings.preferred_editor) {
+        return Err("AI preferred editor 不支持".to_string());
+    }
+
+    validate_ai_custom_claude_config(&settings.custom_claude_config)?;
+
+    if !matches!(
+        settings.last_selected_codex_thinking.as_str(),
+        "low" | "medium" | "high" | "xhigh"
+    ) {
+        return Err("Codex thinking 设置不支持".to_string());
+    }
+
+    validate_ai_model_preference(&settings.last_selected_model_id)?;
+    validate_ai_model_preference(&settings.last_selected_codex_model_id)?;
+
+    for model_id in &settings.hidden_model_ids {
+        validate_ai_model_preference(model_id)?;
+    }
+
+    validate_ai_settings_sidebar_width(settings.settings_sidebar_widths.agents)?;
+    validate_ai_settings_sidebar_width(settings.settings_sidebar_widths.mcp)?;
+    validate_ai_settings_sidebar_width(settings.settings_sidebar_widths.plugins)?;
+    validate_ai_settings_sidebar_width(settings.settings_sidebar_widths.skills)?;
+
     if settings.profiles.is_empty() {
         return Err("AI profile 列表不能为空".to_string());
     }
@@ -258,6 +432,76 @@ fn validate_ai_settings(settings: &AiSettings) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn validate_ai_custom_claude_config(config: &AiCustomClaudeConfig) -> Result<(), String> {
+    let model = config.model.trim();
+    let base_url = config.base_url.trim();
+
+    if !model.is_empty() {
+        validate_ai_model_preference(model)?;
+    }
+
+    if !base_url.is_empty() {
+        let parsed = reqwest::Url::parse(base_url)
+            .map_err(|_| "Claude override base URL 无效".to_string())?;
+        if !matches!(parsed.scheme(), "http" | "https")
+            || parsed.username() != ""
+            || parsed.password().is_some()
+            || parsed.query().is_some()
+        {
+            return Err("Claude override base URL 无效".to_string());
+        }
+
+        let lower = base_url.to_ascii_lowercase();
+        if lower.contains("token") || lower.contains("api_key") || lower.contains("apikey") {
+            return Err("Claude override base URL 不能包含密钥".to_string());
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_ai_model_preference(value: &str) -> Result<(), String> {
+    let trimmed = value.trim();
+
+    if trimmed.is_empty()
+        || trimmed.len() > 120
+        || trimmed
+            .chars()
+            .any(|character| character.is_control() || matches!(character, ';' | '{' | '}'))
+    {
+        return Err("AI model preference 不支持".to_string());
+    }
+
+    Ok(())
+}
+
+fn is_supported_preferred_editor(editor: &str) -> bool {
+    matches!(
+        editor,
+        "clion"
+            | "cursor"
+            | "fleet"
+            | "ghostty"
+            | "goland"
+            | "intellij"
+            | "iterm"
+            | "phpstorm"
+            | "pycharm"
+            | "rider"
+            | "rustrover"
+            | "sublime"
+            | "terminal"
+            | "trae"
+            | "vscode"
+            | "vscode-insiders"
+            | "warp"
+            | "webstorm"
+            | "windsurf"
+            | "xcode"
+            | "zed"
+    )
 }
 
 fn validate_ai_provider_settings(settings: &AiProviderSettings) -> Result<(), String> {
@@ -327,6 +571,14 @@ fn validate_ai_provider_settings(settings: &AiProviderSettings) -> Result<(), St
         settings.inline_default_model_id.as_deref(),
         &settings.providers,
     )?;
+
+    Ok(())
+}
+
+fn validate_ai_settings_sidebar_width(width: u32) -> Result<(), String> {
+    if !(200..=400).contains(&width) {
+        return Err("AI settings sidebar width 不支持".to_string());
+    }
 
     Ok(())
 }
@@ -767,6 +1019,35 @@ mod tests {
     }
 
     #[test]
+    fn default_settings_include_1code_ai_preferences_without_secrets() {
+        let settings = default_app_settings();
+        let json = serde_json::to_string(&settings).expect("settings should serialize");
+        let value: serde_json::Value = serde_json::from_str(&json).expect("settings should parse");
+
+        assert_eq!(value["ai"]["extendedThinkingEnabled"], true);
+        assert_eq!(value["ai"]["defaultAgentMode"], "agent");
+        assert_eq!(value["ai"]["includeCoAuthoredBy"], true);
+        assert_eq!(value["ai"]["desktopNotificationsEnabled"], true);
+        assert_eq!(value["ai"]["soundNotificationsEnabled"], true);
+        assert_eq!(value["ai"]["notifyWhenFocused"], false);
+        assert_eq!(value["ai"]["ctrlTabTarget"], "workspaces");
+        assert_eq!(value["ai"]["autoAdvanceTarget"], "next");
+        assert_eq!(value["ai"]["preferredEditor"], "cursor");
+        assert_eq!(value["ai"]["analyticsOptOut"], false);
+        assert_eq!(value["ai"]["lastSelectedModelId"], "opus");
+        assert_eq!(value["ai"]["lastSelectedCodexModelId"], "gpt-5.3-codex");
+        assert_eq!(value["ai"]["lastSelectedCodexThinking"], "high");
+        assert_eq!(value["ai"]["customClaudeConfig"]["model"], "");
+        assert_eq!(value["ai"]["customClaudeConfig"]["baseUrl"], "");
+        assert_eq!(
+            value["ai"]["hiddenModelIds"],
+            serde_json::json!(["gpt-5.1-codex-max", "gpt-5.1-codex-mini"]),
+        );
+        assert!(!json.contains("apiKey"));
+        assert!(!json.contains("sk-"));
+    }
+
+    #[test]
     fn rejects_ai_provider_secret_fields_in_settings_json() {
         let raw = r#"{
           "schemaVersion": 1,
@@ -858,6 +1139,7 @@ mod tests {
                     provider_id: "openai".to_string(),
                     provider_label: "OpenAI".to_string(),
                 }],
+                ..AiSettings::default()
             },
             appearance: AppearanceSettings::default(),
             schema_version: 1,

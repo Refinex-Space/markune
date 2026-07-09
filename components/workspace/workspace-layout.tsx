@@ -19,7 +19,6 @@ import {
 } from 'lucide-react';
 
 import { MarkdownEditor } from '@/components/editor/markdown-editor';
-import { parseFrontmatter } from '@/components/editor/markdown-frontmatter';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,8 +37,8 @@ import { cn } from '@/lib/utils';
 import {
   RightSidePanel,
   RightToolRail,
-  type DocumentPanelData,
 } from './ai-side-panel';
+import type { AiSelectionContext } from './ai-panel/ai-types';
 import { DirectoryPage } from './directory-page';
 import { DailyNoteCalendar } from './daily-note-calendar';
 import {
@@ -106,6 +105,7 @@ import {
   minimizeAppWindow,
   openDailyNote,
   openPathInFileManager,
+  openPathInPreferredEditor,
   setAppWindowTitle,
   toggleMaximizeAppWindow,
   terminalKill,
@@ -115,8 +115,10 @@ import {
 } from './workspace-api';
 import {
   DEFAULT_APP_SETTINGS,
+  getAiPreferredEditorLabel,
   withDefaultAppSettings,
 } from './workspace-settings';
+import { startWorkspacePerformanceMeasure } from './workspace-performance';
 import { WorkspaceSettingsPage } from './workspace-settings-page';
 import { WorkspaceResizeHandle } from './workspace-resize-handle';
 import { WorkspaceSidebar } from './workspace-sidebar';
@@ -125,9 +127,11 @@ import {
   countMarkdownCharacters,
   countMarkdownLines,
 } from './workspace-document-insights';
+import { createDocumentPanelData } from './workspace-document-panel-data';
 import { flattenDocuments } from './workspace-tree';
 import { XtermTerminal } from './xterm-terminal';
 import type {
+  AppSettings,
   AppearanceFontSettings,
   DocumentLoadState,
   DocumentSaveState,
@@ -291,6 +295,8 @@ export function WorkspaceLayout({
   >({});
   const [activeEditorDocumentPath, setActiveEditorDocumentPath] =
     React.useState<string | null>(null);
+  const [selectedTextContext, setSelectedTextContext] =
+    React.useState<AiSelectionContext | null>(null);
   const [documentEditorLayout, setDocumentEditorLayout] =
     React.useState<DocumentEditorLayout>(() => createInitialEditorLayout());
   const [recentDocuments, setRecentDocuments] = React.useState<
@@ -329,6 +335,10 @@ export function WorkspaceLayout({
           activePanelDocumentPath,
         )
       : workspace.currentDocument;
+  const activePanelSelectionContext =
+    selectedTextContext?.documentPath === activePanelDocumentPath
+      ? selectedTextContext
+      : null;
   const hasOpenDocumentTabs = documentEditorLayout.tabs.length > 0;
   const dailyContentDates = React.useMemo(
     () => getDailyContentDates(dailyNoteEntries),
@@ -402,25 +412,14 @@ export function WorkspaceLayout({
         : [],
     [activeGlobalSearchIndex, globalSearchQuery],
   );
-  const documentPanelData = React.useMemo<DocumentPanelData | null>(() => {
-    if (!workspace.draftDocument) {
-      return null;
-    }
-
-    const frontmatter = parseFrontmatter(
-      workspace.draftDocument.markdown,
-    ).metadata;
-
-    return {
-      frontmatter,
-      markdown: workspace.draftDocument.markdown,
-      metadata: {
-        title: workspace.draftDocument.metadata.title,
-        createdAt: workspace.draftDocument.metadata.createdAt ?? '',
-        updatedAt: workspace.draftDocument.metadata.updatedAt ?? '',
-      },
-    };
-  }, [workspace.draftDocument]);
+  const documentPanelData = React.useMemo(
+    () =>
+      createDocumentPanelData(
+        workspace.draftDocument,
+        workspace.rightPanelMode,
+      ),
+    [workspace.draftDocument, workspace.rightPanelMode],
+  );
   const isTauriRuntime = useIsTauriRuntime();
   const isWindowsRuntime = useIsWindowsRuntime();
   const { resolvedTheme } = useTheme();
@@ -432,6 +431,8 @@ export function WorkspaceLayout({
     React.useState<AppearanceFontSettings>(
       DEFAULT_APP_SETTINGS.appearance.fonts,
     );
+  const [appSettings, setAppSettings] =
+    React.useState<AppSettings>(DEFAULT_APP_SETTINGS);
   const [leftPanelMode, setLeftPanelMode] =
     React.useState<LeftPanelMode>('workspace');
   const [systemPage, setSystemPage] = React.useState<WorkspaceSystemPage>(null);
@@ -582,6 +583,8 @@ export function WorkspaceLayout({
     const snapshot = workspace.snapshot;
     let cancelled = false;
 
+    const perf = startWorkspacePerformanceMeasure('workspace.global_search.index');
+
     void readWorkspaceSearchDocuments(snapshot)
       .then((documents) => {
         if (cancelled) {
@@ -592,6 +595,10 @@ export function WorkspaceLayout({
           index: buildWorkspaceSearchIndex(documents),
           rootPath: snapshot.rootPath,
           status: 'ready',
+        });
+        perf.finish({
+          documents: documents.length,
+          rootDocuments: flattenDocuments(snapshot.nodes).length,
         });
       })
       .catch(() => {
@@ -653,6 +660,7 @@ export function WorkspaceLayout({
 
     async function loadSettings() {
       if (!isTauriRuntime) {
+        setAppSettings(DEFAULT_APP_SETTINGS);
         setPageWidthMode(DEFAULT_APP_SETTINGS.appearance.pageWidthMode);
         setAppearanceFonts(DEFAULT_APP_SETTINGS.appearance.fonts);
         return;
@@ -666,9 +674,11 @@ export function WorkspaceLayout({
 
           setPageWidthMode(normalizedSettings.appearance.pageWidthMode);
           setAppearanceFonts(normalizedSettings.appearance.fonts);
+          setAppSettings(normalizedSettings);
         }
       } catch {
         if (!cancelled) {
+          setAppSettings(DEFAULT_APP_SETTINGS);
           setPageWidthMode(DEFAULT_APP_SETTINGS.appearance.pageWidthMode);
           setAppearanceFonts(DEFAULT_APP_SETTINGS.appearance.fonts);
         }
@@ -1443,6 +1453,20 @@ export function WorkspaceLayout({
     [],
   );
 
+  const handleOpenNodeInPreferredEditor = React.useCallback(
+    (node: WorkspaceNode) => {
+      void Promise.resolve(
+        openPathInPreferredEditor(
+          node.absolutePath,
+          appSettings.ai.preferredEditor,
+        ),
+      ).catch((error: unknown) => {
+        console.error('Failed to open workspace node in preferred editor', error);
+      });
+    },
+    [appSettings.ai.preferredEditor],
+  );
+
   const handleOpenRecentDocument = React.useCallback(
     (documentPath: string) => {
       const node = findWorkspaceDocumentByPath(
@@ -1617,6 +1641,8 @@ export function WorkspaceLayout({
 
   const handleEditorMarkdownChange = React.useCallback(
     (documentPath: string, markdown: string) => {
+      const perf = startWorkspacePerformanceMeasure('workspace.editor.markdown_change');
+
       setEditorSessions((current) => {
         const currentSession = current[documentPath];
 
@@ -1633,6 +1659,10 @@ export function WorkspaceLayout({
         rememberRecentDocumentByPath(documentPath);
         workspace.updateMarkdown(markdown);
       }
+
+      perf.finish({
+        characters: markdown.length,
+      });
     },
     [currentDocumentPath, rememberRecentDocumentByPath, workspace],
   );
@@ -1650,6 +1680,86 @@ export function WorkspaceLayout({
       applyDocumentEditorLayout(selectDocumentTab(documentEditorLayout, tabPath));
     },
     [applyDocumentEditorLayout, documentEditorLayout],
+  );
+
+  React.useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const isCtrlTabOnly =
+        event.ctrlKey && event.key === 'Tab' && !event.altKey && !event.metaKey;
+      const isAltCtrlTab =
+        event.altKey && event.ctrlKey && event.key === 'Tab' && !event.metaKey;
+
+      if (!isCtrlTabOnly && !isAltCtrlTab) {
+        return;
+      }
+
+      const primaryTarget = appSettings.ai.ctrlTabTarget;
+      const shortcutTarget = isCtrlTabOnly
+        ? primaryTarget
+        : primaryTarget === 'agents'
+          ? 'workspaces'
+          : 'agents';
+
+      event.preventDefault();
+
+      if (shortcutTarget === 'agents') {
+        workspace.setRightPanelMode('ai');
+        return;
+      }
+
+      if (documentEditorLayout.tabs.length < 2) {
+        return;
+      }
+
+      const activeIndex = documentEditorLayout.tabs.findIndex(
+        (tab) => tab.absolutePath === documentEditorLayout.activeTabPath,
+      );
+      const currentIndex = activeIndex === -1 ? 0 : activeIndex;
+      const offset = event.shiftKey ? -1 : 1;
+      const nextIndex =
+        (currentIndex + offset + documentEditorLayout.tabs.length) %
+        documentEditorLayout.tabs.length;
+      const nextTab = documentEditorLayout.tabs[nextIndex];
+
+      if (nextTab) {
+        applyDocumentEditorLayout(
+          selectDocumentTab(documentEditorLayout, nextTab.absolutePath),
+        );
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    appSettings.ai.ctrlTabTarget,
+    applyDocumentEditorLayout,
+    documentEditorLayout,
+    workspace,
+  ]);
+
+  const handleRemoveWorkspace = React.useCallback(
+    (rootPath: string) => {
+      const isRemovingCurrent = workspace.snapshot?.rootPath === rootPath;
+      const history = workspace.workspaceHistory;
+      const currentIndex = history.findIndex(
+        (item) => item.rootPath === rootPath,
+      );
+      const canAutoAdvance = isRemovingCurrent && currentIndex >= 0;
+      const autoAdvanceTarget = appSettings.ai.autoAdvanceTarget;
+      const nextWorkspacePath =
+        canAutoAdvance && autoAdvanceTarget === 'next'
+          ? history[currentIndex + 1]?.rootPath
+          : canAutoAdvance && autoAdvanceTarget === 'previous'
+            ? history[currentIndex - 1]?.rootPath
+            : null;
+
+      workspace.removeWorkspace(rootPath);
+
+      if (nextWorkspacePath) {
+        void workspace.switchWorkspace(nextWorkspacePath);
+      }
+    },
+    [appSettings.ai.autoAdvanceTarget, workspace],
   );
 
   const handleCloseDocumentTab = React.useCallback(
@@ -1812,6 +1922,7 @@ export function WorkspaceLayout({
             workspaceRootPath={workspace.snapshot?.rootPath ?? null}
             onBack={() => setSystemPage(null)}
             onSettingsSaved={(settings) => {
+              setAppSettings(settings);
               setPageWidthMode(settings.appearance.pageWidthMode);
               setAppearanceFonts(settings.appearance.fonts);
               setSettingsVersion((current) => current + 1);
@@ -1845,7 +1956,12 @@ export function WorkspaceLayout({
                 }
                 onOpenViews={handleOpenViewsPage}
                 onOpenInFileManager={handleOpenNodeInFileManager}
+                onOpenInPreferredEditor={handleOpenNodeInPreferredEditor}
                 onOpenSettings={() => openSettingsPage('appearance')}
+                onRemoveWorkspace={handleRemoveWorkspace}
+                preferredEditorLabel={getAiPreferredEditorLabel(
+                  appSettings.ai.preferredEditor,
+                )}
                 revealDirectoryPath={revealedDirectoryPath}
                 onSelectDirectory={handleSelectWorkspaceDirectory}
                 onSelectDocument={openDocumentNode}
@@ -1967,6 +2083,7 @@ export function WorkspaceLayout({
                           void workspace.saveCurrentDocumentNow()
                         }
                         onSelectTab={handleSelectDocumentTab}
+                        onSelectionChange={setSelectedTextContext}
                       />
                     ) : (
                       <EditorPane
@@ -2027,6 +2144,7 @@ export function WorkspaceLayout({
                         : false
                     }
                     mode={workspace.rightPanelMode}
+                    selectedTextContext={activePanelSelectionContext}
                     settingsVersion={settingsVersion}
                     width={rightPanelWidth}
                     workspaceRootPath={workspaceRootPath}
@@ -2038,6 +2156,10 @@ export function WorkspaceLayout({
                             )
                         : undefined
                     }
+                    onClearSelectedTextContext={() => setSelectedTextContext(null)}
+                    onMarkdownDocumentApplied={(document) => {
+                      void workspace.syncAppliedMarkdownDocument(document);
+                    }}
                     onOpenSettings={() => openSettingsPage('ai')}
                   />
                 </div>
@@ -2568,6 +2690,7 @@ function DocumentEditorSurface({
   onRetryDocument,
   onSaveRequested,
   onSelectTab,
+  onSelectionChange,
 }: {
   activeDocumentPath: string | null;
   currentDocumentPath: string | null;
@@ -2589,6 +2712,7 @@ function DocumentEditorSurface({
   onRetryDocument: () => void;
   onSaveRequested: () => void;
   onSelectTab: (tabPath: string) => void;
+  onSelectionChange: (selection: AiSelectionContext | null) => void;
 }) {
   const activeTab = getActiveTab(documentEditorLayout);
   const activeTabPath = activeTab?.absolutePath ?? null;
@@ -2634,6 +2758,7 @@ function DocumentEditorSurface({
           onRetryDocument,
           onSaveRequested,
           onSelectTab,
+          onSelectionChange,
         })}
       </div>
     </div>
@@ -2654,6 +2779,7 @@ function renderDocumentEditorContent({
   onRetryDocument,
   onSaveRequested,
   onSelectTab,
+  onSelectionChange,
 }: {
   activeDocumentPath: string | null;
   activeTab: ReturnType<typeof getActiveTab>;
@@ -2668,6 +2794,7 @@ function renderDocumentEditorContent({
   onRetryDocument: () => void;
   onSaveRequested: () => void;
   onSelectTab: (tabPath: string) => void;
+  onSelectionChange: (selection: AiSelectionContext | null) => void;
 }) {
   if (!activeTab) {
     return (
@@ -2732,36 +2859,57 @@ function renderDocumentEditorContent({
   return (
     <DocumentEditorInstance
       documentPath={activeTab.absolutePath}
+      documentTitle={activeTab.title}
       editorSession={editorSession}
       pageWidthMode={pageWidthMode}
       readOnly={getDocumentReadOnly(activeTab.absolutePath)}
       workspaceRootPath={workspaceRootPath}
       onMarkdownChange={onMarkdownChange}
       onSaveRequested={onSaveRequested}
+      onSelectionChange={onSelectionChange}
     />
   );
 }
 
 function DocumentEditorInstance({
   documentPath,
+  documentTitle,
   editorSession,
   pageWidthMode,
   readOnly,
   workspaceRootPath,
   onMarkdownChange,
   onSaveRequested,
+  onSelectionChange,
 }: {
   documentPath: string;
+  documentTitle: string;
   editorSession: DocumentEditorSession;
   pageWidthMode: PageWidthMode;
   readOnly: boolean;
   workspaceRootPath: string | null;
   onMarkdownChange: (documentPath: string, markdown: string) => void;
   onSaveRequested: () => void;
+  onSelectionChange: (selection: AiSelectionContext | null) => void;
 }) {
   const handleMarkdownChange = React.useCallback(
     (markdown: string) => onMarkdownChange(documentPath, markdown),
     [documentPath, onMarkdownChange],
+  );
+  const handleSelectionChange = React.useCallback(
+    (selection: { markdown: string; from: number; to: number } | null) => {
+      if (!selection) {
+        onSelectionChange(null);
+        return;
+      }
+
+      onSelectionChange({
+        ...selection,
+        documentPath,
+        documentTitle,
+      });
+    },
+    [documentPath, documentTitle, onSelectionChange],
   );
 
   return (
@@ -2774,6 +2922,7 @@ function DocumentEditorInstance({
         workspaceRootPath={workspaceRootPath}
         onMarkdownChange={handleMarkdownChange}
         onSaveRequested={onSaveRequested}
+        onSelectionChange={handleSelectionChange}
       />
     </div>
   );
