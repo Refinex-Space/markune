@@ -71,6 +71,10 @@ import { cn } from '@/lib/utils';
 
 import { WorkspaceResizeHandle } from './workspace-resize-handle';
 import {
+  getWorkspaceSettingsCacheEntry,
+  type WorkspaceSettingsSessionCache,
+} from './workspace-settings-cache';
+import {
   createAiCommand,
   createAiCustomAgent,
   createAiMcpServer,
@@ -106,7 +110,6 @@ import {
   openAiClaudeCodeOAuthUrl,
   openCodexLoginUrl,
   pollAiClaudeCodeAuthStatus,
-  readAppSettings,
   renameAiAnthropicAccount,
   saveAppSettings,
   saveAiProviderSecret,
@@ -160,7 +163,9 @@ import type {
 
 interface WorkspaceSettingsPageProps {
   header?: React.ReactNode;
+  initialSettings: AppSettings;
   initialSectionId?: SettingsSectionId;
+  sessionCache: WorkspaceSettingsSessionCache;
   sidebarResize?: {
     max: number;
     min: number;
@@ -183,6 +188,7 @@ type SettingsSectionId =
   | 'ai-agents'
   | 'ai-mcp'
   | 'ai-plugins';
+type SettingsSectionLoadState = 'idle' | 'loading' | 'loaded' | 'error';
 type ConcreteSettingsSectionId = Exclude<SettingsSectionId, 'ai'>;
 const AI_SETTINGS_AVAILABLE = true;
 const AI_MCP_GLOBAL_PROJECT = '__global__';
@@ -606,7 +612,9 @@ const AI_MODEL_OPTIONS = [
 
 export function WorkspaceSettingsPage({
   header,
+  initialSettings,
   initialSectionId = 'appearance',
+  sessionCache,
   sidebarResize,
   sidebarWidth = 280,
   workspaceRootPath,
@@ -614,37 +622,59 @@ export function WorkspaceSettingsPage({
   onSettingsSaved,
 }: WorkspaceSettingsPageProps) {
   const { setTheme, theme } = useTheme();
+  const cacheEntry = React.useMemo(
+    () => getWorkspaceSettingsCacheEntry(sessionCache, workspaceRootPath),
+    [sessionCache, workspaceRootPath],
+  );
   const [settings, setSettings] =
-    React.useState<AppSettings>(DEFAULT_APP_SETTINGS);
+    React.useState<AppSettings>(() =>
+      withDefaultAppSettings(cacheEntry.settings ?? initialSettings),
+    );
   const [activeSectionId, setActiveSectionId] =
-    React.useState<SettingsSectionId>('appearance');
-  const [loadState, setLoadState] = React.useState<
-    'idle' | 'loading' | 'loaded' | 'error'
-  >('idle');
+    React.useState<SettingsSectionId>(() => {
+      const sectionId = normalizeSettingsSectionId(initialSectionId);
+
+      return sectionId === 'ai-models' && !AI_SETTINGS_AVAILABLE
+        ? 'appearance'
+        : sectionId;
+    });
+  const [sectionLoadStates, setSectionLoadStates] = React.useState<
+    Partial<Record<SettingsSectionId, SettingsSectionLoadState>>
+  >({});
   const [saveState, setSaveState] = React.useState<
     'idle' | 'saving' | 'saved' | 'error'
   >('idle');
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [detectedAccounts, setDetectedAccounts] = React.useState<
     AiAssistantAccount[]
-  >([]);
+  >(() => cacheEntry.detectedAccounts ?? []);
   const [aiAnthropicAccounts, setAiAnthropicAccounts] = React.useState<
     AiAnthropicAccountItem[]
-  >([]);
-  const [aiSkills, setAiSkills] = React.useState<AiSkillItem[]>([]);
-  const [aiCommands, setAiCommands] = React.useState<AiCommandItem[]>([]);
+  >(() => cacheEntry.aiAnthropicAccounts ?? []);
+  const [aiSkills, setAiSkills] = React.useState<AiSkillItem[]>(
+    () => cacheEntry.aiSkills ?? [],
+  );
+  const [aiCommands, setAiCommands] = React.useState<AiCommandItem[]>(
+    () => cacheEntry.aiCommands ?? [],
+  );
   const [aiCustomAgents, setAiCustomAgents] = React.useState<
     AiCustomAgentItem[]
-  >([]);
-  const [aiMcpServers, setAiMcpServers] = React.useState<AiMcpServerItem[]>([]);
-  const [aiPlugins, setAiPlugins] = React.useState<AiPluginItem[]>([]);
+  >(() => cacheEntry.aiCustomAgents ?? []);
+  const [aiMcpServers, setAiMcpServers] = React.useState<AiMcpServerItem[]>(
+    () => cacheEntry.aiMcpServers ?? [],
+  );
+  const [aiPlugins, setAiPlugins] = React.useState<AiPluginItem[]>(
+    () => cacheEntry.aiPlugins ?? [],
+  );
   const [gitSyncSettings, setGitSyncSettings] =
-    React.useState<WorkspaceGitSyncSettings>(DEFAULT_GIT_SYNC_SETTINGS);
+    React.useState<WorkspaceGitSyncSettings>(() =>
+      cacheEntry.gitSyncSettings ?? DEFAULT_GIT_SYNC_SETTINGS,
+    );
   const [gitProbeState, setGitProbeState] = React.useState<GitProbe | null>(
-    null,
+    cacheEntry.gitProbe ?? null,
   );
   const [gitRemoteState, setGitRemoteState] = React.useState<GitRemoteInfo>(
-    DEFAULT_GIT_REMOTE_INFO,
+    cacheEntry.gitRemote ?? DEFAULT_GIT_REMOTE_INFO,
   );
   const [gitSyncActionState, setGitSyncActionState] = React.useState<
     'idle' | 'saving' | 'syncing' | 'saved' | 'synced' | 'error'
@@ -653,7 +683,7 @@ export function WorkspaceSettingsPage({
     null,
   );
   const [systemFonts, setSystemFonts] = React.useState<SystemFontOptions>(
-    FALLBACK_SYSTEM_FONT_OPTIONS,
+    sessionCache.systemFonts ?? FALLBACK_SYSTEM_FONT_OPTIONS,
   );
   const [searchQuery, setSearchQuery] = React.useState('');
   const assetDirectory = workspaceRootPath
@@ -769,127 +799,264 @@ export function WorkspaceSettingsPage({
     activeSection === 'ai-plugins';
 
   React.useEffect(() => {
+    const nextSection =
+      concreteInitialSectionId === 'ai-models' && !AI_SETTINGS_AVAILABLE
+        ? 'appearance'
+        : concreteInitialSectionId;
+
+    cacheEntry.settings ??= withDefaultAppSettings(initialSettings);
+    setSearchQuery('');
+    setActiveSectionId(nextSection);
+    setSettings(cacheEntry.settings);
+    setDetectedAccounts(cacheEntry.detectedAccounts ?? []);
+    setAiAnthropicAccounts(cacheEntry.aiAnthropicAccounts ?? []);
+    setAiSkills(cacheEntry.aiSkills ?? []);
+    setAiCommands(cacheEntry.aiCommands ?? []);
+    setAiCustomAgents(cacheEntry.aiCustomAgents ?? []);
+    setAiMcpServers(cacheEntry.aiMcpServers ?? []);
+    setAiPlugins(cacheEntry.aiPlugins ?? []);
+    setGitSyncSettings(cacheEntry.gitSyncSettings ?? DEFAULT_GIT_SYNC_SETTINGS);
+    setGitProbeState(cacheEntry.gitProbe ?? null);
+    setGitRemoteState(cacheEntry.gitRemote ?? DEFAULT_GIT_REMOTE_INFO);
+    setGitSyncActionState('idle');
+    setGitSyncMessage(null);
+    setSystemFonts(sessionCache.systemFonts ?? FALLBACK_SYSTEM_FONT_OPTIONS);
+    setSectionLoadStates({});
+    setSaveState('idle');
+    setErrorMessage(null);
+  }, [cacheEntry, concreteInitialSectionId, initialSettings, sessionCache]);
+
+  React.useEffect(() => {
     let cancelled = false;
 
-    async function loadSettings() {
-      setSearchQuery('');
-      setActiveSectionId(
-        concreteInitialSectionId === 'ai-models' && !AI_SETTINGS_AVAILABLE
-          ? 'appearance'
-          : concreteInitialSectionId,
-      );
-      setLoadState('loading');
-      setSaveState('idle');
-      setErrorMessage(null);
-
-      if (!isTauriRuntime()) {
-        setSettings(DEFAULT_APP_SETTINGS);
-        setDetectedAccounts([]);
-        setAiAnthropicAccounts([]);
-        setAiSkills([]);
-        setAiCommands([]);
-        setAiCustomAgents([]);
-        setAiMcpServers([]);
-        setAiPlugins([]);
-        setGitSyncSettings(DEFAULT_GIT_SYNC_SETTINGS);
-        setGitProbeState(null);
-        setGitRemoteState(DEFAULT_GIT_REMOTE_INFO);
-        setGitSyncActionState('idle');
-        setGitSyncMessage(null);
-        setSystemFonts(FALLBACK_SYSTEM_FONT_OPTIONS);
-        setLoadState('loaded');
+    async function loadActiveSection() {
+      if (!activeSection || !isTauriRuntime()) {
         return;
       }
 
-      try {
-        const [
-          nextSettings,
-          workspaceMetadata,
-          nextGitProbe,
-          nextGitRemote,
-          runtimeProfiles,
-          nextDetectedAccounts,
-          nextAiAnthropicAccounts,
-          nextAiSkills,
-          nextAiCommands,
-          nextAiCustomAgents,
-          nextAiMcpServers,
-          nextAiPlugins,
-          nextSystemFonts,
-        ] =
-          await Promise.all([
-            readAppSettings(),
-            workspaceRootPath
-              ? ensureWorkspace(workspaceRootPath)
-              : Promise.resolve(null),
-            workspaceRootPath
-              ? Promise.resolve(gitProbe(workspaceRootPath)).catch(() => null)
-              : Promise.resolve(null),
-            workspaceRootPath
-              ? Promise.resolve(gitRemoteInfo(workspaceRootPath)).catch(
-                  () => DEFAULT_GIT_REMOTE_INFO,
-                )
-              : Promise.resolve(DEFAULT_GIT_REMOTE_INFO),
-            workspaceRootPath
-              ? listAiAgentProfiles(workspaceRootPath)
-              : Promise.resolve([]),
-            detectAiAccounts(),
-            listAiAnthropicAccounts().catch(() => []),
-            listAiSkills(workspaceRootPath ?? AI_MCP_GLOBAL_PROJECT).catch(
-              () => [],
-            ),
-            listAiCommands(workspaceRootPath ?? AI_MCP_GLOBAL_PROJECT).catch(
-              () => [],
-            ),
-            listAiCustomAgents(workspaceRootPath ?? AI_MCP_GLOBAL_PROJECT).catch(
-              () => [],
-            ),
-            listAiMcpServers(workspaceRootPath ?? AI_MCP_GLOBAL_PROJECT).catch(
-              () => [],
-            ),
-            listAiPlugins().catch(() => []),
-            listSystemFonts().catch(() => FALLBACK_SYSTEM_FONT_OPTIONS),
-          ]);
-
+      const setSectionState = (state: SettingsSectionLoadState) => {
         if (!cancelled) {
-          const normalizedSettings = withDefaultAppSettings(nextSettings);
+          setSectionLoadStates((current) => ({
+            ...current,
+            [activeSection]: state,
+          }));
+        }
+      };
 
-          setSettings(
-            mergeRuntimeAiProfiles(normalizedSettings, runtimeProfiles),
+      const setSectionError = (error: unknown) => {
+        if (!cancelled) {
+          setErrorMessage(
+            error instanceof Error ? error.message : '无法读取设置数据',
           );
-          setGitSyncSettings(
-            withDefaultGitSyncSettings(workspaceMetadata?.gitSync),
-          );
-          setAiSkills(nextAiSkills);
-          setAiCommands(nextAiCommands);
-          setAiCustomAgents(nextAiCustomAgents);
-          setAiMcpServers(nextAiMcpServers);
-          setAiPlugins(nextAiPlugins);
-          setGitProbeState(nextGitProbe);
-          setGitRemoteState(nextGitRemote);
-          setGitSyncActionState('idle');
-          setGitSyncMessage(null);
-          setDetectedAccounts(nextDetectedAccounts);
-          setAiAnthropicAccounts(nextAiAnthropicAccounts);
-          setSystemFonts(mergeSystemFontOptions(nextSystemFonts));
-          setLoadState('loaded');
+          setSectionState('error');
+        }
+      };
+
+      try {
+        switch (activeSection) {
+          case 'appearance': {
+            if (sessionCache.systemFonts) {
+              setSystemFonts(sessionCache.systemFonts);
+              setSectionState('loaded');
+              return;
+            }
+
+            setSectionState('loading');
+            const fonts = mergeSystemFontOptions(await listSystemFonts());
+            sessionCache.systemFonts = fonts;
+
+            if (!cancelled) {
+              setSystemFonts(fonts);
+              setSectionState('loaded');
+            }
+            return;
+          }
+          case 'git-sync': {
+            if (
+              cacheEntry.gitSyncSettings &&
+              'gitProbe' in cacheEntry &&
+              cacheEntry.gitRemote
+            ) {
+              setGitSyncSettings(cacheEntry.gitSyncSettings);
+              setGitProbeState(cacheEntry.gitProbe ?? null);
+              setGitRemoteState(cacheEntry.gitRemote);
+              setSectionState('loaded');
+              return;
+            }
+
+            if (!workspaceRootPath) {
+              setSectionState('loaded');
+              return;
+            }
+
+            setSectionState('loading');
+            const [workspaceMetadata, nextGitProbe, nextGitRemote] =
+              await Promise.all([
+                ensureWorkspace(workspaceRootPath),
+                gitProbe(workspaceRootPath).catch(() => null),
+                gitRemoteInfo(workspaceRootPath).catch(
+                  () => DEFAULT_GIT_REMOTE_INFO,
+                ),
+              ]);
+            const gitSyncSettings = withDefaultGitSyncSettings(
+              workspaceMetadata.gitSync,
+            );
+
+            cacheEntry.gitSyncSettings = gitSyncSettings;
+            cacheEntry.gitProbe = nextGitProbe;
+            cacheEntry.gitRemote = nextGitRemote;
+
+            if (!cancelled) {
+              setGitSyncSettings(gitSyncSettings);
+              setGitProbeState(nextGitProbe);
+              setGitRemoteState(nextGitRemote);
+              setSectionState('loaded');
+            }
+            return;
+          }
+          case 'ai-models': {
+            if (
+              cacheEntry.runtimeProfiles &&
+              cacheEntry.detectedAccounts &&
+              cacheEntry.aiAnthropicAccounts
+            ) {
+              setSettings((current) =>
+                mergeRuntimeAiProfiles(current, cacheEntry.runtimeProfiles ?? []),
+              );
+              setDetectedAccounts(cacheEntry.detectedAccounts);
+              setAiAnthropicAccounts(cacheEntry.aiAnthropicAccounts);
+              setSectionState('loaded');
+              return;
+            }
+
+            setSectionState('loading');
+            const [runtimeProfiles, accounts, anthropicAccounts] =
+              await Promise.all([
+                workspaceRootPath
+                  ? listAiAgentProfiles(workspaceRootPath)
+                  : Promise.resolve([]),
+                detectAiAccounts(),
+                listAiAnthropicAccounts().catch(() => []),
+              ]);
+
+            cacheEntry.runtimeProfiles = runtimeProfiles;
+            cacheEntry.detectedAccounts = accounts;
+            cacheEntry.aiAnthropicAccounts = anthropicAccounts;
+
+            if (!cancelled) {
+              setSettings((current) =>
+                mergeRuntimeAiProfiles(current, runtimeProfiles),
+              );
+              setDetectedAccounts(accounts);
+              setAiAnthropicAccounts(anthropicAccounts);
+              setSectionState('loaded');
+            }
+            return;
+          }
+          case 'ai-skills': {
+            if (cacheEntry.aiSkills && cacheEntry.aiCommands) {
+              setAiSkills(cacheEntry.aiSkills);
+              setAiCommands(cacheEntry.aiCommands);
+              setSectionState('loaded');
+              return;
+            }
+
+            setSectionState('loading');
+            const rootPath = workspaceRootPath ?? AI_MCP_GLOBAL_PROJECT;
+            const [skills, commands] = await Promise.all([
+              listAiSkills(rootPath),
+              listAiCommands(rootPath),
+            ]);
+            cacheEntry.aiSkills = skills;
+            cacheEntry.aiCommands = commands;
+
+            if (!cancelled) {
+              setAiSkills(skills);
+              setAiCommands(commands);
+              setSectionState('loaded');
+            }
+            return;
+          }
+          case 'ai-agents': {
+            if (cacheEntry.aiCustomAgents) {
+              setAiCustomAgents(cacheEntry.aiCustomAgents);
+              setSectionState('loaded');
+              return;
+            }
+
+            setSectionState('loading');
+            const agents = await listAiCustomAgents(
+              workspaceRootPath ?? AI_MCP_GLOBAL_PROJECT,
+            );
+            cacheEntry.aiCustomAgents = agents;
+
+            if (!cancelled) {
+              setAiCustomAgents(agents);
+              setSectionState('loaded');
+            }
+            return;
+          }
+          case 'ai-mcp': {
+            if (cacheEntry.aiMcpServers) {
+              setAiMcpServers(cacheEntry.aiMcpServers);
+              setSectionState('loaded');
+              return;
+            }
+
+            setSectionState('loading');
+            const servers = await listAiMcpServers(
+              workspaceRootPath ?? AI_MCP_GLOBAL_PROJECT,
+            );
+            cacheEntry.aiMcpServers = servers;
+
+            if (!cancelled) {
+              setAiMcpServers(servers);
+              setSectionState('loaded');
+            }
+            return;
+          }
+          case 'ai-plugins': {
+            if (cacheEntry.aiPlugins && cacheEntry.aiMcpServers) {
+              setAiPlugins(cacheEntry.aiPlugins);
+              setAiMcpServers(cacheEntry.aiMcpServers);
+              setSectionState('loaded');
+              return;
+            }
+
+            setSectionState('loading');
+            const rootPath = workspaceRootPath ?? AI_MCP_GLOBAL_PROJECT;
+            const [plugins, servers] = await Promise.all([
+              cacheEntry.aiPlugins
+                ? Promise.resolve(cacheEntry.aiPlugins)
+                : listAiPlugins(),
+              cacheEntry.aiMcpServers
+                ? Promise.resolve(cacheEntry.aiMcpServers)
+                : listAiMcpServers(rootPath),
+            ]);
+            cacheEntry.aiPlugins = plugins;
+            cacheEntry.aiMcpServers = servers;
+
+            if (!cancelled) {
+              setAiPlugins(plugins);
+              setAiMcpServers(servers);
+              setSectionState('loaded');
+            }
+            return;
+          }
+          default:
+            setSectionState('loaded');
         }
       } catch (error) {
-        if (!cancelled) {
-          setLoadState('error');
-          setErrorMessage(
-            error instanceof Error ? error.message : '无法读取应用设置',
-          );
-        }
+        setSectionError(error);
       }
     }
 
-    void loadSettings();
+    void loadActiveSection();
 
     return () => {
       cancelled = true;
     };
-  }, [concreteInitialSectionId, workspaceRootPath]);
+  }, [activeSection, cacheEntry, sessionCache, workspaceRootPath]);
 
   function updatePageWidthMode(pageWidthMode: PageWidthMode) {
     setSettings((current) => ({
@@ -968,6 +1135,8 @@ export function WorkspaceSettingsPage({
 
     setAiSkills(nextAiSkills);
     setAiCommands(nextAiCommands);
+    cacheEntry.aiSkills = nextAiSkills;
+    cacheEntry.aiCommands = nextAiCommands;
 
     return {
       commands: nextAiCommands,
@@ -983,6 +1152,7 @@ export function WorkspaceSettingsPage({
     const nextAiAnthropicAccounts = await listAiAnthropicAccounts();
 
     setAiAnthropicAccounts(nextAiAnthropicAccounts);
+    cacheEntry.aiAnthropicAccounts = nextAiAnthropicAccounts;
 
     return nextAiAnthropicAccounts;
   }
@@ -995,6 +1165,7 @@ export function WorkspaceSettingsPage({
     const nextDetectedAccounts = await detectAiAccounts();
 
     setDetectedAccounts(nextDetectedAccounts);
+    cacheEntry.detectedAccounts = nextDetectedAccounts;
 
     return nextDetectedAccounts;
   }
@@ -1009,6 +1180,7 @@ export function WorkspaceSettingsPage({
     );
 
     setAiCustomAgents(nextAiCustomAgents);
+    cacheEntry.aiCustomAgents = nextAiCustomAgents;
 
     return nextAiCustomAgents;
   }
@@ -1021,6 +1193,7 @@ export function WorkspaceSettingsPage({
     const nextAiPlugins = await listAiPlugins();
 
     setAiPlugins(nextAiPlugins);
+    cacheEntry.aiPlugins = nextAiPlugins;
 
     return nextAiPlugins;
   }
@@ -1035,6 +1208,7 @@ export function WorkspaceSettingsPage({
     );
 
     setAiMcpServers(nextAiMcpServers);
+    cacheEntry.aiMcpServers = nextAiMcpServers;
 
     return nextAiMcpServers;
   }
@@ -1054,9 +1228,11 @@ export function WorkspaceSettingsPage({
       normalized,
     );
 
-    setGitSyncSettings(withDefaultGitSyncSettings(saved));
+    const nextGitSyncSettings = withDefaultGitSyncSettings(saved);
+    cacheEntry.gitSyncSettings = nextGitSyncSettings;
+    setGitSyncSettings(nextGitSyncSettings);
 
-    return withDefaultGitSyncSettings(saved);
+    return nextGitSyncSettings;
   }
 
   async function handleGitSyncNow() {
@@ -1114,6 +1290,7 @@ export function WorkspaceSettingsPage({
     setGitSyncMessage(null);
 
     if (!isTauriRuntime()) {
+      cacheEntry.settings = withDefaultAppSettings(settings);
       setSaveState('saved');
       setGitSyncActionState('saved');
       onSettingsSaved?.(settings);
@@ -1121,13 +1298,16 @@ export function WorkspaceSettingsPage({
     }
 
     try {
-      const [savedSettings] = await Promise.all([
-        saveAppSettings(settings),
-        persistGitSyncSettings(gitSyncSettings),
-      ]);
+      const savedSettings = await saveAppSettings(settings);
+      const normalizedSettings = withDefaultAppSettings(savedSettings);
 
-      setSettings(withDefaultAppSettings(savedSettings));
-      onSettingsSaved?.(withDefaultAppSettings(savedSettings));
+      if (workspaceRootPath && cacheEntry.gitSyncSettings) {
+        await persistGitSyncSettings(gitSyncSettings);
+      }
+
+      cacheEntry.settings = normalizedSettings;
+      setSettings(normalizedSettings);
+      onSettingsSaved?.(normalizedSettings);
       setSaveState('saved');
       setGitSyncActionState('saved');
     } catch (error) {
@@ -1253,6 +1433,15 @@ export function WorkspaceSettingsPage({
               )}
               data-testid="workspace-settings-content"
             >
+              {activeSection && sectionLoadStates[activeSection] === 'loading' ? (
+                <div
+                  className="mb-4 flex items-center gap-2 text-xs text-muted-foreground"
+                  role="status"
+                >
+                  <Loader2 className="animate-spin" size={14} />
+                  正在加载此分类的设置…
+                </div>
+              ) : null}
               {activeSection === 'preferences' ? (
                 <AiPreferencesSettingsSection
                   settings={settings}
@@ -1420,7 +1609,7 @@ export function WorkspaceSettingsPage({
               取消
             </Button>
             <Button
-              disabled={loadState === 'loading' || saveState === 'saving'}
+              disabled={saveState === 'saving'}
               size="sm"
               type="button"
               onClick={() => void handleApply()}
@@ -1428,7 +1617,7 @@ export function WorkspaceSettingsPage({
               应用
             </Button>
             <Button
-              disabled={loadState === 'loading' || saveState === 'saving'}
+              disabled={saveState === 'saving'}
               size="sm"
               type="button"
               onClick={async () => {

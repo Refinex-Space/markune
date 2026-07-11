@@ -2204,34 +2204,50 @@ fn remove_empty_parent_dirs(parent: Option<&Path>, stop: &Path) {
 }
 
 #[tauri::command]
-pub fn list_ai_skills(root_path: String) -> Result<Vec<AiSkillItem>, String> {
-    let home = home_dir()?;
-    let project = resolve_ai_settings_project_root(&root_path)?;
+pub async fn list_ai_skills(root_path: String) -> Result<Vec<AiSkillItem>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let home = home_dir()?;
+        let project = resolve_ai_settings_project_root(&root_path)?;
 
-    list_ai_skills_for_paths(&home, project.as_deref())
+        list_ai_skills_for_paths(&home, project.as_deref())
+    })
+    .await
+    .map_err(|_| "AI skills 扫描任务失败".to_string())?
 }
 
 #[tauri::command]
-pub fn list_ai_commands(root_path: String) -> Result<Vec<AiCommandItem>, String> {
-    let home = home_dir()?;
-    let project = resolve_ai_settings_project_root(&root_path)?;
+pub async fn list_ai_commands(root_path: String) -> Result<Vec<AiCommandItem>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let home = home_dir()?;
+        let project = resolve_ai_settings_project_root(&root_path)?;
 
-    list_ai_commands_for_paths(&home, project.as_deref())
+        list_ai_commands_for_paths(&home, project.as_deref())
+    })
+    .await
+    .map_err(|_| "AI commands 扫描任务失败".to_string())?
 }
 
 #[tauri::command]
-pub fn list_ai_custom_agents(root_path: String) -> Result<Vec<AiCustomAgentItem>, String> {
-    let home = home_dir()?;
-    let project = resolve_ai_settings_project_root(&root_path)?;
+pub async fn list_ai_custom_agents(root_path: String) -> Result<Vec<AiCustomAgentItem>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let home = home_dir()?;
+        let project = resolve_ai_settings_project_root(&root_path)?;
 
-    list_ai_custom_agents_for_paths(&home, project.as_deref())
+        list_ai_custom_agents_for_paths(&home, project.as_deref())
+    })
+    .await
+    .map_err(|_| "AI agents 扫描任务失败".to_string())?
 }
 
 #[tauri::command]
-pub fn list_ai_plugins() -> Result<Vec<AiPluginItem>, String> {
-    let home = home_dir()?;
+pub async fn list_ai_plugins() -> Result<Vec<AiPluginItem>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let home = home_dir()?;
 
-    list_ai_plugins_for_home(&home)
+        list_ai_plugins_for_home(&home)
+    })
+    .await
+    .map_err(|_| "AI plugins 扫描任务失败".to_string())?
 }
 
 #[tauri::command]
@@ -2242,10 +2258,14 @@ pub fn set_ai_claude_include_co_authored_by(enabled: bool) -> Result<(), String>
 }
 
 #[tauri::command]
-pub fn list_ai_anthropic_accounts() -> Result<Vec<AiAnthropicAccountItem>, String> {
-    let home = home_dir()?;
+pub async fn list_ai_anthropic_accounts() -> Result<Vec<AiAnthropicAccountItem>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let home = home_dir()?;
 
-    list_ai_anthropic_accounts_for_home_with_secrets(&home, &KeyringAnthropicAccountSecretStore)
+        list_ai_anthropic_accounts_for_home_with_secrets(&home, &KeyringAnthropicAccountSecretStore)
+    })
+    .await
+    .map_err(|_| "Anthropic accounts 扫描任务失败".to_string())?
 }
 
 #[tauri::command]
@@ -2374,11 +2394,15 @@ pub fn set_ai_plugin_mcp_servers_approved(
 }
 
 #[tauri::command]
-pub fn list_ai_mcp_servers(root_path: String) -> Result<Vec<AiMcpServerItem>, String> {
-    let home = home_dir()?;
-    let project = resolve_mcp_workspace_root(&root_path)?;
+pub async fn list_ai_mcp_servers(root_path: String) -> Result<Vec<AiMcpServerItem>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let home = home_dir()?;
+        let project = resolve_mcp_workspace_root(&root_path)?;
 
-    list_ai_mcp_servers_for_paths(&home, project.as_deref())
+        list_ai_mcp_servers_for_paths(&home, project.as_deref())
+    })
+    .await
+    .map_err(|_| "MCP servers 扫描任务失败".to_string())?
 }
 
 #[tauri::command]

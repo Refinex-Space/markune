@@ -507,20 +507,26 @@ pub struct AiConversationSummary {
 }
 
 #[tauri::command]
-pub fn list_ai_agent_profiles(root_path: String) -> Result<Vec<AiAgentProfile>, String> {
-    validate_agent_root(&root_path)?;
+pub async fn list_ai_agent_profiles(root_path: String) -> Result<Vec<AiAgentProfile>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        validate_agent_root(&root_path)?;
 
-    let accounts = detect_ai_accounts_raw();
-    let mut profiles = vec![fake_echo_profile()];
+        let accounts = detect_ai_accounts_raw();
+        let mut profiles = vec![fake_echo_profile()];
 
-    profiles.extend(detected_model_profiles(&accounts));
+        profiles.extend(detected_model_profiles(&accounts));
 
-    Ok(profiles)
+        Ok(profiles)
+    })
+    .await
+    .map_err(|_| "AI profiles 扫描任务失败".to_string())?
 }
 
 #[tauri::command]
-pub fn detect_ai_accounts() -> Result<Vec<AiAssistantAccount>, String> {
-    Ok(detect_ai_accounts_raw())
+pub async fn detect_ai_accounts() -> Result<Vec<AiAssistantAccount>, String> {
+    tauri::async_runtime::spawn_blocking(detect_ai_accounts_raw)
+        .await
+        .map_err(|_| "AI accounts 扫描任务失败".to_string())
 }
 
 #[tauri::command]

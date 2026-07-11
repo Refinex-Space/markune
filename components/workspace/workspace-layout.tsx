@@ -120,6 +120,7 @@ import {
 } from './workspace-settings';
 import { startWorkspacePerformanceMeasure } from './workspace-performance';
 import { WorkspaceSettingsPage } from './workspace-settings-page';
+import { createWorkspaceSettingsSessionCache } from './workspace-settings-cache';
 import { WorkspaceResizeHandle } from './workspace-resize-handle';
 import { WorkspaceSidebar } from './workspace-sidebar';
 import { WorkspaceViewsPage } from './workspace-views-page';
@@ -433,6 +434,9 @@ export function WorkspaceLayout({
     );
   const [appSettings, setAppSettings] =
     React.useState<AppSettings>(DEFAULT_APP_SETTINGS);
+  const settingsSessionCacheRef = React.useRef(
+    createWorkspaceSettingsSessionCache(),
+  );
   const [leftPanelMode, setLeftPanelMode] =
     React.useState<LeftPanelMode>('workspace');
   const [systemPage, setSystemPage] = React.useState<WorkspaceSystemPage>(null);
@@ -1912,6 +1916,7 @@ export function WorkspaceLayout({
                 data-testid="workspace-settings-header"
               />
             }
+            initialSettings={appSettings}
             initialSectionId={settingsInitialSectionId}
             sidebarResize={{
               max: LEFT_PANEL_WIDTH.max,
@@ -1919,6 +1924,7 @@ export function WorkspaceLayout({
               onResize: handleLeftSidebarResize,
             }}
             sidebarWidth={leftSidebarWidth}
+            sessionCache={settingsSessionCacheRef.current}
             workspaceRootPath={workspace.snapshot?.rootPath ?? null}
             onBack={() => setSystemPage(null)}
             onSettingsSaved={(settings) => {

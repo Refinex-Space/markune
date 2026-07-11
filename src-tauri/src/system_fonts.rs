@@ -38,8 +38,10 @@ const CODE_FONT_PRIORITIES: &[&str] = &[
 ];
 
 #[tauri::command]
-pub fn list_system_fonts() -> SystemFontOptions {
-    detect_system_fonts()
+pub async fn list_system_fonts() -> SystemFontOptions {
+    tauri::async_runtime::spawn_blocking(detect_system_fonts)
+        .await
+        .unwrap_or_else(|_| fallback_system_font_options())
 }
 
 fn detect_system_fonts() -> SystemFontOptions {
@@ -48,6 +50,10 @@ fn detect_system_fonts() -> SystemFontOptions {
     let families = collect_font_families(&database);
 
     build_system_font_options(&families)
+}
+
+fn fallback_system_font_options() -> SystemFontOptions {
+    build_system_font_options(&[])
 }
 
 fn collect_font_families(database: &fontdb::Database) -> Vec<String> {
@@ -186,5 +192,14 @@ mod tests {
         assert!(options.code.contains(&"Cascadia Code".to_string()));
         assert!(options.code.contains(&"JetBrains Mono".to_string()));
         assert!(!options.code.contains(&"Songti SC".to_string()));
+    }
+
+    #[test]
+    fn fallback_includes_recommended_font_families() {
+        let options = fallback_system_font_options();
+
+        assert!(options.ui.contains(&options.recommendations.ui));
+        assert!(options.document.contains(&options.recommendations.document));
+        assert!(options.code.contains(&options.recommendations.code));
     }
 }
