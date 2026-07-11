@@ -268,6 +268,10 @@ describe('MarkdownEditor', () => {
     expect(globalsCss).toContain(
       "--markweave-inner-toc-gutter: var(--madora-markweave-toc-gutter)",
     );
+    expect(globalsCss).toContain(
+      ':root:has(.workspace-editor-shell .markweave-editor-frame)',
+    );
+    expect(globalsCss).toContain('scrollbar-gutter: auto');
     expect(globalsCss).not.toContain(['cm', 'mar', 'dora'].join('-'));
     expect(globalsCss).not.toContain(['mar', 'dora-preview'].join(''));
   });
