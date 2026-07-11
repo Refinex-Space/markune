@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-09
+updated: 2026-07-11
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -31,7 +31,7 @@ Madora is a desktop-first local knowledge-base app. The default page renders `Wo
 
 Persisted knowledge documents are Markdown files. Keep the disk format, in-memory draft model, and editor input/output aligned around Markdown strings. Do not introduce a second rich-text projection layer unless a separate plan explicitly covers migration, compatibility, and rollback.
 
-Markweave receives only the Markdown body after frontmatter parsing. Save paths must serialize the protected frontmatter back around `onUpdate.markdown`. New local uploads are written into Markdown as workspace-root relative paths under `.madora/assets/files/{shard}/{hash}.{ext}`. Existing `madora-asset://{assetId}` references are legacy read/preview compatible and should not be batch-migrated without a separate content migration plan.
+Markweave receives only the Markdown body after frontmatter parsing. Save paths must serialize the protected frontmatter back around `onUpdate.markdown`; the update payload is lazily serialized, so the host must read only the fields it needs. The controlled value echoes the emitted Markdown back to Markweave, avoiding redundant content comparisons during normal typing. Markweave emits standard Markdown where possible and uses supported HTML fallback only for formatting that Markdown cannot express; preserve that fallback as Markdown source rather than stripping or projecting it into another model. The app fixes the built-in TOC at `innerTocPlacement="container"` so its layout follows the editor frame rather than the browser viewport. New local uploads are written into Markdown as workspace-root relative paths under `.madora/assets/files/{shard}/{hash}.{ext}`. Existing `madora-asset://{assetId}` references are legacy read/preview compatible and should not be batch-migrated without a separate content migration plan.
 
 ## Desktop Build Boundary
 

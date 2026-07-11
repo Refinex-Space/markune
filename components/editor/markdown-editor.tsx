@@ -210,6 +210,7 @@ export function MarkdownEditor({
           contentFormat="markdown"
           editable={!readOnly}
           innerToc
+          innerTocPlacement="container"
           key={documentKey}
           lang="zh"
           mode={readOnly ? 'view' : 'live'}

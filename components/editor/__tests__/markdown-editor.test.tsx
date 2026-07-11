@@ -11,6 +11,7 @@ const globalsCssPath = join(process.cwd(), 'app/globals.css');
 const {
   cancelAnimationFrameMock,
   markweaveEditorMock,
+  payloadFieldReadMock,
   requestAnimationFrameMock,
   scrollToMock,
   toStorageMarkdownMock,
@@ -19,6 +20,7 @@ const {
 } = vi.hoisted(() => ({
   cancelAnimationFrameMock: vi.fn(),
   markweaveEditorMock: vi.fn(),
+  payloadFieldReadMock: vi.fn(),
   requestAnimationFrameMock: vi.fn((callback: FrameRequestCallback) => {
     callback(1000);
     return 1;
@@ -46,6 +48,7 @@ vi.mock('@markweave/react', async () => {
         <div
           data-editable={String(props.editable)}
           data-inner-toc={String(props.innerToc)}
+          data-inner-toc-placement={String(props.innerTocPlacement)}
           data-mode={String(props.mode)}
           data-testid="markweave-editor"
         >
@@ -54,13 +57,31 @@ vi.mock('@markweave/react', async () => {
             data-testid="markweave-textarea"
             readOnly={props.mode === 'view'}
             value={String(props.content ?? '')}
-            onChange={(event) =>
-              (
-                props.onUpdate as
-                  | ((payload: { markdown: string }) => void)
-                  | undefined
-              )?.({ markdown: event.currentTarget.value })
-            }
+            onChange={(event) => {
+              const markdown = event.currentTarget.value;
+              const payload = {
+                get html() {
+                  payloadFieldReadMock('html');
+                  return '<p>HTML</p>';
+                },
+                get json() {
+                  payloadFieldReadMock('json');
+                  return {};
+                },
+                get markdown() {
+                  payloadFieldReadMock('markdown');
+                  return markdown;
+                },
+                get text() {
+                  payloadFieldReadMock('text');
+                  return 'Text';
+                },
+              };
+
+              (props.onUpdate as ((payload: typeof payload) => void) | undefined)?.(
+                payload,
+              );
+            }}
           />
           <span data-testid="markweave-selectable-text">
             {String(props.content ?? '')}
@@ -79,6 +100,7 @@ describe('MarkdownEditor', () => {
   beforeEach(() => {
     cancelAnimationFrameMock.mockClear();
     markweaveEditorMock.mockClear();
+    payloadFieldReadMock.mockClear();
     requestAnimationFrameMock.mockClear();
     requestAnimationFrameMock.mockImplementation(
       (callback: FrameRequestCallback) => {
@@ -126,6 +148,7 @@ describe('MarkdownEditor', () => {
       contentFormat: 'markdown',
       editable: true,
       innerToc: true,
+      innerTocPlacement: 'container',
       lang: 'zh',
       mode: 'live',
     });
@@ -196,6 +219,17 @@ describe('MarkdownEditor', () => {
     );
   });
 
+  it('保存时只读取 Markweave 延迟序列化的 Markdown 字段', () => {
+    render(<MarkdownEditor markdown="# 原文" onMarkdownChange={() => {}} />);
+
+    fireEvent.change(screen.getByLabelText('Markdown 正文'), {
+      target: { value: '# 新正文' },
+    });
+
+    expect(payloadFieldReadMock).toHaveBeenCalledTimes(1);
+    expect(payloadFieldReadMock).toHaveBeenCalledWith('markdown');
+  });
+
   it('拦截 Cmd/Ctrl+S 并触发保存请求', () => {
     const onSaveRequested = vi.fn();
 
@@ -229,6 +263,10 @@ describe('MarkdownEditor', () => {
     );
     expect(globalsCss).toContain(
       '.workspace-editor-shell.workspace-editor-page-wide .markweave-editor-surface',
+    );
+    expect(globalsCss).toContain('--madora-markweave-toc-gutter: 2rem');
+    expect(globalsCss).toContain(
+      "--markweave-inner-toc-gutter: var(--madora-markweave-toc-gutter)",
     );
     expect(globalsCss).not.toContain(['cm', 'mar', 'dora'].join('-'));
     expect(globalsCss).not.toContain(['mar', 'dora-preview'].join(''));
