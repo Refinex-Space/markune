@@ -14,6 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 const MCP_HTTP_DISCOVERY_TIMEOUT_SECS: u64 = 3;
+const CODEX_MCP_LIST_TIMEOUT: Duration = Duration::from_secs(2);
 const MCP_OAUTH_TIMEOUT_SECS: u64 = 300;
 const MCP_OAUTH_CLIENT_NAME: &str = "1code";
 const MCP_OAUTH_FALLBACK_CLIENT_NAME: &str = "Codex";
@@ -3055,10 +3056,7 @@ fn set_ai_plugin_enabled_for_home(home: &Path, source: &str, enabled: bool) -> R
     write_text_file(&settings_path, &format!("{next_raw}\n"))
 }
 
-fn set_ai_claude_include_co_authored_by_for_home(
-    home: &Path,
-    enabled: bool,
-) -> Result<(), String> {
+fn set_ai_claude_include_co_authored_by_for_home(home: &Path, enabled: bool) -> Result<(), String> {
     let settings_path = home.join(".claude/settings.json");
     let raw = match fs::read_to_string(&settings_path) {
         Ok(value) => value,
@@ -3426,13 +3424,9 @@ fn servers_to_mcp_items(
                 "stdio" => command
                     .as_deref()
                     .map(|command| discover_stdio_mcp_tools_result(command, &args, &env_values)),
-                "http" => url
-                    .as_deref()
-                    .map(|url| {
-                        tauri::async_runtime::block_on(discover_http_mcp_tools_result(
-                            url, &headers,
-                        ))
-                    }),
+                "http" => url.as_deref().map(|url| {
+                    tauri::async_runtime::block_on(discover_http_mcp_tools_result(url, &headers))
+                }),
                 _ => None,
             }
         } else {
@@ -3442,9 +3436,7 @@ fn servers_to_mcp_items(
             .as_ref()
             .and_then(|result| result.as_ref().err())
             .cloned();
-        let tools = discovery_result
-            .and_then(Result::ok)
-            .unwrap_or_default();
+        let tools = discovery_result.and_then(Result::ok).unwrap_or_default();
         let status = if disabled {
             "disabled"
         } else if is_pending_plugin_approval {
@@ -3870,9 +3862,10 @@ fn parse_mcp_tools_response(response: &Value) -> Vec<AiMcpToolInfo> {
 }
 
 fn list_codex_mcp_servers() -> Vec<AiMcpServerItem> {
-    run_codex_cli_checked(
+    run_codex_cli_checked_with_timeout(
         &["mcp".to_string(), "list".to_string(), "--json".to_string()],
         None,
+        CODEX_MCP_LIST_TIMEOUT,
     )
     .and_then(|stdout| parse_codex_mcp_servers_with_tools(&stdout))
     .unwrap_or_default()
@@ -3959,9 +3952,7 @@ fn parse_codex_mcp_servers_inner(
             .as_ref()
             .and_then(|result| result.as_ref().err())
             .cloned();
-        let tools = discovery_result
-            .and_then(Result::ok)
-            .unwrap_or_default();
+        let tools = discovery_result.and_then(Result::ok).unwrap_or_default();
         let status = if !enabled {
             "disabled"
         } else if needs_auth {
@@ -4013,11 +4004,7 @@ fn discover_codex_mcp_tools(
             command
                 .as_deref()
                 .map(|command| {
-                    discover_stdio_mcp_tools_result(
-                        command,
-                        args,
-                        &codex_mcp_stdio_env(transport),
-                    )
+                    discover_stdio_mcp_tools_result(command, args, &codex_mcp_stdio_env(transport))
                 })
                 .unwrap_or_else(|| Err("MCP stdio command missing".to_string())),
         ),
@@ -4190,16 +4177,62 @@ fn codex_mcp_env_keys(transport: &serde_json::Map<String, Value>) -> Vec<String>
 }
 
 fn run_codex_cli_checked(args: &[String], cwd: Option<&str>) -> Result<String, String> {
+    run_codex_cli_checked_inner(args, cwd, None)
+}
+
+fn run_codex_cli_checked_with_timeout(
+    args: &[String],
+    cwd: Option<&str>,
+    timeout: Duration,
+) -> Result<String, String> {
+    run_codex_cli_checked_inner(args, cwd, Some(timeout))
+}
+
+fn run_codex_cli_checked_inner(
+    args: &[String],
+    cwd: Option<&str>,
+    timeout: Option<Duration>,
+) -> Result<String, String> {
     let mut command = Command::new("codex");
-    command.args(args);
+    command
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
     if let Some(cwd) = cwd.map(str::trim).filter(|value| !value.is_empty()) {
         command.current_dir(cwd);
     }
 
-    let output = command
-        .output()
+    let mut child = command
+        .spawn()
         .map_err(|_| "无法启动 Codex CLI".to_string())?;
+    let output = if let Some(timeout) = timeout {
+        let deadline = Instant::now() + timeout;
+
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => {
+                    break child
+                        .wait_with_output()
+                        .map_err(|_| "无法读取 Codex CLI 输出".to_string())?
+                }
+                Ok(None) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(25));
+                }
+                Ok(None) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err("Codex MCP 清单读取超时".to_string());
+                }
+                Err(_) => return Err("无法等待 Codex CLI".to_string()),
+            }
+        }
+    } else {
+        child
+            .wait_with_output()
+            .map_err(|_| "无法读取 Codex CLI 输出".to_string())?
+    };
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(if stderr.is_empty() {
@@ -4842,14 +4875,11 @@ mod tests {
             vec!["market:plugin-one"],
         );
         assert_eq!(
-            disabled
-                .get("includeCoAuthoredBy")
-                .and_then(Value::as_bool),
+            disabled.get("includeCoAuthoredBy").and_then(Value::as_bool),
             Some(false),
         );
 
-        set_ai_claude_include_co_authored_by_for_home(&home, true)
-            .expect("enable co-authored-by");
+        set_ai_claude_include_co_authored_by_for_home(&home, true).expect("enable co-authored-by");
         let enabled_raw =
             fs::read_to_string(home.join(".claude/settings.json")).expect("read enabled");
         let enabled: Value = serde_json::from_str(&enabled_raw).expect("parse enabled");
@@ -5272,16 +5302,8 @@ done
 
         create_ai_skill_for_paths(&home, None, "user", "Global Skill", "", "")
             .expect("create global user skill");
-        create_ai_command_for_paths(
-            &home,
-            None,
-            "user",
-            "global-command",
-            "",
-            "",
-            None,
-        )
-        .expect("create global user command");
+        create_ai_command_for_paths(&home, None, "user", "global-command", "", "", None)
+            .expect("create global user command");
         create_ai_custom_agent_for_paths(
             &home,
             None,
@@ -5306,8 +5328,9 @@ done
         assert!(skills.iter().any(|item| item.name == "global-skill"));
         assert!(commands.iter().any(|item| item.name == "global-command"));
         assert!(agents.iter().any(|item| item.name == "global-agent"));
-        assert!(create_ai_skill_for_paths(&home, None, "project", "project-skill", "", "")
-            .is_err());
+        assert!(
+            create_ai_skill_for_paths(&home, None, "project", "project-skill", "", "").is_err()
+        );
         assert!(create_ai_custom_agent_for_paths(
             &home,
             None,
@@ -5989,8 +6012,7 @@ done
           "auth_status": "unsupported"
         }]"#;
 
-        let servers =
-            parse_codex_mcp_servers_with_tools(raw).expect("parse codex broken mcp");
+        let servers = parse_codex_mcp_servers_with_tools(raw).expect("parse codex broken mcp");
         let server = servers.first().expect("codex broken server");
         let serialized = serde_json::to_string(server).expect("serialize codex broken server");
 

@@ -118,9 +118,13 @@ import {
   getAiPreferredEditorLabel,
   withDefaultAppSettings,
 } from './workspace-settings';
-import { startWorkspacePerformanceMeasure } from './workspace-performance';
+import {
+  observeWorkspaceLongTasks,
+  startWorkspacePerformanceMeasure,
+} from './workspace-performance';
 import { WorkspaceSettingsPage } from './workspace-settings-page';
 import { createWorkspaceSettingsSessionCache } from './workspace-settings-cache';
+import { createTerminalOutputStore } from './terminal-output-store';
 import { WorkspaceResizeHandle } from './workspace-resize-handle';
 import { WorkspaceSidebar } from './workspace-sidebar';
 import { WorkspaceViewsPage } from './workspace-views-page';
@@ -163,6 +167,7 @@ type WorkspaceSystemPage = 'settings' | 'views' | null;
 
 interface GlobalSearchState {
   index: WorkspaceSearchIndex | null;
+  results: WorkspaceGlobalSearchResult[];
   rootPath: string | null;
   status: GlobalSearchIndexStatus;
 }
@@ -308,9 +313,12 @@ export function WorkspaceLayout({
   const [globalSearchState, setGlobalSearchState] =
     React.useState<GlobalSearchState>({
       index: null,
+      results: [],
       rootPath: null,
       status: 'idle',
     });
+  const globalSearchWorkerRef = React.useRef<Worker | null>(null);
+  const globalSearchRequestIdRef = React.useRef(0);
   const [dailyCalendarMonth, setDailyCalendarMonth] = React.useState(
     () => new Date(new Date().getFullYear(), new Date().getMonth(), 1),
   );
@@ -390,13 +398,16 @@ export function WorkspaceLayout({
   }, [workspace.initialRecentDocumentPaths, workspace.snapshot]);
   const isWorkspaceEmpty =
     workspace.snapshot !== null && workspace.snapshot.nodes.length === 0;
+  const deferredDocumentMarkdown = React.useDeferredValue(
+    workspace.draftDocument?.markdown,
+  );
   const documentCharacterCount = React.useMemo(
-    () => countMarkdownCharacters(workspace.draftDocument?.markdown),
-    [workspace.draftDocument?.markdown],
+    () => countMarkdownCharacters(deferredDocumentMarkdown),
+    [deferredDocumentMarkdown],
   );
   const documentLineCount = React.useMemo(
-    () => countMarkdownLines(workspace.draftDocument?.markdown),
-    [workspace.draftDocument?.markdown],
+    () => countMarkdownLines(deferredDocumentMarkdown),
+    [deferredDocumentMarkdown],
   );
   const activeGlobalSearchIndex =
     globalSearchState.rootPath === workspaceRootPath
@@ -407,11 +418,22 @@ export function WorkspaceLayout({
       ? globalSearchState.status
       : 'idle';
   const globalSearchResults = React.useMemo(
-    () =>
-      activeGlobalSearchIndex
+    () => {
+      if (globalSearchState.rootPath !== workspaceRootPath) {
+        return [];
+      }
+
+      return activeGlobalSearchIndex
         ? searchWorkspaceIndex(activeGlobalSearchIndex, globalSearchQuery)
-        : [],
-    [activeGlobalSearchIndex, globalSearchQuery],
+        : globalSearchState.results;
+    },
+    [
+      activeGlobalSearchIndex,
+      globalSearchQuery,
+      globalSearchState.results,
+      globalSearchState.rootPath,
+      workspaceRootPath,
+    ],
   );
   const documentPanelData = React.useMemo(
     () =>
@@ -434,7 +456,7 @@ export function WorkspaceLayout({
     );
   const [appSettings, setAppSettings] =
     React.useState<AppSettings>(DEFAULT_APP_SETTINGS);
-  const settingsSessionCacheRef = React.useRef(
+  const [settingsSessionCache] = React.useState(
     createWorkspaceSettingsSessionCache(),
   );
   const [leftPanelMode, setLeftPanelMode] =
@@ -476,11 +498,9 @@ export function WorkspaceLayout({
   const [terminalTabs, setTerminalTabs] = React.useState<TerminalTab[]>([]);
   const [terminalActiveTabId, setTerminalActiveTabId] =
     React.useState<string | null>(null);
-  const [terminalOutputs, setTerminalOutputs] = React.useState<
-    Record<string, string>
-  >({});
   const [terminalError, setTerminalError] = React.useState<string | null>(null);
   const terminalTabsRef = React.useRef<TerminalTab[]>([]);
+  const [terminalOutputStore] = React.useState(createTerminalOutputStore());
   const terminalSpawnInFlightRef = React.useRef(false);
   const pendingDocumentOpenTimerRef =
     React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -498,6 +518,58 @@ export function WorkspaceLayout({
     [],
   );
   const shouldRenderTerminalPanel = terminalOpen || terminalTabs.length > 0;
+
+  React.useEffect(() => observeWorkspaceLongTasks(), []);
+
+  React.useEffect(() => {
+    if (typeof Worker === 'undefined') {
+      return;
+    }
+
+    const worker = new Worker(
+      new URL('./workspace-search-worker.ts', import.meta.url),
+    );
+    globalSearchWorkerRef.current = worker;
+    worker.onmessage = (
+      event: MessageEvent<
+        | { rootPath: string; type: 'indexed' }
+        | {
+            requestId: number;
+            results: WorkspaceGlobalSearchResult[];
+            rootPath: string;
+            type: 'results';
+          }
+      >,
+    ) => {
+      const message = event.data;
+
+      if (message.type === 'indexed') {
+        setGlobalSearchState((current) =>
+          current.rootPath === message.rootPath
+            ? { ...current, index: null, results: [], status: 'ready' }
+            : current,
+        );
+        return;
+      }
+
+      if (message.requestId !== globalSearchRequestIdRef.current) {
+        return;
+      }
+
+      setGlobalSearchState((current) =>
+        current.rootPath === message.rootPath
+          ? { ...current, results: message.results }
+          : current,
+      );
+    };
+
+    return () => {
+      worker.terminate();
+      if (globalSearchWorkerRef.current === worker) {
+        globalSearchWorkerRef.current = null;
+      }
+    };
+  }, []);
   const openGlobalSearch = React.useCallback(() => {
     setGlobalSearchOpen(true);
     if (globalSearchState.rootPath !== workspaceRootPath) {
@@ -517,6 +589,7 @@ export function WorkspaceLayout({
 
       return {
         index: null,
+        results: [],
         rootPath: workspaceRootPath,
         status: 'indexing',
       };
@@ -595,8 +668,25 @@ export function WorkspaceLayout({
           return;
         }
 
+        const worker = globalSearchWorkerRef.current;
+
+        if (worker) {
+          worker.postMessage({
+            documents,
+            rootPath: snapshot.rootPath,
+            type: 'index',
+          });
+          perf.finish({
+            documents: documents.length,
+            execution: 'worker',
+            rootDocuments: flattenDocuments(snapshot.nodes).length,
+          });
+          return;
+        }
+
         setGlobalSearchState({
           index: buildWorkspaceSearchIndex(documents),
+          results: [],
           rootPath: snapshot.rootPath,
           status: 'ready',
         });
@@ -612,6 +702,7 @@ export function WorkspaceLayout({
 
         setGlobalSearchState({
           index: null,
+          results: [],
           rootPath: snapshot.rootPath,
           status: 'error',
         });
@@ -625,6 +716,33 @@ export function WorkspaceLayout({
     globalSearchOpen,
     isTauriRuntime,
     workspace.snapshot,
+  ]);
+
+  React.useEffect(() => {
+    const worker = globalSearchWorkerRef.current;
+
+    if (
+      !worker ||
+      activeGlobalSearchStatus !== 'ready' ||
+      !workspaceRootPath ||
+      globalSearchState.rootPath !== workspaceRootPath
+    ) {
+      return;
+    }
+
+    const requestId = globalSearchRequestIdRef.current + 1;
+    globalSearchRequestIdRef.current = requestId;
+    worker.postMessage({
+      query: globalSearchQuery,
+      requestId,
+      rootPath: workspaceRootPath,
+      type: 'search',
+    });
+  }, [
+    activeGlobalSearchStatus,
+    globalSearchQuery,
+    globalSearchState.rootPath,
+    workspaceRootPath,
   ]);
 
   React.useEffect(() => {
@@ -1180,7 +1298,6 @@ export function WorkspaceLayout({
           title: current.length === 0 ? '本地' : `本地 ${current.length + 1}`,
         },
       ]);
-      setTerminalOutputs((current) => ({ ...current, [info.id]: '' }));
       setTerminalActiveTabId(info.id);
     } catch (error) {
       setTerminalError(formatUnknownError(error));
@@ -1195,13 +1312,7 @@ export function WorkspaceLayout({
         setTerminalError(formatUnknownError(error)),
       );
       setTerminalTabs((current) => current.filter((tab) => tab.id !== tabId));
-      setTerminalOutputs((current) => {
-        const next = { ...current };
-
-        delete next[tabId];
-
-        return next;
-      });
+      terminalOutputStore.clear(tabId);
       setTerminalActiveTabId((current) => {
         if (current !== tabId) {
           return current;
@@ -1212,7 +1323,7 @@ export function WorkspaceLayout({
         return nextTab?.id ?? null;
       });
     },
-    [terminalTabs],
+    [terminalOutputStore, terminalTabs],
   );
 
   const handleTerminalData = React.useCallback(
@@ -1242,10 +1353,7 @@ export function WorkspaceLayout({
     const unlisteners: Array<() => void> = [];
 
     void listenTerminalData(({ sessionId, data }) => {
-      setTerminalOutputs((current) => ({
-        ...current,
-        [sessionId]: `${current[sessionId] ?? ''}${data}`,
-      }));
+      terminalOutputStore.append(sessionId, data);
     }).then((unlisten) => {
       if (disposed) {
         unlisten();
@@ -1282,7 +1390,7 @@ export function WorkspaceLayout({
       disposed = true;
       unlisteners.forEach((unlisten) => unlisten());
     };
-  }, [isTauriRuntime]);
+  }, [isTauriRuntime, terminalOutputStore]);
 
   React.useEffect(() => {
     if (
@@ -1667,6 +1775,9 @@ export function WorkspaceLayout({
       perf.finish({
         characters: markdown.length,
       });
+      perf.finishNextFrame({
+        characters: markdown.length,
+      });
     },
     [currentDocumentPath, rememberRecentDocumentByPath, workspace],
   );
@@ -1924,7 +2035,7 @@ export function WorkspaceLayout({
               onResize: handleLeftSidebarResize,
             }}
             sidebarWidth={leftSidebarWidth}
-            sessionCache={settingsSessionCacheRef.current}
+            sessionCache={settingsSessionCache}
             workspaceRootPath={workspace.snapshot?.rootPath ?? null}
             onBack={() => setSystemPage(null)}
             onSettingsSaved={(settings) => {
@@ -2248,7 +2359,7 @@ export function WorkspaceLayout({
                       >
                         <XtermTerminal
                           isActive={terminalOpen && tab.id === terminalActiveTabId}
-                          output={terminalOutputs[tab.id] ?? ''}
+                          outputStore={terminalOutputStore}
                           sessionId={tab.id}
                           themeMode={terminalThemeMode}
                           onData={handleTerminalData}

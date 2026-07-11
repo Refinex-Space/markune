@@ -502,7 +502,13 @@ pub fn list_daily_notes_for_month(
 }
 
 #[tauri::command]
-pub fn load_workspace_tree(root_path: String) -> Result<WorkspaceSnapshot, String> {
+pub async fn load_workspace_tree(root_path: String) -> Result<WorkspaceSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || load_workspace_tree_sync(root_path))
+        .await
+        .map_err(|_| "工作区树读取任务失败".to_string())?
+}
+
+fn load_workspace_tree_sync(root_path: String) -> Result<WorkspaceSnapshot, String> {
     let timer = start_performance_timer();
     let result = (|| {
         let root = canonical_workspace_root(&root_path)?;
@@ -522,7 +528,18 @@ pub fn load_workspace_tree(root_path: String) -> Result<WorkspaceSnapshot, Strin
 }
 
 #[tauri::command]
-pub fn read_markdown_document(
+pub async fn read_markdown_document(
+    root_path: String,
+    document_path: String,
+) -> Result<MarkdownDocumentContent, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        read_markdown_document_sync(root_path, document_path)
+    })
+    .await
+    .map_err(|_| "Markdown 文档读取任务失败".to_string())?
+}
+
+fn read_markdown_document_sync(
     root_path: String,
     document_path: String,
 ) -> Result<MarkdownDocumentContent, String> {
@@ -538,7 +555,20 @@ pub fn read_markdown_document(
 }
 
 #[tauri::command]
-pub fn save_markdown_document(
+pub async fn save_markdown_document(
+    root_path: String,
+    document_path: String,
+    content: String,
+    expected_modified_at: Option<u128>,
+) -> Result<DocumentContentMeta, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        save_markdown_document_sync(root_path, document_path, content, expected_modified_at)
+    })
+    .await
+    .map_err(|_| "Markdown 文档保存任务失败".to_string())?
+}
+
+fn save_markdown_document_sync(
     root_path: String,
     document_path: String,
     content: String,
@@ -637,7 +667,7 @@ pub fn create_markdown_document(
             .to_string();
         let node = build_document_node(&root, &document_path, file_name, &BTreeMap::new())
             .map_err(|_| "无法创建 Markdown 文档节点".to_string())?;
-        let content = read_markdown_document(root_path, node.absolute_path.clone())?;
+        let content = read_markdown_document_sync(root_path, node.absolute_path.clone())?;
 
         Ok(CreatedMarkdownDocument { node, content })
     })();
@@ -3047,7 +3077,7 @@ mod tests {
             .to_string();
 
         open_daily_note(root.clone(), "2026-06-20".to_string()).expect("打开空每日笔记失败");
-        save_markdown_document(
+        save_markdown_document_sync(
             root.clone(),
             document_path,
             "---\ntitle: 2026-06-20\nrefinexDialect: 1\ndailyDate: 2026-06-20\n---\n\n# 2026-06-20\n\n- [ ] 写计划\n"
@@ -3428,7 +3458,7 @@ mod tests {
         let document_path = temp_dir.path().join("guide.md");
         fs::write(&document_path, "---\ntitle: 指南\n---\n\n# 指南\n").expect("写入 Markdown 失败");
 
-        let document = read_markdown_document(
+        let document = read_markdown_document_sync(
             temp_dir.path().to_string_lossy().to_string(),
             document_path.to_string_lossy().to_string(),
         )
@@ -3449,7 +3479,7 @@ mod tests {
         fs::write(&document_path, "# 旧内容\n").expect("写入 Markdown 失败");
         let before = read_modified_at(&document_path).expect("读取修改时间失败");
 
-        let saved = save_markdown_document(
+        let saved = save_markdown_document_sync(
             temp_dir.path().to_string_lossy().to_string(),
             document_path.to_string_lossy().to_string(),
             "# 新内容\n".to_string(),
@@ -3470,7 +3500,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(2));
         fs::write(&document_path, "# 外部修改\n").expect("写入外部修改失败");
 
-        let error = save_markdown_document(
+        let error = save_markdown_document_sync(
             temp_dir.path().to_string_lossy().to_string(),
             document_path.to_string_lossy().to_string(),
             "# 应被拒绝\n".to_string(),
@@ -4168,7 +4198,10 @@ mod tests {
             preferred_editor_macos_app_name("vscode-insiders"),
             Some("Visual Studio Code - Insiders")
         );
-        assert_eq!(preferred_editor_macos_app_name("rustrover"), Some("RustRover"));
+        assert_eq!(
+            preferred_editor_macos_app_name("rustrover"),
+            Some("RustRover")
+        );
         assert_eq!(preferred_editor_macos_app_name("unknown"), None);
     }
 

@@ -5,9 +5,12 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal } from '@xterm/xterm';
 
+import type { TerminalOutputStore } from './terminal-output-store';
+
 interface XtermTerminalProps {
   isActive: boolean;
-  output: string;
+  output?: string;
+  outputStore?: TerminalOutputStore;
   sessionId: string;
   themeMode: 'dark' | 'light';
   onData: (sessionId: string, data: string) => void;
@@ -16,7 +19,8 @@ interface XtermTerminalProps {
 
 export function XtermTerminal({
   isActive,
-  output,
+  output = '',
+  outputStore,
   sessionId,
   themeMode,
   onData,
@@ -94,6 +98,24 @@ export function XtermTerminal({
 
     lastOutputRef.current = output;
   }, [output]);
+
+  React.useEffect(() => {
+    if (!outputStore) {
+      return;
+    }
+
+    const flushOutput = () => {
+      const terminal = terminalRef.current;
+      const nextChunk = outputStore.take(sessionId);
+
+      if (terminal && nextChunk) {
+        terminal.write(nextChunk);
+      }
+    };
+
+    flushOutput();
+    return outputStore.subscribe(sessionId, flushOutput);
+  }, [outputStore, sessionId]);
 
   React.useEffect(() => {
     if (!isActive || !containerRef.current) {

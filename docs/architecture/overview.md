@@ -27,6 +27,10 @@ Madora is a desktop-first local knowledge-base app. The default page renders `Wo
 - `src-tauri/src/`: Rust commands for assets, Git, settings, terminal, AI settings, AI runtime sessions, and workspace filesystem behavior.
 - `scripts/`: local build helpers, currently including the Tauri web export wrapper.
 
+## Performance Boundary
+
+High-frequency editor, terminal, and AI streaming paths must not publish full-shell React state for every event. Terminal output is buffered per session, AI deltas are committed at most once per animation frame, and non-critical document insights use deferred rendering. Workspace full-text search keeps its index and scoring work in `workspace-search-worker.ts`; environments without Web Worker support retain the synchronous compatibility fallback. Filesystem-heavy workspace tree, document read, document save, system-font, and AI inventory commands run through Tauri blocking workers rather than the UI command path. Enable `madoraPerf=1` or local storage key `madora:perf-log=1` only for aggregate timing and long-task diagnostics.
+
 ## Storage And Editor Boundary
 
 Persisted knowledge documents are Markdown files. Keep the disk format, in-memory draft model, and editor input/output aligned around Markdown strings. Do not introduce a second rich-text projection layer unless a separate plan explicitly covers migration, compatibility, and rollback.

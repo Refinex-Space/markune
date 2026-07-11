@@ -60,4 +60,17 @@ describe('computeLineDiff', () => {
       { type: 'added', oldNumber: null, newNumber: 1, content: 'a' },
     ]);
   });
+
+  it('超大编辑使用有界的线性摘要', () => {
+    const shared = Array.from({ length: 600 }, (_, index) => `line-${index}`);
+    const oldText = [...shared, 'old-value', ...shared].join('\n');
+    const newText = [...shared, 'new-value', ...shared].join('\n');
+
+    const result = computeLineDiff(oldText, newText);
+
+    expect(result.some((line) => line.content === 'old-value')).toBe(true);
+    expect(result.some((line) => line.content === 'new-value')).toBe(true);
+    expect(result.some((line) => line.content.includes('行未显示'))).toBe(true);
+    expect(result.length).toBeLessThan(200);
+  });
 });

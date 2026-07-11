@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   isWorkspacePerformanceLoggingEnabled,
+  observeWorkspaceLongTasks,
   startWorkspacePerformanceMeasure,
 } from '../workspace-performance';
 
@@ -30,5 +31,11 @@ describe('workspace performance diagnostics', () => {
     );
 
     debug.mockRestore();
+  });
+
+  it('does not observe long tasks when diagnostics are disabled', () => {
+    const disconnect = observeWorkspaceLongTasks(false);
+
+    disconnect();
   });
 });

@@ -72,7 +72,9 @@ import { cn } from '@/lib/utils';
 import { WorkspaceResizeHandle } from './workspace-resize-handle';
 import {
   getWorkspaceSettingsCacheEntry,
+  loadWorkspaceSettingsResource,
   type WorkspaceSettingsSessionCache,
+  updateWorkspaceSettingsCacheEntry,
 } from './workspace-settings-cache';
 import {
   createAiCommand,
@@ -622,9 +624,9 @@ export function WorkspaceSettingsPage({
   onSettingsSaved,
 }: WorkspaceSettingsPageProps) {
   const { setTheme, theme } = useTheme();
-  const cacheEntry = React.useMemo(
-    () => getWorkspaceSettingsCacheEntry(sessionCache, workspaceRootPath),
-    [sessionCache, workspaceRootPath],
+  const cacheEntry = getWorkspaceSettingsCacheEntry(
+    sessionCache,
+    workspaceRootPath,
   );
   const [settings, setSettings] =
     React.useState<AppSettings>(() =>
@@ -691,7 +693,6 @@ export function WorkspaceSettingsPage({
     : '打开工作区后使用 .madora/assets';
   const normalizedSearchQuery = normalizeSearchTerm(searchQuery);
   const hasSearchQuery = normalizedSearchQuery.length > 0;
-  const concreteInitialSectionId = normalizeSettingsSectionId(initialSectionId);
   const preferencesSectionMatches = matchesSearchTerms(
     normalizedSearchQuery,
     PREFERENCES_SEARCH_TERMS,
@@ -799,34 +800,6 @@ export function WorkspaceSettingsPage({
     activeSection === 'ai-plugins';
 
   React.useEffect(() => {
-    const nextSection =
-      concreteInitialSectionId === 'ai-models' && !AI_SETTINGS_AVAILABLE
-        ? 'appearance'
-        : concreteInitialSectionId;
-
-    cacheEntry.settings ??= withDefaultAppSettings(initialSettings);
-    setSearchQuery('');
-    setActiveSectionId(nextSection);
-    setSettings(cacheEntry.settings);
-    setDetectedAccounts(cacheEntry.detectedAccounts ?? []);
-    setAiAnthropicAccounts(cacheEntry.aiAnthropicAccounts ?? []);
-    setAiSkills(cacheEntry.aiSkills ?? []);
-    setAiCommands(cacheEntry.aiCommands ?? []);
-    setAiCustomAgents(cacheEntry.aiCustomAgents ?? []);
-    setAiMcpServers(cacheEntry.aiMcpServers ?? []);
-    setAiPlugins(cacheEntry.aiPlugins ?? []);
-    setGitSyncSettings(cacheEntry.gitSyncSettings ?? DEFAULT_GIT_SYNC_SETTINGS);
-    setGitProbeState(cacheEntry.gitProbe ?? null);
-    setGitRemoteState(cacheEntry.gitRemote ?? DEFAULT_GIT_REMOTE_INFO);
-    setGitSyncActionState('idle');
-    setGitSyncMessage(null);
-    setSystemFonts(sessionCache.systemFonts ?? FALLBACK_SYSTEM_FONT_OPTIONS);
-    setSectionLoadStates({});
-    setSaveState('idle');
-    setErrorMessage(null);
-  }, [cacheEntry, concreteInitialSectionId, initialSettings, sessionCache]);
-
-  React.useEffect(() => {
     let cancelled = false;
 
     async function loadActiveSection() {
@@ -853,6 +826,8 @@ export function WorkspaceSettingsPage({
       };
 
       try {
+        const cacheScope = workspaceRootPath ?? '__global__';
+
         switch (activeSection) {
           case 'appearance': {
             if (sessionCache.systemFonts) {
@@ -862,8 +837,16 @@ export function WorkspaceSettingsPage({
             }
 
             setSectionState('loading');
-            const fonts = mergeSystemFontOptions(await listSystemFonts());
-            sessionCache.systemFonts = fonts;
+            await loadWorkspaceSettingsResource(
+              sessionCache,
+              'system-fonts',
+              async () => {
+                sessionCache.systemFonts = mergeSystemFontOptions(
+                  await listSystemFonts(),
+                );
+              },
+            );
+            const fonts = sessionCache.systemFonts ?? FALLBACK_SYSTEM_FONT_OPTIONS;
 
             if (!cancelled) {
               setSystemFonts(fonts);
@@ -890,21 +873,30 @@ export function WorkspaceSettingsPage({
             }
 
             setSectionState('loading');
-            const [workspaceMetadata, nextGitProbe, nextGitRemote] =
-              await Promise.all([
-                ensureWorkspace(workspaceRootPath),
-                gitProbe(workspaceRootPath).catch(() => null),
-                gitRemoteInfo(workspaceRootPath).catch(
-                  () => DEFAULT_GIT_REMOTE_INFO,
-                ),
-              ]);
-            const gitSyncSettings = withDefaultGitSyncSettings(
-              workspaceMetadata.gitSync,
-            );
+            await loadWorkspaceSettingsResource(
+              sessionCache,
+              `${cacheScope}:git-sync`,
+              async () => {
+                const [workspaceMetadata, nextGitProbe, nextGitRemote] =
+                  await Promise.all([
+                    ensureWorkspace(workspaceRootPath),
+                    gitProbe(workspaceRootPath).catch(() => null),
+                    gitRemoteInfo(workspaceRootPath).catch(
+                      () => DEFAULT_GIT_REMOTE_INFO,
+                    ),
+                  ]);
 
-            cacheEntry.gitSyncSettings = gitSyncSettings;
-            cacheEntry.gitProbe = nextGitProbe;
-            cacheEntry.gitRemote = nextGitRemote;
+                cacheEntry.gitSyncSettings = withDefaultGitSyncSettings(
+                  workspaceMetadata.gitSync,
+                );
+                cacheEntry.gitProbe = nextGitProbe;
+                cacheEntry.gitRemote = nextGitRemote;
+              },
+            );
+            const gitSyncSettings =
+              cacheEntry.gitSyncSettings ?? DEFAULT_GIT_SYNC_SETTINGS;
+            const nextGitProbe = cacheEntry.gitProbe ?? null;
+            const nextGitRemote = cacheEntry.gitRemote ?? DEFAULT_GIT_REMOTE_INFO;
 
             if (!cancelled) {
               setGitSyncSettings(gitSyncSettings);
@@ -930,18 +922,27 @@ export function WorkspaceSettingsPage({
             }
 
             setSectionState('loading');
-            const [runtimeProfiles, accounts, anthropicAccounts] =
-              await Promise.all([
-                workspaceRootPath
-                  ? listAiAgentProfiles(workspaceRootPath)
-                  : Promise.resolve([]),
-                detectAiAccounts(),
-                listAiAnthropicAccounts().catch(() => []),
-              ]);
+            await loadWorkspaceSettingsResource(
+              sessionCache,
+              `${cacheScope}:ai-models`,
+              async () => {
+                const [runtimeProfiles, accounts, anthropicAccounts] =
+                  await Promise.all([
+                    workspaceRootPath
+                      ? listAiAgentProfiles(workspaceRootPath)
+                      : Promise.resolve([]),
+                    detectAiAccounts(),
+                    listAiAnthropicAccounts().catch(() => []),
+                  ]);
 
-            cacheEntry.runtimeProfiles = runtimeProfiles;
-            cacheEntry.detectedAccounts = accounts;
-            cacheEntry.aiAnthropicAccounts = anthropicAccounts;
+                cacheEntry.runtimeProfiles = runtimeProfiles;
+                cacheEntry.detectedAccounts = accounts;
+                cacheEntry.aiAnthropicAccounts = anthropicAccounts;
+              },
+            );
+            const runtimeProfiles = cacheEntry.runtimeProfiles ?? [];
+            const accounts = cacheEntry.detectedAccounts ?? [];
+            const anthropicAccounts = cacheEntry.aiAnthropicAccounts ?? [];
 
             if (!cancelled) {
               setSettings((current) =>
@@ -963,12 +964,20 @@ export function WorkspaceSettingsPage({
 
             setSectionState('loading');
             const rootPath = workspaceRootPath ?? AI_MCP_GLOBAL_PROJECT;
-            const [skills, commands] = await Promise.all([
-              listAiSkills(rootPath),
-              listAiCommands(rootPath),
-            ]);
-            cacheEntry.aiSkills = skills;
-            cacheEntry.aiCommands = commands;
+            await loadWorkspaceSettingsResource(
+              sessionCache,
+              `${cacheScope}:ai-skills`,
+              async () => {
+                const [skills, commands] = await Promise.all([
+                  listAiSkills(rootPath),
+                  listAiCommands(rootPath),
+                ]);
+                cacheEntry.aiSkills = skills;
+                cacheEntry.aiCommands = commands;
+              },
+            );
+            const skills = cacheEntry.aiSkills ?? [];
+            const commands = cacheEntry.aiCommands ?? [];
 
             if (!cancelled) {
               setAiSkills(skills);
@@ -985,10 +994,16 @@ export function WorkspaceSettingsPage({
             }
 
             setSectionState('loading');
-            const agents = await listAiCustomAgents(
-              workspaceRootPath ?? AI_MCP_GLOBAL_PROJECT,
+            await loadWorkspaceSettingsResource(
+              sessionCache,
+              `${cacheScope}:ai-agents`,
+              async () => {
+                cacheEntry.aiCustomAgents = await listAiCustomAgents(
+                  workspaceRootPath ?? AI_MCP_GLOBAL_PROJECT,
+                );
+              },
             );
-            cacheEntry.aiCustomAgents = agents;
+            const agents = cacheEntry.aiCustomAgents ?? [];
 
             if (!cancelled) {
               setAiCustomAgents(agents);
@@ -1004,10 +1019,16 @@ export function WorkspaceSettingsPage({
             }
 
             setSectionState('loading');
-            const servers = await listAiMcpServers(
-              workspaceRootPath ?? AI_MCP_GLOBAL_PROJECT,
+            await loadWorkspaceSettingsResource(
+              sessionCache,
+              `${cacheScope}:ai-mcp`,
+              async () => {
+                cacheEntry.aiMcpServers = await listAiMcpServers(
+                  workspaceRootPath ?? AI_MCP_GLOBAL_PROJECT,
+                );
+              },
             );
-            cacheEntry.aiMcpServers = servers;
+            const servers = cacheEntry.aiMcpServers ?? [];
 
             if (!cancelled) {
               setAiMcpServers(servers);
@@ -1025,16 +1046,24 @@ export function WorkspaceSettingsPage({
 
             setSectionState('loading');
             const rootPath = workspaceRootPath ?? AI_MCP_GLOBAL_PROJECT;
-            const [plugins, servers] = await Promise.all([
-              cacheEntry.aiPlugins
-                ? Promise.resolve(cacheEntry.aiPlugins)
-                : listAiPlugins(),
-              cacheEntry.aiMcpServers
-                ? Promise.resolve(cacheEntry.aiMcpServers)
-                : listAiMcpServers(rootPath),
-            ]);
-            cacheEntry.aiPlugins = plugins;
-            cacheEntry.aiMcpServers = servers;
+            await loadWorkspaceSettingsResource(
+              sessionCache,
+              `${cacheScope}:ai-plugins`,
+              async () => {
+                const [plugins, servers] = await Promise.all([
+                  cacheEntry.aiPlugins
+                    ? Promise.resolve(cacheEntry.aiPlugins)
+                    : listAiPlugins(),
+                  cacheEntry.aiMcpServers
+                    ? Promise.resolve(cacheEntry.aiMcpServers)
+                    : listAiMcpServers(rootPath),
+                ]);
+                cacheEntry.aiPlugins = plugins;
+                cacheEntry.aiMcpServers = servers;
+              },
+            );
+            const plugins = cacheEntry.aiPlugins ?? [];
+            const servers = cacheEntry.aiMcpServers ?? [];
 
             if (!cancelled) {
               setAiPlugins(plugins);
@@ -1135,8 +1164,10 @@ export function WorkspaceSettingsPage({
 
     setAiSkills(nextAiSkills);
     setAiCommands(nextAiCommands);
-    cacheEntry.aiSkills = nextAiSkills;
-    cacheEntry.aiCommands = nextAiCommands;
+    updateWorkspaceSettingsCacheEntry(sessionCache, workspaceRootPath, (entry) => {
+      entry.aiSkills = nextAiSkills;
+      entry.aiCommands = nextAiCommands;
+    });
 
     return {
       commands: nextAiCommands,
@@ -1152,7 +1183,9 @@ export function WorkspaceSettingsPage({
     const nextAiAnthropicAccounts = await listAiAnthropicAccounts();
 
     setAiAnthropicAccounts(nextAiAnthropicAccounts);
-    cacheEntry.aiAnthropicAccounts = nextAiAnthropicAccounts;
+    updateWorkspaceSettingsCacheEntry(sessionCache, workspaceRootPath, (entry) => {
+      entry.aiAnthropicAccounts = nextAiAnthropicAccounts;
+    });
 
     return nextAiAnthropicAccounts;
   }
@@ -1165,7 +1198,9 @@ export function WorkspaceSettingsPage({
     const nextDetectedAccounts = await detectAiAccounts();
 
     setDetectedAccounts(nextDetectedAccounts);
-    cacheEntry.detectedAccounts = nextDetectedAccounts;
+    updateWorkspaceSettingsCacheEntry(sessionCache, workspaceRootPath, (entry) => {
+      entry.detectedAccounts = nextDetectedAccounts;
+    });
 
     return nextDetectedAccounts;
   }
@@ -1180,7 +1215,9 @@ export function WorkspaceSettingsPage({
     );
 
     setAiCustomAgents(nextAiCustomAgents);
-    cacheEntry.aiCustomAgents = nextAiCustomAgents;
+    updateWorkspaceSettingsCacheEntry(sessionCache, workspaceRootPath, (entry) => {
+      entry.aiCustomAgents = nextAiCustomAgents;
+    });
 
     return nextAiCustomAgents;
   }
@@ -1193,7 +1230,9 @@ export function WorkspaceSettingsPage({
     const nextAiPlugins = await listAiPlugins();
 
     setAiPlugins(nextAiPlugins);
-    cacheEntry.aiPlugins = nextAiPlugins;
+    updateWorkspaceSettingsCacheEntry(sessionCache, workspaceRootPath, (entry) => {
+      entry.aiPlugins = nextAiPlugins;
+    });
 
     return nextAiPlugins;
   }
@@ -1208,7 +1247,9 @@ export function WorkspaceSettingsPage({
     );
 
     setAiMcpServers(nextAiMcpServers);
-    cacheEntry.aiMcpServers = nextAiMcpServers;
+    updateWorkspaceSettingsCacheEntry(sessionCache, workspaceRootPath, (entry) => {
+      entry.aiMcpServers = nextAiMcpServers;
+    });
 
     return nextAiMcpServers;
   }
@@ -1229,7 +1270,9 @@ export function WorkspaceSettingsPage({
     );
 
     const nextGitSyncSettings = withDefaultGitSyncSettings(saved);
-    cacheEntry.gitSyncSettings = nextGitSyncSettings;
+    updateWorkspaceSettingsCacheEntry(sessionCache, workspaceRootPath, (entry) => {
+      entry.gitSyncSettings = nextGitSyncSettings;
+    });
     setGitSyncSettings(nextGitSyncSettings);
 
     return nextGitSyncSettings;
@@ -1290,7 +1333,9 @@ export function WorkspaceSettingsPage({
     setGitSyncMessage(null);
 
     if (!isTauriRuntime()) {
-      cacheEntry.settings = withDefaultAppSettings(settings);
+      updateWorkspaceSettingsCacheEntry(sessionCache, workspaceRootPath, (entry) => {
+        entry.settings = withDefaultAppSettings(settings);
+      });
       setSaveState('saved');
       setGitSyncActionState('saved');
       onSettingsSaved?.(settings);
@@ -1305,7 +1350,9 @@ export function WorkspaceSettingsPage({
         await persistGitSyncSettings(gitSyncSettings);
       }
 
-      cacheEntry.settings = normalizedSettings;
+      updateWorkspaceSettingsCacheEntry(sessionCache, workspaceRootPath, (entry) => {
+        entry.settings = normalizedSettings;
+      });
       setSettings(normalizedSettings);
       onSettingsSaved?.(normalizedSettings);
       setSaveState('saved');

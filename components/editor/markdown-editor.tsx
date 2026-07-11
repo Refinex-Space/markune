@@ -46,6 +46,7 @@ export function MarkdownEditor({
   const scrollAreaRef = React.useRef<HTMLDivElement | null>(null);
   const runtimeSelectionRef =
     React.useRef<MarkweaveEditorRuntimeSnapshot['selection']>(null);
+  const selectionAnimationFrameRef = React.useRef<number | null>(null);
   const cancelBackToTopAnimationRef = React.useRef<(() => void) | null>(
     null,
   );
@@ -127,7 +128,14 @@ export function MarkdownEditor({
     (snapshot: MarkweaveEditorRuntimeSnapshot) => {
       runtimeSelectionRef.current = snapshot.selection;
 
-      window.requestAnimationFrame(syncSelectionContext);
+      if (selectionAnimationFrameRef.current !== null) {
+        return;
+      }
+
+      selectionAnimationFrameRef.current = window.requestAnimationFrame(() => {
+        selectionAnimationFrameRef.current = null;
+        syncSelectionContext();
+      });
     },
     [syncSelectionContext],
   );
@@ -159,6 +167,9 @@ export function MarkdownEditor({
   React.useEffect(
     () => () => {
       cancelBackToTopAnimationRef.current?.();
+      if (selectionAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(selectionAnimationFrameRef.current);
+      }
     },
     [],
   );
