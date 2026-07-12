@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { MarkdownEditor } from '@/components/editor/markdown-editor';
@@ -301,59 +301,6 @@ describe('MarkdownEditor', () => {
     expect(globalsCss).not.toContain(['mar', 'dora-preview'].join(''));
   });
 
-  it('通过 Markweave runtime selection 和 DOM selection 派生右侧 AI 面板选区上下文', () => {
-    const onSelectionChange = vi.fn();
-
-    render(
-      <MarkdownEditor
-        markdown="Hello world"
-        onSelectionChange={onSelectionChange}
-      />,
-    );
-
-    const textNode = screen.getByTestId('markweave-selectable-text')
-      .firstChild;
-
-    if (!textNode) {
-      throw new Error('missing selectable text');
-    }
-
-    const range = document.createRange();
-    range.setStart(textNode, 0);
-    range.setEnd(textNode, 5);
-    window.getSelection()?.removeAllRanges();
-    window.getSelection()?.addRange(range);
-
-    const lastProps = markweaveEditorMock.mock.calls.at(-1)?.[0] as {
-      onRuntimeStateChange?: (snapshot: unknown) => void;
-    };
-
-    act(() => {
-      lastProps.onRuntimeStateChange?.({
-        selection: {
-          activeMarks: [],
-          ancestorNodes: [],
-          currentNode: null,
-          empty: false,
-          floatingToolbarVariant: 'default',
-          from: 2,
-          inTable: false,
-          kind: 'range',
-          surface: 'text-range',
-          to: 7,
-        },
-      });
-    });
-
-    fireEvent.mouseUp(screen.getByTestId('markdown-editor-scrollarea'));
-
-    expect(onSelectionChange).toHaveBeenLastCalledWith({
-      from: 2,
-      markdown: 'Hello',
-      to: 7,
-    });
-  });
-
   it('回到顶部滚动 Markweave 外层 scrollarea', () => {
     render(<MarkdownEditor markdown="# 标题" />);
     const scrollArea = screen.getByTestId('markdown-editor-scrollarea');
@@ -382,16 +329,4 @@ describe('MarkdownEditor', () => {
     expect(scrollToMock).toHaveBeenCalledWith({ top: expect.any(Number) });
   });
 
-  it('不向 Markweave 传入 AI 回调', () => {
-    render(<MarkdownEditor markdown="# 标题" />);
-
-    const props = markweaveEditorMock.mock.calls.at(-1)?.[0] as Record<
-      string,
-      unknown
-    >;
-
-    expect(props.onEditWithAi).toBeUndefined();
-    expect(props.onRewriteSelection).toBeUndefined();
-    expect(props.onExtractToNote).toBeUndefined();
-  });
 });

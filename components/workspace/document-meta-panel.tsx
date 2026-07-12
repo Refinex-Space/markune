@@ -41,7 +41,7 @@ import type {
   ResolvedWorkspaceAsset,
   WorkspaceNode,
 } from './workspace-types';
-import type { DocumentPanelData } from './ai-side-panel';
+import type { DocumentPanelData } from './right-side-panel';
 
 type MetaTab = 'meta' | 'resources';
 

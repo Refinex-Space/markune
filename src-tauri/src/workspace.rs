@@ -3836,8 +3836,8 @@ mod tests {
     fn imported_plate_documents_write_inside_workspace_only() {
         let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
         let docs = vec![ImportedPlateDocumentInput {
-            title: "Spring AI".to_string(),
-            source_file_name: "Spring AI.md".to_string(),
+            title: "Spring Guide".to_string(),
+            source_file_name: "Spring Guide.md".to_string(),
             content: serde_json::json!([{ "type": "p", "children": [{ "text": "正文" }] }]),
         }];
 
@@ -3849,7 +3849,7 @@ mod tests {
         .expect("导入文档失败");
 
         assert_eq!(result.created.len(), 1);
-        assert!(temp_dir.path().join("Spring AI.plate.json").is_file());
+        assert!(temp_dir.path().join("Spring Guide.plate.json").is_file());
     }
 
     #[test]

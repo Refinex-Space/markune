@@ -593,21 +593,6 @@
     color: var(--foreground);
   }
 
-  .ai-settings-markdown-preview .markweave-editor-frame {
-    min-height: auto;
-    color: var(--foreground);
-    font-family: var(--madora-document-font);
-  }
-
-  .ai-settings-markdown-preview .markweave-editor-surface {
-    min-height: auto;
-    padding: 0;
-    color: var(--foreground);
-    font-family: var(--madora-document-font);
-    font-size: 13px;
-    line-height: 1.65;
-  }
-
   .directory-page-scrollarea {
     scrollbar-color: color-mix(in oklab, var(--muted-foreground) 26%, transparent) transparent;
     scrollbar-width: thin;
@@ -796,38 +781,4 @@
 
 .terminal-surface .xterm-scrollable-element > .scrollbar.vertical > .slider:hover {
   background: color-mix(in oklab, var(--muted-foreground) 34%, transparent) !important;
-}
-
-/* AI 工具卡片 pending 扫光动画（@author refinex） */
-.ai-tool-shimmer {
-  background: linear-gradient(
-    90deg,
-    var(--muted-foreground) 0%,
-    var(--muted-foreground) 40%,
-    color-mix(in oklab, var(--muted-foreground) 30%, transparent) 50%,
-    var(--muted-foreground) 60%,
-    var(--muted-foreground) 100%
-  );
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: ai-tool-shimmer 1.2s ease-in-out infinite;
-}
-
-@keyframes ai-tool-shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
-}
-
-/* @mention 编辑器占位符（@author refinex） */
-.ai-mentions-editor:empty:before {
-  content: attr(data-placeholder);
-  color: var(--muted-foreground);
-  pointer-events: none;
-  opacity: 0.6;
 }

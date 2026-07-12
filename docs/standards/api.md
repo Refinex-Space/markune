@@ -9,23 +9,17 @@ referenced_by: AGENTS.md#knowledge-map
 
 ## Next.js API Routes
 
-- `app/api/ai/copilot/route.ts` accepts a request-provided `apiKey` or falls back to `AI_GATEWAY_API_KEY`.
-- `app/api/link-preview/route.ts` resolves generic link metadata for Web/dev usage. It must keep SSRF protections: only `http`/`https`, no credentialed URLs, no localhost/private/link-local/multicast targets, redirect validation, timeout, and bounded response size.
-- Markweave link cards consume this route only through `components/editor/markweave-link-card-resolver.ts`; failed or non-OK Web responses must resolve to `null`, never bypass the route with a direct client-side metadata fetch.
-- `app/api/uploadthing/route.ts` exposes the UploadThing route handler configured by `lib/uploadthing.ts`.
-- Do not log prompts, uploaded file URLs, API keys, or user local paths unless a task explicitly requires a sanitized diagnostic.
+- `app/api/link-preview/route.ts` 为 Web/dev 环境解析链接元数据，必须保留 SSRF 防护、重定向验证、超时和响应大小上限。
+- `app/api/uploadthing/route.ts` 暴露由 `lib/uploadthing.ts` 配置的 UploadThing handler。
+- 不记录用户本地路径、上传 URL 或文档内容，除非任务明确需要经过脱敏的诊断信息。
 
 ## Tauri Command Bridge
 
-- Frontend calls should flow through `components/workspace/workspace-api.ts`.
-- Rust command registration belongs in `src-tauri/src/lib.rs`.
-- Command implementation modules are split by domain: `assets.rs`, `git.rs`, `link_preview.rs`, `settings.rs`, `system_fonts.rs`, `terminal.rs`, and `workspace.rs`.
-- `system_fonts.rs` should expose only system font family names and recommendation metadata; do not return font file paths, file contents, or user-local font directory details to the frontend.
-- Desktop-only network features should use Tauri commands instead of depending on `app/api`, because desktop production builds statically export the frontend and remove Next API routes.
-- `resolve_link_preview` is the desktop counterpart for Markweave link cards. Its frontend bridge returns metadata only and must discard a result when Markweave's `AbortSignal` has been cancelled.
-- Keep TypeScript request/response types aligned with Rust command payloads.
-- AI panel conversation history uses Tauri commands in `agent_runtime.rs` and frontend wrappers in `workspace-api.ts`; persisted records stay inside the selected workspace at `.madora/ai-sessions/`.
+- 前端调用必须经 `components/workspace/workspace-api.ts`。
+- 命令注册位于 `src-tauri/src/lib.rs`。
+- `system_fonts.rs` 仅可返回字体家族名称与推荐元数据，不得暴露字体文件路径或内容。
+- 桌面端网络功能应走 Tauri 命令；生产桌面构建使用静态导出，不包含 Next API routes。
 
 ## Local Files And Assets
 
-Workspace document APIs should preserve Markdown source files. Asset APIs should stay within the configured Tauri asset protocol and local workspace asset conventions. `upload_workspace_asset` returns both the legacy `url` and the new `relativePath`; new Markdown writes should use `relativePath`, while cleanup and preview helpers must still understand legacy `madora-asset://{assetId}` references.
+工作区文档 API 必须保留 Markdown 源文件。新资源写入工作区根相对 `.madora/assets/files/...` 路径；预览和清理仍需兼容旧 `madora-asset://{assetId}` 引用。

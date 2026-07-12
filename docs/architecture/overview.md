@@ -7,40 +7,30 @@ referenced_by: AGENTS.md#knowledge-map
 
 # Architecture Overview
 
-Madora is a desktop-first local knowledge-base app. The default page renders `WorkspaceLayout` from `app/page.tsx`, and the workspace shell owns the document tree, editor tabs, search dialog, Git panels, terminal panel, settings dialog, and side panels under `components/workspace`.
+Madora 是一个以本地 Markdown 文档为核心的桌面知识库，使用 Next.js App Router、React、TypeScript、Tauri v2 和 `@refinex/markora` 构建。
 
 ## Runtime Shape
 
-- Web shell: Next.js App Router with React client components.
-- Editor: `components/editor/markdown-editor.tsx` wraps `@markweave/react` / `markweave` as a controlled Markdown editor. The app shell keeps frontmatter serialization, save shortcuts, page-width classes, workspace asset URL conversion, and selection context for the right AI panel.
-- Desktop shell: Tauri v2 from `src-tauri`, with `src-tauri/tauri.conf.json` pointing production desktop builds at `../out`.
-- Native boundary: React calls Tauri commands through `components/workspace/workspace-api.ts`; command implementations live in `src-tauri/src`.
-- Local state: app settings are persisted by `src-tauri/src/settings.rs`; browser panel widths use local storage keys in `workspace-layout.tsx`; AI panel conversation history is persisted per workspace under `.madora/ai-sessions/`.
-- AI settings boundary: `src-tauri/src/ai_settings.rs` scans and mutates Claude-compatible local configuration surfaces for models, skills, commands, custom agents, MCP servers, and plugins. It also stores Anthropic account metadata under `~/.madora/anthropic-accounts.json` while imported OAuth tokens stay in the system secret store. The right AI panel reads `AiSettings` defaults from app settings and passes selected `modelId`, Codex thinking, extended thinking, and agent mode through `start_ai_session`; `src-tauri/src/agent_runtime.rs` maps those session options to the local Codex or Claude command protocol and injects the active Anthropic account token into the Claude process environment when available.
+- Web shell：Next.js App Router 与 React client components。
+- Editor：`components/editor/markdown-editor.tsx` 以受控 Markdown 字符串包装 `@markweave/react` / `markweave`。
+- Workspace shell：`components/workspace/workspace-layout.tsx` 管理文档树、编辑器标签、全文搜索、Git、终端、设置和文档元信息侧栏。
+- Native boundary：前端经 `components/workspace/workspace-api.ts` 调用 Tauri 命令；实现位于 `src-tauri/src`。
+- Local state：全局设置由 `src-tauri/src/settings.rs` 持久化；面板尺寸使用浏览器 local storage。
 
 ## Main Modules
 
-- `app/`: Next.js routes and API handlers.
-- `components/editor/`: Markdown editor, front matter, TOC, and workspace asset upload helpers.
-- `components/workspace/`: desktop workspace shell, tree, tabs, search, Git UI, terminal UI, and Tauri API bridge.
-- `components/ui/`: shared UI primitives.
-- `src-tauri/src/`: Rust commands for assets, Git, settings, terminal, AI settings, AI runtime sessions, and workspace filesystem behavior.
-- `scripts/`: local build helpers, currently including the Tauri web export wrapper.
-
-## Performance Boundary
-
-High-frequency editor, terminal, and AI streaming paths must not publish full-shell React state for every event. Terminal output is buffered per session, AI deltas are committed at most once per animation frame, and non-critical document insights use deferred rendering. Workspace full-text search keeps its index and scoring work in `workspace-search-worker.ts`; environments without Web Worker support retain the synchronous compatibility fallback. Filesystem-heavy workspace tree, document read, document save, system-font, and AI inventory commands run through Tauri blocking workers rather than the UI command path. Enable `madoraPerf=1` or local storage key `madora:perf-log=1` only for aggregate timing and long-task diagnostics.
+- `app/`：Next.js 页面与 API 路由。
+- `components/editor/`：Markdown 编辑器、frontmatter、目录与工作区资源上传。
+- `components/workspace/`：工作区壳层、文档树、标签、搜索、Git、终端、设置和 Tauri API bridge。
+- `components/ui/`：共享 UI 原语。
+- `src-tauri/src/`：资源、Git、设置、系统字体、终端与工作区文件系统命令。
 
 ## Storage And Editor Boundary
 
-Persisted knowledge documents are Markdown files. Keep the disk format, in-memory draft model, and editor input/output aligned around Markdown strings. Do not introduce a second rich-text projection layer unless a separate plan explicitly covers migration, compatibility, and rollback.
+持久化文档始终为 Markdown 文件。磁盘格式、内存草稿和编辑器输入/输出必须保持 Markdown 字符串边界，禁止重新引入富文本投影层。
 
-Markweave receives only the Markdown body after frontmatter parsing. Save paths must serialize the protected frontmatter back around `onUpdate.markdown`; the update payload is lazily serialized, so the host must read only the fields it needs. The controlled value echoes the emitted Markdown back to Markweave, avoiding redundant content comparisons during normal typing. Markweave emits standard Markdown where possible and uses supported HTML fallback only for formatting that Markdown cannot express; preserve that fallback as Markdown source rather than stripping or projecting it into another model. Its `theme` must follow the app's effective `next-themes` value, including the settings Markdown preview, so embedded toolbars, Mermaid and link cards match the shell theme. Pass `canvasColor="var(--background)"` to every Madora Markweave frame so its canvas uses the same background token as the application rather than Markweave's dark-theme default. The app fixes the built-in TOC at `innerTocPlacement="container"` so its layout follows the editor frame rather than the browser viewport. New local uploads are written into Markdown as workspace-root relative paths under `.madora/assets/files/{shard}/{hash}.{ext}`. Existing `madora-asset://{assetId}` references are legacy read/preview compatible and should not be batch-migrated without a separate content migration plan.
-
-Markweave link cards are opt-in user actions for standalone HTTP(S) link paragraphs. The editor resolves card metadata through `components/editor/markweave-link-card-resolver.ts`: Tauri uses the existing bounded `resolve_link_preview` command and Web uses the SSRF-safe `app/api/link-preview` route. Resolver cancellation, rejected URLs and failed metadata lookups return `null`, preserving the original normal link. Successful card snapshots remain in the Markdown document as Markweave-supported HTML fallback; do not resolve arbitrary URLs from the editor renderer.
-
-In Markweave live mode, an ordinary link click remains an editing interaction. Opening an HTTP(S) link requires Ctrl/Cmd-click; view mode keeps its existing safe link-opening behavior. Do not add a competing workspace-level click handler around the editor surface.
+Markweave 只接收 frontmatter 解析后的正文；保存时必须重新序列化受保护的 frontmatter。新上传资源写入相对工作区根目录的 `.madora/assets/files/{shard}/{hash}.{ext}`，旧 `madora-asset://{assetId}` 保持只读兼容。
 
 ## Desktop Build Boundary
 
-`scripts/build-tauri-web.mjs` temporarily moves `app/api` out of the Next static export path, sets `NEXT_OUTPUT=export`, runs the web build, and restores the API directory in `finally`. Changes to this flow need both web build and desktop packaging verification.
+`scripts/build-tauri-web.mjs` 在 Tauri 静态导出时临时移出 `app/api`，设置 `NEXT_OUTPUT=export`，运行 Web build 后在 `finally` 中恢复。改动此流程时必须同时验证 Web build 与桌面静态导出。

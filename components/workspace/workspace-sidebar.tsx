@@ -64,7 +64,7 @@ export function WorkspaceSidebar({
         'flex h-full shrink-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground transition-[width,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
         workspace.isSidebarCollapsed ? 'opacity-0' : 'opacity-100',
       )}
-      data-chrome="codex-sidebar"
+      data-chrome="workspace-sidebar"
       data-testid="workspace-sidebar"
       style={{ width: workspace.isSidebarCollapsed ? 0 : width }}
     >

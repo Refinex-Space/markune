@@ -4,7 +4,6 @@ import * as React from 'react';
 import { ArrowUp } from 'lucide-react';
 import {
   MarkweaveEditor,
-  type MarkweaveEditorRuntimeSnapshot,
   type MarkweaveEditorUpdatePayload,
 } from '@markweave/react';
 import { useTheme } from 'next-themes';
@@ -24,9 +23,6 @@ interface MarkdownEditorProps {
   pageWidthMode?: PageWidthMode;
   onSaveRequested?: () => void;
   onMarkdownChange?: (markdown: string) => void;
-  onSelectionChange?: (
-    selection: { markdown: string; from: number; to: number } | null,
-  ) => void;
   readOnly?: boolean;
   workspaceRootPath?: string | null;
 }
@@ -41,15 +37,11 @@ export function MarkdownEditor({
   pageWidthMode = 'wide',
   onSaveRequested,
   onMarkdownChange,
-  onSelectionChange,
   readOnly = false,
   workspaceRootPath = null,
 }: MarkdownEditorProps) {
   const { resolvedTheme } = useTheme();
   const scrollAreaRef = React.useRef<HTMLDivElement | null>(null);
-  const runtimeSelectionRef =
-    React.useRef<MarkweaveEditorRuntimeSnapshot['selection']>(null);
-  const selectionAnimationFrameRef = React.useRef<number | null>(null);
   const cancelBackToTopAnimationRef = React.useRef<(() => void) | null>(
     null,
   );
@@ -107,42 +99,6 @@ export function MarkdownEditor({
     [onMarkdownChange, readOnly, serializeBody, toStorageMarkdown],
   );
 
-  const syncSelectionContext = React.useCallback(() => {
-    if (!onSelectionChange) {
-      return;
-    }
-
-    const selection = runtimeSelectionRef.current;
-    const selectedText = getDomSelectionText(scrollAreaRef.current);
-
-    if (!selection || selection.empty || !selectedText.trim()) {
-      onSelectionChange(null);
-      return;
-    }
-
-    onSelectionChange({
-      from: Math.min(selection.from, selection.to),
-      markdown: selectedText,
-      to: Math.max(selection.from, selection.to),
-    });
-  }, [onSelectionChange]);
-
-  const handleRuntimeStateChange = React.useCallback(
-    (snapshot: MarkweaveEditorRuntimeSnapshot) => {
-      runtimeSelectionRef.current = snapshot.selection;
-
-      if (selectionAnimationFrameRef.current !== null) {
-        return;
-      }
-
-      selectionAnimationFrameRef.current = window.requestAnimationFrame(() => {
-        selectionAnimationFrameRef.current = null;
-        syncSelectionContext();
-      });
-    },
-    [syncSelectionContext],
-  );
-
   const handleTocChange = React.useCallback(() => {
     // Markweave owns the visible inner TOC; this callback keeps the runtime
     // bridge explicit for future workspace integrations.
@@ -170,9 +126,6 @@ export function MarkdownEditor({
   React.useEffect(
     () => () => {
       cancelBackToTopAnimationRef.current?.();
-      if (selectionAnimationFrameRef.current !== null) {
-        window.cancelAnimationFrame(selectionAnimationFrameRef.current);
-      }
     },
     [],
   );
@@ -213,8 +166,6 @@ export function MarkdownEditor({
       <div
         className="markdown-editor-scrollarea min-h-0 flex-1 overflow-auto"
         data-testid="markdown-editor-scrollarea"
-        onKeyUp={syncSelectionContext}
-        onMouseUp={syncSelectionContext}
         ref={scrollAreaRef}
       >
         <MarkweaveEditor
@@ -229,7 +180,6 @@ export function MarkdownEditor({
           key={documentKey}
           lang="zh"
           mode={readOnly ? 'view' : 'live'}
-          onRuntimeStateChange={handleRuntimeStateChange}
           onSlashCommandUpload={onSlashCommandUpload}
           onTocChange={handleTocChange}
           onUpdate={handleEditorUpdate}
@@ -250,30 +200,6 @@ export function MarkdownEditor({
       ) : null}
     </div>
   );
-}
-
-function getDomSelectionText(root: HTMLElement | null) {
-  if (!root || typeof window === 'undefined') {
-    return '';
-  }
-
-  const selection = window.getSelection();
-
-  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-    return '';
-  }
-
-  const anchorNode = selection.anchorNode;
-  const focusNode = selection.focusNode;
-
-  if (
-    (anchorNode && root.contains(anchorNode)) ||
-    (focusNode && root.contains(focusNode))
-  ) {
-    return selection.toString();
-  }
-
-  return '';
 }
 
 function animateScrollToTop(scroller: HTMLElement, onComplete: () => void) {
