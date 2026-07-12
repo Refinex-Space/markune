@@ -6,6 +6,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { MarkdownEditor } from '@/components/editor/markdown-editor';
 
+const { resolvedThemeMock } = vi.hoisted(() => ({
+  resolvedThemeMock: vi.fn(),
+}));
+
 const globalsCssPath = join(process.cwd(), 'app/globals.css');
 
 const {
@@ -96,6 +100,10 @@ vi.mock('@/components/editor/use-workspace-asset-uploader', () => ({
   useWorkspaceAssetUploader: useWorkspaceAssetUploaderMock,
 }));
 
+vi.mock('next-themes', () => ({
+  useTheme: () => ({ resolvedTheme: resolvedThemeMock() }),
+}));
+
 describe('MarkdownEditor', () => {
   beforeEach(() => {
     cancelAnimationFrameMock.mockClear();
@@ -110,6 +118,7 @@ describe('MarkdownEditor', () => {
     );
     scrollToMock.mockClear();
     toStorageMarkdownMock.mockClear();
+    resolvedThemeMock.mockReturnValue('light');
     toStorageMarkdownMock.mockImplementation((markdown: string) => markdown);
     uploadHandlerMock.mockClear();
     useWorkspaceAssetUploaderMock.mockClear();
@@ -144,13 +153,29 @@ describe('MarkdownEditor', () => {
       (screen.getByLabelText('Markdown 正文') as HTMLTextAreaElement).value,
     ).toBe('# 标题');
     expect(markweaveEditorMock.mock.calls.at(-1)?.[0]).toMatchObject({
+      canvasColor: 'var(--background)',
       content: '# 标题',
       contentFormat: 'markdown',
       editable: true,
       innerToc: true,
       innerTocPlacement: 'container',
       lang: 'zh',
+      theme: 'light',
       mode: 'live',
+    });
+    expect(markweaveEditorMock.mock.calls.at(-1)?.[0]).toMatchObject({
+      linkCardResolver: expect.any(Function),
+    });
+  });
+
+  it('将应用有效暗色主题同步给 Markweave', () => {
+    resolvedThemeMock.mockReturnValue('dark');
+
+    render(<MarkdownEditor markdown="# 标题" />);
+
+    expect(markweaveEditorMock.mock.calls.at(-1)?.[0]).toMatchObject({
+      canvasColor: 'var(--background)',
+      theme: 'dark',
     });
   });
 

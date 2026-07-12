@@ -7,11 +7,13 @@ import {
   type MarkweaveEditorRuntimeSnapshot,
   type MarkweaveEditorUpdatePayload,
 } from '@markweave/react';
+import { useTheme } from 'next-themes';
 
 import {
   parseFrontmatter,
   serializeFrontmatter,
 } from '@/components/editor/markdown-frontmatter';
+import { resolveMarkweaveLinkCard } from '@/components/editor/markweave-link-card-resolver';
 import { useWorkspaceAssetUploader } from '@/components/editor/use-workspace-asset-uploader';
 import type { PageWidthMode } from '@/components/workspace/workspace-types';
 import { cn } from '@/lib/utils';
@@ -43,6 +45,7 @@ export function MarkdownEditor({
   readOnly = false,
   workspaceRootPath = null,
 }: MarkdownEditorProps) {
+  const { resolvedTheme } = useTheme();
   const scrollAreaRef = React.useRef<HTMLDivElement | null>(null);
   const runtimeSelectionRef =
     React.useRef<MarkweaveEditorRuntimeSnapshot['selection']>(null);
@@ -216,6 +219,7 @@ export function MarkdownEditor({
       >
         <MarkweaveEditor
           ariaLabel="Markdown 正文"
+          canvasColor="var(--background)"
           className="madora-markweave-editor"
           content={editorMarkdown}
           contentFormat="markdown"
@@ -229,6 +233,8 @@ export function MarkdownEditor({
           onSlashCommandUpload={onSlashCommandUpload}
           onTocChange={handleTocChange}
           onUpdate={handleEditorUpdate}
+          linkCardResolver={resolveMarkweaveLinkCard}
+          theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
         />
       </div>
 

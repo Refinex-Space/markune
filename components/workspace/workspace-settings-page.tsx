@@ -5069,6 +5069,8 @@ function aiAuthoringDraftFromItem(item: AiAuthoringListItem): AiAuthoringDraft {
 }
 
 function AiSettingsMarkdownPreview({ content }: { content: string }) {
+  const { resolvedTheme } = useTheme();
+
   return (
     <div
       className="ai-settings-markdown-preview"
@@ -5076,12 +5078,14 @@ function AiSettingsMarkdownPreview({ content }: { content: string }) {
     >
       <MarkweaveEditor
         ariaLabel="Markdown 预览"
+        canvasColor="var(--background)"
         content={content}
         contentFormat="markdown"
         editable={false}
         innerToc={false}
         lang="zh"
         mode="view"
+        theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
       />
     </div>
   );

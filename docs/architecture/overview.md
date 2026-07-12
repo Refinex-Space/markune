@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-11
+updated: 2026-07-12
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -35,7 +35,11 @@ High-frequency editor, terminal, and AI streaming paths must not publish full-sh
 
 Persisted knowledge documents are Markdown files. Keep the disk format, in-memory draft model, and editor input/output aligned around Markdown strings. Do not introduce a second rich-text projection layer unless a separate plan explicitly covers migration, compatibility, and rollback.
 
-Markweave receives only the Markdown body after frontmatter parsing. Save paths must serialize the protected frontmatter back around `onUpdate.markdown`; the update payload is lazily serialized, so the host must read only the fields it needs. The controlled value echoes the emitted Markdown back to Markweave, avoiding redundant content comparisons during normal typing. Markweave emits standard Markdown where possible and uses supported HTML fallback only for formatting that Markdown cannot express; preserve that fallback as Markdown source rather than stripping or projecting it into another model. The app fixes the built-in TOC at `innerTocPlacement="container"` so its layout follows the editor frame rather than the browser viewport. New local uploads are written into Markdown as workspace-root relative paths under `.madora/assets/files/{shard}/{hash}.{ext}`. Existing `madora-asset://{assetId}` references are legacy read/preview compatible and should not be batch-migrated without a separate content migration plan.
+Markweave receives only the Markdown body after frontmatter parsing. Save paths must serialize the protected frontmatter back around `onUpdate.markdown`; the update payload is lazily serialized, so the host must read only the fields it needs. The controlled value echoes the emitted Markdown back to Markweave, avoiding redundant content comparisons during normal typing. Markweave emits standard Markdown where possible and uses supported HTML fallback only for formatting that Markdown cannot express; preserve that fallback as Markdown source rather than stripping or projecting it into another model. Its `theme` must follow the app's effective `next-themes` value, including the settings Markdown preview, so embedded toolbars, Mermaid and link cards match the shell theme. Pass `canvasColor="var(--background)"` to every Madora Markweave frame so its canvas uses the same background token as the application rather than Markweave's dark-theme default. The app fixes the built-in TOC at `innerTocPlacement="container"` so its layout follows the editor frame rather than the browser viewport. New local uploads are written into Markdown as workspace-root relative paths under `.madora/assets/files/{shard}/{hash}.{ext}`. Existing `madora-asset://{assetId}` references are legacy read/preview compatible and should not be batch-migrated without a separate content migration plan.
+
+Markweave link cards are opt-in user actions for standalone HTTP(S) link paragraphs. The editor resolves card metadata through `components/editor/markweave-link-card-resolver.ts`: Tauri uses the existing bounded `resolve_link_preview` command and Web uses the SSRF-safe `app/api/link-preview` route. Resolver cancellation, rejected URLs and failed metadata lookups return `null`, preserving the original normal link. Successful card snapshots remain in the Markdown document as Markweave-supported HTML fallback; do not resolve arbitrary URLs from the editor renderer.
+
+In Markweave live mode, an ordinary link click remains an editing interaction. Opening an HTTP(S) link requires Ctrl/Cmd-click; view mode keeps its existing safe link-opening behavior. Do not add a competing workspace-level click handler around the editor surface.
 
 ## Desktop Build Boundary
 
