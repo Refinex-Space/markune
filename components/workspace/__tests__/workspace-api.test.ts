@@ -60,6 +60,7 @@ import {
   openPathInFileManager,
   openPathInPreferredEditor,
   readMarkdownSourceFiles,
+  resolveLinkPreview,
   readAppSettings,
   readAiConversation,
   readWorkspaceAssetData,
@@ -173,6 +174,32 @@ describe('workspace-api history', () => {
     expect(getRecentWorkspacePath()).toBe('/repo');
   });
 
+});
+
+describe('workspace-api link preview', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+  });
+
+  it('通过既有 Tauri command 解析链接元数据', async () => {
+    invokeMock.mockResolvedValueOnce({
+      kind: 'link',
+      title: 'Example',
+      url: 'https://example.com',
+    });
+
+    await expect(
+      resolveLinkPreview('Example', 'https://example.com'),
+    ).resolves.toEqual({
+      kind: 'link',
+      title: 'Example',
+      url: 'https://example.com',
+    });
+    expect(invokeMock).toHaveBeenCalledWith('resolve_link_preview', {
+      title: 'Example',
+      url: 'https://example.com',
+    });
+  });
 });
 
 describe('workspace-api file manager opener', () => {

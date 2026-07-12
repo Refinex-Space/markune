@@ -7,11 +7,13 @@ import {
   type MarkweaveEditorRuntimeSnapshot,
   type MarkweaveEditorUpdatePayload,
 } from '@markweave/react';
+import { useTheme } from 'next-themes';
 
 import {
   parseFrontmatter,
   serializeFrontmatter,
 } from '@/components/editor/markdown-frontmatter';
+import { resolveMarkweaveLinkCard } from '@/components/editor/markweave-link-card-resolver';
 import { useWorkspaceAssetUploader } from '@/components/editor/use-workspace-asset-uploader';
 import type { PageWidthMode } from '@/components/workspace/workspace-types';
 import { cn } from '@/lib/utils';
@@ -43,9 +45,11 @@ export function MarkdownEditor({
   readOnly = false,
   workspaceRootPath = null,
 }: MarkdownEditorProps) {
+  const { resolvedTheme } = useTheme();
   const scrollAreaRef = React.useRef<HTMLDivElement | null>(null);
   const runtimeSelectionRef =
     React.useRef<MarkweaveEditorRuntimeSnapshot['selection']>(null);
+  const selectionAnimationFrameRef = React.useRef<number | null>(null);
   const cancelBackToTopAnimationRef = React.useRef<(() => void) | null>(
     null,
   );
@@ -127,7 +131,14 @@ export function MarkdownEditor({
     (snapshot: MarkweaveEditorRuntimeSnapshot) => {
       runtimeSelectionRef.current = snapshot.selection;
 
-      window.requestAnimationFrame(syncSelectionContext);
+      if (selectionAnimationFrameRef.current !== null) {
+        return;
+      }
+
+      selectionAnimationFrameRef.current = window.requestAnimationFrame(() => {
+        selectionAnimationFrameRef.current = null;
+        syncSelectionContext();
+      });
     },
     [syncSelectionContext],
   );
@@ -159,6 +170,9 @@ export function MarkdownEditor({
   React.useEffect(
     () => () => {
       cancelBackToTopAnimationRef.current?.();
+      if (selectionAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(selectionAnimationFrameRef.current);
+      }
     },
     [],
   );
@@ -205,11 +219,13 @@ export function MarkdownEditor({
       >
         <MarkweaveEditor
           ariaLabel="Markdown 正文"
+          canvasColor="var(--background)"
           className="madora-markweave-editor"
           content={editorMarkdown}
           contentFormat="markdown"
           editable={!readOnly}
           innerToc
+          innerTocPlacement="container"
           key={documentKey}
           lang="zh"
           mode={readOnly ? 'view' : 'live'}
@@ -217,6 +233,8 @@ export function MarkdownEditor({
           onSlashCommandUpload={onSlashCommandUpload}
           onTocChange={handleTocChange}
           onUpdate={handleEditorUpdate}
+          linkCardResolver={resolveMarkweaveLinkCard}
+          theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
         />
       </div>
 

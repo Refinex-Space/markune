@@ -20,6 +20,9 @@ import type { WorkspaceNode } from './workspace-types';
 
 type DirectoryViewMode = 'grid' | 'list';
 
+const DIRECTORY_PREVIEW_BATCH_SIZE = 24;
+const DIRECTORY_PREVIEW_READ_CONCURRENCY = 4;
+
 interface DocumentPreview {
   createdAt: number | string | null;
   modifiedAt: number | null;
@@ -85,17 +88,23 @@ export function DirectoryPage({
 
   React.useEffect(() => {
     let cancelled = false;
-    const documentsToLoad = previewDocuments.filter(
-      (node) => previews[node.absolutePath] === undefined,
-    );
+    const documentsToLoad = previewDocuments
+      .filter((node) => previews[node.absolutePath] === undefined)
+      .slice(0, DIRECTORY_PREVIEW_BATCH_SIZE);
 
     if (documentsToLoad.length === 0) {
       return;
     }
 
     async function loadPreviews() {
-      const loadedEntries = await Promise.all(
-        documentsToLoad.map(async (node) => {
+      const loadedEntries: Array<readonly [string, DocumentPreview]> = [];
+      let cursor = 0;
+
+      async function readNextPreview() {
+        while (cursor < documentsToLoad.length) {
+          const node = documentsToLoad[cursor];
+          cursor += 1;
+
           try {
             const content = await readMarkdownDocument(
               workspaceRootPath,
@@ -103,16 +112,16 @@ export function DirectoryPage({
             );
             const parsed = parseMarkdownMetadata(content.content, node.name);
 
-            return [
+            loadedEntries.push([
               node.absolutePath,
               await createDocumentPreview(parsed.body, {
                 createdAt: parsed.metadata.createdAt ?? content.modifiedAt,
                 modifiedAt: content.modifiedAt,
                 updatedAt: parsed.metadata.updatedAt ?? content.modifiedAt,
               }),
-            ] as const;
+            ]);
           } catch {
-            return [
+            loadedEntries.push([
               node.absolutePath,
               {
                 createdAt: null,
@@ -120,9 +129,21 @@ export function DirectoryPage({
                 text: '',
                 updatedAt: null,
               },
-            ] as const;
+            ]);
           }
-        }),
+        }
+      }
+
+      await Promise.all(
+        Array.from(
+          {
+            length: Math.min(
+              DIRECTORY_PREVIEW_READ_CONCURRENCY,
+              documentsToLoad.length,
+            ),
+          },
+          () => readNextPreview(),
+        ),
       );
 
       if (!cancelled) {

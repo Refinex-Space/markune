@@ -2247,6 +2247,54 @@ describe('WorkspaceLayout', () => {
     expect(screen.getByTestId('workspace-editor-block')).toBeTruthy();
   });
 
+  it('按分类加载设置清单，并在重开设置时复用会话缓存', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
+    });
+    render(<WorkspaceLayout initialSnapshot={snapshot} />);
+
+    await waitFor(() => expect(readAppSettingsMock).toHaveBeenCalled());
+    ensureWorkspaceMock.mockClear();
+    gitProbeMock.mockClear();
+    gitRemoteInfoMock.mockClear();
+    listAiAgentProfilesMock.mockClear();
+    listAiAnthropicAccountsMock.mockClear();
+    listAiCommandsMock.mockClear();
+    listAiCustomAgentsMock.mockClear();
+    listAiMcpServersMock.mockClear();
+    listAiPluginsMock.mockClear();
+    listAiSkillsMock.mockClear();
+    listSystemFontsMock.mockClear();
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await screen.findByTestId('workspace-settings-page');
+
+    await waitFor(() => expect(listSystemFontsMock).toHaveBeenCalledTimes(1));
+    expect(ensureWorkspaceMock).not.toHaveBeenCalled();
+    expect(gitProbeMock).not.toHaveBeenCalled();
+    expect(gitRemoteInfoMock).not.toHaveBeenCalled();
+    expect(listAiAgentProfilesMock).not.toHaveBeenCalled();
+    expect(listAiAnthropicAccountsMock).not.toHaveBeenCalled();
+    expect(listAiSkillsMock).not.toHaveBeenCalled();
+    expect(listAiCommandsMock).not.toHaveBeenCalled();
+    expect(listAiCustomAgentsMock).not.toHaveBeenCalled();
+    expect(listAiMcpServersMock).not.toHaveBeenCalled();
+    expect(listAiPluginsMock).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'MCP Servers' }));
+    await waitFor(() => expect(listAiMcpServersMock).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole('button', { name: '返回应用' }));
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await screen.findByTestId('workspace-settings-page');
+    await user.click(screen.getByRole('button', { name: 'MCP Servers' }));
+
+    expect(listAiMcpServersMock).toHaveBeenCalledTimes(1);
+    expect(listSystemFontsMock).toHaveBeenCalledTimes(1);
+  });
+
   it('adds hover feedback to theme and page width preview cards', async () => {
     const user = userEvent.setup();
     render(<WorkspaceLayout initialSnapshot={snapshot} />);

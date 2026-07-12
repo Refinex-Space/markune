@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { XtermTerminal } from '../xterm-terminal';
+import { createTerminalOutputStore } from '../terminal-output-store';
 
 const globalsCssPath = join(process.cwd(), 'app/globals.css');
 
@@ -137,6 +138,28 @@ describe('XtermTerminal', () => {
     expect(terminalTestState.terminalInstances[0].options.screenReaderMode).toBe(
       false,
     );
+  });
+
+  it('writes buffered session output without requiring a React rerender', async () => {
+    const outputStore = createTerminalOutputStore();
+
+    render(
+      <XtermTerminal
+        isActive
+        outputStore={outputStore}
+        sessionId="term-buffered"
+        themeMode="light"
+        onData={vi.fn()}
+        onResize={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(terminalTestState.openMock).toHaveBeenCalledTimes(1),
+    );
+    outputStore.append('term-buffered', 'streamed');
+
+    expect(terminalTestState.writeMock).toHaveBeenCalledWith('streamed');
   });
 
   it('overrides xterm default black viewport backgrounds in the terminal surface', () => {

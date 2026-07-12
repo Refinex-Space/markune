@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-09
+updated: 2026-07-11
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -17,6 +17,8 @@ referenced_by: AGENTS.md#knowledge-map
 - `pnpm build:desktop:web`: runs `scripts/build-tauri-web.mjs` for Tauri static export.
 - `pnpm desktop:build`: runs `tauri build`.
 - `pnpm harness:check`: runs repo-local Harness governance checks.
+
+`tsconfig.json` excludes generated `out/` files. This prevents Worker source emitted by Tauri static export from being treated as application TypeScript during a subsequent build.
 
 ## Environment Variables
 

@@ -4,6 +4,7 @@ const WORKSPACE_PERFORMANCE_STORAGE_KEY = 'madora:perf-log';
 
 export interface WorkspacePerformanceMeasure {
   finish: (details?: Record<string, number | string>) => void;
+  finishNextFrame: (details?: Record<string, number | string>) => void;
 }
 
 export function isWorkspacePerformanceLoggingEnabled(
@@ -20,6 +21,7 @@ export function startWorkspacePerformanceMeasure(
   if (!enabled) {
     return {
       finish() {},
+      finishNextFrame() {},
     };
   }
 
@@ -36,7 +38,47 @@ export function startWorkspacePerformanceMeasure(
         console.debug(message);
       }
     },
+    finishNextFrame(details) {
+      window.requestAnimationFrame(() => {
+        const elapsedMs = Math.round((performance.now() - startedAt) * 10) / 10;
+        const message = `[madora:perf] ${label}.next_frame ${elapsedMs}ms`;
+
+        if (details) {
+          console.debug(message, details);
+        } else {
+          console.debug(message);
+        }
+      });
+    },
   };
+}
+
+export function observeWorkspaceLongTasks(
+  enabled = isWorkspacePerformanceLoggingEnabled(),
+) {
+  if (
+    !enabled ||
+    typeof window === 'undefined' ||
+    typeof PerformanceObserver === 'undefined'
+  ) {
+    return () => {};
+  }
+
+  const observer = new PerformanceObserver((entries) => {
+    entries.getEntries().forEach((entry) => {
+      console.debug(
+        `[madora:perf] workspace.long_task ${Math.round(entry.duration * 10) / 10}ms`,
+      );
+    });
+  });
+
+  try {
+    observer.observe({ buffered: true, type: 'longtask' });
+    return () => observer.disconnect();
+  } catch {
+    observer.disconnect();
+    return () => {};
+  }
 }
 
 function readWorkspacePerformanceStorageValue() {

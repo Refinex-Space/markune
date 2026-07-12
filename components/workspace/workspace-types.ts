@@ -98,6 +98,16 @@ export interface SystemFontOptions {
   ui: string[];
 }
 
+export interface LinkPreviewMetadata {
+  kind: 'link';
+  url: string;
+  title: string;
+  domain?: string;
+  description?: string;
+  image?: string;
+  error?: 'blocked_url' | 'invalid_url';
+}
+
 export type AiConfiguredProfileKind =
   | 'fake'
   | 'codex_app_server'

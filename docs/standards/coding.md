@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-09
+updated: 2026-07-12
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -20,7 +20,11 @@ referenced_by: AGENTS.md#knowledge-map
 - Workspace UI is client-heavy and centered around `components/workspace/workspace-layout.tsx`.
 - Use existing component tests under `components/**/__tests__` as the first verification target for UI behavior.
 - Keep Markweave editor page-width behavior aligned across `settings.rs`, frontend default settings, editor wrapper classes, and settings UI.
-- Keep `MarkdownEditor` as a Markdown string boundary: parse frontmatter before passing content to Markweave and serialize it back when saving.
+- Keep `MarkdownEditor` as a Markdown string boundary: parse frontmatter before passing content to Markweave and serialize it back when saving. Persist `onUpdate.markdown` only; update payload fields are lazily serialized, and supported HTML fallback in Markdown output must remain intact.
+- Pass the effective `next-themes` value to every rendered `MarkweaveEditor` as `theme` and `canvasColor="var(--background)"`; do not rely on shell CSS alone for Markweave overlays, Mermaid, link cards or canvas background.
+- Route Markweave link-card metadata only through `markweave-link-card-resolver.ts`. Keep its desktop and Web branches bounded and cancellation-aware; a failed lookup must return `null` so editing retains a normal Markdown link.
+- In live mode, leave Markweave's Ctrl/Cmd-click link-opening behavior intact; do not install a shell-level link click handler that competes with editor selection or link-card editing.
+- Keep the workspace editor TOC on `innerTocPlacement="container"`; page-width behavior is owned by the editor frame, not browser-viewport positioning.
 - Avoid broad UI rewrites when a narrow component-level change is enough.
 
 ## Rust/Tauri

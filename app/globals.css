@@ -699,6 +699,20 @@
 
 }
 
+/* Markweave styles are unlayered, so this override must stay outside Tailwind layers. */
+:root:has(.workspace-editor-shell .markweave-editor-frame) {
+  scrollbar-gutter: auto;
+}
+
+.workspace-editor-shell .markweave-editor-frame {
+  scrollbar-gutter: auto;
+}
+
+.workspace-editor-shell .markweave-editor-frame[data-markweave-inner-toc='true'][data-markweave-inner-toc-placement='container'] {
+  --madora-markweave-toc-gutter: 2rem;
+  --markweave-inner-toc-gutter: var(--madora-markweave-toc-gutter);
+}
+
 .terminal-surface {
   --terminal-background: var(--background);
   --vscode-scrollbar-shadow: transparent;

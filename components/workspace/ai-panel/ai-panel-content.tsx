@@ -85,6 +85,7 @@ import type {
   AiIntent,
   AiPanelMessage,
   AiPanelPermissionRequest,
+  AiRuntimeEvent,
   AiSelectionContext,
   AiPanelThinkingBlock,
   AiPanelToolCall,
@@ -259,9 +260,43 @@ export function AiPanelContent({
 
     let disposed = false;
     let unlisten: (() => void) | null = null;
+    let frameId: number | null = null;
+    const pendingDeltas: AiRuntimeEvent[] = [];
+
+    const flushDeltas = () => {
+      frameId = null;
+
+      if (disposed || pendingDeltas.length === 0) {
+        return;
+      }
+
+      const nextDeltas = pendingDeltas.splice(0, pendingDeltas.length);
+      nextDeltas.forEach((event) => {
+        dispatch({ event, type: 'runtimeEventReceived' });
+      });
+    };
+
+    const scheduleDelta = (event: AiRuntimeEvent) => {
+      pendingDeltas.push(event);
+
+      if (frameId === null) {
+        frameId = window.requestAnimationFrame(flushDeltas);
+      }
+    };
 
     listenAiEvents((event) => {
-      if (!disposed) {
+      if (disposed) {
+        return;
+      }
+
+      if (
+        event.type === 'messageDelta' ||
+        event.type === 'thinkingDelta' ||
+        event.type === 'toolInputDelta'
+      ) {
+        scheduleDelta(event);
+      } else {
+        flushDeltas();
         dispatch({ event, type: 'runtimeEventReceived' });
       }
     }).then((nextUnlisten) => {
@@ -274,6 +309,9 @@ export function AiPanelContent({
 
     return () => {
       disposed = true;
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
       unlisten?.();
     };
   }, []);

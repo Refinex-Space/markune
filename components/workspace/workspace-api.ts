@@ -32,6 +32,7 @@ import type {
   GitSyncConflictResolution,
   GitSyncResult,
   GitStatus,
+  LinkPreviewMetadata,
   MarkdownDocumentContent,
   MarkdownSourceFile,
   ResolvedWorkspaceAsset,
@@ -208,6 +209,12 @@ export async function listSystemFonts() {
   const { invoke } = await import('@tauri-apps/api/core');
 
   return invoke<SystemFontOptions>('list_system_fonts');
+}
+
+export async function resolveLinkPreview(title: string, url: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<LinkPreviewMetadata>('resolve_link_preview', { title, url });
 }
 
 export async function createWorkspaceRoot(

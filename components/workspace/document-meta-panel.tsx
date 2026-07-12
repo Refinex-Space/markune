@@ -61,17 +61,18 @@ export function DocumentMetaPanel({
   onToggleReadOnly,
 }: DocumentMetaPanelProps) {
   const [activeTab, setActiveTab] = React.useState<MetaTab>('meta');
+  const deferredMarkdown = React.useDeferredValue(documentPanelData?.markdown);
   const resources = React.useMemo(
-    () => extractResourceReferencesFromMarkdown(documentPanelData?.markdown),
-    [documentPanelData?.markdown],
+    () => extractResourceReferencesFromMarkdown(deferredMarkdown),
+    [deferredMarkdown],
   );
   const characterCount = React.useMemo(
-    () => countMarkdownCharacters(documentPanelData?.markdown),
-    [documentPanelData?.markdown],
+    () => countMarkdownCharacters(deferredMarkdown),
+    [deferredMarkdown],
   );
   const lineCount = React.useMemo(
-    () => countMarkdownLines(documentPanelData?.markdown),
-    [documentPanelData?.markdown],
+    () => countMarkdownLines(deferredMarkdown),
+    [deferredMarkdown],
   );
 
   React.useEffect(() => {

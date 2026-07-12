@@ -507,20 +507,26 @@ pub struct AiConversationSummary {
 }
 
 #[tauri::command]
-pub fn list_ai_agent_profiles(root_path: String) -> Result<Vec<AiAgentProfile>, String> {
-    validate_agent_root(&root_path)?;
+pub async fn list_ai_agent_profiles(root_path: String) -> Result<Vec<AiAgentProfile>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        validate_agent_root(&root_path)?;
 
-    let accounts = detect_ai_accounts_raw();
-    let mut profiles = vec![fake_echo_profile()];
+        let accounts = detect_ai_accounts_raw();
+        let mut profiles = vec![fake_echo_profile()];
 
-    profiles.extend(detected_model_profiles(&accounts));
+        profiles.extend(detected_model_profiles(&accounts));
 
-    Ok(profiles)
+        Ok(profiles)
+    })
+    .await
+    .map_err(|_| "AI profiles 扫描任务失败".to_string())?
 }
 
 #[tauri::command]
-pub fn detect_ai_accounts() -> Result<Vec<AiAssistantAccount>, String> {
-    Ok(detect_ai_accounts_raw())
+pub async fn detect_ai_accounts() -> Result<Vec<AiAssistantAccount>, String> {
+    tauri::async_runtime::spawn_blocking(detect_ai_accounts_raw)
+        .await
+        .map_err(|_| "AI accounts 扫描任务失败".to_string())
 }
 
 #[tauri::command]
@@ -710,10 +716,7 @@ pub fn read_ai_conversation_v2(
 }
 
 #[tauri::command]
-pub fn save_ai_conversation_v2(
-    root_path: String,
-    record: serde_json::Value,
-) -> Result<(), String> {
+pub fn save_ai_conversation_v2(root_path: String, record: serde_json::Value) -> Result<(), String> {
     let root = validate_agent_root(&root_path)?;
     // 从 record.id 取会话 id 做校验
     let id = record
@@ -730,9 +733,7 @@ pub fn save_ai_conversation_v2(
 }
 
 #[tauri::command]
-pub fn list_ai_conversations_v2(
-    root_path: String,
-) -> Result<Vec<serde_json::Value>, String> {
+pub fn list_ai_conversations_v2(root_path: String) -> Result<Vec<serde_json::Value>, String> {
     let root = validate_agent_root(&root_path)?;
     let directory = ai_conversations_dir(&root);
     if !directory.exists() {
@@ -3546,11 +3547,7 @@ fn build_assistant_prompt(input: &SendAiPromptInput) -> String {
         for image in &input.context.images {
             prompt.push_str(&format!(
                 "\n\n图片：{}\n媒体类型：{}\n大小：{} bytes\n内容哈希：{}\n\n```base64\n{}\n```",
-                image.filename,
-                image.media_type,
-                image.size,
-                image.content_hash,
-                image.base64_data
+                image.filename, image.media_type, image.size, image.content_hash, image.base64_data
             ));
         }
     }
@@ -4431,8 +4428,10 @@ mod tests {
     #[test]
     fn list_profiles_requires_valid_root() {
         let temp_dir = TempDir::new().expect("创建临时目录失败");
-        let profiles = list_ai_agent_profiles(temp_dir.path().to_string_lossy().to_string())
-            .expect("读取 profile 失败");
+        let profiles = tauri::async_runtime::block_on(list_ai_agent_profiles(
+            temp_dir.path().to_string_lossy().to_string(),
+        ))
+        .expect("读取 profile 失败");
 
         assert!(profiles
             .iter()
