@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-12
+updated: 2026-07-13
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -27,6 +27,7 @@ referenced_by: AGENTS.md#knowledge-map
 - `src-tauri/tauri.conf.json` 的 `devUrl` 为 `http://localhost:3000`。
 - `frontendDist` 为 `../out`，桌面构建依赖静态导出产物。
 - 资源协议仅允许 `$HOME/**/.madora/assets/files/**/*` 下的工作区资源。
+- opener 插件关闭了自动接管 `target="_blank"` 链接的全局点击脚本；桌面外链必须显式调用 `openUrl`，避免覆盖编辑器自身的链接交互规则。
 
 ## App Settings
 

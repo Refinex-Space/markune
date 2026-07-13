@@ -39,6 +39,7 @@ import {
   gitSyncNow,
   isTauriRuntime,
   listSystemFonts,
+  openUrlInDefaultBrowser,
   saveAppSettings,
   saveWorkspaceGitSyncSettings,
 } from './workspace-api';
@@ -333,6 +334,21 @@ export function WorkspaceSettingsPage({
     }
   };
 
+  const openRemoteRepository = (
+    event: React.MouseEvent<HTMLAnchorElement>,
+    url: string,
+  ) => {
+    if (!isTauriRuntime()) return;
+
+    event.preventDefault();
+    void openUrlInDefaultBrowser(url).catch((reason) => {
+      setGitActionState('error');
+      setGitMessage(
+        reason instanceof Error ? reason.message : '无法打开远程仓库',
+      );
+    });
+  };
+
   const normalizedSearch = searchQuery.trim().toLowerCase();
   const visibleSections = SETTINGS_SECTIONS.filter((section) =>
     section.searchTerms.some((term) =>
@@ -485,6 +501,7 @@ export function WorkspaceSettingsPage({
                   probe={gitProbeState}
                   remote={gitRemote}
                   settings={gitSettings}
+                  onOpenRemoteRepository={openRemoteRepository}
                   onSettingsChange={updateGitSettings}
                   onSyncNow={() => void syncNow()}
                 />
@@ -717,6 +734,7 @@ function GitSyncSection({
   probe,
   remote,
   settings,
+  onOpenRemoteRepository,
   onSettingsChange,
   onSyncNow,
 }: {
@@ -725,6 +743,10 @@ function GitSyncSection({
   probe: GitProbe | null;
   remote: GitRemoteInfo;
   settings: WorkspaceGitSyncSettings;
+  onOpenRemoteRepository: (
+    event: React.MouseEvent<HTMLAnchorElement>,
+    url: string,
+  ) => void;
   onSettingsChange: (
     update: (
       current: WorkspaceGitSyncSettings,
@@ -797,6 +819,11 @@ function GitSyncSection({
                   href={remote.webUrl}
                   rel="noreferrer"
                   target="_blank"
+                  onClick={(event) => {
+                    if (remote.webUrl) {
+                      onOpenRemoteRepository(event, remote.webUrl);
+                    }
+                  }}
                 >
                   <ExternalLink size={14} />
                 </a>

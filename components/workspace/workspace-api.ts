@@ -357,6 +357,16 @@ export async function openPathInFileManager(path: string) {
   await revealItemInDir(path);
 }
 
+export async function openUrlInDefaultBrowser(url: string) {
+  if (!isTauriRuntime()) {
+    return;
+  }
+
+  const { openUrl } = await import('@tauri-apps/plugin-opener');
+
+  await openUrl(url);
+}
+
 export async function openPathInPreferredEditor(
   path: string,
   app: string,

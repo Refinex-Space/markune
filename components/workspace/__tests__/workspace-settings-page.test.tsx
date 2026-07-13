@@ -1,15 +1,25 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createWorkspaceSettingsSessionCache } from '../workspace-settings-cache';
 import { WorkspaceSettingsPage } from '../workspace-settings-page';
 import type { AppSettings } from '../workspace-types';
 
 const themeState = vi.hoisted(() => ({ setTheme: vi.fn() }));
+const workspaceApiState = vi.hoisted(() => ({
+  isTauriRuntime: vi.fn(() => false),
+  openUrlInDefaultBrowser: vi.fn(() => Promise.resolve()),
+}));
 
 vi.mock('next-themes', () => ({
   useTheme: () => ({ setTheme: themeState.setTheme, theme: 'light' }),
+}));
+
+vi.mock('../workspace-api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../workspace-api')>()),
+  isTauriRuntime: workspaceApiState.isTauriRuntime,
+  openUrlInDefaultBrowser: workspaceApiState.openUrlInDefaultBrowser,
 }));
 
 const initialSettings: AppSettings = {
@@ -37,6 +47,11 @@ function renderSettingsPage() {
 }
 
 describe('WorkspaceSettingsPage', () => {
+  beforeEach(() => {
+    workspaceApiState.isTauriRuntime.mockReturnValue(false);
+    workspaceApiState.openUrlInDefaultBrowser.mockClear();
+  });
+
   it('restores the full-width non-AI settings shell and appearance previews', () => {
     renderSettingsPage();
 
@@ -104,5 +119,52 @@ describe('WorkspaceSettingsPage', () => {
     expect(screen.queryByRole('button', { name: '存储' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Git Sync' })).toBeTruthy();
     expect(screen.getByTestId('git-sync-settings-shell')).toBeTruthy();
+  });
+
+  it('opens the remote repository explicitly in the desktop default browser', async () => {
+    const user = userEvent.setup();
+    const sessionCache = createWorkspaceSettingsSessionCache();
+    sessionCache.systemFonts = {
+      code: [],
+      document: [],
+      recommendations: { code: '', document: '', ui: '' },
+      ui: [],
+    };
+    sessionCache.entries.set('D:/notes', {
+      gitProbe: {
+        branch: 'main',
+        gitAvailable: true,
+        isRepository: true,
+        rootPath: 'D:/notes',
+      },
+      gitRemote: {
+        remoteUrl: 'git@github.com:refinex-space/madora.git',
+        webUrl: 'https://github.com/refinex-space/madora',
+      },
+      gitSyncSettings: {
+        conflictResolution: 'abort',
+        enabled: true,
+        intervalMinutes: 10,
+        lastSyncedAt: null,
+      },
+      settings: initialSettings,
+    });
+    workspaceApiState.isTauriRuntime.mockReturnValue(true);
+
+    render(
+      <WorkspaceSettingsPage
+        initialSectionId="git-sync"
+        initialSettings={initialSettings}
+        sessionCache={sessionCache}
+        workspaceRootPath="D:/notes"
+        onBack={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('link', { name: '打开远程仓库' }));
+
+    expect(workspaceApiState.openUrlInDefaultBrowser).toHaveBeenCalledWith(
+      'https://github.com/refinex-space/madora',
+    );
   });
 });
