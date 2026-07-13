@@ -559,9 +559,7 @@
   }
 
   .workspace-editor-shell table {
-    overflow: hidden;
     border-color: color-mix(in oklab, var(--border) 90%, transparent);
-    border-radius: 0.5rem;
   }
 
   .workspace-editor-shell pre,

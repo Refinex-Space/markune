@@ -301,6 +301,18 @@ describe('MarkdownEditor', () => {
     expect(globalsCss).not.toContain(['mar', 'dora-preview'].join(''));
   });
 
+  it('不覆盖 Markweave 原生表格直角样式', () => {
+    const globalsCss = readFileSync(globalsCssPath, 'utf8');
+    const tableRule = globalsCss.match(
+      /\.workspace-editor-shell table\s*\{([\s\S]*?)\}/,
+    )?.[1];
+
+    expect(tableRule).toBeDefined();
+    expect(tableRule).toContain('border-color:');
+    expect(tableRule).not.toContain('border-radius:');
+    expect(tableRule).not.toContain('overflow:');
+  });
+
   it('回到顶部滚动 Markweave 外层 scrollarea', () => {
     render(<MarkdownEditor markdown="# 标题" />);
     const scrollArea = screen.getByTestId('markdown-editor-scrollarea');
