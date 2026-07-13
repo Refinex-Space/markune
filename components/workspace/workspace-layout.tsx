@@ -2205,7 +2205,7 @@ export function WorkspaceLayout({
                   {workspace.rightPanelMode ? (
                     <WorkspaceResizeHandle
                       aria-label="调整右侧面板宽度"
-                      className="-mx-2"
+                      className="-mx-1"
                       direction="right"
                       max={RIGHT_PANEL_WIDTH.max}
                       min={RIGHT_PANEL_WIDTH.min}
