@@ -2635,6 +2635,13 @@ function WorkspaceMainHeader({
             </button>
           </HeaderToolTooltip>
           {children}
+          {windowsChromeInset ? (
+            <span
+              aria-hidden="true"
+              className="mx-1 h-4 w-px shrink-0 bg-border/80"
+              data-testid="windows-titlebar-tools-divider"
+            />
+          ) : null}
         </div>
       </TooltipProvider>
     </header>
