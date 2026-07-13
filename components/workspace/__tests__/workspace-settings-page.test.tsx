@@ -69,6 +69,9 @@ describe('WorkspaceSettingsPage', () => {
     expect(screen.getByTestId('page-width-preview-standard')).toBeTruthy();
     expect(screen.getByTestId('page-width-preview-wide')).toBeTruthy();
     expect(screen.getByText('Madora · 本地知识库')).toBeTruthy();
+    expect(
+      screen.getByText('这是一段用于预览文档字体的文本。'),
+    ).toBeTruthy();
   });
 
   it('keeps storage and Git Sync information in structured cards', async () => {

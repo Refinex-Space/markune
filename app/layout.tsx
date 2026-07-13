@@ -40,11 +40,6 @@ export default function RootLayout({
               height={32}
               priority
             />
-            <h1 className="app-splash__title">先让它存在，再把它做好</h1>
-            <p className="app-splash__subtitle">
-              Make it exist first. Make it good later.
-              <span className="app-splash__cursor" aria-hidden="true" />
-            </p>
             <div className="app-splash__line" aria-hidden="true">
               <span />
             </div>

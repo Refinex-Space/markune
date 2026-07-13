@@ -606,7 +606,7 @@ function AppearanceSection({
             description="编辑器和阅览模式中的文章正文。"
             label="文档字体"
             options={fonts.document}
-            sample="先让它存在，再把它做好。"
+            sample="这是一段用于预览文档字体的文本。"
             value={settings.appearance.fonts.document}
             onChange={(value) => onFontChange('document', value)}
           />

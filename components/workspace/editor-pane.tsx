@@ -151,32 +151,22 @@ function DocumentEmptyState({
       <div className="flex w-full max-w-[520px] flex-col items-center">
         <Image
           alt=""
-          className="mb-5 size-8 opacity-90 dark:hidden"
+          className="size-8 opacity-90 dark:hidden"
           height={32}
           src="/brand/madora-logo-dark.svg"
           width={32}
         />
         <Image
           alt=""
-          className="mb-5 hidden size-8 opacity-90 dark:block"
+          className="hidden size-8 opacity-90 dark:block"
           height={32}
           src="/brand/madora-logo-light.svg"
           width={32}
         />
-        <h1 className="text-2xl font-medium tracking-normal text-foreground">
-          先让它存在，再把它做好
-        </h1>
-        <p className="mt-2 text-[13px] leading-6 text-muted-foreground">
-          Make it exist first. Make it good later.
-          <span
-            aria-hidden="true"
-            className="ml-1 inline-block h-4 w-px translate-y-0.5 animate-pulse bg-muted-foreground/50"
-          />
-        </p>
-        <div className="mt-8 h-px w-24 overflow-hidden rounded-full bg-border">
+        <div className="mt-6 h-px w-24 overflow-hidden rounded-full bg-border">
           <span className="block h-px w-8 animate-[app-splash-line-flow_1800ms_cubic-bezier(0.45,0,0.25,1)_infinite] rounded-full bg-foreground/75" />
         </div>
-        <p className="mt-8 max-w-sm text-sm leading-6 text-muted-foreground">
+        <p className="mt-7 max-w-sm text-sm leading-6 text-muted-foreground">
           {hasWorkspace
             ? '从左侧选择文档，或继续最近打开的内容。'
             : '打开一个本地工作区，开始整理 Markdown 笔记。'}
