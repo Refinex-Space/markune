@@ -104,7 +104,6 @@ import {
   minimizeAppWindow,
   openDailyNote,
   openPathInFileManager,
-  openPathInPreferredEditor,
   setAppWindowTitle,
   toggleMaximizeAppWindow,
   terminalKill,
@@ -1551,20 +1550,6 @@ export function WorkspaceLayout({
     [],
   );
 
-  const handleOpenNodeInPreferredEditor = React.useCallback(
-    (node: WorkspaceNode) => {
-      void Promise.resolve(
-        openPathInPreferredEditor(
-          node.absolutePath,
-          'vscode',
-        ),
-      ).catch((error: unknown) => {
-        console.error('Failed to open workspace node in preferred editor', error);
-      });
-    },
-    [],
-  );
-
   const handleOpenRecentDocument = React.useCallback(
     (documentPath: string) => {
       const node = findWorkspaceDocumentByPath(
@@ -2038,10 +2023,8 @@ export function WorkspaceLayout({
                 }
                 onOpenViews={handleOpenViewsPage}
                 onOpenInFileManager={handleOpenNodeInFileManager}
-                onOpenInPreferredEditor={handleOpenNodeInPreferredEditor}
                 onOpenSettings={() => openSettingsPage('appearance')}
                 onRemoveWorkspace={handleRemoveWorkspace}
-                preferredEditorLabel="Visual Studio Code"
                 revealDirectoryPath={revealedDirectoryPath}
                 onSelectDirectory={handleSelectWorkspaceDirectory}
                 onSelectDocument={openDocumentNode}
