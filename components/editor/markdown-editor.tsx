@@ -17,12 +17,17 @@ import { useWorkspaceAssetUploader } from '@/components/editor/use-workspace-ass
 import type { PageWidthMode } from '@/components/workspace/workspace-types';
 import { cn } from '@/lib/utils';
 
+export type MarkdownEditorChangeOrigin = 'source';
+
 interface MarkdownEditorProps {
   documentKey?: string;
   markdown: string;
   pageWidthMode?: PageWidthMode;
   onSaveRequested?: () => void;
-  onMarkdownChange?: (markdown: string) => void;
+  onMarkdownChange?: (
+    markdown: string,
+    origin?: MarkdownEditorChangeOrigin,
+  ) => void;
   readOnly?: boolean;
   workspaceRootPath?: string | null;
 }
@@ -244,18 +249,26 @@ export function MarkdownEditor({
               <span className="font-medium text-foreground">
                 Markdown 源码
               </span>
-              <span>只读 · Ctrl / Cmd + / 返回</span>
+              <span>
+                {readOnly ? '只读' : '可编辑'} · Ctrl / Cmd + / 返回
+              </span>
             </div>
             <textarea
-              aria-label="Markdown 文档源码（只读）"
+              aria-label="Markdown 文档源码"
               autoCapitalize="off"
               autoCorrect="off"
               className="min-h-0 flex-1 resize-none overflow-auto border-0 bg-transparent px-6 py-5 font-mono text-sm leading-6 text-foreground outline-none selection:bg-primary/20"
-              readOnly
+              readOnly={readOnly}
               ref={sourceTextareaRef}
               spellCheck={false}
               value={markdown}
               wrap="off"
+              onChange={
+                readOnly || !onMarkdownChange
+                  ? undefined
+                  : (event) =>
+                      onMarkdownChange(event.currentTarget.value, 'source')
+              }
             />
           </section>
         ) : null}

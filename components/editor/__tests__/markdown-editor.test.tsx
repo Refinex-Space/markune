@@ -293,7 +293,7 @@ describe('MarkdownEditor', () => {
     expect(onSaveRequested).toHaveBeenCalledTimes(1);
   });
 
-  it('通过 Ctrl/Cmd+/ 切换完整只读源码且不卸载 Markweave', () => {
+  it('通过 Ctrl/Cmd+/ 切换完整可写源码且不卸载 Markweave', () => {
     const markdown =
       '---\ntitle: 源码文档\nupdatedAt: 2026-07-14\n---\n\n# 正文\n\n- [ ] 任务\n';
     const onMarkdownChange = vi.fn();
@@ -315,23 +315,24 @@ describe('MarkdownEditor', () => {
     });
 
     const source = screen.getByLabelText(
-      'Markdown 文档源码（只读）',
+      'Markdown 文档源码',
     ) as HTMLTextAreaElement;
 
     expect(editorRoot.getAttribute('data-editor-mode')).toBe('source');
     expect(source.value).toBe(markdown);
-    expect(source.readOnly).toBe(true);
+    expect(source.readOnly).toBe(false);
     expect(document.activeElement).toBe(source);
     expect(screen.getByText('Markdown 源码')).toBeTruthy();
-    expect(screen.getByText('只读 · Ctrl / Cmd + / 返回')).toBeTruthy();
+    expect(screen.getByText('可编辑 · Ctrl / Cmd + / 返回')).toBeTruthy();
     expect(screen.getByTestId('markweave-editor')).toBeTruthy();
     expect(screen.getByTestId('markweave-editor-mode').className).toContain(
       'hidden',
     );
     expect(markweaveUnmountMock).not.toHaveBeenCalled();
 
-    fireEvent.change(source, { target: { value: '# 不应写入' } });
-    expect(onMarkdownChange).not.toHaveBeenCalled();
+    const nextMarkdown = `${markdown}\n<!-- 源码编辑 -->\n`;
+    fireEvent.change(source, { target: { value: nextMarkdown } });
+    expect(onMarkdownChange).toHaveBeenLastCalledWith(nextMarkdown, 'source');
 
     fireEvent.keyDown(source, {
       code: 'Slash',
@@ -339,13 +340,40 @@ describe('MarkdownEditor', () => {
       metaKey: true,
     });
 
-    expect(screen.queryByLabelText('Markdown 文档源码（只读）')).toBeNull();
+    expect(screen.queryByLabelText('Markdown 文档源码')).toBeNull();
     expect(editorRoot.getAttribute('data-editor-mode')).toBe('live');
     expect(screen.getByTestId('markweave-editor-mode').className).not.toContain(
       'hidden',
     );
     expect(document.activeElement).toBe(screen.getByLabelText('Markdown 正文'));
     expect(markweaveUnmountMock).not.toHaveBeenCalled();
+  });
+
+  it('锁定文档的源码模式保持只读', () => {
+    const onMarkdownChange = vi.fn();
+
+    render(
+      <MarkdownEditor
+        markdown="# 锁定文档"
+        onMarkdownChange={onMarkdownChange}
+        readOnly
+      />,
+    );
+
+    fireEvent.keyDown(screen.getByTestId('markdown-editor-root'), {
+      code: 'Slash',
+      ctrlKey: true,
+      key: '/',
+    });
+
+    const source = screen.getByLabelText(
+      'Markdown 文档源码',
+    ) as HTMLTextAreaElement;
+
+    expect(source.readOnly).toBe(true);
+    expect(screen.getByText('只读 · Ctrl / Cmd + / 返回')).toBeTruthy();
+    fireEvent.change(source, { target: { value: '# 不应写入' } });
+    expect(onMarkdownChange).not.toHaveBeenCalled();
   });
 
   it('源码模式下仍支持 Cmd/Ctrl+S 保存快捷键', () => {
@@ -363,7 +391,7 @@ describe('MarkdownEditor', () => {
       ctrlKey: true,
       key: '/',
     });
-    fireEvent.keyDown(screen.getByLabelText('Markdown 文档源码（只读）'), {
+    fireEvent.keyDown(screen.getByLabelText('Markdown 文档源码'), {
       key: 's',
       metaKey: true,
     });

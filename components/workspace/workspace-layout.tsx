@@ -18,7 +18,10 @@ import {
   X,
 } from 'lucide-react';
 
-import { MarkdownEditor } from '@/components/editor/markdown-editor';
+import {
+  MarkdownEditor,
+  type MarkdownEditorChangeOrigin,
+} from '@/components/editor/markdown-editor';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1723,7 +1726,11 @@ export function WorkspaceLayout({
   );
 
   const handleEditorMarkdownChange = React.useCallback(
-    (documentPath: string, markdown: string) => {
+    (
+      documentPath: string,
+      markdown: string,
+      origin?: MarkdownEditorChangeOrigin,
+    ) => {
       const perf = startWorkspacePerformanceMeasure('workspace.editor.markdown_change');
 
       setEditorSessions((current) => {
@@ -1740,7 +1747,9 @@ export function WorkspaceLayout({
 
       if (documentPath === currentDocumentPath) {
         rememberRecentDocumentByPath(documentPath);
-        workspace.updateMarkdown(markdown);
+        workspace.updateMarkdown(markdown, {
+          preserveSource: origin === 'source',
+        });
       }
 
       perf.finish({
@@ -2769,7 +2778,11 @@ function DocumentEditorSurface({
   onCloseTab: (tabPath: string) => void;
   onCloseTabsToLeft: (tabPath: string) => void;
   onCloseTabsToRight: (tabPath: string) => void;
-  onMarkdownChange: (documentPath: string, markdown: string) => void;
+  onMarkdownChange: (
+    documentPath: string,
+    markdown: string,
+    origin?: MarkdownEditorChangeOrigin,
+  ) => void;
   onRetryDocument: () => void;
   onSaveRequested: () => void;
   onSelectTab: (tabPath: string) => void;
@@ -2848,7 +2861,11 @@ function renderDocumentEditorContent({
   pageWidthMode: PageWidthMode;
   workspaceRootPath: string | null;
   getDocumentReadOnly: (documentPath: string) => boolean;
-  onMarkdownChange: (documentPath: string, markdown: string) => void;
+  onMarkdownChange: (
+    documentPath: string,
+    markdown: string,
+    origin?: MarkdownEditorChangeOrigin,
+  ) => void;
   onRetryDocument: () => void;
   onSaveRequested: () => void;
   onSelectTab: (tabPath: string) => void;
@@ -2940,11 +2957,16 @@ function DocumentEditorInstance({
   pageWidthMode: PageWidthMode;
   readOnly: boolean;
   workspaceRootPath: string | null;
-  onMarkdownChange: (documentPath: string, markdown: string) => void;
+  onMarkdownChange: (
+    documentPath: string,
+    markdown: string,
+    origin?: MarkdownEditorChangeOrigin,
+  ) => void;
   onSaveRequested: () => void;
 }) {
   const handleMarkdownChange = React.useCallback(
-    (markdown: string) => onMarkdownChange(documentPath, markdown),
+    (markdown: string, origin?: MarkdownEditorChangeOrigin) =>
+      onMarkdownChange(documentPath, markdown, origin),
     [documentPath, onMarkdownChange],
   );
   return (
