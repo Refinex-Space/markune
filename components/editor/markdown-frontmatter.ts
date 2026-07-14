@@ -59,9 +59,10 @@ export function serializeFrontmatter(
   const entries = Object.entries(input.metadata).filter(
     ([, value]) => value !== '' && value !== null && value !== undefined,
   );
+  const body = trimTrailingBlankLines(input.body);
 
   if (entries.length === 0) {
-    return `${input.body.trimEnd()}\n`;
+    return `${body}\n`;
   }
 
   const lines = [
@@ -69,9 +70,16 @@ export function serializeFrontmatter(
     ...entries.map(([key, value]) => `${key}: ${value}`),
     FRONTMATTER_DELIMITER,
   ];
-  const body = input.body.trimEnd();
 
   return `${lines.join('\n')}\n\n${body}\n`;
+}
+
+function trimTrailingBlankLines(body: string) {
+  if (!body.trim()) {
+    return '';
+  }
+
+  return body.replace(/(?:\r?\n[\t ]*)+$/u, '');
 }
 
 export function parseMarkdownMetadata(

@@ -219,6 +219,25 @@ describe('MarkdownEditor', () => {
     );
   });
 
+  it('保存带 frontmatter 的空任务项时保留末尾语法空格', () => {
+    const onMarkdownChange = vi.fn();
+
+    render(
+      <MarkdownEditor
+        markdown={'---\ntitle: 文档\n---\n# 原文'}
+        onMarkdownChange={onMarkdownChange}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Markdown 正文'), {
+      target: { value: '# 新正文\n\n- [ ] ' },
+    });
+
+    expect(onMarkdownChange).toHaveBeenLastCalledWith(
+      '---\ntitle: 文档\n---\n\n# 新正文\n\n- [ ] \n',
+    );
+  });
+
   it('保存前把 Markweave display URL 还原成工作区存储引用', () => {
     const onMarkdownChange = vi.fn();
     toStorageMarkdownMock.mockImplementation((markdown: string) =>

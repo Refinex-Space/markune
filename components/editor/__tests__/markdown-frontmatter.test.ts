@@ -74,6 +74,22 @@ describe('serializeFrontmatter', () => {
     });
     expect(out).toBe('---\ntitle: t\n---\n\nx\n');
   });
+
+  it('保留正文末行具有 Markdown 语义的尾随空格', () => {
+    expect(
+      serializeFrontmatter({
+        body: '# 正文\n\n- [ ] \n\n',
+        metadata: { title: '标题' },
+      }),
+    ).toBe('---\ntitle: 标题\n---\n\n# 正文\n\n- [ ] \n');
+
+    expect(
+      serializeFrontmatter({
+        body: '# 正文\n\n- [ ] \n\n',
+        metadata: {},
+      }),
+    ).toBe('# 正文\n\n- [ ] \n');
+  });
 });
 
 describe('parseMarkdownMetadata', () => {
