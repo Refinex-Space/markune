@@ -15,6 +15,7 @@ const globalsCssPath = join(process.cwd(), 'app/globals.css');
 const {
   cancelAnimationFrameMock,
   markweaveEditorMock,
+  markweaveUnmountMock,
   payloadFieldReadMock,
   requestAnimationFrameMock,
   scrollToMock,
@@ -24,6 +25,7 @@ const {
 } = vi.hoisted(() => ({
   cancelAnimationFrameMock: vi.fn(),
   markweaveEditorMock: vi.fn(),
+  markweaveUnmountMock: vi.fn(),
   payloadFieldReadMock: vi.fn(),
   requestAnimationFrameMock: vi.fn((callback: FrameRequestCallback) => {
     callback(1000);
@@ -47,6 +49,7 @@ vi.mock('@markweave/react', async () => {
   return {
     MarkweaveEditor: vi.fn((props: Record<string, unknown>) => {
       markweaveEditorMock(props);
+      React.useEffect(() => () => markweaveUnmountMock(), []);
 
       return (
         <div
@@ -108,6 +111,7 @@ describe('MarkdownEditor', () => {
   beforeEach(() => {
     cancelAnimationFrameMock.mockClear();
     markweaveEditorMock.mockClear();
+    markweaveUnmountMock.mockClear();
     payloadFieldReadMock.mockClear();
     requestAnimationFrameMock.mockClear();
     requestAnimationFrameMock.mockImplementation(
@@ -282,6 +286,84 @@ describe('MarkdownEditor', () => {
     );
 
     fireEvent.keyDown(screen.getByTestId('markdown-editor-root'), {
+      key: 's',
+      metaKey: true,
+    });
+
+    expect(onSaveRequested).toHaveBeenCalledTimes(1);
+  });
+
+  it('通过 Ctrl/Cmd+/ 切换完整只读源码且不卸载 Markweave', () => {
+    const markdown =
+      '---\ntitle: 源码文档\nupdatedAt: 2026-07-14\n---\n\n# 正文\n\n- [ ] 任务\n';
+    const onMarkdownChange = vi.fn();
+
+    render(
+      <MarkdownEditor
+        documentKey="source-doc"
+        markdown={markdown}
+        onMarkdownChange={onMarkdownChange}
+      />,
+    );
+
+    const editorRoot = screen.getByTestId('markdown-editor-root');
+
+    fireEvent.keyDown(editorRoot, {
+      code: 'Slash',
+      ctrlKey: true,
+      key: '/',
+    });
+
+    const source = screen.getByLabelText(
+      'Markdown 文档源码（只读）',
+    ) as HTMLTextAreaElement;
+
+    expect(editorRoot.getAttribute('data-editor-mode')).toBe('source');
+    expect(source.value).toBe(markdown);
+    expect(source.readOnly).toBe(true);
+    expect(document.activeElement).toBe(source);
+    expect(screen.getByText('Markdown 源码')).toBeTruthy();
+    expect(screen.getByText('只读 · Ctrl / Cmd + / 返回')).toBeTruthy();
+    expect(screen.getByTestId('markweave-editor')).toBeTruthy();
+    expect(screen.getByTestId('markweave-editor-mode').className).toContain(
+      'hidden',
+    );
+    expect(markweaveUnmountMock).not.toHaveBeenCalled();
+
+    fireEvent.change(source, { target: { value: '# 不应写入' } });
+    expect(onMarkdownChange).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(source, {
+      code: 'Slash',
+      key: '/',
+      metaKey: true,
+    });
+
+    expect(screen.queryByLabelText('Markdown 文档源码（只读）')).toBeNull();
+    expect(editorRoot.getAttribute('data-editor-mode')).toBe('live');
+    expect(screen.getByTestId('markweave-editor-mode').className).not.toContain(
+      'hidden',
+    );
+    expect(document.activeElement).toBe(screen.getByLabelText('Markdown 正文'));
+    expect(markweaveUnmountMock).not.toHaveBeenCalled();
+  });
+
+  it('源码模式下仍支持 Cmd/Ctrl+S 保存快捷键', () => {
+    const onSaveRequested = vi.fn();
+
+    render(
+      <MarkdownEditor
+        markdown="# 标题"
+        onSaveRequested={onSaveRequested}
+      />,
+    );
+
+    fireEvent.keyDown(screen.getByTestId('markdown-editor-root'), {
+      code: 'Slash',
+      ctrlKey: true,
+      key: '/',
+    });
+    fireEvent.keyDown(screen.getByLabelText('Markdown 文档源码（只读）'), {
       key: 's',
       metaKey: true,
     });
