@@ -22,6 +22,9 @@ const {
   toStorageMarkdownMock,
   uploadHandlerMock,
   useWorkspaceAssetUploaderMock,
+  searchControllerMock,
+  searchListeners,
+  searchState,
 } = vi.hoisted(() => ({
   cancelAnimationFrameMock: vi.fn(),
   markweaveEditorMock: vi.fn(),
@@ -41,6 +44,29 @@ const {
       toStorageMarkdown: toStorageMarkdownMock,
     }),
   ),
+  searchState: {
+    activeMatchIndex: -1,
+    error: null as string | null,
+    matchCount: 0,
+    options: {
+      caseSensitive: false,
+      regex: false,
+      wholeWord: false,
+    },
+    query: '',
+  },
+  searchControllerMock: {
+    clear: vi.fn(),
+    findNext: vi.fn(() => true),
+    findPrevious: vi.fn(() => true),
+    getState: vi.fn(),
+    replaceAll: vi.fn(() => 2),
+    replaceCurrent: vi.fn(() => true),
+    setOptions: vi.fn(),
+    setQuery: vi.fn(),
+    subscribe: vi.fn(),
+  },
+  searchListeners: new Set<(state: unknown) => void>(),
 }));
 
 vi.mock('@markweave/react', async () => {
@@ -49,7 +75,22 @@ vi.mock('@markweave/react', async () => {
   return {
     MarkweaveEditor: vi.fn((props: Record<string, unknown>) => {
       markweaveEditorMock(props);
-      React.useEffect(() => () => markweaveUnmountMock(), []);
+      React.useEffect(() => {
+        (
+          props.onSearchControllerChange as
+            | ((controller: typeof searchControllerMock | null) => void)
+            | undefined
+        )?.(searchControllerMock);
+
+        return () => {
+          (
+            props.onSearchControllerChange as
+              | ((controller: typeof searchControllerMock | null) => void)
+              | undefined
+          )?.(null);
+          markweaveUnmountMock();
+        };
+      }, [props.onSearchControllerChange]);
 
       return (
         <div
@@ -126,6 +167,46 @@ describe('MarkdownEditor', () => {
     toStorageMarkdownMock.mockImplementation((markdown: string) => markdown);
     uploadHandlerMock.mockClear();
     useWorkspaceAssetUploaderMock.mockClear();
+    Object.assign(searchState, {
+      activeMatchIndex: -1,
+      error: null,
+      matchCount: 0,
+      options: {
+        caseSensitive: false,
+        regex: false,
+        wholeWord: false,
+      },
+      query: '',
+    });
+    searchListeners.clear();
+    Object.values(searchControllerMock).forEach((value) => {
+      if (typeof value === 'function' && 'mockClear' in value) {
+        value.mockClear();
+      }
+    });
+    searchControllerMock.getState.mockImplementation(() => searchState);
+    searchControllerMock.subscribe.mockImplementation((listener) => {
+      listener(searchState);
+      searchListeners.add(listener);
+      return () => searchListeners.delete(listener);
+    });
+    searchControllerMock.setQuery.mockImplementation((query, options) => {
+      Object.assign(searchState, {
+        activeMatchIndex: query ? 0 : -1,
+        matchCount: query ? 2 : 0,
+        options,
+        query,
+      });
+      searchListeners.forEach((listener) => listener(searchState));
+    });
+    searchControllerMock.clear.mockImplementation(() => {
+      Object.assign(searchState, {
+        activeMatchIndex: -1,
+        matchCount: 0,
+        query: '',
+      });
+      searchListeners.forEach((listener) => listener(searchState));
+    });
     useWorkspaceAssetUploaderMock.mockImplementation(
       (_rootPath: string | null, markdown: string) => ({
         editorMarkdown: markdown,
@@ -291,6 +372,105 @@ describe('MarkdownEditor', () => {
     });
 
     expect(onSaveRequested).toHaveBeenCalledTimes(1);
+  });
+
+  it('通过 Ctrl/Cmd+F 打开专业查找栏并驱动 Markweave 搜索与替换', () => {
+    render(<MarkdownEditor markdown="# Alpha alpha" onMarkdownChange={() => {}} />);
+    const editorRoot = screen.getByTestId('markdown-editor-root');
+
+    fireEvent.keyDown(editorRoot, { key: 'f', metaKey: true });
+
+    const searchInput = screen.getByRole('searchbox', { name: '查找内容' });
+    expect(document.activeElement).toBe(searchInput);
+    expect(screen.getByTestId('document-find-bar').className).toContain(
+      'shadow-sm',
+    );
+    fireEvent.change(searchInput, { target: { value: 'alpha' } });
+    expect(searchControllerMock.setQuery).toHaveBeenLastCalledWith('alpha', {
+      caseSensitive: false,
+      regex: false,
+      wholeWord: false,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '区分大小写' }));
+    fireEvent.click(screen.getByRole('button', { name: '完整词匹配' }));
+    fireEvent.click(screen.getByRole('button', { name: '使用正则表达式' }));
+    expect(searchControllerMock.setQuery).toHaveBeenLastCalledWith('alpha', {
+      caseSensitive: true,
+      regex: true,
+      wholeWord: true,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '下一个匹配' }));
+    fireEvent.click(screen.getByRole('button', { name: '上一个匹配' }));
+    fireEvent.keyDown(window, { key: 'F3' });
+    fireEvent.keyDown(window, { key: 'F3', shiftKey: true });
+    expect(searchControllerMock.findNext).toHaveBeenCalledTimes(2);
+    expect(searchControllerMock.findPrevious).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(screen.getByRole('button', { name: '展开替换' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '替换为' }), {
+      target: { value: 'beta' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '替换当前匹配' }));
+    fireEvent.click(screen.getByRole('button', { name: '替换全部匹配' }));
+    expect(searchControllerMock.replaceCurrent).toHaveBeenCalledWith('beta');
+    expect(searchControllerMock.replaceAll).toHaveBeenCalledWith('beta');
+
+    fireEvent.keyDown(searchInput, { key: 'Escape' });
+    expect(screen.queryByRole('searchbox', { name: '查找内容' })).toBeNull();
+    expect(searchControllerMock.clear).toHaveBeenCalled();
+
+    fireEvent.keyDown(editorRoot, { altKey: true, key: 'f', metaKey: true });
+    expect(screen.getByRole('textbox', { name: '替换为' })).toBeTruthy();
+  });
+
+  it('源码模式中查找并替换原始 Markdown', () => {
+    const onMarkdownChange = vi.fn();
+    render(
+      <MarkdownEditor
+        markdown={'---\ntitle: Alpha\n---\n\n# Alpha'}
+        onMarkdownChange={onMarkdownChange}
+      />,
+    );
+    const editorRoot = screen.getByTestId('markdown-editor-root');
+
+    fireEvent.keyDown(editorRoot, { code: 'Slash', ctrlKey: true, key: '/' });
+    fireEvent.keyDown(editorRoot, { ctrlKey: true, key: 'f' });
+    fireEvent.change(screen.getByRole('searchbox', { name: '查找内容' }), {
+      target: { value: 'Alpha' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '展开替换' }));
+    fireEvent.change(screen.getByRole('textbox', { name: '替换为' }), {
+      target: { value: 'Beta' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '替换当前匹配' }));
+
+    expect(onMarkdownChange).toHaveBeenLastCalledWith(
+      '---\ntitle: Beta\n---\n\n# Alpha',
+      'source',
+    );
+  });
+
+  it('锁定文档允许查找但禁用替换', () => {
+    render(<MarkdownEditor markdown="# Alpha" readOnly />);
+    const editorRoot = screen.getByTestId('markdown-editor-root');
+
+    fireEvent.keyDown(editorRoot, { ctrlKey: true, key: 'h' });
+    fireEvent.change(screen.getByRole('searchbox', { name: '查找内容' }), {
+      target: { value: 'Alpha' },
+    });
+
+    expect(
+      (screen.getByRole('button', {
+        name: '替换当前匹配',
+      }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByRole('button', {
+        name: '替换全部匹配',
+      }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   it('通过 Ctrl/Cmd+/ 切换完整可写源码且不卸载 Markweave', () => {

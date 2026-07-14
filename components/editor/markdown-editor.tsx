@@ -5,9 +5,14 @@ import { ArrowUp } from 'lucide-react';
 import {
   MarkweaveEditor,
   type MarkweaveEditorUpdatePayload,
+  type MarkweaveSearchController,
 } from '@markweave/react';
 import { useTheme } from 'next-themes';
 
+import {
+  DocumentFindBar,
+  type DocumentFindRequest,
+} from '@/components/editor/document-find-bar';
 import {
   parseFrontmatter,
   serializeFrontmatter,
@@ -49,12 +54,17 @@ export function MarkdownEditor({
   const editorRootRef = React.useRef<HTMLDivElement | null>(null);
   const markweaveModeRef = React.useRef<HTMLDivElement | null>(null);
   const scrollAreaRef = React.useRef<HTMLDivElement | null>(null);
+  const findRequestRevisionRef = React.useRef(0);
   const sourceModeToggledRef = React.useRef(false);
   const sourceTextareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   const cancelBackToTopAnimationRef = React.useRef<(() => void) | null>(
     null,
   );
   const [backToTopVisible, setBackToTopVisible] = React.useState(false);
+  const [findRequest, setFindRequest] =
+    React.useState<DocumentFindRequest | null>(null);
+  const [searchController, setSearchController] =
+    React.useState<MarkweaveSearchController | null>(null);
   const [sourceMode, setSourceMode] = React.useState(false);
 
   const frontmatterView = React.useMemo(() => {
@@ -113,6 +123,69 @@ export function MarkdownEditor({
     // Markweave owns the visible inner TOC; this callback keeps the runtime
     // bridge explicit for future workspace integrations.
   }, []);
+
+  const handleSearchControllerChange = React.useCallback(
+    (controller: MarkweaveSearchController | null) => {
+      setSearchController(controller);
+    },
+    [],
+  );
+
+  const getSelectedText = React.useCallback(() => {
+    if (sourceMode) {
+      const textarea = sourceTextareaRef.current;
+
+      if (!textarea || textarea.selectionStart === textarea.selectionEnd) {
+        return '';
+      }
+
+      return textarea.value.slice(
+        textarea.selectionStart,
+        textarea.selectionEnd,
+      );
+    }
+
+    const selection = window.getSelection();
+    const anchorNode = selection?.anchorNode;
+
+    if (
+      !selection ||
+      selection.isCollapsed ||
+      !anchorNode ||
+      !markweaveModeRef.current?.contains(anchorNode)
+    ) {
+      return '';
+    }
+
+    return selection.toString();
+  }, [sourceMode]);
+
+  const openFind = React.useCallback(
+    (expandReplace: boolean) => {
+      findRequestRevisionRef.current += 1;
+      setFindRequest({
+        documentKey,
+        expandReplace,
+        initialQuery: normalizeFindSeed(getSelectedText()),
+        revision: findRequestRevisionRef.current,
+      });
+    },
+    [documentKey, getSelectedText],
+  );
+
+  const closeFind = React.useCallback(() => {
+    setFindRequest(null);
+
+    requestAnimationFrame(() => {
+      const focusTarget = sourceMode
+        ? sourceTextareaRef.current
+        : markweaveModeRef.current?.querySelector<HTMLElement>(
+            '.ProseMirror, [contenteditable], textarea',
+          ) ?? editorRootRef.current;
+
+      focusTarget?.focus({ preventScroll: true });
+    });
+  }, [sourceMode]);
 
   React.useEffect(() => {
     const scroller = scrollAreaRef.current;
@@ -186,6 +259,26 @@ export function MarkdownEditor({
       tabIndex={-1}
       onKeyDownCapture={(event) => {
         const primaryModifier = event.metaKey || event.ctrlKey;
+        const key = event.key.toLowerCase();
+        const findShortcut =
+          primaryModifier &&
+          !event.altKey &&
+          !event.shiftKey &&
+          !event.repeat &&
+          key === 'f';
+        const replaceShortcut =
+          !event.repeat &&
+          !event.shiftKey &&
+          ((event.ctrlKey && !event.metaKey && !event.altKey && key === 'h') ||
+            (event.metaKey && !event.ctrlKey && event.altKey && key === 'f'));
+
+        if (findShortcut || replaceShortcut) {
+          event.preventDefault();
+          event.stopPropagation();
+          openFind(replaceShortcut);
+          return;
+        }
+
         const sourceModeShortcut =
           primaryModifier &&
           !event.altKey &&
@@ -201,9 +294,7 @@ export function MarkdownEditor({
           return;
         }
 
-        if (
-          primaryModifier && event.key.toLowerCase() === 's'
-        ) {
+        if (primaryModifier && key === 's') {
           event.preventDefault();
           onSaveRequested?.();
         }
@@ -233,6 +324,7 @@ export function MarkdownEditor({
             lang="zh"
             mode={readOnly ? 'view' : 'live'}
             onSlashCommandUpload={onSlashCommandUpload}
+            onSearchControllerChange={handleSearchControllerChange}
             onTocChange={handleTocChange}
             onUpdate={handleEditorUpdate}
             linkCardResolver={resolveMarkweaveLinkCard}
@@ -274,6 +366,24 @@ export function MarkdownEditor({
         ) : null}
       </div>
 
+      {findRequest && findRequest.documentKey === documentKey ? (
+        <DocumentFindBar
+          controller={searchController}
+          key={findRequest.revision}
+          onClose={closeFind}
+          onSourceChange={
+            readOnly || !onMarkdownChange
+              ? undefined
+              : (nextMarkdown) => onMarkdownChange(nextMarkdown, 'source')
+          }
+          readOnly={readOnly}
+          request={findRequest}
+          sourceMode={sourceMode}
+          sourceText={markdown}
+          sourceTextareaRef={sourceTextareaRef}
+        />
+      ) : null}
+
       {!sourceMode && backToTopVisible ? (
         <button
           aria-label="回到顶部"
@@ -286,6 +396,12 @@ export function MarkdownEditor({
       ) : null}
     </div>
   );
+}
+
+function normalizeFindSeed(selection: string) {
+  const normalized = selection.replace(/\s+/g, ' ').trim();
+
+  return normalized.length <= 200 ? normalized : '';
 }
 
 function animateScrollToTop(scroller: HTMLElement, onComplete: () => void) {
