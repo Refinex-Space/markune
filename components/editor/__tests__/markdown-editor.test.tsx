@@ -383,9 +383,11 @@ describe('MarkdownEditor', () => {
 
     const searchInput = screen.getByRole('searchbox', { name: '查找内容' });
     expect(document.activeElement).toBe(searchInput);
-    expect(screen.getByTestId('document-find-bar').className).toContain(
-      'shadow-sm',
-    );
+    const findBar = screen.getByTestId('document-find-bar');
+    expect(findBar.className).toContain('shadow-xs');
+    expect(findBar.className).toContain('rounded-md');
+    expect(findBar.className).toContain('w-[min(480px,calc(100%-1.5rem))]');
+    expect(findBar.firstElementChild?.className).toContain('h-9');
     fireEvent.change(searchInput, { target: { value: 'alpha' } });
     expect(searchControllerMock.setQuery).toHaveBeenLastCalledWith('alpha', {
       caseSensitive: false,

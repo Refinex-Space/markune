@@ -294,11 +294,11 @@ export function DocumentFindBar({
     <TooltipProvider>
       <aside
         aria-label="文档查找和替换"
-        className="absolute top-3 right-5 z-50 w-[min(520px,calc(100%-2rem))] overflow-hidden rounded-xl border border-border/80 bg-background/96 shadow-sm backdrop-blur-xl"
+        className="absolute top-3 right-5 z-50 w-[min(480px,calc(100%-1.5rem))] overflow-hidden rounded-md border border-border/50 bg-background/96 shadow-xs backdrop-blur-md"
         data-testid="document-find-bar"
         role="dialog"
       >
-        <div className="flex h-11 items-center gap-1.5 px-2">
+        <div className="flex h-9 items-center gap-1 px-1.5">
           <FindIconButton
             active={replaceExpanded}
             label={replaceExpanded ? '收起替换' : '展开替换'}
@@ -321,7 +321,7 @@ export function DocumentFindBar({
               autoCapitalize="off"
               autoComplete="off"
               className={cn(
-                'h-8 w-full rounded-md border bg-muted/25 pr-14 pl-8 text-sm outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-ring focus:bg-background focus:ring-2 focus:ring-ring/15',
+                'h-7 w-full rounded-md border bg-muted/25 pr-14 pl-8 text-sm outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-ring focus:bg-background focus:ring-2 focus:ring-ring/15',
                 error && 'border-destructive/70 focus:border-destructive',
               )}
               placeholder="查找"
@@ -395,7 +395,7 @@ export function DocumentFindBar({
         </div>
 
         {replaceExpanded ? (
-          <div className="flex h-11 items-center gap-1.5 border-t border-border/60 bg-muted/15 px-2 pl-10">
+          <div className="flex h-9 items-center gap-1 border-t border-border/50 bg-muted/15 px-1.5 pl-9">
             <label className="relative min-w-0 flex-1">
               <Replace
                 aria-hidden="true"
@@ -407,7 +407,7 @@ export function DocumentFindBar({
                 aria-label="替换为"
                 autoCapitalize="off"
                 autoComplete="off"
-                className="h-8 w-full rounded-md border bg-background pr-3 pl-8 text-sm outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-ring focus:ring-2 focus:ring-ring/15"
+                className="h-7 w-full rounded-md border bg-background pr-3 pl-8 text-sm outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-ring focus:ring-2 focus:ring-ring/15"
                 placeholder="替换为"
                 spellCheck={false}
                 type="text"
