@@ -26,10 +26,18 @@ export function useWorkspaceAssetUploader(
   rootPath: string | null,
   storageMarkdown: string,
 ): WorkspaceAssetUploadBridge {
-  const [editorMarkdown, setEditorMarkdown] =
-    React.useState(storageMarkdown);
   const displayToStorageRef = React.useRef(new Map<string, string>());
   const storageToDisplayRef = React.useRef(new Map<string, string>());
+  const [resolvedMarkdown, setResolvedMarkdown] = React.useState(() => ({
+    editorMarkdown: storageMarkdown,
+    rootPath,
+    storageMarkdown,
+  }));
+  const editorMarkdown =
+    resolvedMarkdown.rootPath === rootPath &&
+    resolvedMarkdown.storageMarkdown === storageMarkdown
+      ? resolvedMarkdown.editorMarkdown
+      : storageMarkdown;
 
   React.useEffect(() => {
     displayToStorageRef.current.clear();
@@ -41,14 +49,22 @@ export function useWorkspaceAssetUploader(
 
     async function resolveStorageMarkdown() {
       if (!rootPath) {
-        setEditorMarkdown(storageMarkdown);
+        setResolvedMarkdown({
+          editorMarkdown: storageMarkdown,
+          rootPath,
+          storageMarkdown,
+        });
         return;
       }
 
       const references = extractWorkspaceAssetReferences(storageMarkdown);
 
       if (references.length === 0) {
-        setEditorMarkdown(storageMarkdown);
+        setResolvedMarkdown({
+          editorMarkdown: storageMarkdown,
+          rootPath,
+          storageMarkdown,
+        });
         return;
       }
 
@@ -76,7 +92,11 @@ export function useWorkspaceAssetUploader(
       );
 
       if (!cancelled) {
-        setEditorMarkdown(replaceMappedValues(storageMarkdown, replacements));
+        setResolvedMarkdown({
+          editorMarkdown: replaceMappedValues(storageMarkdown, replacements),
+          rootPath,
+          storageMarkdown,
+        });
       }
     }
 

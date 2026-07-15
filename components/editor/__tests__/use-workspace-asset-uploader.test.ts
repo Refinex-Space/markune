@@ -237,4 +237,24 @@ describe('useWorkspaceAssetUploader', () => {
     expect(result.current.editorMarkdown).toBe(markdown);
     expect(resolveWorkspaceAsset).not.toHaveBeenCalled();
   });
+
+  it('切换文档时首帧立即返回新文档内容', () => {
+    const renderedMarkdown: string[] = [];
+    const { rerender } = renderHook(
+      ({ markdown }) => {
+        const bridge = useWorkspaceAssetUploader('/ws/root', markdown);
+
+        renderedMarkdown.push(bridge.editorMarkdown);
+        return bridge;
+      },
+      {
+        initialProps: { markdown: '# 旧文档' },
+      },
+    );
+
+    renderedMarkdown.length = 0;
+    rerender({ markdown: '# 新文档' });
+
+    expect(renderedMarkdown[0]).toBe('# 新文档');
+  });
 });
