@@ -92,6 +92,80 @@ describe('useWorkspaceAssetUploader', () => {
     });
   });
 
+  it('为空文件名的剪贴板截图生成安全文件名', async () => {
+    vi.mocked(uploadWorkspaceAsset).mockResolvedValue({
+      absolutePath: '/ws/.madora/assets/files/ab/hash.png',
+      id: 'hash',
+      mediaType: 'image/png',
+      name: 'clipboard-image.png',
+      relativePath: '.madora/assets/files/ab/hash.png',
+      size: 3,
+      url: 'madora-asset://hash',
+    });
+    const { result } = renderHook(() =>
+      useWorkspaceAssetUploader('/ws/root', '# 文档'),
+    );
+
+    await act(async () => {
+      await result.current.onSlashCommandUpload({
+        kind: 'image',
+        source: {
+          file: new File([new Uint8Array([1, 2, 3])], '', {
+            type: 'image/png',
+          }),
+          mimeType: 'image/png',
+          type: 'file',
+        },
+        trigger: 'image-insert',
+      });
+    });
+
+    expect(uploadWorkspaceAsset).toHaveBeenCalledWith('/ws/root', {
+      base64Data: expect.any(String),
+      fileName: 'clipboard-image.png',
+      mediaType: 'image/png',
+    });
+  });
+
+  it('Windows 展示路径在保存时还原为 POSIX 风格工作区相对路径', async () => {
+    vi.mocked(uploadWorkspaceAsset).mockResolvedValue({
+      absolutePath: 'C:\\workspace\\.madora\\assets\\files\\ab\\hash.png',
+      id: 'hash',
+      mediaType: 'image/png',
+      name: 'screenshot.png',
+      relativePath: '.madora/assets/files/ab/hash.png',
+      size: 3,
+      url: 'madora-asset://hash',
+    });
+    const { result } = renderHook(() =>
+      useWorkspaceAssetUploader('C:\\workspace', '# 文档'),
+    );
+    let uploaded:
+      | Awaited<ReturnType<typeof result.current.onSlashCommandUpload>>
+      | undefined;
+
+    await act(async () => {
+      uploaded = await result.current.onSlashCommandUpload({
+        kind: 'image',
+        source: {
+          file: new File([new Uint8Array([1, 2, 3])], 'screenshot.png', {
+            type: 'image/png',
+          }),
+          mimeType: 'image/png',
+          type: 'file',
+        },
+        trigger: 'image-insert',
+      });
+    });
+
+    expect(uploaded?.src).toBe(
+      'asset://C:\\workspace\\.madora\\assets\\files\\ab\\hash.png',
+    );
+    expect(
+      result.current.toStorageMarkdown(`![截图](${uploaded?.src})`),
+    ).toBe('![截图](.madora/assets/files/ab/hash.png)');
+  });
+
   it('直接 URL、base64 或用户输入相对路径按 Markweave 协议透传', async () => {
     const { result } = renderHook(() =>
       useWorkspaceAssetUploader('/ws/root', '# 文档'),

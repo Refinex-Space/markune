@@ -108,7 +108,7 @@ export function useWorkspaceAssetUploader(
       }
 
       const uploaded = await uploadWorkspaceAsset(rootPath, {
-        fileName: file.name,
+        fileName: getUploadFileName(file),
         mediaType: file.type || 'application/octet-stream',
         base64Data: await fileToBase64(file),
       });
@@ -133,6 +133,34 @@ export function useWorkspaceAssetUploader(
     onSlashCommandUpload,
     toStorageMarkdown,
   };
+}
+
+const clipboardFileExtensionByMediaType: Readonly<Record<string, string>> = {
+  'image/avif': 'avif',
+  'image/bmp': 'bmp',
+  'image/gif': 'gif',
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/svg+xml': 'svg',
+  'image/vnd.microsoft.icon': 'ico',
+  'image/webp': 'webp',
+  'image/x-icon': 'ico',
+};
+
+function getUploadFileName(file: File) {
+  const fileName = file.name.trim();
+
+  if (fileName) {
+    return fileName;
+  }
+
+  const mediaType = file.type.trim().toLowerCase();
+  const extension = clipboardFileExtensionByMediaType[mediaType] ?? 'bin';
+  const baseName = mediaType.startsWith('image/')
+    ? 'clipboard-image'
+    : 'clipboard-file';
+
+  return `${baseName}.${extension}`;
 }
 
 function createDirectUploadResult(

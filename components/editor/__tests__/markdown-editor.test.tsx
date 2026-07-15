@@ -245,6 +245,7 @@ describe('MarkdownEditor', () => {
       innerToc: true,
       innerTocPlacement: 'container',
       lang: 'zh',
+      onSlashCommandUpload: uploadHandlerMock,
       theme: 'light',
       mode: 'live',
     });
