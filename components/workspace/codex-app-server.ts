@@ -63,6 +63,9 @@ export interface CodexTurn {
   id: string;
   status: string;
   items: CodexThreadItem[];
+  startedAt?: number | null;
+  completedAt?: number | null;
+  durationMs?: number | null;
 }
 
 export type CodexThreadItem = Record<string, unknown> & {

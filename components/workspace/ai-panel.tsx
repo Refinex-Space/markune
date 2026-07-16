@@ -2,15 +2,19 @@
 
 import * as React from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
+import { Collapsible } from 'radix-ui';
 import remarkGfm from 'remark-gfm';
 import {
+  AlertCircle,
   Archive,
   ArrowUp,
   Blocks,
   Bot,
   Check,
   ChevronDown,
+  ChevronRight,
   Circle,
+  CircleX,
   FilePenLine,
   FileText,
   Globe2,
@@ -20,7 +24,9 @@ import {
   MoreHorizontal,
   Plus,
   Search,
+  SearchCode,
   ShieldCheck,
+  ShieldX,
   Sparkles,
   Square,
   SquarePen,
@@ -55,15 +61,20 @@ import {
 } from './codex-app-server';
 import {
   conversationFromThread,
+  buildConversationBlocks,
   createDocumentAwareUserInput,
   createThreadTitle,
   createEmptyConversation,
+  getOutputPreviewLines,
   reduceCodexProtocolMessage,
   threadNameUpdateFromMessage,
+  type AiActivityGroup,
   type AiApprovalRequest,
+  type AiConversationBlock,
   type AiConversationEntry,
   type AiConversationState,
   type AiMessageMention,
+  type AiTraceBlock,
   type AiTimelineItem,
 } from './ai-panel-state';
 import {
@@ -754,7 +765,11 @@ function PanelContent({
     );
   }
 
-  if (runtimeStatus === 'error' && conversation.entries.length === 0) {
+  if (
+    runtimeStatus === 'error' &&
+    conversation.entries.length === 0 &&
+    conversation.approvals.length === 0
+  ) {
     return (
       <EmptyPanel icon={<Circle size={18} />} title="无法连接 Codex">
         <p>{runtimeError || 'Codex 运行时不可用。'}</p>
@@ -779,7 +794,8 @@ function PanelContent({
   }
 
   if (
-    conversation.entries.length === 0
+    conversation.entries.length === 0 &&
+    conversation.approvals.length === 0
   ) {
     return (
       <div className="flex min-h-full flex-col justify-end px-5 pb-7 pt-16">
@@ -810,29 +826,28 @@ function PanelContent({
     );
   }
 
+  const blocks = buildConversationBlocks(conversation);
+
   return (
     <div className="mx-auto w-full max-w-[680px] px-5 py-5">
       <div>
-        {conversation.entries.map((entry, index) => (
-          <ConversationEntryRow
-            entry={entry}
-            key={`${entry.type}-${entry.id}`}
-            onOpenDocument={onOpenDocument}
-            previous={conversation.entries[index - 1] ?? null}
-          />
-        ))}
-
-        {conversation.approvals.length > 0 ? (
-          <div className="mt-5 space-y-3">
-            {conversation.approvals.map((approval) => (
-              <ApprovalCard
-                approval={approval}
-                key={String(approval.id)}
-                onApprove={onApprove}
-              />
-            ))}
-          </div>
-        ) : null}
+        {blocks.map((block, index) =>
+          block.type === 'trace' ? (
+            <ProcessingTrace
+              key={block.id}
+              trace={block}
+              onApprove={onApprove}
+              onOpenDocument={onOpenDocument}
+            />
+          ) : (
+            <ConversationEntryRow
+              entry={block}
+              key={`${block.type}-${block.id}`}
+              onOpenDocument={onOpenDocument}
+              previous={previousConversationEntry(blocks[index - 1])}
+            />
+          ),
+        )}
 
         {runtimeError ? (
           <div className="mt-5 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive">
@@ -841,16 +856,12 @@ function PanelContent({
         ) : null}
       </div>
 
-      {conversation.activeTurnId ? (
-        <div className="mt-5 flex justify-center">
-          <div className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background px-3 py-1 text-[11px] text-muted-foreground shadow-sm">
-            <LoaderCircle className="animate-spin" size={12} />
-            正在处理
-          </div>
-        </div>
-      ) : null}
     </div>
   );
+}
+
+function previousConversationEntry(block: AiConversationBlock | undefined) {
+  return block?.type === 'message' ? block : null;
 }
 
 export function ConversationEntryRow({
@@ -864,15 +875,13 @@ export function ConversationEntryRow({
 }) {
   if (entry.type === 'timeline') {
     return (
-      <div
-        className={cn(
-          previous ? 'mt-3' : null,
-          previous?.type !== 'timeline' && previous
-            ? 'border-t border-border/60 pt-4'
-            : null,
-        )}
-      >
-        <TimelineRow item={entry} />
+      <div className={cn(previous ? 'mt-3' : null)}>
+        <ActivityItemRow
+          activity={entry}
+          approvals={[]}
+          onApprove={() => undefined}
+          onOpenDocument={onOpenDocument}
+        />
       </div>
     );
   }
@@ -1050,41 +1059,489 @@ function EmptyPanel({
   );
 }
 
-function TimelineRow({ item }: { item: AiTimelineItem }) {
+export function ProcessingTrace({
+  trace,
+  onApprove,
+  onOpenDocument,
+}: {
+  trace: AiTraceBlock;
+  onApprove: (
+    approval: AiApprovalRequest,
+    decision: 'accept' | 'acceptForSession' | 'decline',
+  ) => void;
+  onOpenDocument: (documentPath: string) => void;
+}) {
+  const [open, setOpen] = React.useState(
+    !trace.historical || trace.status !== 'completed',
+  );
+  const elapsedMs = useTraceElapsedMs(trace);
+  const active = trace.status === 'inProgress';
+  const activityIds = new Set(
+    trace.segments.flatMap((segment) =>
+      segment.type === 'group'
+        ? segment.activities.map((activity) => activity.id)
+        : [],
+    ),
+  );
+  const orphanApprovals = trace.approvals.filter(
+    (approval) => !approval.itemId || !activityIds.has(approval.itemId),
+  );
+
   return (
-    <div className="flex gap-2.5 text-xs text-muted-foreground">
-      <div className="mt-0.5 flex size-4 shrink-0 items-center justify-center">
-        {timelineIcon(item)}
+    <Collapsible.Root
+      className="mt-5 border-t border-border/60 pt-3"
+      open={open}
+      onOpenChange={setOpen}
+    >
+      <Collapsible.Trigger asChild>
+        <button
+          aria-label={`${active ? '正在处理' : '已处理'}，${open ? '收起' : '展开'}处理过程`}
+          className="group flex w-full items-center gap-2 rounded-md py-1 text-left text-[13px] font-medium outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/30"
+          type="button"
+        >
+          <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
+            {traceStatusIcon(trace.status)}
+          </span>
+          <span>{active ? '正在处理' : '已处理'}</span>
+          {elapsedMs !== null ? (
+            <span className="font-normal tabular-nums text-muted-foreground">
+              {formatDuration(elapsedMs)}
+            </span>
+          ) : null}
+          <ChevronDown
+            className={cn(
+              'ml-0.5 size-3.5 text-muted-foreground transition-transform duration-150',
+              !open && '-rotate-90',
+            )}
+          />
+        </button>
+      </Collapsible.Trigger>
+
+      <Collapsible.Content>
+        <div className="mt-3 space-y-3">
+          {trace.segments.map((segment) =>
+            segment.type === 'commentary' ? (
+              <div
+                className="text-[13px] leading-6 text-foreground"
+                key={segment.message.id}
+              >
+                <AiMessageContent markdown={segment.message.text} />
+              </div>
+            ) : (
+              <ActivityGroupRow
+                approvals={trace.approvals}
+                group={segment}
+                historical={trace.historical}
+                key={segment.id}
+                onApprove={onApprove}
+                onOpenDocument={onOpenDocument}
+              />
+            ),
+          )}
+
+          {orphanApprovals.map((approval) => (
+            <ApprovalCard
+              approval={approval}
+              key={String(approval.id)}
+              onApprove={onApprove}
+            />
+          ))}
+        </div>
+      </Collapsible.Content>
+    </Collapsible.Root>
+  );
+}
+
+function useTraceElapsedMs(trace: AiTraceBlock) {
+  const active = trace.status === 'inProgress';
+  const [now, setNow] = React.useState(() => Date.now());
+
+  React.useEffect(() => {
+    if (!active || trace.startedAtMs === null) {
+      return;
+    }
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [active, trace.startedAtMs]);
+
+  if (trace.durationMs !== null) {
+    return trace.durationMs;
+  }
+  return active && trace.startedAtMs !== null
+    ? Math.max(0, now - trace.startedAtMs)
+    : null;
+}
+
+function ActivityGroupRow({
+  approvals,
+  group,
+  historical,
+  onApprove,
+  onOpenDocument,
+}: {
+  approvals: AiApprovalRequest[];
+  group: AiActivityGroup;
+  historical: boolean;
+  onApprove: (
+    approval: AiApprovalRequest,
+    decision: 'accept' | 'acceptForSession' | 'decline',
+  ) => void;
+  onOpenDocument: (documentPath: string) => void;
+}) {
+  const [open, setOpen] = React.useState(
+    !historical || group.status !== 'completed',
+  );
+
+  return (
+    <Collapsible.Root open={open} onOpenChange={setOpen}>
+      <Collapsible.Trigger asChild>
+        <button
+          aria-label={`${group.summary}，${open ? '收起' : '展开'}工具活动`}
+          className="group flex w-full items-center gap-2 rounded-md py-0.5 text-left text-xs outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/30"
+          type="button"
+        >
+          <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
+            {groupStatusIcon(group)}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-foreground/75">
+            {group.summary}
+          </span>
+          {group.durationMs !== null ? (
+            <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/75">
+              {formatDuration(group.durationMs)}
+            </span>
+          ) : null}
+          <ChevronRight
+            className={cn(
+              'size-3.5 shrink-0 text-muted-foreground/75 transition-transform duration-150',
+              open && 'rotate-90',
+            )}
+          />
+        </button>
+      </Collapsible.Trigger>
+
+      <Collapsible.Content>
+        <div className="ml-2 mt-1 space-y-0.5 border-l border-border/60 pl-4">
+          {group.activities.map((activity) => (
+            <ActivityItemRow
+              activity={activity}
+              approvals={approvals.filter(
+                (approval) => approval.itemId === activity.id,
+              )}
+              key={activity.id}
+              onApprove={onApprove}
+              onOpenDocument={onOpenDocument}
+            />
+          ))}
+        </div>
+      </Collapsible.Content>
+    </Collapsible.Root>
+  );
+}
+
+function ActivityItemRow({
+  activity,
+  approvals,
+  onApprove,
+  onOpenDocument,
+}: {
+  activity: AiTimelineItem;
+  approvals: AiApprovalRequest[];
+  onApprove: (
+    approval: AiApprovalRequest,
+    decision: 'accept' | 'acceptForSession' | 'decline',
+  ) => void;
+  onOpenDocument: (documentPath: string) => void;
+}) {
+  const [open, setOpen] = React.useState(
+    activity.status !== 'completed' || approvals.length > 0,
+  );
+  const expandable = activityHasDetails(activity) || approvals.length > 0;
+
+  if (!expandable) {
+    return (
+      <div className="flex min-h-7 items-center gap-2 text-xs text-muted-foreground">
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          {activityIcon(activity)}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-foreground/70">
+          {activity.label}
+        </span>
+        <ActivityMeta activity={activity} />
       </div>
-      <div className="min-w-0 flex-1">
-        <div className="text-foreground/75">{item.label}</div>
-        {item.detail ? (
-          <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground/80" title={item.detail}>
-            {item.detail}
+    );
+  }
+
+  return (
+    <Collapsible.Root open={open} onOpenChange={setOpen}>
+      <Collapsible.Trigger asChild>
+        <button
+          aria-label={`${activity.label}，${open ? '收起' : '展开'}详情`}
+          className="flex min-h-7 w-full items-center gap-2 rounded-sm text-left text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/30"
+          type="button"
+        >
+          <span className="flex size-4 shrink-0 items-center justify-center">
+            {activityIcon(activity)}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-foreground/70">
+            {activity.label}
+          </span>
+          <ActivityMeta activity={activity} />
+          <ChevronRight
+            className={cn(
+              'size-3.5 shrink-0 transition-transform duration-150',
+              open && 'rotate-90',
+            )}
+          />
+        </button>
+      </Collapsible.Trigger>
+      <Collapsible.Content>
+        <ActivityDetails
+          activity={activity}
+          onOpenDocument={onOpenDocument}
+        />
+        {approvals.map((approval) => (
+          <ApprovalCard
+            approval={approval}
+            key={String(approval.id)}
+            onApprove={onApprove}
+          />
+        ))}
+      </Collapsible.Content>
+    </Collapsible.Root>
+  );
+}
+
+function ActivityMeta({ activity }: { activity: AiTimelineItem }) {
+  if (activity.status === 'failed') {
+    return <span className="shrink-0 text-[10px] text-destructive">失败</span>;
+  }
+  if (activity.status === 'declined') {
+    return <span className="shrink-0 text-[10px] text-amber-600">已拒绝</span>;
+  }
+  if (activity.durationMs !== null) {
+    return (
+      <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/70">
+        {formatDuration(activity.durationMs)}
+      </span>
+    );
+  }
+  return null;
+}
+
+function ActivityDetails({
+  activity,
+  onOpenDocument,
+}: {
+  activity: AiTimelineItem;
+  onOpenDocument: (documentPath: string) => void;
+}) {
+  if (activity.kind === 'command') {
+    const output = getOutputPreviewLines(activity.output);
+    return (
+      <div className="mb-2 mt-1 space-y-2 rounded-lg bg-muted/25 px-3 py-2 text-[11px] text-muted-foreground">
+        <DetailLabel label="命令" />
+        <pre className="whitespace-pre-wrap break-all font-mono leading-4 text-foreground/75">
+          {activity.command}
+        </pre>
+        {activity.cwd ? (
+          <div className="truncate font-mono text-[10px]" title={activity.cwd}>
+            {activity.cwd}
+          </div>
+        ) : null}
+        {activity.actions.some(
+          (action) => action.type === 'read' && action.documentPath,
+        ) ? (
+          <div className="flex flex-wrap gap-1.5">
+            {activity.actions.map((action, index) =>
+              action.type === 'read' && action.documentPath ? (
+                <button
+                  className="rounded-md bg-background/80 px-2 py-1 text-left text-foreground/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                  key={`${action.path}-${index}`}
+                  type="button"
+                  onClick={() => onOpenDocument(action.documentPath!)}
+                >
+                  {action.name}
+                </button>
+              ) : null,
+            )}
+          </div>
+        ) : null}
+        {output.head.length > 0 || output.tail.length > 0 ? (
+          <div>
+            <DetailLabel label="输出" />
+            <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono leading-4 text-foreground/70">
+              {[...output.head, ...(output.omittedLines > 0 ? [`… 省略 ${output.omittedLines} 行`] : []), ...output.tail].join('\n')}
+            </pre>
+          </div>
+        ) : null}
+        {activity.exitCode !== null ? (
+          <div className={activity.exitCode === 0 ? 'text-muted-foreground' : 'text-destructive'}>
+            退出码 {activity.exitCode}
           </div>
         ) : null}
       </div>
+    );
+  }
+
+  if (activity.kind === 'file') {
+    return (
+      <div className="mb-2 mt-1 space-y-2 rounded-lg bg-muted/25 px-3 py-2 text-[11px]">
+        {activity.changes.map((change) => (
+          <div className="min-w-0" key={`${change.path}-${change.kind}`}>
+            <div className="flex items-center gap-2">
+              {change.absolutePath ? (
+                <button
+                  className="min-w-0 flex-1 truncate text-left text-foreground/75 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                  title={change.path}
+                  type="button"
+                  onClick={() => onOpenDocument(change.absolutePath!)}
+                >
+                  {change.path}
+                </button>
+              ) : (
+                <span className="min-w-0 flex-1 truncate text-foreground/75">
+                  {change.path}
+                </span>
+              )}
+              <span className="text-emerald-600">+{change.additions}</span>
+              <span className="text-destructive">-{change.deletions}</span>
+            </div>
+            {change.diff ? (
+              <pre className="mt-1.5 max-h-44 overflow-auto whitespace-pre-wrap break-all rounded-md bg-background/70 px-2 py-1.5 font-mono text-[10px] leading-4 text-muted-foreground">
+                {change.diff}
+              </pre>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (activity.kind === 'mcp' || activity.kind === 'dynamic') {
+    return (
+      <div className="mb-2 mt-1 space-y-2 rounded-lg bg-muted/25 px-3 py-2 text-[11px] text-muted-foreground">
+        {activity.progress ? <div>{activity.progress}</div> : null}
+        <JsonDetail label="参数" value={activity.arguments} />
+        <JsonDetail label="结果" value={activity.result} />
+        {activity.error ? (
+          <div className="whitespace-pre-wrap text-destructive">{activity.error}</div>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (activity.kind === 'plan') {
+    return (
+      <div className="mb-2 mt-1 space-y-1 rounded-lg bg-muted/25 px-3 py-2 text-[11px] text-muted-foreground">
+        {activity.explanation ? <p>{activity.explanation}</p> : null}
+        {activity.steps.map((step) => (
+          <div className="flex items-start gap-2" key={step.step}>
+            <span className="mt-0.5">{step.status === 'completed' ? <Check size={12} /> : step.status === 'inProgress' ? <LoaderCircle className="animate-spin" size={12} /> : <Circle size={10} />}</span>
+            <span>{step.step}</span>
+          </div>
+        ))}
+        {activity.text ? <p className="whitespace-pre-wrap">{activity.text}</p> : null}
+      </div>
+    );
+  }
+
+  const detail = 'detail' in activity ? activity.detail : null;
+  return detail ? (
+    <div className="mb-2 mt-1 whitespace-pre-wrap break-words rounded-lg bg-muted/25 px-3 py-2 text-[11px] leading-4 text-muted-foreground">
+      {detail}
+    </div>
+  ) : null;
+}
+
+function JsonDetail({ label, value }: { label: string; value: unknown }) {
+  if (value === undefined || value === null) return null;
+  let content: string;
+  try {
+    content = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+  } catch {
+    content = String(value);
+  }
+  if (!content || content === '{}' || content === '[]') return null;
+  return (
+    <div>
+      <DetailLabel label={label} />
+      <pre className="mt-1 max-h-36 overflow-auto whitespace-pre-wrap break-all rounded-md bg-background/70 px-2 py-1.5 font-mono text-[10px] leading-4 text-foreground/70">
+        {content}
+      </pre>
     </div>
   );
 }
 
-function timelineIcon(item: AiTimelineItem) {
+function DetailLabel({ label }: { label: string }) {
+  return <div className="text-[10px] font-medium text-muted-foreground/80">{label}</div>;
+}
+
+function activityHasDetails(activity: AiTimelineItem) {
+  if (activity.kind === 'command') {
+    return Boolean(
+      activity.command ||
+        activity.output.head ||
+        activity.output.tail ||
+        activity.exitCode !== null,
+    );
+  }
+  if (activity.kind === 'file') return activity.changes.length > 0;
+  if (activity.kind === 'mcp' || activity.kind === 'dynamic') return true;
+  if (activity.kind === 'plan') {
+    return Boolean(activity.explanation || activity.text || activity.steps.length);
+  }
+  return 'detail' in activity && Boolean(activity.detail);
+}
+
+function traceStatusIcon(status: AiTraceBlock['status']) {
+  if (status === 'inProgress') {
+    return <LoaderCircle className="animate-spin" size={13} />;
+  }
+  if (status === 'failed') return <CircleX className="text-destructive" size={13} />;
+  if (status === 'declined') return <ShieldX className="text-amber-600" size={13} />;
+  if (status === 'waitingApproval') return <ShieldCheck className="text-amber-600" size={13} />;
+  if (status === 'interrupted') return <AlertCircle size={13} />;
+  return <Check size={13} />;
+}
+
+function groupStatusIcon(group: AiActivityGroup) {
+  if (group.status === 'inProgress') {
+    return <LoaderCircle className="animate-spin" size={13} />;
+  }
+  if (group.status === 'failed') return <CircleX className="text-destructive" size={13} />;
+  if (group.status === 'declined') return <ShieldX className="text-amber-600" size={13} />;
+  if (group.status === 'waitingApproval') return <ShieldCheck className="text-amber-600" size={13} />;
+  return group.activities.length === 1
+    ? activityIcon(group.activities[0])
+    : <Blocks size={13} />;
+}
+
+function activityIcon(item: AiTimelineItem) {
   if (item.status === 'inProgress') {
     return <LoaderCircle className="animate-spin" size={13} />;
   }
-  if (item.kind === 'file') {
-    return <FilePenLine size={13} />;
-  }
+  if (item.status === 'failed') return <CircleX className="text-destructive" size={13} />;
+  if (item.status === 'declined') return <ShieldX className="text-amber-600" size={13} />;
+  if (item.kind === 'file') return <FilePenLine size={13} />;
   if (item.kind === 'command') {
-    return <TerminalSquare size={13} />;
+    return item.actions.length > 0 && item.actions.every((action) => action.type !== 'unknown')
+      ? <SearchCode size={13} />
+      : <TerminalSquare size={13} />;
   }
-  if (item.kind === 'mcp') {
-    return <Blocks size={13} />;
-  }
-  if (item.kind === 'search') {
-    return <Globe2 size={13} />;
-  }
-  return <Check size={13} />;
+  if (item.kind === 'mcp' || item.kind === 'dynamic') return <Blocks size={13} />;
+  if (item.kind === 'search') return <Globe2 size={13} />;
+  if (item.kind === 'plan') return <Check size={13} />;
+  return <Circle size={10} />;
+}
+
+function formatDuration(durationMs: number) {
+  if (durationMs < 1_000) return '<1 秒';
+  const totalSeconds = Math.round(durationMs / 1_000);
+  if (totalSeconds < 60) return `${totalSeconds} 秒`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds > 0 ? `${minutes} 分 ${seconds} 秒` : `${minutes} 分`;
 }
 
 function ApprovalCard({
@@ -1098,7 +1555,7 @@ function ApprovalCard({
   ) => void;
 }) {
   return (
-    <section className="rounded-xl border border-amber-500/30 bg-amber-500/[0.04] p-3">
+    <section className="mb-2 mt-1 border-l-2 border-amber-500/45 bg-amber-500/[0.035] px-3 py-2.5">
       <div className="flex items-start gap-2">
         <ShieldCheck className="mt-0.5 text-amber-600" size={15} />
         <div className="min-w-0 flex-1">
@@ -1108,28 +1565,39 @@ function ApprovalCard({
           </div>
         </div>
       </div>
-      <div className="mt-3 flex justify-end gap-1.5">
-        <button
-          className="h-7 rounded-md px-2 text-[11px] text-muted-foreground hover:bg-accent"
-          type="button"
-          onClick={() => onApprove(approval, 'decline')}
-        >
-          拒绝
-        </button>
-        <button
-          className="h-7 rounded-md border border-border bg-background px-2 text-[11px] hover:bg-accent"
-          type="button"
-          onClick={() => onApprove(approval, 'acceptForSession')}
-        >
-          本次任务允许
-        </button>
-        <button
-          className="h-7 rounded-md bg-foreground px-2 text-[11px] text-background"
-          type="button"
-          onClick={() => onApprove(approval, 'accept')}
-        >
-          允许
-        </button>
+      <div className="mt-2.5 flex flex-wrap justify-end gap-1.5">
+        {approval.decisions.length === 0 ? (
+          <p className="mr-auto text-[10px] leading-4 text-muted-foreground">
+            当前客户端不支持服务端要求的审批方式。
+          </p>
+        ) : null}
+        {approval.decisions.includes('decline') ? (
+          <button
+            className="h-7 rounded-md px-2 text-[11px] text-muted-foreground hover:bg-accent"
+            type="button"
+            onClick={() => onApprove(approval, 'decline')}
+          >
+            拒绝
+          </button>
+        ) : null}
+        {approval.decisions.includes('acceptForSession') ? (
+          <button
+            className="h-7 rounded-md border border-border bg-background px-2 text-[11px] hover:bg-accent"
+            type="button"
+            onClick={() => onApprove(approval, 'acceptForSession')}
+          >
+            本次任务允许
+          </button>
+        ) : null}
+        {approval.decisions.includes('accept') ? (
+          <button
+            className="h-7 rounded-md bg-foreground px-2 text-[11px] text-background"
+            type="button"
+            onClick={() => onApprove(approval, 'accept')}
+          >
+            允许
+          </button>
+        ) : null}
       </div>
     </section>
   );
