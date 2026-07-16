@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-15
+updated: 2026-07-16
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -32,4 +32,4 @@ referenced_by: AGENTS.md#knowledge-map
 
 ## Local Files And Assets
 
-工作区文档 API 必须保留 Markdown 源文件。新资源写入工作区根相对 `.madora/assets/files/...` 路径；预览和清理仍需兼容旧 `madora-asset://{assetId}` 引用。
+工作区文档 API 必须保留 Markdown 源文件。`upload_workspace_asset` 返回的 `madora-asset://{assetId}` 是新资源唯一的 Markdown 持久化引用；`.madora/assets/files/...` 只描述索引中的物理文件位置。预览、引用扫描和清理必须兼容旧相对路径引用，成功解析后可在下一次文档保存时规范化为协议引用，解析失败时不得改写原文。

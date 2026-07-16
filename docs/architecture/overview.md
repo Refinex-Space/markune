@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-15
+updated: 2026-07-16
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -36,7 +36,7 @@ AI 面板是工作区级客户端，不在浏览器渲染器中运行 Node.js SD
 
 持久化文档始终为 Markdown 文件。磁盘格式、内存草稿和编辑器输入/输出必须保持 Markdown 字符串边界，禁止重新引入富文本投影层。
 
-Markweave 只接收 frontmatter 解析后的正文；保存时必须重新序列化受保护的 frontmatter。新上传资源写入相对工作区根目录的 `.madora/assets/files/{shard}/{hash}.{ext}`，旧 `madora-asset://{assetId}` 保持只读兼容。
+Markweave 只接收 frontmatter 解析后的正文；保存时必须重新序列化受保护的 frontmatter。新上传资源的物理文件写入工作区根目录下的 `.madora/assets/files/{shard}/{hash}.{ext}`，Markdown 持久化引用统一使用 `madora-asset://{assetId}`。编辑器展示前通过工作区资产索引解析为受控本地 URL；旧 `.madora/assets/files/...` 引用保持只读兼容，并在成功解析后的下一次保存中规范化为协议引用。
 
 ## Desktop Build Boundary
 

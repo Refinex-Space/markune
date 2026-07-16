@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-15
+updated: 2026-07-16
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -28,5 +28,5 @@ referenced_by: AGENTS.md#knowledge-map
 
 ## Uploads And Links
 
-- 上传资源必须保留在工作区资源目录内，Markdown 仅存储相对 `.madora/assets/files/...` 路径或旧资源引用。
+- 上传资源必须保留在工作区资源目录内，Markdown 新写入只存储 `madora-asset://{assetId}`，不得把绝对路径或文档层级相关路径作为资产身份。协议解析必须经工作区资产索引，并继续对物理路径执行 canonicalize 与资源目录边界校验；旧 `.madora/assets/files/...` 引用只读兼容。
 - 链接卡片只能使用既有的受限预览 route 或 Tauri 命令；不得在渲染器直接请求任意 URL。

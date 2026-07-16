@@ -329,7 +329,7 @@ describe('MarkdownEditor', () => {
     toStorageMarkdownMock.mockImplementation((markdown: string) =>
       markdown.replace(
         'asset://localhost/ws/.madora/assets/files/aa/hash.png',
-        '.madora/assets/files/aa/hash.png',
+        'madora-asset://hash',
       ),
     );
 
@@ -345,7 +345,7 @@ describe('MarkdownEditor', () => {
     });
 
     expect(onMarkdownChange).toHaveBeenLastCalledWith(
-      '![图](.madora/assets/files/aa/hash.png)',
+      '![图](madora-asset://hash)',
     );
   });
 

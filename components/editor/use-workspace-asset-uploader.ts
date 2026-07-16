@@ -14,6 +14,7 @@ import {
 import {
   extractWorkspaceAssetReferences,
   getWorkspaceAssetIdFromReference,
+  LOCAL_ASSET_URL_PREFIX,
 } from '@/components/workspace/workspace-local-assets';
 
 export interface WorkspaceAssetUploadBridge {
@@ -81,10 +82,11 @@ export function useWorkspaceAssetUploader(
           try {
             const asset = await resolveWorkspaceAsset(rootPath, assetId);
             const displayUrl = convertFileSrc(asset.absolutePath);
+            const storageReference = `${LOCAL_ASSET_URL_PREFIX}${assetId}`;
 
             replacements.set(reference, displayUrl);
-            storageToDisplayRef.current.set(reference, displayUrl);
-            displayToStorageRef.current.set(displayUrl, reference);
+            storageToDisplayRef.current.set(storageReference, displayUrl);
+            displayToStorageRef.current.set(displayUrl, storageReference);
           } catch (error) {
             console.warn('Failed to resolve workspace asset.', error);
           }
@@ -133,7 +135,7 @@ export function useWorkspaceAssetUploader(
         base64Data: await fileToBase64(file),
       });
       const displayUrl = convertFileSrc(uploaded.absolutePath);
-      const storageReference = uploaded.relativePath || uploaded.url;
+      const storageReference = uploaded.url;
 
       displayToStorageRef.current.set(displayUrl, storageReference);
       storageToDisplayRef.current.set(storageReference, displayUrl);

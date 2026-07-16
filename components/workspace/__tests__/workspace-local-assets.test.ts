@@ -24,7 +24,7 @@ describe('workspace-local-assets', () => {
   });
 
   describe('isLocalAssetUrl', () => {
-    it('只把 madora-asset:// 识别为 legacy URL', () => {
+    it('只把 madora-asset:// 识别为正式资产 URL', () => {
       expect(isLocalAssetUrl('madora-asset://abc')).toBe(true);
       expect(isLocalAssetUrl('.madora/assets/files/ab/hash.png')).toBe(false);
       expect(isLocalAssetUrl('refinex-asset://abc')).toBe(false);
@@ -39,7 +39,7 @@ describe('workspace-local-assets', () => {
   });
 
   describe('workspace asset relative path', () => {
-    it('识别新的工作区根相对路径', () => {
+    it('识别正式协议引用和兼容的工作区根相对路径', () => {
       expect(LOCAL_ASSET_RELATIVE_PREFIX).toBe('.madora/assets/files/');
       expect(isWorkspaceAssetRelativePath('.madora/assets/files/ab/hash.png'))
         .toBe(true);
@@ -52,7 +52,7 @@ describe('workspace-local-assets', () => {
       expect(isWorkspaceAssetReference('https://example.com/a.png')).toBe(false);
     });
 
-    it('从 legacy URL 和相对路径提取资产 id', () => {
+    it('从正式协议 URL 和兼容相对路径提取资产 id', () => {
       expect(getWorkspaceAssetIdFromReference('madora-asset://abc-1')).toBe(
         'abc-1',
       );
@@ -94,7 +94,7 @@ describe('workspace-local-assets', () => {
       expect(readWorkspaceAssetDataMock).toHaveBeenCalledWith('/repo', 'asset-a');
     });
 
-    it('把新相对路径图片资源转成 data URL', async () => {
+    it('把兼容相对路径图片资源转成 data URL', async () => {
       readWorkspaceAssetDataMock.mockResolvedValueOnce({
         id: 'asset-a',
         name: 'cover.png',
