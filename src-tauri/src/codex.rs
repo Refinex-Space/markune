@@ -2,6 +2,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::env;
+use std::ffi::OsStr;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -12,6 +13,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 const INITIALIZE_REQUEST_ID: u64 = 0;
 const CODEX_EVENT_NAME: &str = "codex:event";
+const CODEX_STORAGE_MODE: &str = "sharedCodexHome";
 
 #[derive(Default)]
 pub struct CodexState {
@@ -30,6 +32,7 @@ impl Drop for CodexState {
 
 struct CodexSession {
     root: PathBuf,
+    storage_root: PathBuf,
     binary_source: String,
     version: String,
     writer: Arc<Mutex<ChildStdin>>,
@@ -44,7 +47,14 @@ pub struct CodexRuntimeInfo {
     running: bool,
     binary_source: Option<String>,
     version: Option<String>,
+    storage_mode: String,
+    storage_root: Option<String>,
     message: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct CodexStorageLayout {
+    root: PathBuf,
 }
 
 struct CodexBinary {
@@ -55,21 +65,22 @@ struct CodexBinary {
 
 #[tauri::command]
 pub fn codex_runtime_probe(app: AppHandle) -> CodexRuntimeInfo {
+    let storage = match resolve_codex_storage(&app, None) {
+        Ok(storage) => storage,
+        Err(message) => return unavailable_runtime_info(message, None),
+    };
+
     match resolve_codex_binary(&app) {
         Ok(binary) => CodexRuntimeInfo {
             available: true,
             running: false,
             binary_source: Some(binary.source),
             version: Some(binary.version),
+            storage_mode: CODEX_STORAGE_MODE.to_string(),
+            storage_root: Some(display_path(&storage.root)),
             message: None,
         },
-        Err(message) => CodexRuntimeInfo {
-            available: false,
-            running: false,
-            binary_source: None,
-            version: None,
-            message: Some(message),
-        },
+        Err(message) => unavailable_runtime_info(message, Some(&storage.root)),
     }
 }
 
@@ -80,13 +91,17 @@ pub fn codex_runtime_start(
     root_path: String,
 ) -> Result<CodexRuntimeInfo, String> {
     let root = validate_workspace_root(&root_path)?;
+    let storage = resolve_codex_storage(&app, Some(&root))?;
     let mut session_guard = state
         .session
         .lock()
         .map_err(|_| "Codex 运行时状态锁已损坏".to_string())?;
 
     if let Some(session) = session_guard.as_mut() {
-        if session.root == root && session.child.try_wait().ok().flatten().is_none() {
+        if session.root == root
+            && session.storage_root == storage.root
+            && session.child.try_wait().ok().flatten().is_none()
+        {
             return Ok(runtime_info_for_session(session));
         }
 
@@ -95,8 +110,11 @@ pub fn codex_runtime_start(
     }
 
     let binary = resolve_codex_binary(&app)?;
+    let app_server_args = codex_app_server_args(&storage.root)?;
     let mut child = Command::new(&binary.path)
-        .args(["app-server", "--listen", "stdio://"])
+        .args(app_server_args)
+        .env("CODEX_HOME", &storage.root)
+        .env_remove("CODEX_SQLITE_HOME")
         .current_dir(&root)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -178,6 +196,7 @@ pub fn codex_runtime_start(
 
     let session = CodexSession {
         root,
+        storage_root: storage.root,
         binary_source: binary.source,
         version: binary.version,
         writer,
@@ -465,8 +484,95 @@ fn runtime_info_for_session(session: &CodexSession) -> CodexRuntimeInfo {
         running: true,
         binary_source: Some(session.binary_source.clone()),
         version: Some(session.version.clone()),
+        storage_mode: CODEX_STORAGE_MODE.to_string(),
+        storage_root: Some(display_path(&session.storage_root)),
         message: None,
     }
+}
+
+fn unavailable_runtime_info(message: String, storage_root: Option<&Path>) -> CodexRuntimeInfo {
+    CodexRuntimeInfo {
+        available: false,
+        running: false,
+        binary_source: None,
+        version: None,
+        storage_mode: CODEX_STORAGE_MODE.to_string(),
+        storage_root: storage_root.map(display_path),
+        message: Some(message),
+    }
+}
+
+fn resolve_codex_storage(
+    app: &AppHandle,
+    workspace_root: Option<&Path>,
+) -> Result<CodexStorageLayout, String> {
+    let user_home = app
+        .path()
+        .home_dir()
+        .map_err(|error| format!("无法确定用户主目录: {error}"))?;
+    let configured_home = env::var_os("CODEX_HOME");
+
+    resolve_codex_storage_layout(&user_home, configured_home.as_deref(), workspace_root)
+}
+
+fn resolve_codex_storage_layout(
+    user_home: &Path,
+    configured_home: Option<&OsStr>,
+    workspace_root: Option<&Path>,
+) -> Result<CodexStorageLayout, String> {
+    let is_configured = configured_home.is_some();
+    let candidate = configured_home
+        .map(PathBuf::from)
+        .unwrap_or_else(|| user_home.join(".codex"));
+
+    if !candidate.is_absolute() {
+        return Err("CODEX_HOME 必须是绝对路径".to_string());
+    }
+
+    if is_configured {
+        if !candidate.is_dir() {
+            return Err("CODEX_HOME 必须指向已存在的目录".to_string());
+        }
+    } else {
+        fs::create_dir_all(&candidate)
+            .map_err(|error| format!("创建默认 Codex 存储目录失败: {error}"))?;
+    }
+
+    let root = candidate
+        .canonicalize()
+        .map_err(|error| format!("Codex 存储目录不可用: {error}"))?;
+
+    if let Some(workspace_root) = workspace_root {
+        let workspace_root = workspace_root
+            .canonicalize()
+            .map_err(|error| format!("工作区路径不可用: {error}"))?;
+
+        if root == workspace_root || root.starts_with(&workspace_root) {
+            return Err("Codex 存储目录不能位于当前工作区内".to_string());
+        }
+    }
+
+    Ok(CodexStorageLayout { root })
+}
+
+fn codex_app_server_args(codex_home: &Path) -> Result<Vec<String>, String> {
+    let codex_home = codex_home
+        .to_str()
+        .ok_or_else(|| "Codex 存储目录必须是有效的 UTF-8 路径".to_string())?;
+    let encoded_home = serde_json::to_string(codex_home)
+        .map_err(|error| format!("编码 Codex SQLite 存储目录失败: {error}"))?;
+
+    Ok(vec![
+        "app-server".to_string(),
+        "--listen".to_string(),
+        "stdio://".to_string(),
+        "-c".to_string(),
+        format!("sqlite_home={encoded_home}"),
+    ])
+}
+
+fn display_path(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
 }
 
 fn resolve_codex_binary(app: &AppHandle) -> Result<CodexBinary, String> {
@@ -544,6 +650,103 @@ fn find_on_path(executable_name: &str) -> Option<PathBuf> {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn storage_layout_creates_default_codex_home_outside_workspace() {
+        let user_home = tempdir().expect("create user home");
+        let workspace = tempdir().expect("create workspace");
+
+        let layout = resolve_codex_storage_layout(user_home.path(), None, Some(workspace.path()))
+            .expect("resolve default storage");
+
+        assert_eq!(
+            layout.root,
+            user_home
+                .path()
+                .join(".codex")
+                .canonicalize()
+                .expect("canonicalize default storage")
+        );
+        assert!(layout.root.is_dir());
+    }
+
+    #[test]
+    fn storage_layout_accepts_existing_absolute_codex_home() {
+        let user_home = tempdir().expect("create user home");
+        let workspace = tempdir().expect("create workspace");
+        let configured_home = tempdir().expect("create configured Codex home");
+
+        let layout = resolve_codex_storage_layout(
+            user_home.path(),
+            Some(configured_home.path().as_os_str()),
+            Some(workspace.path()),
+        )
+        .expect("resolve configured storage");
+
+        assert_eq!(
+            layout.root,
+            configured_home
+                .path()
+                .canonicalize()
+                .expect("canonicalize configured storage")
+        );
+    }
+
+    #[test]
+    fn storage_layout_rejects_relative_or_workspace_codex_home() {
+        let user_home = tempdir().expect("create user home");
+        let workspace = tempdir().expect("create workspace");
+        let workspace_storage = workspace.path().join(".codex");
+        fs::create_dir(&workspace_storage).expect("create workspace storage");
+
+        assert!(resolve_codex_storage_layout(
+            user_home.path(),
+            Some(Path::new(".codex").as_os_str()),
+            Some(workspace.path()),
+        )
+        .is_err());
+        assert!(resolve_codex_storage_layout(
+            user_home.path(),
+            Some(workspace_storage.as_os_str()),
+            Some(workspace.path()),
+        )
+        .is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn storage_layout_rejects_symlink_into_workspace() {
+        use std::os::unix::fs::symlink;
+
+        let user_home = tempdir().expect("create user home");
+        let workspace = tempdir().expect("create workspace");
+        let external = tempdir().expect("create external directory");
+        let configured_home = external.path().join("codex-home");
+        symlink(workspace.path(), &configured_home).expect("create storage symlink");
+
+        assert!(resolve_codex_storage_layout(
+            user_home.path(),
+            Some(configured_home.as_os_str()),
+            Some(workspace.path()),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn app_server_args_pin_sqlite_to_codex_home() {
+        let codex_home = Path::new("/tmp/Madora Codex Home");
+
+        assert_eq!(
+            codex_app_server_args(codex_home).expect("build app server args"),
+            vec![
+                "app-server",
+                "--listen",
+                "stdio://",
+                "-c",
+                "sqlite_home=\"/tmp/Madora Codex Home\"",
+            ]
+        );
+    }
 
     #[test]
     fn allowlist_rejects_generic_filesystem_and_shell_methods() {

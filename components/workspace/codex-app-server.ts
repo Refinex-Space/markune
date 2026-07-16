@@ -7,6 +7,8 @@ export interface CodexRuntimeInfo {
   running: boolean;
   binarySource: string | null;
   version: string | null;
+  storageMode: 'sharedCodexHome';
+  storageRoot: string | null;
   message: string | null;
 }
 
