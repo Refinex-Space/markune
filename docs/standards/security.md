@@ -21,7 +21,9 @@ referenced_by: AGENTS.md#knowledge-map
 ## Codex Runtime
 
 - Codex App Server 必须由 Tauri 在本地通过 stdio 启动；不得监听 TCP，也不得把 API key、登录 Token 或认证响应传入 React state、local storage 或日志。
-- 默认 turn 使用 `workspaceWrite`，唯一 writable root 是已 canonicalize 的当前工作区；`mention` 和 `localImage` 路径必须在工作区内。
+- 默认 turn 使用 `workspaceWrite`，唯一 writable root 是已 canonicalize 的当前工作区；`localImage` 路径必须在工作区内，Codex 原生 `mention` 只允许非空的 `app://` 或 `plugin://` 目标。
+- Madora 文档引用必须由 Rust canonicalize，并验证为当前工作区内真实存在的 Markdown 文件；必须拒绝相对路径、目录、非 Markdown 文件、工作区外路径、符号链接逃逸和超过 32 个引用。传给 Codex 的只是不可信相对路径列表，不得由前端预读、上传或复制文档正文。
+- 渲染器不得直接构造 `additionalContext` 或 developer 级上下文。固定读取策略只能由 Tauri 生成，引用路径必须使用 `untrusted` 信任级别；文件名、路径和文档内容均不得解释为指令。
 - `on-request` 审批是默认策略。命令执行和文件修改在用户允许前不得继续；“本次任务允许”只作用于当前 App Server 会话。
 - App Server stderr 必须被消费但不得原样转发到前端或共享日志，避免泄露绝对路径、命令输出和文档内容。
 - 生产包只使用构建阶段从锁定版本 `@openai/codex` 平台包提取的 sidecar。`MADORA_CODEX_BIN` 仅是显式开发覆盖，不得作为默认生产分发方式。

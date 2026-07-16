@@ -27,7 +27,10 @@ referenced_by: AGENTS.md#knowledge-map
 - 客户端请求必须由 Rust allowlist 限制。当前允许账户、模型、线程、turn、MCP inventory/OAuth、skills 与审批相关方法；禁止向渲染器暴露通用 App Server `fs/*`、`command/exec` 和 `thread/shellCommand`。
 - App Server 的响应、通知与 server request 使用统一 `codex:event` 事件。前端必须按 JSON-RPC `id` 关联请求，并在运行时退出时拒绝所有 pending 请求。
 - 消息与工具通知必须按首次到达顺序保存在同一会话流中；同一 item 的完成通知只更新原位置，不得把工具记录统一追加到回答末尾。`thread/name/updated` 必须同步当前标题与历史列表。
-- 显式文档提及必须同时发送独立 `mention` 输入和文本输入中的 `text_elements`；`byteRange` 使用 UTF-8 字节偏移。会话历史恢复时只能依据这些区间把用户消息渲染为文档链接，不得按普通文件名字符串猜测。
+- Markdown 文档不得作为 Codex 原生 `mention` 输入发送；该类型只用于 `app://` 与 `plugin://` 目标。显式文档提及必须把带引号的工作区相对路径写入文本，并用 `text_elements.placeholder` 保存显示标题；`byteRange` 使用替换后文本的 UTF-8 字节偏移。
+- 当前文档与显式提及文档只可通过顶层 `madoraDocumentReferences` 传给 Tauri。Rust 必须移除该私有字段、校验绝对路径与工作区边界，再生成 `madora_document_context_policy`（`application`）和 `madora_document_references`（`untrusted`）两项 `additionalContext`；渲染器直接提交原始 `additionalContext` 必须被拒绝。
+- 会话历史恢复只能依据 `text_elements` 的精确区间解析受控的带引号相对路径，并用当前工作区根目录恢复可点击绝对路径；绝对路径、空路径和包含父目录段的标记必须被拒绝。旧版 `mention + text_elements` 仅保留读取兼容，不得继续生成。
+- `turn/start.additionalContext` 是随固定 Codex sidecar 使用的实验协议。升级 Codex 时必须重新生成带 `--experimental` 的 App Server Schema，并运行前端与 Rust 契约测试。
 - 命令与文件修改审批只能响应 App Server 已登记的 server request id，不能由前端构造任意响应。
 
 ## Local Files And Assets

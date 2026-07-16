@@ -55,7 +55,7 @@ import {
 } from './codex-app-server';
 import {
   conversationFromThread,
-  createMentionTextElements,
+  createDocumentAwareUserInput,
   createThreadTitle,
   createEmptyConversation,
   reduceCodexProtocolMessage,
@@ -123,7 +123,7 @@ const STARTER_PROMPTS = [
   '基于当前内容新建一篇关联文档',
 ];
 
-const DEVELOPER_INSTRUCTIONS = `你运行在 Madora 的工作区级 AI 面板中。只可在当前工作区内读取和修改文件。Madora 以 Markdown 为唯一持久化文档格式，请保持现有 frontmatter 和目录约定。所有命令与文件修改都必须经过客户端审批。删除文档前必须明确说明将删除的路径和影响，并等待用户确认。不要读取、输出或记录密钥、Token、Cookie、连接串或其他敏感信息。完成文件变更后简要列出实际修改和验证结果。`;
+const DEVELOPER_INSTRUCTIONS = `你运行在 Madora 的工作区级 AI 面板中。只可在当前工作区内读取和修改文件。Madora 以 Markdown 为唯一持久化文档格式，请保持现有 frontmatter 和目录约定。收到 Madora 文档引用且用户请求依赖其内容时，必须先使用工作区工具读取相关文件，并让读取动作通过正常工具事件返回；不得在尝试读取前声称缺少路径。所有命令与文件修改都必须经过客户端审批。删除文档前必须明确说明将删除的路径和影响，并等待用户确认。不要读取、输出或记录密钥、Token、Cookie、连接串或其他敏感信息。完成文件变更后简要列出实际修改和验证结果。`;
 
 export function AiPanel({
   currentDocument,
@@ -280,7 +280,7 @@ export function AiPanel({
       }
 
       setConversation((current) =>
-        reduceCodexProtocolMessage(current, message),
+        reduceCodexProtocolMessage(current, message, workspaceRootPath),
       );
 
       const threadNameUpdate = threadNameUpdateFromMessage(message);
@@ -375,11 +375,13 @@ export function AiPanel({
         sandbox: 'workspace-write',
       });
       setActiveThread(response.thread);
-      setConversation(conversationFromThread(response.thread));
+      setConversation(
+        conversationFromThread(response.thread, workspaceRootPath ?? undefined),
+      );
     } catch (error) {
       setRuntimeError(getErrorMessage(error));
     }
-  }, []);
+  }, [workspaceRootPath]);
 
   const removeThread = React.useCallback(
     async (thread: CodexThread, action: 'archive' | 'delete') => {
@@ -420,6 +422,7 @@ export function AiPanel({
         ...(currentDocument ? [currentDocument] : []),
         ...selectedMentions,
       ]);
+      const userInput = createDocumentAwareUserInput(text, selectedMentions);
       setComposerValue('');
       setSelectedMentions([]);
       setMentionQuery(null);
@@ -478,18 +481,13 @@ export function AiPanel({
             input: [
               {
                 type: 'text',
-                text,
-                text_elements: createMentionTextElements(
-                  text,
-                  selectedMentions,
-                ),
+                text: userInput.text,
+                text_elements: userInput.textElements,
               },
-              ...contextDocuments.map((document) => ({
-                type: 'mention',
-                name: document.title || document.name,
-                path: document.absolutePath,
-              })),
             ],
+            madoraDocumentReferences: contextDocuments.map((document) => ({
+              path: document.absolutePath,
+            })),
             cwd: workspaceRootPath,
             approvalPolicy: 'on-request',
             sandboxPolicy: {
@@ -855,7 +853,7 @@ function PanelContent({
   );
 }
 
-function ConversationEntryRow({
+export function ConversationEntryRow({
   entry,
   onOpenDocument,
   previous,
@@ -884,18 +882,19 @@ function ConversationEntryRow({
       className={cn(
         'text-[13px] leading-6',
         previous && 'mt-5',
-        entry.role === 'user' &&
-          'ml-auto max-w-[88%] rounded-xl bg-muted/70 px-3 py-2',
+        entry.role === 'user' && 'flex justify-end',
       )}
     >
       {entry.role === 'assistant' ? (
         <AiMessageContent markdown={entry.text} />
       ) : (
-        <UserMessageContent
-          mentions={entry.mentions ?? []}
-          text={entry.text}
-          onOpenMention={onOpenDocument}
-        />
+        <div className="w-max max-w-[88%] break-words rounded-xl bg-muted/70 px-3 py-2">
+          <UserMessageContent
+            mentions={entry.mentions ?? []}
+            text={entry.text}
+            onOpenMention={onOpenDocument}
+          />
+        </div>
       )}
     </article>
   );
@@ -929,7 +928,7 @@ export function UserMessageContent({
       content.push(text.slice(cursor, mention.start));
     }
 
-    const label = text.slice(mention.start, mention.end) || mention.label;
+    const label = mention.label || text.slice(mention.start, mention.end);
     content.push(
       <button
         aria-label={label}

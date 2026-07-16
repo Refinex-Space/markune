@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   conversationFromThread,
+  createDocumentAwareUserInput,
   createMentionTextElements,
   createThreadTitle,
   createEmptyConversation,
@@ -186,6 +187,230 @@ describe('AI panel event reducer', () => {
         placeholder: 'Spring AI 基本介绍',
       },
     ]);
+  });
+
+  it('把文档标题替换为带引号的工作区相对路径并保留显示标题', () => {
+    const text = '总结一下 2026 半年度计划';
+    const prefix = '总结一下 ';
+    const result = createDocumentAwareUserInput(text, [
+      {
+        start: prefix.length,
+        end: text.length,
+        label: '2026 半年度计划',
+        path: '/workspace/Planning/2026 半年度计划.md',
+        relativePath: 'Planning/2026 半年度计划.md',
+      },
+    ]);
+
+    expect(result).toEqual({
+      text: '总结一下 "Planning/2026 半年度计划.md"',
+      textElements: [
+        {
+          byteRange: {
+            start: new TextEncoder().encode(prefix).length,
+            end: new TextEncoder().encode(
+              '总结一下 "Planning/2026 半年度计划.md"',
+            ).length,
+          },
+          placeholder: '2026 半年度计划',
+        },
+      ],
+    });
+  });
+
+  it('按文本顺序转换多个文档并忽略无效或重叠区间', () => {
+    const text = '比较 Alpha 和 Beta';
+    const result = createDocumentAwareUserInput(text, [
+      {
+        start: text.indexOf('Beta'),
+        end: text.length,
+        label: 'Beta',
+        path: '/workspace/Beta.md',
+        relativePath: 'Docs/Beta.md',
+      },
+      {
+        start: text.indexOf('Alpha'),
+        end: text.indexOf('Alpha') + 'Alpha'.length,
+        label: 'Alpha',
+        path: '/workspace/Alpha.md',
+        relativePath: 'Docs/Alpha.md',
+      },
+      {
+        start: text.indexOf('Alpha') + 1,
+        end: text.indexOf('Alpha') + 'Alpha'.length,
+        label: '重叠',
+        path: '/workspace/Overlap.md',
+        relativePath: 'Docs/Overlap.md',
+      },
+      {
+        start: -1,
+        end: 2,
+        label: '无效',
+        path: '/workspace/Invalid.md',
+        relativePath: '../Invalid.md',
+      },
+    ]);
+
+    expect(result.text).toBe('比较 "Docs/Alpha.md" 和 "Docs/Beta.md"');
+    expect(result.textElements.map((element) => element.placeholder)).toEqual([
+      'Alpha',
+      'Beta',
+    ]);
+  });
+
+  it('从新格式历史消息恢复标题链接和工作区绝对路径', () => {
+    const prefix = '总结 ';
+    const reference = '"Planning/2026 半年度计划.md"';
+    const text = `${prefix}${reference}`;
+    const state = conversationFromThread({
+      id: 'thread-document-reference',
+      name: '总结计划',
+      preview: '',
+      createdAt: 0,
+      updatedAt: 0,
+      cwd: '/workspace',
+      status: {},
+      turns: [
+        {
+          id: 'turn-document-reference',
+          status: 'completed',
+          items: [
+            {
+              id: 'message-document-reference',
+              type: 'userMessage',
+              content: [
+                {
+                  type: 'text',
+                  text,
+                  text_elements: [
+                    {
+                      byteRange: {
+                        start: new TextEncoder().encode(prefix).length,
+                        end: new TextEncoder().encode(text).length,
+                      },
+                      placeholder: '2026 半年度计划',
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(state.entries[0]).toMatchObject({
+      type: 'message',
+      text,
+      mentions: [
+        {
+          start: prefix.length,
+          end: text.length,
+          label: '2026 半年度计划',
+          path: '/workspace/Planning/2026 半年度计划.md',
+        },
+      ],
+    });
+  });
+
+  it('拒绝从历史文本元素恢复绝对路径或父目录路径', () => {
+    const text = '读取 "/etc/passwd" 和 "../secret.md"';
+    const firstStart = '读取 '.length;
+    const firstEnd = firstStart + '"/etc/passwd"'.length;
+    const secondStart = text.indexOf('"../secret.md"');
+    const state = conversationFromThread({
+      id: 'thread-invalid-reference',
+      name: '无效引用',
+      preview: '',
+      createdAt: 0,
+      updatedAt: 0,
+      cwd: '/workspace',
+      status: {},
+      turns: [
+        {
+          id: 'turn-invalid-reference',
+          status: 'completed',
+          items: [
+            {
+              id: 'message-invalid-reference',
+              type: 'userMessage',
+              content: [
+                {
+                  type: 'text',
+                  text,
+                  text_elements: [
+                    {
+                      byteRange: {
+                        start: new TextEncoder().encode(
+                          text.slice(0, firstStart),
+                        ).length,
+                        end: new TextEncoder().encode(
+                          text.slice(0, firstEnd),
+                        ).length,
+                      },
+                      placeholder: '系统文件',
+                    },
+                    {
+                      byteRange: {
+                        start: new TextEncoder().encode(
+                          text.slice(0, secondStart),
+                        ).length,
+                        end: new TextEncoder().encode(text).length,
+                      },
+                      placeholder: '父目录文件',
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(state.entries[0]).toMatchObject({ mentions: [] });
+  });
+
+  it('从实时用户消息按当前工作区恢复文档链接', () => {
+    const prefix = '读取 ';
+    const text = `${prefix}"Docs/note.md"`;
+    const state = reduceCodexProtocolMessage(
+      createEmptyConversation(),
+      {
+        method: 'item/completed',
+        params: {
+          item: {
+            id: 'message-live-reference',
+            type: 'userMessage',
+            content: [
+              {
+                type: 'text',
+                text,
+                text_elements: [
+                  {
+                    byteRange: {
+                      start: new TextEncoder().encode(prefix).length,
+                      end: new TextEncoder().encode(text).length,
+                    },
+                    placeholder: '工作笔记',
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+      '/active-workspace',
+    );
+
+    expect(state.entries[0]).toMatchObject({
+      mentions: [
+        {
+          label: '工作笔记',
+          path: '/active-workspace/Docs/note.md',
+        },
+      ],
+    });
   });
 
   it('把工具调用映射为低噪声时间线', () => {

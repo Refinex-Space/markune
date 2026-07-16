@@ -7,6 +7,7 @@ import {
   AiComposer,
   AiMessageContent,
   AiPanelHeader,
+  ConversationEntryRow,
   UserMessageContent,
 } from '../ai-panel';
 
@@ -19,6 +20,31 @@ const mentionedDocument = {
 };
 
 describe('AI message rendering', () => {
+  it('用户消息按内容宽度收缩并保留长消息最大宽度', () => {
+    render(
+      <ConversationEntryRow
+        entry={{
+          id: 'user-message',
+          role: 'user',
+          text: '你好啊',
+          type: 'message',
+        }}
+        previous={null}
+        onOpenDocument={vi.fn()}
+      />,
+    );
+
+    const content = screen.getByText('你好啊');
+    const row = content.closest('article');
+    const bubble = content.parentElement;
+
+    expect(row?.className).toContain('flex');
+    expect(row?.className).toContain('justify-end');
+    expect(bubble?.className).toContain('w-max');
+    expect(bubble?.className).toContain('max-w-[88%]');
+    expect(bubble?.className).toContain('break-words');
+  });
+
   it('把 GFM 列表、行内代码和链接渲染为语义化内容', () => {
     render(
       <AiMessageContent
@@ -96,6 +122,37 @@ describe('AI message rendering', () => {
 
     await user.click(mention);
     expect(onOpenMention).toHaveBeenCalledWith('/workspace/README.md');
+  });
+
+  it('已发送消息隐藏模型使用的相对路径并显示文档标题', async () => {
+    const user = userEvent.setup();
+    const onOpenMention = vi.fn();
+    const prefix = '总结 ';
+    const path = '"Planning/2026 半年度计划.md"';
+
+    render(
+      <UserMessageContent
+        mentions={[
+          {
+            start: prefix.length,
+            end: `${prefix}${path}`.length,
+            label: '2026 半年度计划',
+            path: '/workspace/Planning/2026 半年度计划.md',
+          },
+        ]}
+        text={`${prefix}${path}`}
+        onOpenMention={onOpenMention}
+      />,
+    );
+
+    const mention = screen.getByRole('link', { name: '2026 半年度计划' });
+    expect(mention.textContent).toBe('2026 半年度计划');
+    expect(screen.queryByText(path)).toBeNull();
+
+    await user.click(mention);
+    expect(onOpenMention).toHaveBeenCalledWith(
+      '/workspace/Planning/2026 半年度计划.md',
+    );
   });
 
   it('把内联提及作为原子节点删除', async () => {

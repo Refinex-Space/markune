@@ -26,6 +26,10 @@ export interface AiMessageMention {
   start: number;
 }
 
+export interface AiDocumentInputMention extends AiMessageMention {
+  relativePath: string;
+}
+
 export interface AiTimelineItem {
   id: string;
   kind: AiTimelineKind;
@@ -60,12 +64,15 @@ export function createEmptyConversation(): AiConversationState {
   };
 }
 
-export function conversationFromThread(thread: CodexThread) {
+export function conversationFromThread(
+  thread: CodexThread,
+  workspaceRootPath: string = thread.cwd,
+) {
   const state = createEmptyConversation();
 
   for (const turn of thread.turns ?? []) {
     for (const item of turn.items ?? []) {
-      appendCompletedItem(state, item);
+      appendCompletedItem(state, item, workspaceRootPath);
     }
   }
 
@@ -75,6 +82,7 @@ export function conversationFromThread(thread: CodexThread) {
 export function reduceCodexProtocolMessage(
   state: AiConversationState,
   message: CodexProtocolMessage,
+  workspaceRootPath?: string | null,
 ): AiConversationState {
   const next: AiConversationState = {
     ...state,
@@ -122,7 +130,7 @@ export function reduceCodexProtocolMessage(
     }
 
     if (message.method === 'item/completed') {
-      appendCompletedItem(next, item);
+      appendCompletedItem(next, item, workspaceRootPath);
     } else {
       appendStartedItem(next, item);
     }
@@ -192,12 +200,13 @@ function appendStartedItem(
 function appendCompletedItem(
   state: AiConversationState,
   item: CodexThreadItem,
+  workspaceRootPath?: string | null,
 ) {
   const id = typeof item.id === 'string' ? item.id : `item-${state.entries.length}`;
   const type = item.type;
 
   if (type === 'userMessage') {
-    const message = messageFromUserMessage(item);
+    const message = messageFromUserMessage(item, workspaceRootPath);
     if (message.text) {
       upsertMessage(state, {
         id: typeof item.clientId === 'string' ? item.clientId : id,
@@ -332,6 +341,49 @@ export function createMentionTextElements(
     }));
 }
 
+export function createDocumentAwareUserInput(
+  text: string,
+  mentions: AiDocumentInputMention[],
+) {
+  const textElements: Array<{
+    byteRange: { end: number; start: number };
+    placeholder: string;
+  }> = [];
+  let inputCursor = 0;
+  let modelText = '';
+
+  for (const mention of [...mentions].sort(
+    (left, right) => left.start - right.start,
+  )) {
+    const relativePath = normalizeWorkspaceRelativePath(mention.relativePath);
+    if (
+      !relativePath ||
+      mention.start < inputCursor ||
+      mention.start < 0 ||
+      mention.end <= mention.start ||
+      mention.end > text.length
+    ) {
+      continue;
+    }
+
+    modelText += text.slice(inputCursor, mention.start);
+    const reference = JSON.stringify(relativePath);
+    const start = utf8ByteLength(modelText);
+    modelText += reference;
+    textElements.push({
+      byteRange: {
+        start,
+        end: utf8ByteLength(modelText),
+      },
+      placeholder: mention.label,
+    });
+    inputCursor = mention.end;
+  }
+
+  modelText += text.slice(inputCursor);
+  return { text: modelText, textElements };
+}
+
 export function threadNameUpdateFromMessage(
   message: CodexProtocolMessage,
 ): { threadId: string; name: string } | null {
@@ -346,7 +398,10 @@ export function threadNameUpdateFromMessage(
   return threadId && name ? { threadId, name } : null;
 }
 
-function messageFromUserMessage(item: CodexThreadItem) {
+function messageFromUserMessage(
+  item: CodexThreadItem,
+  workspaceRootPath?: string | null,
+) {
   if (!Array.isArray(item.content)) {
     return { mentions: [], text: '' };
   }
@@ -405,23 +460,39 @@ function messageFromUserMessage(item: CodexThreadItem) {
 
       const placeholder =
         typeof record.placeholder === 'string' ? record.placeholder : '';
-      const label = inputText.slice(start, end) || placeholder;
+      const referencedText = inputText.slice(start, end);
+      const label = placeholder || referencedText;
       const mentionIndex = mentionInputs.findIndex(
         (mention, index) =>
           !usedMentionIndexes.has(index) &&
-          (mention.name === placeholder || mention.name === label),
+          (mention.name === placeholder || mention.name === referencedText),
       );
 
-      if (mentionIndex < 0) {
+      if (mentionIndex >= 0) {
+        usedMentionIndexes.add(mentionIndex);
+        mentions.push({
+          start: baseOffset + start,
+          end: baseOffset + end,
+          label,
+          path: mentionInputs[mentionIndex].path,
+        });
         continue;
       }
 
-      usedMentionIndexes.add(mentionIndex);
+      const relativePath = parseHistoricalDocumentReference(referencedText);
+      const absolutePath =
+        relativePath && workspaceRootPath
+          ? joinWorkspacePath(workspaceRootPath, relativePath)
+          : null;
+      if (!absolutePath) {
+        continue;
+      }
+
       mentions.push({
         start: baseOffset + start,
         end: baseOffset + end,
         label,
-        path: mentionInputs[mentionIndex].path,
+        path: absolutePath,
       });
     }
   }
@@ -430,6 +501,58 @@ function messageFromUserMessage(item: CodexThreadItem) {
     text,
     mentions: mentions.sort((left, right) => left.start - right.start),
   };
+}
+
+function parseHistoricalDocumentReference(value: string) {
+  try {
+    const parsed = JSON.parse(value);
+    return typeof parsed === 'string'
+      ? normalizeWorkspaceRelativePath(parsed)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeWorkspaceRelativePath(value: string) {
+  const normalized = value.replaceAll('\\', '/');
+  if (
+    !normalized ||
+    normalized.startsWith('/') ||
+    /^[A-Za-z]:\//.test(normalized)
+  ) {
+    return null;
+  }
+
+  const segments = normalized.split('/');
+  if (
+    segments.some(
+      (segment) => !segment || segment === '.' || segment === '..',
+    )
+  ) {
+    return null;
+  }
+
+  return segments.join('/');
+}
+
+function joinWorkspacePath(root: string, relativePath: string) {
+  if (!root) {
+    return null;
+  }
+
+  const windowsRoot = /^[A-Za-z]:[\\/]/.test(root);
+  const separator = windowsRoot ? '\\' : '/';
+  const normalizedRoot = root.replace(/[\\/]+$/, '');
+  const normalizedRelative = windowsRoot
+    ? relativePath.replaceAll('/', '\\')
+    : relativePath;
+
+  if (!normalizedRoot && separator === '/') {
+    return `/${normalizedRelative}`;
+  }
+
+  return `${normalizedRoot}${separator}${normalizedRelative}`;
 }
 
 function utf8ByteLength(value: string) {
