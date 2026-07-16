@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Info, Palette, Settings } from 'lucide-react';
+import { Info, Palette, Settings, Sparkles } from 'lucide-react';
 import { useTheme } from 'next-themes';
 
 import {
@@ -25,7 +25,12 @@ import {
 import { cn } from '@/lib/utils';
 
 import { DocumentMetaPanel } from './document-meta-panel';
-import type { RightPanelMode, WorkspaceNode } from './workspace-types';
+import { AiPanel } from './ai-panel';
+import type {
+  RightPanelMode,
+  WorkspaceNode,
+  WorkspaceSearchResult,
+} from './workspace-types';
 
 export interface DocumentPanelData {
   frontmatter: Record<string, string>;
@@ -36,10 +41,13 @@ export interface DocumentPanelData {
 interface RightSidePanelProps {
   currentDocument: WorkspaceNode | null;
   documentPanelData: DocumentPanelData | null;
+  documents: WorkspaceSearchResult[];
   documentReadOnly: boolean;
   mode: RightPanelMode;
   width: number;
   workspaceRootPath: string | null;
+  onOpenDocument: (documentPath: string) => void;
+  onWorkspaceChanged: () => void | Promise<void>;
   onToggleDocumentReadOnly?: () => void;
 }
 
@@ -54,10 +62,13 @@ interface RightToolRailProps {
 export function RightSidePanel({
   currentDocument,
   documentPanelData,
+  documents,
   documentReadOnly,
   mode,
   width,
   workspaceRootPath,
+  onOpenDocument,
+  onWorkspaceChanged,
   onToggleDocumentReadOnly,
 }: RightSidePanelProps) {
   if (!mode) {
@@ -67,16 +78,26 @@ export function RightSidePanel({
   return (
     <aside
       className="flex h-full shrink-0 flex-col overflow-hidden border-l bg-background"
-      data-testid="document-meta-panel"
+      data-testid={mode === 'ai' ? 'ai-side-panel' : 'document-meta-panel'}
       style={{ width }}
     >
-      <DocumentMetaPanel
-        currentDocument={currentDocument}
-        documentPanelData={documentPanelData}
-        readOnly={documentReadOnly}
-        workspaceRootPath={workspaceRootPath}
-        onToggleReadOnly={onToggleDocumentReadOnly}
-      />
+      {mode === 'ai' ? (
+        <AiPanel
+          currentDocument={currentDocument}
+          documents={documents}
+          workspaceRootPath={workspaceRootPath}
+          onOpenDocument={onOpenDocument}
+          onWorkspaceChanged={onWorkspaceChanged}
+        />
+      ) : (
+        <DocumentMetaPanel
+          currentDocument={currentDocument}
+          documentPanelData={documentPanelData}
+          readOnly={documentReadOnly}
+          workspaceRootPath={workspaceRootPath}
+          onToggleReadOnly={onToggleDocumentReadOnly}
+        />
+      )}
     </aside>
   );
 }
@@ -89,7 +110,8 @@ export function RightToolRail({
   onOpenSettings,
 }: RightToolRailProps) {
   const { setTheme, theme } = useTheme();
-  const nextMode = mode === 'meta' ? null : 'meta';
+  const nextMetaMode = mode === 'meta' ? null : 'meta';
+  const nextAiMode = mode === 'ai' ? null : 'ai';
 
   return (
     <TooltipProvider>
@@ -104,11 +126,31 @@ export function RightToolRail({
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              aria-label={mode === 'ai' ? '折叠 AI 面板' : '展开 AI 面板'}
+              className={cn(
+                rightToolButtonClassName(),
+                mode === 'ai' && 'bg-accent text-foreground',
+              )}
+              data-testid="ai-panel-icon-button"
+              type="button"
+              onClick={() => onModeChange(nextAiMode)}
+            >
+              <Sparkles size={17} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side={orientation === 'header' ? 'bottom' : 'left'} sideOffset={8}>
+            {mode === 'ai' ? '折叠 AI 面板' : '展开 AI 面板'}
+          </TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
               aria-label={mode === 'meta' ? '折叠元信息面板' : '展开元信息面板'}
               className={rightToolButtonClassName()}
               data-testid="document-meta-panel-icon-button"
               type="button"
-              onClick={() => onModeChange(nextMode)}
+              onClick={() => onModeChange(nextMetaMode)}
             >
               <Info size={17} />
             </button>

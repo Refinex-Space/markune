@@ -43,6 +43,7 @@ import type {
   DocumentSaveState,
   MarkdownDocumentContent,
   MarkdownDraft,
+  RightPanelMode,
   WorkspaceLoadError,
   WorkspaceHistoryItem,
   WorkspaceMoveRequest,
@@ -81,7 +82,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   const [error, setError] = React.useState<WorkspaceLoadError | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
   const [isSidebarCollapsed, setSidebarCollapsed] = React.useState(false);
-  const [rightPanelMode, setRightPanelMode] = React.useState<'meta' | null>(null);
+  const [rightPanelMode, setRightPanelMode] = React.useState<RightPanelMode>(null);
   const [storedWorkspaceHistory, setStoredWorkspaceHistory] = React.useState<
     WorkspaceHistoryItem[]
   >(() => getWorkspaceHistory());

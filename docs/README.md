@@ -19,6 +19,10 @@ This directory contains routed repository knowledge for agent work. Root instruc
 - Domain glossary: `docs/domain/glossary.md`: [open](domain/glossary.md)
 - Runbook: `docs/guides/runbook.md`: [open](guides/runbook.md)
 
+## Validation Artifacts
+
+- Codex AI panel design QA: `design-qa.md`: [open](../design-qa.md)
+
 ## Historical Superpowers Plans
 
 These files are retained as historical planning/spec evidence. Prefer current source, README, and active docs for present behavior.

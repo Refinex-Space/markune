@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "desktop:build": "tauri build",
-    "desktop:dev": "tauri dev",
+    "desktop:dev": "pnpm codex:stage && tauri dev",
+    "codex:stage": "node scripts/stage-codex-sidecar.mjs",
     "build:desktop:web": "node scripts/build-tauri-web.mjs",
     "dev": "next dev",
     "build": "next build",
@@ -48,6 +49,7 @@
     "react": "19.2.4",
     "react-day-picker": "^10.0.1",
     "react-dom": "19.2.4",
+    "react-markdown": "^10.1.0",
     "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1",
     "shadcn": "^4.11.0",
@@ -60,6 +62,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@openai/codex": "0.144.4",
     "@tailwindcss/postcss": "^4",
     "@tauri-apps/cli": "^2.11.2",
     "@testing-library/react": "^16.3.2",

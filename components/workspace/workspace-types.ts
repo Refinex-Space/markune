@@ -1,6 +1,6 @@
 export type WorkspaceNodeKind = 'directory' | 'document';
 
-export type RightPanelMode = 'meta' | null;
+export type RightPanelMode = 'ai' | 'meta' | null;
 
 export interface WorkspaceNode {
   id: string;

@@ -1,4 +1,5 @@
 mod assets;
+mod codex;
 mod git;
 mod link_preview;
 mod settings;
@@ -12,6 +13,7 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .manage(terminal::TerminalState::default())
+        .manage(codex::CodexState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(
@@ -25,6 +27,11 @@ pub fn run() {
             assets::upload_workspace_asset,
             assets::resolve_workspace_asset,
             assets::read_workspace_asset_data,
+            codex::codex_runtime_probe,
+            codex::codex_runtime_start,
+            codex::codex_runtime_stop,
+            codex::codex_app_server_request,
+            codex::codex_app_server_respond,
             git::git_probe,
             git::git_init,
             git::git_status,

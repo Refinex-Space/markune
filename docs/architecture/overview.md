@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-12
+updated: 2026-07-15
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -13,8 +13,9 @@ Madora 是一个以本地 Markdown 文档为核心的桌面知识库，使用 Ne
 
 - Web shell：Next.js App Router 与 React client components。
 - Editor：`components/editor/markdown-editor.tsx` 以受控 Markdown 字符串包装 `@markweave/react` / `markweave`。
-- Workspace shell：`components/workspace/workspace-layout.tsx` 管理文档树、编辑器标签、全文搜索、Git、终端、设置和文档元信息侧栏。
+- Workspace shell：`components/workspace/workspace-layout.tsx` 管理文档树、编辑器标签、全文搜索、Git、终端、设置、文档元信息与 AI 侧栏。
 - Native boundary：前端经 `components/workspace/workspace-api.ts` 调用 Tauri 命令；实现位于 `src-tauri/src`。
+- Codex runtime：`components/workspace/codex-app-server.ts` 只消费协议消息；`src-tauri/src/codex.rs` 启动随应用打包的 Codex App Server sidecar，并通过 stdio JSONL 传递允许的方法、通知与审批请求。
 - Local state：全局设置由 `src-tauri/src/settings.rs` 持久化；面板尺寸使用浏览器 local storage。
 
 ## Main Modules
@@ -24,6 +25,12 @@ Madora 是一个以本地 Markdown 文档为核心的桌面知识库，使用 Ne
 - `components/workspace/`：工作区壳层、文档树、标签、搜索、Git、终端、设置和 Tauri API bridge。
 - `components/ui/`：共享 UI 原语。
 - `src-tauri/src/`：资源、Git、设置、系统字体、终端与工作区文件系统命令。
+
+## Codex AI Boundary
+
+AI 面板是工作区级客户端，不在浏览器渲染器中运行 Node.js SDK，也不持有 OpenAI API key。Tauri 启动固定版本的 `codex app-server --listen stdio://`，账户登录、线程历史、模型目录、MCP、联网搜索、工具调用和文件变更由 App Server 提供。前端仅能调用 `src-tauri/src/codex.rs` 中的 allowlist 方法，并把消息、计划、命令、文件修改与 MCP 事件按协议到达顺序写入统一会话流；助手消息使用禁用原始 HTML 的 GFM 渲染，审批状态独立保留。
+
+线程以当前工作区根目录作为 `cwd`，默认使用 `workspace-write` sandbox 和 `on-request` 审批。渲染器不能调用 App Server 的通用 `fs/*`、`command/exec` 或 `thread/shellCommand` 接口；用户允许的命令和文件修改由 Codex turn 内部工具执行并逐项回到审批 UI。
 
 ## Storage And Editor Boundary
 

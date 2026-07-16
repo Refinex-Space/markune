@@ -183,10 +183,16 @@ const LEFT_PANEL_WIDTH = {
   min: 280,
 };
 
-const RIGHT_PANEL_WIDTH = {
+const META_PANEL_WIDTH = {
   defaultValue: 340,
   max: 520,
   min: 340,
+};
+
+const AI_PANEL_WIDTH = {
+  defaultValue: 420,
+  max: 640,
+  min: 360,
 };
 
 const GIT_LOG_DETAIL_WIDTH = {
@@ -219,7 +225,8 @@ const WORKSPACE_PANEL_WIDTH_STORAGE_KEYS = {
   gitLogDetailWidth: 'madora:workspace:git-log-detail-width',
   gitLogHeight: 'madora:workspace:git-log-height',
   left: 'madora:workspace:left-sidebar-width',
-  right: 'madora:workspace:right-panel-width',
+  ai: 'madora:workspace:ai-panel-width',
+  meta: 'madora:workspace:right-panel-width',
   terminalHeight: 'madora:workspace:terminal-height',
 };
 
@@ -251,17 +258,24 @@ export function WorkspaceLayout({
   initialSnapshot = null,
 }: WorkspaceLayoutProps) {
   const workspace = useWorkspace(initialSnapshot);
+  const refreshWorkspaceTree = workspace.refreshWorkspaceTree;
   const [leftSidebarWidth, setLeftSidebarWidth] = useStoredPanelWidth(
     WORKSPACE_PANEL_WIDTH_STORAGE_KEYS.left,
     LEFT_PANEL_WIDTH.defaultValue,
     LEFT_PANEL_WIDTH.min,
     LEFT_PANEL_WIDTH.max,
   );
-  const [rightPanelWidth, setRightPanelWidth] = useStoredPanelWidth(
-    WORKSPACE_PANEL_WIDTH_STORAGE_KEYS.right,
-    RIGHT_PANEL_WIDTH.defaultValue,
-    RIGHT_PANEL_WIDTH.min,
-    RIGHT_PANEL_WIDTH.max,
+  const [metaPanelWidth, setMetaPanelWidth] = useStoredPanelWidth(
+    WORKSPACE_PANEL_WIDTH_STORAGE_KEYS.meta,
+    META_PANEL_WIDTH.defaultValue,
+    META_PANEL_WIDTH.min,
+    META_PANEL_WIDTH.max,
+  );
+  const [aiPanelWidth, setAiPanelWidth] = useStoredPanelWidth(
+    WORKSPACE_PANEL_WIDTH_STORAGE_KEYS.ai,
+    AI_PANEL_WIDTH.defaultValue,
+    AI_PANEL_WIDTH.min,
+    AI_PANEL_WIDTH.max,
   );
   const [settingsInitialSectionId, setSettingsInitialSectionId] =
     React.useState<'appearance' | 'storage' | 'git-sync'>('appearance');
@@ -332,6 +346,12 @@ export function WorkspaceLayout({
   const pageTitle = documentTitle ?? workspace.currentDirectory?.name;
   const currentDocumentPath = workspace.currentDocument?.absolutePath ?? null;
   const workspaceRootPath = workspace.snapshot?.rootPath ?? null;
+  const rightPanelWidth =
+    workspace.rightPanelMode === 'ai' ? aiPanelWidth : metaPanelWidth;
+  const rightPanelWidthLimits =
+    workspace.rightPanelMode === 'ai' ? AI_PANEL_WIDTH : META_PANEL_WIDTH;
+  const setActiveRightPanelWidth =
+    workspace.rightPanelMode === 'ai' ? setAiPanelWidth : setMetaPanelWidth;
   const saveCurrentDocumentNow = workspace.saveCurrentDocumentNow;
   const activePanelDocumentPath =
     activeEditorDocumentPath ?? currentDocumentPath;
@@ -824,8 +844,11 @@ export function WorkspaceLayout({
   }, [setLeftSidebarWidth]);
 
   const handleRightPanelResize = React.useCallback((nextWidth: number) => {
-    setRightPanelWidth(nextWidth);
-  }, [setRightPanelWidth]);
+    setActiveRightPanelWidth(nextWidth);
+  }, [setActiveRightPanelWidth]);
+  const handleAiWorkspaceChanged = React.useCallback(() => {
+    void refreshWorkspaceTree();
+  }, [refreshWorkspaceTree]);
 
   const refreshGitStatus = React.useCallback(async () => {
     if (!workspaceRootPath) {
@@ -2199,8 +2222,8 @@ export function WorkspaceLayout({
                       aria-label="调整右侧面板宽度"
                       className="-mx-1"
                       direction="right"
-                      max={RIGHT_PANEL_WIDTH.max}
-                      min={RIGHT_PANEL_WIDTH.min}
+                      max={rightPanelWidthLimits.max}
+                      min={rightPanelWidthLimits.min}
                       value={rightPanelWidth}
                       onResize={handleRightPanelResize}
                     />
@@ -2209,6 +2232,11 @@ export function WorkspaceLayout({
                   <RightSidePanel
                     currentDocument={activePanelDocument}
                     documentPanelData={documentPanelData}
+                    documents={
+                      workspace.snapshot
+                        ? flattenDocuments(workspace.snapshot.nodes)
+                        : []
+                    }
                     documentReadOnly={
                       activePanelDocument
                         ? getDocumentReadOnly(activePanelDocument.absolutePath)
@@ -2217,6 +2245,8 @@ export function WorkspaceLayout({
                     mode={workspace.rightPanelMode}
                     width={rightPanelWidth}
                     workspaceRootPath={workspaceRootPath}
+                    onOpenDocument={handleOpenRecentDocument}
+                    onWorkspaceChanged={handleAiWorkspaceChanged}
                     onToggleDocumentReadOnly={
                       activePanelDocument
                         ? () =>
