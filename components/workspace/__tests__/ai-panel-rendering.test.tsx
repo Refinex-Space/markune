@@ -27,6 +27,22 @@ const mentionedDocument = {
   title: 'README',
 };
 
+const releaseNotesDocument = {
+  absolutePath: '/workspace/Docs/Release Notes.md',
+  id: 'release-notes',
+  name: 'Release Notes.md',
+  relativePath: 'Docs/Release Notes.md',
+  title: 'Release Notes',
+};
+
+const roadmapDocument = {
+  absolutePath: '/workspace/Planning/Roadmap.md',
+  id: 'roadmap',
+  name: 'Roadmap.md',
+  relativePath: 'Planning/Roadmap.md',
+  title: 'Roadmap',
+};
+
 function change(
   path: string,
   absolutePath: string | null,
@@ -111,7 +127,7 @@ describe('AI message rendering', () => {
     const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
     await user.click(editor);
     await user.type(editor, '请阅读 @READ');
-    await user.click(screen.getByRole('button', { name: /README/ }));
+    await user.click(screen.getByRole('option', { name: /README/ }));
 
     const mention = screen.getByRole('link', { name: 'README' });
     expect(editor.contains(mention)).toBe(true);
@@ -119,6 +135,107 @@ describe('AI message rendering', () => {
 
     await user.click(mention);
     expect(onOpenMention).toHaveBeenCalledWith('/workspace/README.md');
+  });
+
+  it('提及候选无上浮阴影并提供标准列表语义', async () => {
+    const user = userEvent.setup();
+    render(<ComposerHarness onOpenMention={vi.fn()} />);
+
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '@READ');
+
+    const listbox = screen.getByRole('listbox', { name: '提及工作区文档' });
+    const menu = listbox.closest('[data-mention-menu]');
+    expect(menu?.className).not.toContain('shadow-xl');
+    expect(menu?.className).toContain('shadow-none');
+    expect(editor.getAttribute('aria-controls')).toBe(listbox.id);
+    expect(
+      screen.getByRole('option', { name: /README/ }).getAttribute('aria-selected'),
+    ).toBe('true');
+  });
+
+  it('支持上下键循环选择、选中项自适应滚动和回车插入', async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    try {
+      render(
+        <ComposerHarness
+          mentionDocuments={[
+            mentionedDocument,
+            releaseNotesDocument,
+            roadmapDocument,
+          ]}
+          onOpenMention={vi.fn()}
+        />,
+      );
+
+      const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+      await user.click(editor);
+      await user.type(editor, '@');
+      await user.keyboard('{ArrowDown}');
+
+      expect(
+        screen
+          .getByRole('option', { name: /Release Notes/ })
+          .getAttribute('aria-selected'),
+      ).toBe('true');
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+
+      await user.keyboard('{Enter}');
+      expect(screen.getByRole('link', { name: 'Release Notes' })).toBeTruthy();
+      expect(screen.queryByRole('listbox')).toBeNull();
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+        configurable: true,
+        value: originalScrollIntoView,
+      });
+    }
+  });
+
+  it('上键从第一项循环到末项，Escape 只关闭候选不删除输入', async () => {
+    const user = userEvent.setup();
+    render(
+      <ComposerHarness
+        mentionDocuments={[
+          mentionedDocument,
+          releaseNotesDocument,
+          roadmapDocument,
+        ]}
+        onOpenMention={vi.fn()}
+      />,
+    );
+
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '@');
+    await user.keyboard('{ArrowUp}');
+    expect(
+      screen
+        .getByRole('option', { name: /Roadmap/ })
+        .getAttribute('aria-selected'),
+    ).toBe('true');
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(editor.textContent).toBe('@');
+  });
+
+  it('不会把邮箱中的 @ 识别为文档提及', async () => {
+    const user = userEvent.setup();
+    render(<ComposerHarness onOpenMention={vi.fn()} />);
+
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, 'foo@example.com');
+
+    expect(screen.queryByRole('listbox')).toBeNull();
   });
 
   it('在已发送消息中只把明确提及的文本区间渲染为文档链接', async () => {
@@ -189,7 +306,7 @@ describe('AI message rendering', () => {
     const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
     await user.click(editor);
     await user.type(editor, '@READ');
-    await user.click(screen.getByRole('button', { name: /README/ }));
+    await user.click(screen.getByRole('option', { name: /README/ }));
 
     expect(screen.getByRole('link', { name: 'README' })).toBeTruthy();
     await user.keyboard('{Backspace}');
@@ -797,9 +914,11 @@ function createTrace({
 }
 
 function ComposerHarness({
+  mentionDocuments = [mentionedDocument],
   onOpenMention,
   onSend = vi.fn(),
 }: {
+  mentionDocuments?: Array<typeof mentionedDocument>;
   onOpenMention: (path: string) => void;
   onSend?: () => void;
 }) {
@@ -815,7 +934,7 @@ function ComposerHarness({
         autoReviewAvailable
         currentDocument={null}
         effort="medium"
-        mentionDocuments={[mentionedDocument]}
+        mentionDocuments={mentionDocuments}
         mentionQuery={mentionQuery}
         mcpServerCount={0}
         models={[]}
@@ -836,11 +955,7 @@ function ComposerHarness({
         onPermissionModeChange={vi.fn()}
         onOpenMention={onOpenMention}
         onSend={onSend}
-        onValueChange={(nextValue) => {
-          setValue(nextValue);
-          const match = nextValue.match(/@([^\s@]*)$/);
-          setMentionQuery(match ? match[1] : null);
-        }}
+        onValueChange={setValue}
       />
       <output data-testid="selected-mention-count">{mentions.length}</output>
     </>

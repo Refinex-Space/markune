@@ -98,6 +98,11 @@ import {
   type AiWorkspaceChangeEvent,
 } from './ai-panel-state';
 import {
+  findMentionToken,
+  mentionMatchIndices,
+  rankMentionDocuments,
+} from './ai-mention-search';
+import {
   isTauriRuntime,
   openUrlInDefaultBrowser,
 } from './workspace-api';
@@ -121,6 +126,12 @@ type AiDocumentReference = Pick<
 >;
 
 type AiComposerMention = AiDocumentReference & AiMessageMention;
+
+interface ComposerMentionTarget {
+  key: string;
+  query: string;
+  range: Range;
+}
 
 const mentionLinkClassName =
   'mx-0.5 inline cursor-pointer select-none rounded-sm border-0 bg-transparent p-0 align-baseline font-[inherit] text-[#3574f0] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3574f0]/35';
@@ -163,7 +174,7 @@ const STARTER_PROMPTS = [
 
 const SCROLL_BOTTOM_THRESHOLD = 64;
 
-const DEVELOPER_INSTRUCTIONS = `你运行在 Madora 的工作区级 AI 面板中。默认只在当前工作区内读取和修改文件；仅当当前命名权限配置明确允许、且用户请求确实需要时，才可访问工作区外路径。Madora 以 Markdown 为唯一持久化文档格式，请保持现有 frontmatter 和目录约定。收到 Madora 文档引用且用户请求依赖其内容时，必须先使用工作区工具读取相关文件，并让读取动作通过正常工具事件返回；不得在尝试读取前声称缺少路径。严格遵循当前线程的 Codex 权限配置和审批结果，不得绕过权限边界。删除文档前必须明确说明将删除的路径和影响，并等待用户确认。不要读取、输出或记录密钥、Token、Cookie、连接串或其他敏感信息。完成文件变更后简要列出实际修改和验证结果。`;
+const DEVELOPER_INSTRUCTIONS = `你运行在 Madora 的工作区级 AI 面板中。默认只在当前工作区内读取和修改文件；仅当当前命名权限配置明确允许、且用户请求确实需要时，才可访问工作区外路径。Madora 以 Markdown 为唯一持久化文档格式，请保持现有 frontmatter 和目录约定。Madora 会为每个 turn 提供编辑器活跃文档和显式文档引用；“当前文档”“本文”“这篇文档”等表述只指向该 turn 的 madora_active_document，不得根据日期、最近文件或工作区惯例猜测。请求依赖文档内容时，必须先使用工作区工具读取相关文件，并让读取动作通过正常工具事件返回；不得在尝试读取前声称缺少路径。与文档无关的请求不必读取活跃文档。严格遵循当前线程的 Codex 权限配置和审批结果，不得绕过权限边界。删除文档前必须明确说明将删除的路径和影响，并等待用户确认。不要读取、输出或记录密钥、Token、Cookie、连接串或其他敏感信息。完成文件变更后简要列出实际修改和验证结果。`;
 
 type PermissionModeId = 'ask' | 'auto' | 'full' | 'readOnly' | `profile:${string}`;
 
@@ -376,24 +387,16 @@ export function AiPanel({
   }, []);
 
   const filteredMentionDocuments = React.useMemo(() => {
-    const query = mentionQuery?.trim().toLocaleLowerCase() ?? '';
-    return documents
-      .filter(
-        (document) =>
-          !selectedMentions.some(
-            (selected) => selected.absolutePath === document.absolutePath,
-          ),
-      )
-      .filter((document) => {
-        if (!query) {
-          return true;
-        }
-        return `${document.title ?? ''} ${document.name} ${document.relativePath}`
-          .toLocaleLowerCase()
-          .includes(query);
-      })
-      .slice(0, 8);
-  }, [documents, mentionQuery, selectedMentions]);
+    const excludedPaths = new Set(
+      selectedMentions.map((document) => document.absolutePath),
+    );
+    if (currentDocument?.absolutePath) {
+      excludedPaths.add(currentDocument.absolutePath);
+    }
+    return rankMentionDocuments(documents, mentionQuery ?? '', {
+      excludedPaths,
+    });
+  }, [currentDocument, documents, mentionQuery, selectedMentions]);
 
   const visibleThreads = React.useMemo(() => {
     const query = historyQuery.trim().toLocaleLowerCase();
@@ -798,10 +801,10 @@ export function AiPanel({
           throw new Error('当前文档保存失败，未发送消息。请先处理保存错误。');
         }
 
-        const contextDocuments = uniqueDocuments([
-          ...(currentDocument ? [currentDocument] : []),
-          ...selectedMentions,
-        ]);
+        const explicitDocuments = uniqueDocuments(selectedMentions).filter(
+          (document) =>
+            document.absolutePath !== currentDocument?.absolutePath,
+        );
         const userInput = createDocumentAwareUserInput(text, selectedMentions);
         const currentPermissionSettings = permissionSettingsRef.current;
         const currentModel = selectedModelRef.current;
@@ -874,9 +877,20 @@ export function AiPanel({
                 text_elements: userInput.textElements,
               },
             ],
-            madoraDocumentReferences: contextDocuments.map((document) => ({
-              path: document.absolutePath,
-            })),
+            madoraDocumentReferences: [
+              ...(currentDocument
+                ? [
+                    {
+                      path: currentDocument.absolutePath,
+                      role: 'active',
+                    },
+                  ]
+                : []),
+              ...explicitDocuments.map((document) => ({
+                path: document.absolutePath,
+                role: 'mention',
+              })),
+            ],
             cwd: workspaceRootPath,
             ...(currentModel
               ? { effort: currentEffort, model: currentModel }
@@ -1092,8 +1106,6 @@ export function AiPanel({
             onSend={() => void sendMessage()}
             onValueChange={(value) => {
               setComposerValue(value);
-              const match = value.match(/@([^\s@]*)$/);
-              setMentionQuery(match ? match[1] : null);
             }}
           />
         </>
@@ -2646,7 +2658,14 @@ export function AiComposer({
   const editorRef = React.useRef<HTMLDivElement>(null);
   const initializedRef = React.useRef(false);
   const savedRangeRef = React.useRef<Range | null>(null);
+  const mentionTargetRef = React.useRef<ComposerMentionTarget | null>(null);
+  const dismissedMentionKeyRef = React.useRef<string | null>(null);
   const mentionPathsRef = React.useRef<string[]>([]);
+  const mentionListboxId = React.useId();
+  const [mentionSelection, setMentionSelection] = React.useState<{
+    path: string | null;
+    query: string | null;
+  }>({ path: null, query: null });
   const placeholder = authRequired
     ? '登录 ChatGPT 后可用'
     : runtimeUnavailable
@@ -2668,6 +2687,18 @@ export function AiComposer({
 
     savedRangeRef.current = range.cloneRange();
   }, []);
+
+  const syncMentionTarget = React.useCallback(() => {
+    const target = getComposerMentionTarget(editorRef.current);
+    if (!target || target.key === dismissedMentionKeyRef.current) {
+      mentionTargetRef.current = null;
+      onMentionQueryChange(null);
+      return;
+    }
+
+    mentionTargetRef.current = target;
+    onMentionQueryChange(target.query);
+  }, [onMentionQueryChange]);
 
   const syncEditorState = React.useCallback(() => {
     const editor = editorRef.current;
@@ -2719,8 +2750,11 @@ export function AiComposer({
       }
 
       editor.focus();
-      const range = getComposerRange(editor, savedRangeRef.current);
-      removeMentionQuery(editor, range, `@${mentionQuery ?? ''}`);
+      const targetRange = mentionTargetRef.current?.range;
+      const range =
+        targetRange && editor.contains(targetRange.commonAncestorContainer)
+          ? targetRange.cloneRange()
+          : getComposerRange(editor, savedRangeRef.current);
       range.deleteContents();
 
       const mention = createMentionElement(document);
@@ -2735,10 +2769,42 @@ export function AiComposer({
       selection?.addRange(range);
       savedRangeRef.current = range.cloneRange();
 
+      mentionTargetRef.current = null;
+      dismissedMentionKeyRef.current = null;
+      setMentionSelection({ path: null, query: null });
       onMentionQueryChange(null);
       syncEditorState();
     },
-    [mentionQuery, onMentionQueryChange, syncEditorState],
+    [onMentionQueryChange, syncEditorState],
+  );
+
+  const closeMentionMenu = React.useCallback(() => {
+    dismissedMentionKeyRef.current = mentionTargetRef.current?.key ?? null;
+    mentionTargetRef.current = null;
+    setMentionSelection({ path: null, query: null });
+    onMentionQueryChange(null);
+  }, [onMentionQueryChange]);
+
+  const selectedMentionIndex =
+    mentionSelection.query === mentionQuery
+      ? mentionDocuments.findIndex(
+          (document) => document.absolutePath === mentionSelection.path,
+        )
+      : -1;
+  const activeMentionIndex =
+    mentionDocuments.length === 0 ? -1 : Math.max(0, selectedMentionIndex);
+  const activeMention =
+    activeMentionIndex >= 0
+      ? (mentionDocuments[activeMentionIndex] ?? null)
+      : null;
+  const selectMentionIndex = React.useCallback(
+    (index: number) => {
+      setMentionSelection({
+        path: mentionDocuments[index]?.absolutePath ?? null,
+        query: mentionQuery,
+      });
+    },
+    [mentionDocuments, mentionQuery],
   );
 
   return (
@@ -2746,9 +2812,12 @@ export function AiComposer({
       <div className="relative rounded-2xl border border-border/80 bg-background shadow-[0_1px_4px_rgba(15,23,42,0.06)] focus-within:border-foreground/20">
         {mentionQuery !== null ? (
           <MentionMenu
+            activeIndex={activeMentionIndex}
             documents={mentionDocuments}
+            listboxId={mentionListboxId}
             query={mentionQuery}
-            onClose={() => onMentionQueryChange(null)}
+            onActiveIndexChange={selectMentionIndex}
+            onClose={closeMentionMenu}
             onSelect={insertMention}
           />
         ) : null}
@@ -2761,6 +2830,13 @@ export function AiComposer({
 
         <div
           aria-label="向 Codex 提问"
+          aria-activedescendant={
+            mentionQuery !== null && activeMention
+              ? mentionOptionId(mentionListboxId, activeMentionIndex)
+              : undefined
+          }
+          aria-autocomplete="list"
+          aria-controls={mentionQuery !== null ? mentionListboxId : undefined}
           aria-multiline="true"
           className="scrollbar-thin block min-h-14 max-h-40 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent px-3 pb-2 pt-3 text-[13px] leading-5 outline-none data-[disabled=true]:cursor-not-allowed data-[empty=true]:before:pointer-events-none data-[empty=true]:before:text-muted-foreground/60 data-[empty=true]:before:content-[attr(data-placeholder)]"
           contentEditable={!editorDisabled}
@@ -2779,10 +2855,13 @@ export function AiComposer({
               return;
             }
             saveSelection();
+            syncMentionTarget();
           }}
           onInput={() => {
+            dismissedMentionKeyRef.current = null;
             saveSelection();
             syncEditorState();
+            syncMentionTarget();
           }}
           onKeyDown={(event) => {
             const mention = findMentionElement(event.target);
@@ -2790,6 +2869,44 @@ export function AiComposer({
               event.preventDefault();
               onOpenMention(mention.dataset.mentionPath ?? '');
               return;
+            }
+
+            if (mentionQuery !== null && !event.nativeEvent.isComposing) {
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                if (mentionDocuments.length > 0) {
+                  const direction = event.key === 'ArrowDown' ? 1 : -1;
+                  selectMentionIndex(
+                    (activeMentionIndex +
+                      direction +
+                      mentionDocuments.length) %
+                      mentionDocuments.length,
+                  );
+                }
+                return;
+              }
+
+              if (
+                (event.key === 'Enter' && !event.shiftKey) ||
+                event.key === 'Tab'
+              ) {
+                event.preventDefault();
+                if (activeMention) {
+                  insertMention(activeMention);
+                } else {
+                  closeMentionMenu();
+                  if (event.key === 'Enter') {
+                    onSend();
+                  }
+                }
+                return;
+              }
+
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                closeMentionMenu();
+                return;
+              }
             }
 
             if (
@@ -2815,7 +2932,16 @@ export function AiComposer({
               onSend();
             }
           }}
-          onKeyUp={saveSelection}
+          onKeyUp={(event) => {
+            saveSelection();
+            if (
+              !['ArrowDown', 'ArrowUp', 'Enter', 'Escape', 'Tab'].includes(
+                event.key,
+              )
+            ) {
+              syncMentionTarget();
+            }
+          }}
           onPaste={(event) => {
             event.preventDefault();
             insertPlainTextAtSelection(
@@ -3095,46 +3221,93 @@ export function AiComposer({
 }
 
 function MentionMenu({
+  activeIndex,
   documents,
+  listboxId,
   query,
+  onActiveIndexChange,
   onClose,
   onSelect,
 }: {
+  activeIndex: number;
   documents: AiDocumentReference[];
+  listboxId: string;
   query: string;
+  onActiveIndexChange: (index: number) => void;
   onClose: () => void;
   onSelect: (document: AiDocumentReference) => void;
 }) {
+  const optionRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
+
+  React.useLayoutEffect(() => {
+    if (activeIndex < 0) {
+      return;
+    }
+    optionRefs.current[activeIndex]?.scrollIntoView?.({ block: 'nearest' });
+  }, [activeIndex]);
+
   return (
-    <div className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-30 overflow-hidden rounded-xl border border-border bg-popover p-1.5 shadow-xl">
+    <div
+      className="absolute bottom-[calc(100%+6px)] left-0 right-0 z-30 overflow-hidden rounded-xl border border-border/80 bg-popover p-1.5 shadow-none"
+      data-mention-menu
+    >
       <div className="flex items-center justify-between px-2 py-1.5 text-[11px] text-muted-foreground">
         <span>@ 提及文档{query ? ` · ${query}` : ''}</span>
-        <button aria-label="关闭提及列表" type="button" onClick={onClose}>
+        <button
+          aria-label="关闭提及列表"
+          className="rounded-sm p-0.5 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={onClose}
+        >
           <X size={13} />
         </button>
       </div>
-      <div className="max-h-56 overflow-y-auto">
+      <div
+        aria-label="提及工作区文档"
+        className="scrollbar-thin max-h-56 overflow-y-auto"
+        id={listboxId}
+        role="listbox"
+      >
         {documents.length === 0 ? (
           <div className="px-2 py-5 text-center text-xs text-muted-foreground">
             没有匹配的文档
           </div>
         ) : (
-          documents.map((document) => (
+          documents.map((document, index) => (
             <button
               aria-label={`提及 ${document.title || document.name}`}
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-accent"
+              aria-selected={index === activeIndex}
+              className={cn(
+                'flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left outline-none',
+                index === activeIndex
+                  ? 'bg-accent text-accent-foreground'
+                  : 'hover:bg-accent/60',
+              )}
+              id={mentionOptionId(listboxId, index)}
               key={document.absolutePath}
+              ref={(element) => {
+                optionRefs.current[index] = element;
+              }}
+              role="option"
               type="button"
               onMouseDown={(event) => event.preventDefault()}
+              onMouseMove={() => onActiveIndexChange(index)}
               onClick={() => onSelect(document)}
             >
               <FileText className="shrink-0 text-muted-foreground" size={14} />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-xs">
-                  {document.title || document.name}
+                  <MentionMatchedText
+                    query={query}
+                    text={document.title || document.name}
+                  />
                 </div>
                 <div className="truncate text-[10px] text-muted-foreground">
-                  {document.relativePath}
+                  <MentionMatchedText
+                    query={query}
+                    text={document.relativePath}
+                  />
                 </div>
               </div>
             </button>
@@ -3143,6 +3316,27 @@ function MentionMenu({
       </div>
     </div>
   );
+}
+
+function MentionMatchedText({ query, text }: { query: string; text: string }) {
+  const matchedIndices = new Set(mentionMatchIndices(text, query));
+  if (matchedIndices.size === 0) {
+    return text;
+  }
+
+  return Array.from(text).map((character, index) =>
+    matchedIndices.has(index) ? (
+      <span className="font-medium text-foreground" key={`${index}-${character}`}>
+        {character}
+      </span>
+    ) : (
+      character
+    ),
+  );
+}
+
+function mentionOptionId(listboxId: string, index: number) {
+  return `${listboxId}-option-${index}`;
 }
 
 function ContextChip({
@@ -3206,31 +3400,64 @@ function getComposerRange(editor: HTMLElement, savedRange: Range | null) {
   return range;
 }
 
-function removeMentionQuery(
-  editor: HTMLElement,
-  range: Range,
-  expectedQuery: string,
-) {
-  if (!expectedQuery) {
-    return;
+function getComposerMentionTarget(editor: HTMLElement | null) {
+  const selection = window.getSelection();
+  if (
+    !editor ||
+    !selection ||
+    selection.rangeCount === 0 ||
+    !selection.isCollapsed
+  ) {
+    return null;
+  }
+
+  const selectionRange = selection.getRangeAt(0);
+  if (!editor.contains(selectionRange.commonAncestorContainer)) {
+    return null;
+  }
+
+  const selectionElement =
+    selectionRange.startContainer instanceof Element
+      ? selectionRange.startContainer
+      : selectionRange.startContainer.parentElement;
+  if (selectionElement?.closest('[data-mention-path]')) {
+    return null;
   }
 
   const prefixRange = window.document.createRange();
   prefixRange.selectNodeContents(editor);
-  prefixRange.setEnd(range.startContainer, range.startOffset);
+  prefixRange.setEnd(
+    selectionRange.startContainer,
+    selectionRange.startOffset,
+  );
+  const suffixRange = window.document.createRange();
+  suffixRange.selectNodeContents(editor);
+  suffixRange.setStart(
+    selectionRange.endContainer,
+    selectionRange.endOffset,
+  );
+
   const prefix = prefixRange.toString();
-
-  if (!prefix.endsWith(expectedQuery)) {
-    return;
+  const text = `${prefix}${suffixRange.toString()}`;
+  const token = findMentionToken(text, prefix.length);
+  if (!token) {
+    return null;
   }
 
-  const start = findTextPosition(editor, prefix.length - expectedQuery.length);
-  if (!start) {
-    return;
+  const start = findTextPosition(editor, token.start);
+  const end = findTextPosition(editor, token.end);
+  if (!start || !end) {
+    return null;
   }
 
+  const range = window.document.createRange();
   range.setStart(start.node, start.offset);
-  range.deleteContents();
+  range.setEnd(end.node, end.offset);
+  return {
+    key: `${token.start}:${token.end}:${prefix.length}:${text}`,
+    query: token.query,
+    range,
+  } satisfies ComposerMentionTarget;
 }
 
 function findTextPosition(root: HTMLElement, targetOffset: number) {

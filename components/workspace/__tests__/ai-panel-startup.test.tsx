@@ -37,6 +37,15 @@ vi.mock('../workspace-api', async (importOriginal) => {
 
 import { AiPanel } from '../ai-panel';
 
+const activeDocument = {
+  absolutePath: '/workspace/Guides/Spring Boot 介绍.md',
+  id: 'spring-boot-intro',
+  kind: 'document' as const,
+  name: 'Spring Boot 介绍.md',
+  relativePath: 'Guides/Spring Boot 介绍.md',
+  title: 'Spring Boot 介绍',
+};
+
 const runtime = {
   available: true,
   running: true,
@@ -105,10 +114,14 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function renderPanel(visible: boolean, onBeforeTurnStart = vi.fn().mockResolvedValue(true)) {
+function renderPanel(
+  visible: boolean,
+  onBeforeTurnStart = vi.fn().mockResolvedValue(true),
+  currentDocument = null as typeof activeDocument | null,
+) {
   return render(
     <AiPanel
-      currentDocument={null}
+      currentDocument={currentDocument}
       documents={[]}
       visible={visible}
       workspaceRootPath="/workspace"
@@ -234,6 +247,34 @@ describe('AI panel startup lifecycle', () => {
 
     models.resolve(defaultResponse('model/list'));
     history.resolve(defaultResponse('thread/list'));
+  });
+
+  it('每个 turn 把编辑器活跃文档标记为独立上下文角色', async () => {
+    const user = userEvent.setup();
+    renderPanel(true, vi.fn().mockResolvedValue(true), activeDocument);
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '当前文档是什么？');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith(
+        'turn/start',
+        expect.objectContaining({
+          input: [
+            expect.objectContaining({ text: '当前文档是什么？' }),
+          ],
+          madoraDocumentReferences: [
+            {
+              path: '/workspace/Guides/Spring Boot 介绍.md',
+              role: 'active',
+            },
+          ],
+        }),
+      ),
+    );
   });
 
   it('切换工作区后忽略旧工作区晚到的后台历史响应', async () => {
