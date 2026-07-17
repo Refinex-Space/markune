@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-16
+updated: 2026-07-17
 status: active
 referenced_by: docs/README.md#validation-artifacts
 ---
@@ -96,6 +96,42 @@ The prior implementation restored the full-width settings shell, resizable sideb
 - Copy and content: non-AI descriptions, field labels, repository status and automatic-save feedback are restored and consistent.
 
 previous final result: passed
+
+final result: passed
+
+## 2026-07-17 Collapsed Tool Activity And Conversation Navigation
+
+### Evidence
+
+- source visual truth path: `/Users/refinex/Library/Application Support/PixPin/Temp/PixPin_2026-07-17_08-54-52.png`
+- completed-turn screenshot path: `/Users/refinex/.codex/visualizations/2026/07/15/019f6595-892a-7f82-8dcb-19a56f5d05db/ai-panel-collapsed-tools-2026-07-17.jpg`
+- completed-turn focused crop: `/Users/refinex/.codex/visualizations/2026/07/15/019f6595-892a-7f82-8dcb-19a56f5d05db/ai-panel-collapsed-tools-2026-07-17-crop.jpg`
+- scroll-to-latest screenshot path: `/Users/refinex/.codex/visualizations/2026/07/15/019f6595-892a-7f82-8dcb-19a56f5d05db/ai-panel-scroll-to-latest-2026-07-17.jpg`
+- scroll-to-latest focused crop: `/Users/refinex/.codex/visualizations/2026/07/15/019f6595-892a-7f82-8dcb-19a56f5d05db/ai-panel-scroll-to-latest-2026-07-17-crop.jpg`
+- viewport: `1456 × 769`, light theme, right panel width `556px`
+- state: latest debug bundle; completed tool turn and a long restored thread with the conversation intentionally scrolled away from the bottom
+
+### Comparison History
+
+1. The source shows successful tool summaries and technical details collapsed into compact disclosure rows, with a centered circular down-arrow appearing only while the reader is away from the latest content.
+2. The implementation now keeps successful and running tool groups and nested technical details closed by default. Failed, declined and waiting-for-approval activities retain attention-first expansion.
+3. The implementation keeps the conversation pinned only while the reader is already near the bottom. Scrolling a long thread upward reveals the circular `回到最新消息` control; activating it returned to the latest content and removed the control.
+4. The composer editable region now starts at `56px`, grows with content, and becomes internally scrollable after `160px` instead of reserving the former `80px` minimum before any input.
+
+### Verified Interactions
+
+- A restored completed processing trace exposes a collapsed `aria-expanded=false` disclosure.
+- Focused rendering tests confirm an open live trace still leaves its normal tool group and nested command detail collapsed.
+- Manual disclosure choices survive in-progress to completed status updates.
+- Scrolling a long restored task upward exposes the round down-arrow control in the rebuilt Tauri app.
+- Clicking the down-arrow performs a smooth return to the latest message and removes the control once the viewport is near the bottom.
+- Sending a new message explicitly restores follow-latest behavior, while incremental output does not steal the reader's position after manual upward scrolling.
+
+### Findings
+
+- No actionable P0/P1/P2 visual difference remains for the requested states.
+- [P3] The source uses a full-width Codex task canvas while Madora renders inside a `556px` workspace side panel. The implementation preserves the source interaction hierarchy but continues using Madora typography, color tokens, spacing and compact side-panel density.
+- Historical tool child items remain limited by sidecar `0.144.4`; a restored trace can be folded, but tool rows absent from App Server history cannot be visually replayed. Live projection and disclosure behavior remain covered by the focused state and rendering tests.
 
 final result: passed
 

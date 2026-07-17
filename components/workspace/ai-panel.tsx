@@ -7,6 +7,7 @@ import remarkGfm from 'remark-gfm';
 import {
   AlertCircle,
   Archive,
+  ArrowDown,
   ArrowUp,
   Blocks,
   Bot,
@@ -134,6 +135,8 @@ const STARTER_PROMPTS = [
   '基于当前内容新建一篇关联文档',
 ];
 
+const SCROLL_BOTTOM_THRESHOLD = 64;
+
 const DEVELOPER_INSTRUCTIONS = `你运行在 Madora 的工作区级 AI 面板中。只可在当前工作区内读取和修改文件。Madora 以 Markdown 为唯一持久化文档格式，请保持现有 frontmatter 和目录约定。收到 Madora 文档引用且用户请求依赖其内容时，必须先使用工作区工具读取相关文件，并让读取动作通过正常工具事件返回；不得在尝试读取前声称缺少路径。所有命令与文件修改都必须经过客户端审批。删除文档前必须明确说明将删除的路径和影响，并等待用户确认。不要读取、输出或记录密钥、Token、Cookie、连接串或其他敏感信息。完成文件变更后简要列出实际修改和验证结果。`;
 
 export function AiPanel({
@@ -167,7 +170,7 @@ export function AiPanel({
   const [historyQuery, setHistoryQuery] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
   const [signingIn, setSigningIn] = React.useState(false);
-  const viewportRef = React.useRef<HTMLDivElement>(null);
+  const [followLatestRequest, setFollowLatestRequest] = React.useState(0);
   const modelSelectionInitializedRef = React.useRef(false);
 
   const applyThreadName = React.useCallback((threadId: string, name: string) => {
@@ -357,13 +360,6 @@ export function AiPanel({
     };
   }, [applyThreadName, loadControlData, onWorkspaceChanged, workspaceRootPath]);
 
-  React.useEffect(() => {
-    viewportRef.current?.scrollTo({
-      behavior: 'smooth',
-      top: viewportRef.current.scrollHeight,
-    });
-  }, [conversation.entries]);
-
   const startNewChat = React.useCallback(() => {
     setActiveThread(null);
     setConversation(createEmptyConversation());
@@ -437,6 +433,7 @@ export function AiPanel({
       setComposerValue('');
       setSelectedMentions([]);
       setMentionQuery(null);
+      setFollowLatestRequest((current) => current + 1);
       const clientMessageId = `madora-${Date.now()}`;
       setConversation((current) => ({
         ...current,
@@ -615,9 +612,9 @@ export function AiPanel({
         />
       ) : (
         <>
-          <div
-            className="scrollbar-thin min-h-0 flex-1 overflow-y-auto"
-            ref={viewportRef}
+          <AiConversationViewport
+            followLatestRequest={followLatestRequest}
+            key={activeThread?.id ?? 'new-task'}
           >
             <PanelContent
               account={account}
@@ -632,7 +629,7 @@ export function AiPanel({
               onPrompt={(prompt) => void sendMessage(prompt)}
               onSignIn={() => void signIn()}
             />
-          </div>
+          </AiConversationViewport>
 
           <AiComposer
             active={Boolean(conversation.activeTurnId)}
@@ -671,6 +668,120 @@ export function AiPanel({
       )}
     </section>
   );
+}
+
+export function AiConversationViewport({
+  children,
+  followLatestRequest,
+}: React.PropsWithChildren<{ followLatestRequest: number }>) {
+  const viewportRef = React.useRef<HTMLDivElement>(null);
+  const contentRef = React.useRef<HTMLDivElement>(null);
+  const shouldFollowLatestRef = React.useRef(true);
+  const previousFollowRequestRef = React.useRef(followLatestRequest);
+  const [showScrollToLatest, setShowScrollToLatest] = React.useState(false);
+
+  const scrollToLatest = React.useCallback((behavior: ScrollBehavior) => {
+    const viewport = viewportRef.current;
+    if (!viewport) {
+      return;
+    }
+    shouldFollowLatestRef.current = true;
+    setShowScrollToLatest(false);
+    viewport.scrollTo({ behavior, top: viewport.scrollHeight });
+  }, []);
+
+  const updateScrollState = React.useCallback(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) {
+      return;
+    }
+    const nearBottom = isViewportNearBottom(viewport);
+    shouldFollowLatestRef.current = nearBottom;
+    setShowScrollToLatest(!nearBottom);
+  }, []);
+
+  React.useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) {
+      return;
+    }
+    if (shouldFollowLatestRef.current) {
+      viewport.scrollTop = viewport.scrollHeight;
+      setShowScrollToLatest(false);
+      return;
+    }
+    setShowScrollToLatest(!isViewportNearBottom(viewport));
+  }, [children]);
+
+  React.useEffect(() => {
+    const content = contentRef.current;
+    if (!content || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    let frameId: number | null = null;
+    const observer = new ResizeObserver(() => {
+      if (frameId !== null) {
+        cancelAnimationFrame(frameId);
+      }
+      frameId = requestAnimationFrame(() => {
+        const viewport = viewportRef.current;
+        if (!viewport) {
+          return;
+        }
+        if (shouldFollowLatestRef.current) {
+          viewport.scrollTop = viewport.scrollHeight;
+          setShowScrollToLatest(false);
+          return;
+        }
+        setShowScrollToLatest(!isViewportNearBottom(viewport));
+      });
+    });
+    observer.observe(content);
+    return () => {
+      observer.disconnect();
+      if (frameId !== null) {
+        cancelAnimationFrame(frameId);
+      }
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (previousFollowRequestRef.current === followLatestRequest) {
+      return;
+    }
+    previousFollowRequestRef.current = followLatestRequest;
+    scrollToLatest('smooth');
+  }, [followLatestRequest, scrollToLatest]);
+
+  return (
+    <div className="relative min-h-0 flex-1">
+      <div
+        className="scrollbar-thin h-full min-h-0 overflow-y-auto"
+        data-testid="ai-conversation-viewport"
+        ref={viewportRef}
+        onScroll={updateScrollState}
+      >
+        <div className="min-h-full" ref={contentRef}>
+          {children}
+        </div>
+      </div>
+      {showScrollToLatest ? (
+        <button
+          aria-label="回到最新消息"
+          className="absolute bottom-3 left-1/2 z-20 flex size-9 -translate-x-1/2 items-center justify-center rounded-full border border-border/80 bg-background text-muted-foreground shadow-[0_1px_4px_rgba(15,23,42,0.08)] outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
+          type="button"
+          onClick={() => scrollToLatest('smooth')}
+        >
+          <ArrowDown size={16} strokeWidth={1.8} />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function isViewportNearBottom(viewport: HTMLElement) {
+  const distance = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+  return distance <= SCROLL_BOTTOM_THRESHOLD;
 }
 
 export function AiPanelHeader({
@@ -1131,7 +1242,6 @@ export function ProcessingTrace({
               <ActivityGroupRow
                 approvals={trace.approvals}
                 group={segment}
-                historical={trace.historical}
                 key={segment.id}
                 onApprove={onApprove}
                 onOpenDocument={onOpenDocument}
@@ -1175,35 +1285,34 @@ function useTraceElapsedMs(trace: AiTraceBlock) {
 function ActivityGroupRow({
   approvals,
   group,
-  historical,
   onApprove,
   onOpenDocument,
 }: {
   approvals: AiApprovalRequest[];
   group: AiActivityGroup;
-  historical: boolean;
   onApprove: (
     approval: AiApprovalRequest,
     decision: 'accept' | 'acceptForSession' | 'decline',
   ) => void;
   onOpenDocument: (documentPath: string) => void;
 }) {
-  const [open, setOpen] = React.useState(
-    !historical || group.status !== 'completed',
+  const forceOpen = ['declined', 'failed', 'waitingApproval'].includes(
+    group.status,
   );
+  const [open, onOpenChange] = useAttentionDisclosure(forceOpen);
 
   return (
-    <Collapsible.Root open={open} onOpenChange={setOpen}>
+    <Collapsible.Root open={open} onOpenChange={onOpenChange}>
       <Collapsible.Trigger asChild>
         <button
           aria-label={`${group.summary}，${open ? '收起' : '展开'}工具活动`}
-          className="group flex w-full items-center gap-2 rounded-md py-0.5 text-left text-xs outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/30"
+          className="group flex max-w-full items-center gap-2 rounded-md py-0.5 text-left text-xs outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/30"
           type="button"
         >
           <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
             {groupStatusIcon(group)}
           </span>
-          <span className="min-w-0 flex-1 truncate text-foreground/75">
+          <span className="min-w-0 truncate text-foreground/75">
             {group.summary}
           </span>
           {group.durationMs !== null ? (
@@ -1253,9 +1362,11 @@ function ActivityItemRow({
   ) => void;
   onOpenDocument: (documentPath: string) => void;
 }) {
-  const [open, setOpen] = React.useState(
-    activity.status !== 'completed' || approvals.length > 0,
-  );
+  const forceOpen =
+    activity.status === 'failed' ||
+    activity.status === 'declined' ||
+    approvals.length > 0;
+  const [open, onOpenChange] = useAttentionDisclosure(forceOpen);
   const expandable = activityHasDetails(activity) || approvals.length > 0;
 
   if (!expandable) {
@@ -1273,7 +1384,7 @@ function ActivityItemRow({
   }
 
   return (
-    <Collapsible.Root open={open} onOpenChange={setOpen}>
+    <Collapsible.Root open={open} onOpenChange={onOpenChange}>
       <Collapsible.Trigger asChild>
         <button
           aria-label={`${activity.label}，${open ? '收起' : '展开'}详情`}
@@ -1310,6 +1421,31 @@ function ActivityItemRow({
       </Collapsible.Content>
     </Collapsible.Root>
   );
+}
+
+function useAttentionDisclosure(forceOpen: boolean) {
+  const [open, setOpen] = React.useState(forceOpen);
+  const previousForceOpenRef = React.useRef(forceOpen);
+  const userChangedRef = React.useRef(false);
+
+  React.useEffect(() => {
+    const wasForcedOpen = previousForceOpenRef.current;
+    previousForceOpenRef.current = forceOpen;
+    if (forceOpen && !wasForcedOpen) {
+      setOpen(true);
+      return;
+    }
+    if (!forceOpen && wasForcedOpen && !userChangedRef.current) {
+      setOpen(false);
+    }
+  }, [forceOpen]);
+
+  const onOpenChange = React.useCallback((nextOpen: boolean) => {
+    userChangedRef.current = true;
+    setOpen(nextOpen);
+  }, []);
+
+  return [open, onOpenChange] as const;
 }
 
 function ActivityMeta({ activity }: { activity: AiTimelineItem }) {
@@ -1860,7 +1996,7 @@ export function AiComposer({
         <div
           aria-label="向 Codex 提问"
           aria-multiline="true"
-          className="block min-h-20 w-full whitespace-pre-wrap break-words bg-transparent px-3 pb-2 pt-3 text-[13px] leading-5 outline-none data-[disabled=true]:cursor-not-allowed data-[empty=true]:before:pointer-events-none data-[empty=true]:before:text-muted-foreground/60 data-[empty=true]:before:content-[attr(data-placeholder)]"
+          className="scrollbar-thin block min-h-14 max-h-40 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent px-3 pb-2 pt-3 text-[13px] leading-5 outline-none data-[disabled=true]:cursor-not-allowed data-[empty=true]:before:pointer-events-none data-[empty=true]:before:text-muted-foreground/60 data-[empty=true]:before:content-[attr(data-placeholder)]"
           contentEditable={!disabled}
           data-disabled={disabled}
           data-empty={!value}

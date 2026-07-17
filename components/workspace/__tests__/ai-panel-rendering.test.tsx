@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   AiComposer,
+  AiConversationViewport,
   AiMessageContent,
   AiPanelHeader,
   ConversationEntryRow,
@@ -189,6 +190,90 @@ describe('AI message rendering', () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
+  it('输入区从紧凑高度开始并在合理高度后内部滚动', () => {
+    render(<ComposerHarness onOpenMention={vi.fn()} />);
+
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    expect(editor.className).toContain('min-h-14');
+    expect(editor.className).toContain('max-h-40');
+    expect(editor.className).toContain('overflow-y-auto');
+  });
+
+  it('离开消息底部后显示回到最新消息按钮并支持平滑返回', async () => {
+    const user = userEvent.setup();
+    render(
+      <AiConversationViewport followLatestRequest={0}>
+        <div>消息内容</div>
+      </AiConversationViewport>,
+    );
+    const viewport = screen.getByTestId('ai-conversation-viewport');
+    let scrollTop = 500;
+    const scrollTo = vi.fn((options: ScrollToOptions) => {
+      scrollTop = Number(options.top ?? scrollTop);
+    });
+
+    Object.defineProperties(viewport, {
+      clientHeight: { configurable: true, value: 300 },
+      scrollHeight: { configurable: true, value: 1_000 },
+      scrollTop: {
+        configurable: true,
+        get: () => scrollTop,
+        set: (value: number) => {
+          scrollTop = value;
+        },
+      },
+      scrollTo: { configurable: true, value: scrollTo },
+    });
+
+    fireEvent.scroll(viewport);
+    await user.click(screen.getByRole('button', { name: '回到最新消息' }));
+
+    expect(scrollTo).toHaveBeenCalledWith({ behavior: 'smooth', top: 1_000 });
+  });
+
+  it('用户上滚后内容更新不抢走阅读位置，发送新消息才恢复跟随', () => {
+    const { rerender } = render(
+      <AiConversationViewport followLatestRequest={0}>
+        <div>第一段消息</div>
+      </AiConversationViewport>,
+    );
+    const viewport = screen.getByTestId('ai-conversation-viewport');
+    let scrollTop = 500;
+    const scrollTo = vi.fn((options: ScrollToOptions) => {
+      scrollTop = Number(options.top ?? scrollTop);
+    });
+
+    Object.defineProperties(viewport, {
+      clientHeight: { configurable: true, value: 300 },
+      scrollHeight: { configurable: true, value: 1_000 },
+      scrollTop: {
+        configurable: true,
+        get: () => scrollTop,
+        set: (value: number) => {
+          scrollTop = value;
+        },
+      },
+      scrollTo: { configurable: true, value: scrollTo },
+    });
+    fireEvent.scroll(viewport);
+
+    rerender(
+      <AiConversationViewport followLatestRequest={0}>
+        <div>第一段消息</div>
+        <div>流式追加内容</div>
+      </AiConversationViewport>,
+    );
+    expect(scrollTop).toBe(500);
+    expect(scrollTo).not.toHaveBeenCalled();
+
+    rerender(
+      <AiConversationViewport followLatestRequest={1}>
+        <div>新的用户消息</div>
+      </AiConversationViewport>,
+    );
+    expect(scrollTo).toHaveBeenCalledWith({ behavior: 'smooth', top: 1_000 });
+  });
+
   it('历史处理过程默认折叠，并可逐级展开工具详情', async () => {
     const user = userEvent.setup();
     render(
@@ -223,7 +308,8 @@ describe('AI message rendering', () => {
     expect(screen.getByText(/退出码/).textContent).toContain('退出码 0');
   });
 
-  it('运行中处理过程自动展开，并保持 commentary 与工具的真实顺序', () => {
+  it('运行中处理过程保持可见，但工具活动与技术详情默认折叠', async () => {
+    const user = userEvent.setup();
     render(
       <ProcessingTrace
         trace={createTrace({ historical: false, status: 'inProgress' })}
@@ -237,11 +323,47 @@ describe('AI message rendering', () => {
     ).toBeTruthy();
     const commentary = screen.getByText('我先读取文件。');
     const group = screen.getByRole('button', {
-      name: '读取了文件，收起工具活动',
+      name: '读取了文件，展开工具活动',
     });
+    expect(group.getAttribute('aria-expanded')).toBe('false');
     expect(
       commentary.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+
+    await user.click(group);
+    const activity = screen.getByRole('button', {
+      name: '读取 README.md，展开详情',
+    });
+    expect(activity.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByText('/bin/zsh -lc "sed README.md"')).toBeNull();
+  });
+
+  it('用户手动展开工具组后，完成状态不会重置其选择', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <ProcessingTrace
+        trace={createTrace({ historical: false, status: 'inProgress' })}
+        onApprove={vi.fn()}
+        onOpenDocument={vi.fn()}
+      />,
+    );
+    await user.click(
+      screen.getByRole('button', { name: '读取了文件，展开工具活动' }),
+    );
+
+    rerender(
+      <ProcessingTrace
+        trace={createTrace({ historical: false, status: 'completed' })}
+        onApprove={vi.fn()}
+        onOpenDocument={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen
+        .getByRole('button', { name: '读取了文件，收起工具活动' })
+        .getAttribute('aria-expanded'),
+    ).toBe('true');
   });
 
   it('文件修改详情只允许点击经过验证的工作区路径', async () => {
