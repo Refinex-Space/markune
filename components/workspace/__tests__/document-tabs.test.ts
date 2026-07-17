@@ -54,6 +54,15 @@ describe('document tabs model', () => {
     expect(layout.activeTabPath).toBe('/repo/c.md');
   });
 
+  it('clears the active tab when the last open document is closed', () => {
+    let layout = createInitialEditorLayout();
+    layout = openDocumentTab(layout, doc('a'));
+
+    layout = closeDocumentTab(layout, '/repo/a.md');
+
+    expect(layout).toEqual({ activeTabPath: null, tabs: [] });
+  });
+
   it('selects a tab', () => {
     let layout = createInitialEditorLayout();
     layout = openDocumentTab(layout, doc('a'));

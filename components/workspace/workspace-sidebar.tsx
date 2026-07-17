@@ -18,6 +18,7 @@ interface WorkspaceSidebarProps {
   width: number;
   workspace: ReturnType<typeof useWorkspace>;
   onCreateDocument?: (parentPath: string) => Promise<WorkspaceNode | null> | void;
+  onDeleteNode?: (node: WorkspaceNode) => Promise<void> | void;
   onExportNode?: (
     node: WorkspaceNode,
     format: WorkspaceExportFormat,
@@ -45,6 +46,7 @@ export function WorkspaceSidebar({
   width,
   workspace,
   onCreateDocument,
+  onDeleteNode,
   onExportNode,
   onOpenDailyNote,
   onOpenInFileManager,
@@ -61,6 +63,7 @@ export function WorkspaceSidebar({
   systemPage = null,
 }: WorkspaceSidebarProps) {
   const createDocument = onCreateDocument ?? workspace.createDocument;
+  const deleteNode = onDeleteNode ?? workspace.deleteNode;
   const renameNode = onRenameNode ?? workspace.renameNode;
   const selectDirectory = onSelectDirectory ?? workspace.selectDirectory;
   const selectDocument = onSelectDocument ?? workspace.openDocument;
@@ -152,7 +155,7 @@ export function WorkspaceSidebar({
               searchQuery={workspace.searchQuery}
               onCreateDirectory={workspace.createDirectory}
               onCreateDocument={createDocument}
-              onDeleteNode={workspace.deleteNode}
+              onDeleteNode={deleteNode}
               onExportNode={onExportNode}
               onImportMarkdown={workspace.importMarkdownDocuments}
               onMoveNode={workspace.moveNode}

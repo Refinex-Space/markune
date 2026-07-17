@@ -355,7 +355,7 @@ function DirectoryCard({
   return (
     <button
       className={cn(
-        'group relative grid min-h-40 grid-rows-[52px_minmax(68px,1fr)] rounded-lg border bg-background p-4 text-left transition-all duration-200',
+        'group relative grid min-h-40 min-w-0 max-w-full grid-rows-[52px_minmax(68px,1fr)] overflow-hidden rounded-lg border bg-background p-4 text-left transition-all duration-200',
         'hover:-translate-y-0.5 hover:border-[#3574f0]/45 hover:shadow-sm',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
       )}
@@ -371,16 +371,18 @@ function DirectoryCard({
           {stats.totalDocuments} 篇文档 / {stats.totalDirectories} 个子目录
         </p>
       </div>
-      <div className="space-y-1.5 border-t pt-3">
+      <div className="min-w-0 overflow-hidden border-t pt-3">
         {previewTitles.length > 0 ? (
-          previewTitles.slice(0, 3).map((title) => (
-            <p
-              key={title}
-              className="truncate text-xs leading-5 text-muted-foreground"
-            >
-              {title}
-            </p>
-          ))
+          <div className="min-w-0 space-y-1.5 overflow-hidden">
+            {previewTitles.slice(0, 3).map((title) => (
+              <p
+                key={title}
+                className="truncate text-xs leading-5 text-muted-foreground"
+              >
+                {title}
+              </p>
+            ))}
+          </div>
         ) : (
           <p className="text-xs leading-5 text-muted-foreground">
             进入目录查看内部内容。

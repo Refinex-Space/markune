@@ -1874,6 +1874,41 @@ export function WorkspaceLayout({
     [openActiveDocumentForLayout],
   );
 
+  const handleDeleteWorkspaceNode = React.useCallback(
+    async (node: WorkspaceNode) => {
+      await workspace.deleteNode(node);
+
+      if (node.kind !== 'document') {
+        return;
+      }
+
+      setEditorSessions((current) => {
+        if (!(node.absolutePath in current)) {
+          return current;
+        }
+
+        const next = { ...current };
+        delete next[node.absolutePath];
+        return next;
+      });
+      setRecentDocuments((current) =>
+        current.filter(
+          (document) => document.absolutePath !== node.absolutePath,
+        ),
+      );
+
+      const nextLayout = closeDocumentTab(
+        documentEditorLayout,
+        node.absolutePath,
+      );
+
+      if (nextLayout !== documentEditorLayout) {
+        applyDocumentEditorLayout(nextLayout);
+      }
+    },
+    [applyDocumentEditorLayout, documentEditorLayout, workspace],
+  );
+
   const handleSelectDocumentTab = React.useCallback(
     (tabPath: string) => {
       applyDocumentEditorLayout(selectDocumentTab(documentEditorLayout, tabPath));
@@ -2141,6 +2176,7 @@ export function WorkspaceLayout({
                 onOpenInFileManager={handleOpenNodeInFileManager}
                 onOpenSettings={() => openSettingsPage('appearance')}
                 onRemoveWorkspace={handleRemoveWorkspace}
+                onDeleteNode={handleDeleteWorkspaceNode}
                 onRenameNode={handleRenameWorkspaceNode}
                 revealDirectoryPath={revealedDirectoryPath}
                 onSelectDirectory={handleSelectWorkspaceDirectory}
