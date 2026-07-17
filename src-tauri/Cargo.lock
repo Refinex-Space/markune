@@ -2283,6 +2283,10 @@ dependencies = [
  "hex",
  "keyring",
  "log",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "objc2-web-kit",
  "portable-pty",
  "reqwest 0.12.28",
  "serde",
@@ -2299,6 +2303,8 @@ dependencies = [
  "tauri-plugin-updater",
  "tempfile",
  "uuid",
+ "webview2-com",
+ "windows-core 0.61.2",
 ]
 
 [[package]]

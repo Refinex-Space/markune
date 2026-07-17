@@ -1,5 +1,6 @@
 mod assets;
 mod codex;
+mod export;
 mod git;
 mod link_preview;
 mod settings;
@@ -11,9 +12,16 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let export_state = export::ExportState::default();
+    let export_protocol_state = export_state.clone();
+
     tauri::Builder::default()
         .manage(terminal::TerminalState::default())
         .manage(codex::CodexState::default())
+        .manage(export_state)
+        .register_uri_scheme_protocol("madora-export", move |_context, request| {
+            export_protocol_state.protocol_response(&request)
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(
@@ -32,6 +40,9 @@ pub fn run() {
             codex::codex_runtime_stop,
             codex::codex_app_server_request,
             codex::codex_app_server_respond,
+            export::select_document_export_directory,
+            export::write_document_export_bundle,
+            export::print_document_pdf,
             git::git_probe,
             git::git_init,
             git::git_status,

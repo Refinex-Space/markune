@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-06-19
+updated: 2026-07-16
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -31,6 +31,22 @@ pnpm lint
 pnpm build
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
+
+For single-document export changes, run the focused suites first:
+
+```bash
+pnpm test:run -- components/workspace/__tests__/document-export-core.test.ts components/workspace/__tests__/document-export-word.test.ts components/workspace/__tests__/use-document-export.test.tsx components/workspace/__tests__/document-tree.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml export::tests
+```
+
+Then use a Markdown acceptance document containing Chinese and English text, H1-H6, nested/task lists, quotes, callouts, highlighted code, merged tables, formulas, Mermaid, local/remote images, link cards and enough content for multiple A4 pages. Verify:
+
+- HTML follows the active Markweave theme, contains no runtime script, and opens with local images and attachment sidecars intact.
+- PDF is multi-page A4 with selectable text, 18 mm margins, print backgrounds, repeated table headers and no browser URL header/footer.
+- DOCX opens in Microsoft Word with heading hierarchy, nested lists, table merges, code/quote styles, embedded images and page numbers. Formula and Mermaid SVGs use 2× PNG fallback and are not expected to remain editable.
+- Existing names are never overwritten and produce `标题 (1)` together with a matching `标题 (1).assets` directory.
+
+Windows native PDF must be exercised in a packaged or desktop-dev WebView2 runtime. The macOS WKWebView path is complete only after compiling and exporting on a real Mac; Windows or cross-target checks do not replace that acceptance step.
 
 For Harness/control-plane changes:
 

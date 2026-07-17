@@ -1,5 +1,24 @@
 export type WorkspaceNodeKind = 'directory' | 'document';
 
+export type WorkspaceExportFormat = 'html' | 'markdown' | 'pdf' | 'word';
+
+export interface ExportDirectoryGrant {
+  grantId: string;
+  displayPath: string;
+}
+
+export interface DocumentExportFile {
+  base64Data: string;
+  relativePath: string;
+  role: 'asset' | 'primary';
+}
+
+export interface DocumentExportResult {
+  primaryPath: string;
+  createdPaths: string[];
+  warnings: string[];
+}
+
 export type RightPanelMode = 'ai' | 'meta' | null;
 
 export interface WorkspaceNode {

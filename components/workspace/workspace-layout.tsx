@@ -50,6 +50,7 @@ import {
   getDailyContentDates,
 } from './daily-notes';
 import { DocumentTabBar } from './document-tab-bar';
+import { resolveDocumentExportMarkdown } from './document-export-core';
 import {
   closeAllDocumentTabs,
   closeDocumentTab,
@@ -70,6 +71,7 @@ import { PinnedChromeMenu } from './pinned-chrome-menu';
 import { TerminalPanel, type TerminalTab } from './terminal-panel';
 import { useWorkspace } from './use-workspace';
 import { WorkspaceGlobalSearchDialog } from './workspace-global-search-dialog';
+import { useDocumentExport } from './use-document-export';
 import {
   buildWorkspaceSearchIndex,
   searchWorkspaceIndex,
@@ -151,6 +153,7 @@ import type {
   MarkdownDraft,
   PageWidthMode,
   WorkspaceNode,
+  WorkspaceExportFormat,
   WorkspaceGitSyncSettings,
   WorkspaceSnapshot,
 } from './workspace-types';
@@ -469,6 +472,11 @@ export function WorkspaceLayout({
   const [settingsSessionCache] = React.useState(
     createWorkspaceSettingsSessionCache(),
   );
+  const documentExport = useDocumentExport({
+    pageWidthMode,
+    rootPath: workspaceRootPath,
+    theme: resolvedTheme === 'dark' ? 'dark' : 'light',
+  });
   const [leftPanelMode, setLeftPanelMode] =
     React.useState<LeftPanelMode>('workspace');
   const [systemPage, setSystemPage] = React.useState<WorkspaceSystemPage>(null);
@@ -1576,6 +1584,39 @@ export function WorkspaceLayout({
     [],
   );
 
+  const handleExportDocument = React.useCallback(
+    (node: WorkspaceNode, format: WorkspaceExportFormat) =>
+      documentExport.exportDocument(
+        {
+          node,
+          loadMarkdown: () =>
+            resolveDocumentExportMarkdown({
+              cachedMarkdown: editorSessions[node.absolutePath]?.markdown,
+              currentDocumentPath,
+              documentPath: node.absolutePath,
+              draftMarkdown: workspace.draftDocument?.markdown,
+              readDisk: async () => {
+                if (!workspaceRootPath) {
+                  throw new Error('未打开工作区，无法读取导出文档。');
+                }
+
+                return (
+                  await readMarkdownDocument(workspaceRootPath, node.absolutePath)
+                ).content;
+              },
+            }),
+        },
+        format,
+      ),
+    [
+      currentDocumentPath,
+      documentExport,
+      editorSessions,
+      workspace.draftDocument,
+      workspaceRootPath,
+    ],
+  );
+
   const handleOpenRecentDocument = React.useCallback(
     (documentPath: string) => {
       const node = findWorkspaceDocumentByPath(
@@ -2050,6 +2091,9 @@ export function WorkspaceLayout({
                 width={leftSidebarWidth}
                 workspace={workspace}
                 onCreateDocument={handleCreateDocument}
+                onExportNode={
+                  documentExport.available ? handleExportDocument : undefined
+                }
                 onOpenDailyNote={() =>
                   void handleOpenDailyNote(formatDailyDate(new Date()))
                 }
@@ -2351,6 +2395,7 @@ export function WorkspaceLayout({
         </div>
         )}
       </div>
+      {documentExport.renderer}
     </main>
   );
 }

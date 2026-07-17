@@ -33,3 +33,28 @@ referenced_by: AGENTS.md#knowledge-map
 ## Local Files And Assets
 
 工作区文档 API 必须保留 Markdown 源文件。`upload_workspace_asset` 返回的 `madora-asset://{assetId}` 是新资源唯一的 Markdown 持久化引用；`.madora/assets/files/...` 只描述索引中的物理文件位置。预览、引用扫描和清理必须兼容旧相对路径引用，成功解析后可在下一次文档保存时规范化为协议引用，解析失败时不得改写原文。
+
+## Document Export Commands
+
+单文档导出固定使用以下桥接类型：
+
+```ts
+type WorkspaceExportFormat = 'html' | 'markdown' | 'pdf' | 'word';
+
+interface ExportDirectoryGrant {
+  grantId: string;
+  displayPath: string;
+}
+
+interface DocumentExportResult {
+  primaryPath: string;
+  createdPaths: string[];
+  warnings: string[];
+}
+```
+
+- `select_document_export_directory() -> ExportDirectoryGrant | null`：由 Rust 打开原生文件夹选择器，默认 Downloads；取消返回 `null`。
+- `write_document_export_bundle(grantId, format, fileStem, files) -> DocumentExportResult`：只接受 `html`、`markdown`、`word` 和相对文件包。
+- `print_document_pdf(grantId, fileStem, html) -> DocumentExportResult`：通过隐藏平台 WebView 生成矢量 PDF。
+
+目录授权只能使用一次且 15 分钟过期。命令返回最终实际路径；同名时由 Rust 生成 `标题 (n)`，调用方不得假设请求 stem 就是最终 stem。旧 `write_export_file` 仍只服务既有资源下载，不得接入文档导出流程。

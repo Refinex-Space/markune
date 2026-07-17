@@ -4,7 +4,10 @@ import type {
   DailyNoteDocument,
   DailyNoteMonth,
   DeletedWorkspaceNode,
+  DocumentExportFile,
+  DocumentExportResult,
   DocumentContentMeta,
+  ExportDirectoryGrant,
   GitBranchItem,
   GitCommitEntry,
   GitCommitFile,
@@ -25,6 +28,7 @@ import type {
   UploadedWorkspaceAsset,
   UploadWorkspaceAssetInput,
   WorkspaceAssetData,
+  WorkspaceExportFormat,
   WorkspaceGitSyncSettings,
   WorkspaceMoveRequest,
   WorkspaceHistoryItem,
@@ -355,6 +359,44 @@ export async function openPathInFileManager(path: string) {
   const { revealItemInDir } = await import('@tauri-apps/plugin-opener');
 
   await revealItemInDir(path);
+}
+
+export async function selectDocumentExportDirectory() {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<ExportDirectoryGrant | null>(
+    'select_document_export_directory',
+  );
+}
+
+export async function writeDocumentExportBundle(
+  grantId: string,
+  format: Exclude<WorkspaceExportFormat, 'pdf'>,
+  fileStem: string,
+  files: DocumentExportFile[],
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<DocumentExportResult>('write_document_export_bundle', {
+    grantId,
+    format,
+    fileStem,
+    files,
+  });
+}
+
+export async function printDocumentPdf(
+  grantId: string,
+  fileStem: string,
+  html: string,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<DocumentExportResult>('print_document_pdf', {
+    grantId,
+    fileStem,
+    html,
+  });
 }
 
 export async function openUrlInDefaultBrowser(url: string) {

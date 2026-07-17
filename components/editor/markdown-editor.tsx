@@ -34,6 +34,7 @@ interface MarkdownEditorProps {
     origin?: MarkdownEditorChangeOrigin,
   ) => void;
   readOnly?: boolean;
+  themeOverride?: 'dark' | 'light';
   workspaceRootPath?: string | null;
 }
 
@@ -48,6 +49,7 @@ export function MarkdownEditor({
   onSaveRequested,
   onMarkdownChange,
   readOnly = false,
+  themeOverride,
   workspaceRootPath = null,
 }: MarkdownEditorProps) {
   const { resolvedTheme } = useTheme();
@@ -328,7 +330,7 @@ export function MarkdownEditor({
             onTocChange={handleTocChange}
             onUpdate={handleEditorUpdate}
             linkCardResolver={resolveMarkweaveLinkCard}
-            theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
+            theme={themeOverride ?? (resolvedTheme === 'dark' ? 'dark' : 'light')}
           />
         </div>
 
