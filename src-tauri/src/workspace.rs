@@ -3836,8 +3836,8 @@ mod tests {
     fn imported_plate_documents_write_inside_workspace_only() {
         let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
         let docs = vec![ImportedPlateDocumentInput {
-            title: "Spring AI".to_string(),
-            source_file_name: "Spring AI.md".to_string(),
+            title: "Spring Guide".to_string(),
+            source_file_name: "Spring Guide.md".to_string(),
             content: serde_json::json!([{ "type": "p", "children": [{ "text": "正文" }] }]),
         }];
 
@@ -3849,7 +3849,7 @@ mod tests {
         .expect("导入文档失败");
 
         assert_eq!(result.created.len(), 1);
-        assert!(temp_dir.path().join("Spring AI.plate.json").is_file());
+        assert!(temp_dir.path().join("Spring Guide.plate.json").is_file());
     }
 
     #[test]
@@ -3989,7 +3989,17 @@ mod tests {
     fn moves_document_into_directory_and_returns_sorted_snapshot() {
         let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
         fs::create_dir(temp_dir.path().join("docs")).expect("创建目录失败");
-        fs::write(temp_dir.path().join("guide.md"), "# 指南\n").expect("写入文档失败");
+        let uploaded = crate::assets::upload_workspace_asset(
+            temp_dir.path().to_string_lossy().to_string(),
+            crate::assets::UploadWorkspaceAssetInput {
+                file_name: "cover.png".to_string(),
+                media_type: "image/png".to_string(),
+                base64_data: base64::engine::general_purpose::STANDARD.encode(b"cover"),
+            },
+        )
+        .expect("上传资产失败");
+        let markdown = format!("# 指南\n\n![封面]({})\n", uploaded.url);
+        fs::write(temp_dir.path().join("guide.md"), &markdown).expect("写入文档失败");
 
         let snapshot = move_workspace_node(
             temp_dir.path().to_string_lossy().to_string(),
@@ -4006,6 +4016,16 @@ mod tests {
 
         assert!(temp_dir.path().join("docs/guide.md").is_file());
         assert!(!temp_dir.path().join("guide.md").exists());
+        assert_eq!(
+            fs::read_to_string(temp_dir.path().join("docs/guide.md")).expect("读取移动后文档失败"),
+            markdown
+        );
+        let resolved = crate::assets::resolve_workspace_asset(
+            temp_dir.path().to_string_lossy().to_string(),
+            uploaded.id,
+        )
+        .expect("移动文档后解析资产失败");
+        assert!(Path::new(&resolved.absolute_path).is_file());
         assert_eq!(
             snapshot.nodes[0].children.as_ref().unwrap()[0].relative_path,
             "docs/guide.md"

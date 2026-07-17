@@ -1,46 +1,63 @@
 ---
 owner: refinex
-updated: 2026-07-12
+updated: 2026-07-17
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
 
 # Architecture Overview
 
-Madora is a desktop-first local knowledge-base app. The default page renders `WorkspaceLayout` from `app/page.tsx`, and the workspace shell owns the document tree, editor tabs, search dialog, Git panels, terminal panel, settings dialog, and side panels under `components/workspace`.
+Madora 是一个以本地 Markdown 文档为核心的桌面知识库，使用 Next.js App Router、React、TypeScript、Tauri v2 和 `@refinex/markora` 构建。
 
 ## Runtime Shape
 
-- Web shell: Next.js App Router with React client components.
-- Editor: `components/editor/markdown-editor.tsx` wraps `@markweave/react` / `markweave` as a controlled Markdown editor. The app shell keeps frontmatter serialization, save shortcuts, page-width classes, workspace asset URL conversion, and selection context for the right AI panel.
-- Desktop shell: Tauri v2 from `src-tauri`, with `src-tauri/tauri.conf.json` pointing production desktop builds at `../out`.
-- Native boundary: React calls Tauri commands through `components/workspace/workspace-api.ts`; command implementations live in `src-tauri/src`.
-- Local state: app settings are persisted by `src-tauri/src/settings.rs`; browser panel widths use local storage keys in `workspace-layout.tsx`; AI panel conversation history is persisted per workspace under `.madora/ai-sessions/`.
-- AI settings boundary: `src-tauri/src/ai_settings.rs` scans and mutates Claude-compatible local configuration surfaces for models, skills, commands, custom agents, MCP servers, and plugins. It also stores Anthropic account metadata under `~/.madora/anthropic-accounts.json` while imported OAuth tokens stay in the system secret store. The right AI panel reads `AiSettings` defaults from app settings and passes selected `modelId`, Codex thinking, extended thinking, and agent mode through `start_ai_session`; `src-tauri/src/agent_runtime.rs` maps those session options to the local Codex or Claude command protocol and injects the active Anthropic account token into the Claude process environment when available.
+- Web shell：Next.js App Router 与 React client components。
+- Editor：`components/editor/markdown-editor.tsx` 以受控 Markdown 字符串包装 `@markweave/react` / `markweave`。
+- Workspace shell：`components/workspace/workspace-layout.tsx` 管理文档树、编辑器标签、全文搜索、Git、终端、设置、文档元信息与 AI 侧栏。
+- Native boundary：前端经 `components/workspace/workspace-api.ts` 调用 Tauri 命令；实现位于 `src-tauri/src`。
+- Codex runtime：`components/workspace/codex-app-server.ts` 只消费协议消息；`src-tauri/src/codex.rs` 启动随应用打包的 Codex App Server sidecar，并通过 stdio JSONL 传递允许的方法、通知与审批请求。
+- Local state：全局设置由 `src-tauri/src/settings.rs` 持久化；面板尺寸使用浏览器 local storage；AI 会话由 Codex App Server 存入用户级 Codex Home，不属于工作区状态。
 
 ## Main Modules
 
-- `app/`: Next.js routes and API handlers.
-- `components/editor/`: Markdown editor, front matter, TOC, and workspace asset upload helpers.
-- `components/workspace/`: desktop workspace shell, tree, tabs, search, Git UI, terminal UI, and Tauri API bridge.
-- `components/ui/`: shared UI primitives.
-- `src-tauri/src/`: Rust commands for assets, Git, settings, terminal, AI settings, AI runtime sessions, and workspace filesystem behavior.
-- `scripts/`: local build helpers, currently including the Tauri web export wrapper.
+- `app/`：Next.js 页面与 API 路由。
+- `components/editor/`：Markdown 编辑器、frontmatter、目录与工作区资源上传。
+- `components/workspace/`：工作区壳层、文档树、标签、搜索、Git、终端、设置和 Tauri API bridge。
+- `components/ui/`：共享 UI 原语。
+- `src-tauri/src/`：资源、Git、设置、系统字体、终端与工作区文件系统命令。
 
-## Performance Boundary
+## Single-document Export Boundary
 
-High-frequency editor, terminal, and AI streaming paths must not publish full-shell React state for every event. Terminal output is buffered per session, AI deltas are committed at most once per animation frame, and non-critical document insights use deferred rendering. Workspace full-text search keeps its index and scoring work in `workspace-search-worker.ts`; environments without Web Worker support retain the synchronous compatibility fallback. Filesystem-heavy workspace tree, document read, document save, system-font, and AI inventory commands run through Tauri blocking workers rather than the UI command path. Enable `madoraPerf=1` or local storage key `madora:perf-log=1` only for aggregate timing and long-task diagnostics.
+单文档导出由 `components/workspace/use-document-export.tsx` 统一编排，文档树右键菜单与省略号菜单只传入文档节点和格式。导出源按当前未保存草稿、已打开标签缓存、磁盘 Markdown 的顺序解析，继续保持 Markdown-first 边界。
+
+`document-export-core.ts` 负责可移植 Markdown 资源包、只读 Markweave DOM 快照、静态 HTML 清理与打印 CSS；`document-export-word.ts` 将清理后的语义 DOM 映射为定制 DOCX。HTML 跟随当前主题，PDF 与 Word 固定使用浅色 A4 排版。HTML/PDF 复用同一 Markweave 快照，PDF 通过平台 WebView 原生打印，禁止整页截图。
+
+原生边界集中在 `src-tauri/src/export.rs`。渲染器只能先取得一次性目录授权，再提交格式、文件 stem 和相对文件包；不能把任意目标绝对路径传给写入或打印命令。PDF 的隐藏 WebView 只访问一次性 `madora-export://` 会话，完成、失败或超时后销毁。
+
+## Codex AI Boundary
+
+AI 面板是工作区级客户端，不在浏览器渲染器中运行 Node.js SDK，也不持有 OpenAI API key。Tauri 启动固定版本的 `codex app-server --listen stdio://`，账户登录、线程历史、模型目录、MCP、联网搜索、工具调用和文件变更由 App Server 提供。前端仅能调用 `src-tauri/src/codex.rs` 中的 allowlist 方法，并把消息、计划、命令、文件修改与 MCP 事件按协议到达顺序写入统一会话流；助手消息使用禁用原始 HTML 的 GFM 渲染。
+
+会话渲染保留 App Server 的 `Turn -> Item` 层级。`agentMessage.phase=commentary`、工具活动、计划和上下文压缩组成可折叠的处理过程，`phase=final_answer` 保持为独立最终回答；未提供 phase 的旧消息按普通助手消息兼容。连续工具只在视图投影层分组，底层有序 item 不重排。命令输出增量、文件 patch、MCP progress、耗时、退出码和审批请求都更新原 item；历史恢复使用同一映射逻辑。内部 reasoning 不进入界面，命令输出只保留有界首尾预览，避免大输出占用无界内存。
+
+正常运行和成功的工具组及技术详情默认折叠，只保留语义摘要、状态与耗时；失败、拒绝和待审批活动自动展开，用户手动 disclosure 状态不会被后续增量或完成通知重置。消息视口只在用户位于底部时跟随流式更新，用户上滚后显示轻量“回到最新消息”按钮；发送新消息或显式点击后恢复跟随。输入编辑区从紧凑高度开始随内容增长，并在达到面板合理上限后改为内部滚动。
+
+历史恢复以 App Server 实际返回的 thread items 为上限。固定 sidecar `0.144.4` 的 `thread/read` 与 `thread/turns/list` 当前不会回放已完成 turn 的命令和其他工具 item，`thread/items/list` 也尚未实现；因此 Madora 可以恢复 commentary、最终回答和 App Server 返回的持久 item，但不能通过读取 Codex JSONL 或维护第二份日志补齐缺失的历史工具明细。升级 sidecar 后必须重新验证该投影能力。
+
+线程以当前工作区根目录作为 `cwd`，默认使用 `workspace-write` sandbox 和 `on-request` 审批。渲染器不能调用 App Server 的通用 `fs/*`、`command/exec` 或 `thread/shellCommand` 接口；用户允许的命令和文件修改由 Codex turn 内部工具执行并逐项回到审批 UI。
+
+文档提及采用路径上下文，不复制文档正文。前端把显式 `@` 文档在模型文本中编码为带引号的工作区相对路径，并用 `text_elements.placeholder` 保留标题链接；当前文档与显式提及文档的绝对路径只通过 Madora 私有字段提交给 Tauri。Rust canonicalize 并验证这些路径后，将相对路径列表写入实验性的 `turn/start.additionalContext`：固定读取策略使用 `application` 信任级别，路径 JSON 使用 `untrusted` 信任级别。Codex 仅在请求依赖文档内容时通过正常工作区工具读取，因此读取动作仍进入原生工具时间线。
+
+Codex App Server 是 AI 会话持久化的唯一所有者。Madora 默认把 sidecar 绑定到共享的 `~/.codex`，允许的 `CODEX_HOME` 覆盖必须是工作区之外的既有绝对目录；该进程的 `sqlite_home` 固定为同一目录。Codex 管理 `sessions/**/*.jsonl` 会话记录、`session_index.jsonl` 追加索引和 SQLite 查询投影，Madora 只能通过 `thread/start`、`thread/resume`、`thread/list`、`thread/read`、`thread/name/set`、`thread/archive` 与 `thread/delete` 访问线程，禁止直接读写这些内部文件或数据库。
+
+工作区 `.madora` 只保存工作区元数据和资产，不保存 AI 消息。历史 `.madora/ai-sessions` JSON 方案已经废弃，不得重新引入，也不得为 Codex 会话维护第二份本地镜像。
 
 ## Storage And Editor Boundary
 
-Persisted knowledge documents are Markdown files. Keep the disk format, in-memory draft model, and editor input/output aligned around Markdown strings. Do not introduce a second rich-text projection layer unless a separate plan explicitly covers migration, compatibility, and rollback.
+持久化文档始终为 Markdown 文件。磁盘格式、内存草稿和编辑器输入/输出必须保持 Markdown 字符串边界，禁止重新引入富文本投影层。
 
-Markweave receives only the Markdown body after frontmatter parsing. Save paths must serialize the protected frontmatter back around `onUpdate.markdown`; the update payload is lazily serialized, so the host must read only the fields it needs. The controlled value echoes the emitted Markdown back to Markweave, avoiding redundant content comparisons during normal typing. Markweave emits standard Markdown where possible and uses supported HTML fallback only for formatting that Markdown cannot express; preserve that fallback as Markdown source rather than stripping or projecting it into another model. Its `theme` must follow the app's effective `next-themes` value, including the settings Markdown preview, so embedded toolbars, Mermaid and link cards match the shell theme. Pass `canvasColor="var(--background)"` to every Madora Markweave frame so its canvas uses the same background token as the application rather than Markweave's dark-theme default. The app fixes the built-in TOC at `innerTocPlacement="container"` so its layout follows the editor frame rather than the browser viewport. New local uploads are written into Markdown as workspace-root relative paths under `.madora/assets/files/{shard}/{hash}.{ext}`. Existing `madora-asset://{assetId}` references are legacy read/preview compatible and should not be batch-migrated without a separate content migration plan.
-
-Markweave link cards are opt-in user actions for standalone HTTP(S) link paragraphs. The editor resolves card metadata through `components/editor/markweave-link-card-resolver.ts`: Tauri uses the existing bounded `resolve_link_preview` command and Web uses the SSRF-safe `app/api/link-preview` route. Resolver cancellation, rejected URLs and failed metadata lookups return `null`, preserving the original normal link. Successful card snapshots remain in the Markdown document as Markweave-supported HTML fallback; do not resolve arbitrary URLs from the editor renderer.
-
-In Markweave live mode, an ordinary link click remains an editing interaction. Opening an HTTP(S) link requires Ctrl/Cmd-click; view mode keeps its existing safe link-opening behavior. Do not add a competing workspace-level click handler around the editor surface.
+Markweave 只接收 frontmatter 解析后的正文；保存时必须重新序列化受保护的 frontmatter。新上传资源的物理文件写入工作区根目录下的 `.madora/assets/files/{shard}/{hash}.{ext}`，Markdown 持久化引用统一使用 `madora-asset://{assetId}`。编辑器展示前通过工作区资产索引解析为受控本地 URL；旧 `.madora/assets/files/...` 引用保持只读兼容，并在成功解析后的下一次保存中规范化为协议引用。
 
 ## Desktop Build Boundary
 
-`scripts/build-tauri-web.mjs` temporarily moves `app/api` out of the Next static export path, sets `NEXT_OUTPUT=export`, runs the web build, and restores the API directory in `finally`. Changes to this flow need both web build and desktop packaging verification.
+`scripts/build-tauri-web.mjs` 在 Tauri 静态导出时临时移出 `app/api`，设置 `NEXT_OUTPUT=export`，运行 Web build 后在 `finally` 中恢复。改动此流程时必须同时验证 Web build 与桌面静态导出。

@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-12
+updated: 2026-07-16
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -9,23 +9,61 @@ referenced_by: AGENTS.md#knowledge-map
 
 ## Next.js API Routes
 
-- `app/api/ai/copilot/route.ts` accepts a request-provided `apiKey` or falls back to `AI_GATEWAY_API_KEY`.
-- `app/api/link-preview/route.ts` resolves generic link metadata for Web/dev usage. It must keep SSRF protections: only `http`/`https`, no credentialed URLs, no localhost/private/link-local/multicast targets, redirect validation, timeout, and bounded response size.
-- Markweave link cards consume this route only through `components/editor/markweave-link-card-resolver.ts`; failed or non-OK Web responses must resolve to `null`, never bypass the route with a direct client-side metadata fetch.
-- `app/api/uploadthing/route.ts` exposes the UploadThing route handler configured by `lib/uploadthing.ts`.
-- Do not log prompts, uploaded file URLs, API keys, or user local paths unless a task explicitly requires a sanitized diagnostic.
+- `app/api/link-preview/route.ts` 为 Web/dev 环境解析链接元数据，必须保留 SSRF 防护、重定向验证、超时和响应大小上限。
+- `app/api/uploadthing/route.ts` 暴露由 `lib/uploadthing.ts` 配置的 UploadThing handler。
+- 不记录用户本地路径、上传 URL 或文档内容，除非任务明确需要经过脱敏的诊断信息。
 
 ## Tauri Command Bridge
 
-- Frontend calls should flow through `components/workspace/workspace-api.ts`.
-- Rust command registration belongs in `src-tauri/src/lib.rs`.
-- Command implementation modules are split by domain: `assets.rs`, `git.rs`, `link_preview.rs`, `settings.rs`, `system_fonts.rs`, `terminal.rs`, and `workspace.rs`.
-- `system_fonts.rs` should expose only system font family names and recommendation metadata; do not return font file paths, file contents, or user-local font directory details to the frontend.
-- Desktop-only network features should use Tauri commands instead of depending on `app/api`, because desktop production builds statically export the frontend and remove Next API routes.
-- `resolve_link_preview` is the desktop counterpart for Markweave link cards. Its frontend bridge returns metadata only and must discard a result when Markweave's `AbortSignal` has been cancelled.
-- Keep TypeScript request/response types aligned with Rust command payloads.
-- AI panel conversation history uses Tauri commands in `agent_runtime.rs` and frontend wrappers in `workspace-api.ts`; persisted records stay inside the selected workspace at `.madora/ai-sessions/`.
+- 前端调用必须经 `components/workspace/workspace-api.ts`。
+- 命令注册位于 `src-tauri/src/lib.rs`。
+- Git 命令必须在阻塞任务中执行，不得占用 Tauri 原生主线程；本地命令超时为 60 秒，网络及提交等长操作超时为 180 秒，超时后必须终止对应进程树。Windows 启动 Git 子进程时必须使用无窗口标志，前端命令名称、参数和返回结构保持不变。
+- `system_fonts.rs` 仅可返回字体家族名称与推荐元数据，不得暴露字体文件路径或内容。
+- 桌面端网络功能应走 Tauri 命令；生产桌面构建使用静态导出，不包含 Next API routes。
+
+## Codex App Server Bridge
+
+- Codex 协议封装位于 `components/workspace/codex-app-server.ts` 与 `src-tauri/src/codex.rs`；不得从 React 组件直接启动进程或写入 stdio。
+- Windows 上的 Codex 版本探测与 App Server sidecar 必须复用无窗口命令构造入口，设置 `CREATE_NO_WINDOW`；不得让控制台子系统的 `codex.exe` 拉起独立终端窗口。
+- 客户端请求必须由 Rust allowlist 限制。当前允许账户、模型、线程、turn、MCP inventory/OAuth、skills 与审批相关方法；禁止向渲染器暴露通用 App Server `fs/*`、`command/exec` 和 `thread/shellCommand`。
+- App Server 的响应、通知与 server request 使用统一 `codex:event` 事件。前端必须按 JSON-RPC `id` 关联请求，并在运行时退出时拒绝所有 pending 请求。
+- 消息与工具通知必须按首次到达顺序保存在同一会话流中；同一 item 的完成通知只更新原位置，不得把工具记录统一追加到回答末尾。`thread/name/updated` 必须同步当前标题与历史列表。
+- 历史投影只能消费 App Server 返回的 thread items。固定 sidecar `0.144.4` 不得通过直接读取 Codex JSONL、SQLite 或维护第二份 Madora 会话日志来弥补 `thread/read` / `thread/turns/list` 缺失的工具 item；sidecar 升级后应以 `thread/items/list` 或等价官方接口补齐并重新运行契约测试。
+- 前端必须保留 turn 的 `startedAt`、`completedAt`、`durationMs` 和 agent message phase。`commentary` 只进入处理过程，`final_answer` 独立展示；phase 缺失时不得推断或改写旧消息语义。
+- `item/commandExecution/outputDelta`、`item/commandExecution/terminalInteraction`、`item/fileChange/patchUpdated`、`item/mcpToolCall/progress`、`turn/plan/updated` 与 `turn/diff/updated` 必须更新对应 turn/item，不得创建伪造工具记录。命令输出必须使用有界首尾缓冲并在界面标明省略行数。
+- 工具摘要优先使用 App Server 的 `commandActions`，原始 shell 包装只可出现在展开详情。文件路径只有在规范化后仍位于当前工作区时才可作为可点击文档入口；其他路径仅显示为文本。
+- 审批请求必须保存 `turnId`、`itemId` 和服务端 `availableDecisions`，并尽量附着到对应工具 item。界面只能展示 Rust bridge 已支持的字符串决定；不得尝试响应未登记或不支持的权限修订对象。
+- Markdown 文档不得作为 Codex 原生 `mention` 输入发送；该类型只用于 `app://` 与 `plugin://` 目标。显式文档提及必须把带引号的工作区相对路径写入文本，并用 `text_elements.placeholder` 保存显示标题；`byteRange` 使用替换后文本的 UTF-8 字节偏移。
+- 当前文档与显式提及文档只可通过顶层 `madoraDocumentReferences` 传给 Tauri。Rust 必须移除该私有字段、校验绝对路径与工作区边界，再生成 `madora_document_context_policy`（`application`）和 `madora_document_references`（`untrusted`）两项 `additionalContext`；渲染器直接提交原始 `additionalContext` 必须被拒绝。
+- 会话历史恢复只能依据 `text_elements` 的精确区间解析受控的带引号相对路径，并用当前工作区根目录恢复可点击绝对路径；绝对路径、空路径和包含父目录段的标记必须被拒绝。旧版 `mention + text_elements` 仅保留读取兼容，不得继续生成。
+- `turn/start.additionalContext` 是随固定 Codex sidecar 使用的实验协议。升级 Codex 时必须重新生成带 `--experimental` 的 App Server Schema，并运行前端与 Rust 契约测试。
+- 命令与文件修改审批只能响应 App Server 已登记的 server request id，不能由前端构造任意响应。
 
 ## Local Files And Assets
 
-Workspace document APIs should preserve Markdown source files. Asset APIs should stay within the configured Tauri asset protocol and local workspace asset conventions. `upload_workspace_asset` returns both the legacy `url` and the new `relativePath`; new Markdown writes should use `relativePath`, while cleanup and preview helpers must still understand legacy `madora-asset://{assetId}` references.
+工作区文档 API 必须保留 Markdown 源文件。`upload_workspace_asset` 返回的 `madora-asset://{assetId}` 是新资源唯一的 Markdown 持久化引用；`.madora/assets/files/...` 只描述索引中的物理文件位置。预览、引用扫描和清理必须兼容旧相对路径引用，成功解析后可在下一次文档保存时规范化为协议引用，解析失败时不得改写原文。
+
+## Document Export Commands
+
+单文档导出固定使用以下桥接类型：
+
+```ts
+type WorkspaceExportFormat = 'html' | 'markdown' | 'pdf' | 'word';
+
+interface ExportDirectoryGrant {
+  grantId: string;
+  displayPath: string;
+}
+
+interface DocumentExportResult {
+  primaryPath: string;
+  createdPaths: string[];
+  warnings: string[];
+}
+```
+
+- `select_document_export_directory() -> ExportDirectoryGrant | null`：由 Rust 打开原生文件夹选择器，默认 Downloads；取消返回 `null`。
+- `write_document_export_bundle(grantId, format, fileStem, files) -> DocumentExportResult`：只接受 `html`、`markdown`、`word` 和相对文件包。
+- `print_document_pdf(grantId, fileStem, html) -> DocumentExportResult`：通过隐藏平台 WebView 生成矢量 PDF。
+
+目录授权只能使用一次且 15 分钟过期。命令返回最终实际路径；同名时由 Rust 生成 `标题 (n)`，调用方不得假设请求 stem 就是最终 stem。旧 `write_export_file` 仍只服务既有资源下载，不得接入文档导出流程。

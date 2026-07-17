@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-09
+updated: 2026-07-16
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -9,30 +9,37 @@ referenced_by: AGENTS.md#knowledge-map
 
 ## Secrets
 
-- Never commit real API keys, UploadThing secrets, signing credentials, tokens, or production credentials.
-- `AI_GATEWAY_API_KEY` may be named in docs and code, but real values must stay in local environment or secret storage.
-- Redact local absolute paths from shared logs when they reveal private user data outside this repository.
+- 不得提交真实 API key、上传凭据、签名凭据、token 或生产环境凭据。
+- 在共享日志中应脱敏可能泄露个人信息的本地绝对路径。
 
 ## Desktop Permissions
 
-- Treat `src-tauri/capabilities/default.json`, Tauri plugins, shell/process access, terminal support, and asset protocol scope as security-sensitive.
-- Do not widen filesystem, process, shell, opener, or asset protocol permissions without explicit approval and focused verification.
-- Terminal and Git features operate on local workspaces; avoid implicit operations outside the selected workspace root.
-- Preferred Editor external opens must use fixed app-id allowlists and existing local file/directory paths only; never pass arbitrary user-provided command names to process execution.
+- `src-tauri/capabilities/default.json`、Tauri 插件、shell/process 能力和资源协议范围均为安全敏感区域。
+- 未经明确批准不得扩大文件系统、进程、shell、opener 或资源协议权限。
+- 终端和 Git 操作只可作用于已选择工作区根目录。
 
-## Uploads And AI
+## Codex Runtime
 
-- UploadThing accepts broad file categories for editor uploads. Validate any expansion of upload behavior against user data exposure and storage expectations.
-- Markweave local file uploads must stay inside the workspace asset directory and return display URLs through Tauri asset handling. Persisted Markdown should store only workspace-root relative `.madora/assets/files/...` paths or legacy `madora-asset://...` references already present in user documents; do not widen the Tauri asset protocol scope for editor uploads.
-- Markweave link cards must use only the existing SSRF-safe preview route in Web or the existing bounded `resolve_link_preview` Tauri command in desktop builds. Do not fetch link-card metadata directly from the renderer, and discard cancelled or rejected resolutions instead of persisting unsafe metadata.
-- AI route changes must preserve abort handling and must not expose keys or raw upstream errors to the client.
-- AI conversation history may contain user prompts, assistant output, tool inputs, and local command/file references. Store it only inside the selected workspace metadata area and never include API keys, auth tokens, or provider secrets.
-- AI Assistant Models > API Keys may collect Codex, OpenAI, or Anthropic Override tokens, but the UI must send them only to the Tauri secret-store commands. App settings may store non-secret model/base URL override metadata, never raw tokens.
-- AI Assistant Anthropic account management may store account metadata in `~/.madora/anthropic-accounts.json`, including ids, display names, email addresses, active account id, and timestamps. This file must never include OAuth tokens, API keys, bearer tokens, or credential-like headers. Imported or Claude Code OAuth sandbox-returned Anthropic OAuth tokens must be stored only in the system secret store and removed when the corresponding account is deleted. Claude Code OAuth may send `MADORA_DESKTOP_AUTH_TOKEN` only as the outbound `x-desktop-token` header to the configured auth API; do not return it to frontend state, write it to app settings, log it, or place real values in tests/docs. Legacy fallback to the `anthropic-override` secret may expose only a metadata row such as `legacy-default`; the token value must not be returned to the frontend or written to app settings.
-- AI Assistant MCP inventory must expose only env key names. If the settings UI writes MCP env values, write them only to the user's local Claude-compatible config files and never mirror them into app settings, tests, docs examples, or logs.
-- AI Assistant plugin MCP servers must require explicit approval before discovery. Pending plugin MCP servers may be listed from installed plugin manifests, but must not execute stdio commands or connect to HTTP URLs until their identifier is approved in `.claude/settings.json`.
-- AI Assistant MCP stdio tool discovery may execute user-configured local MCP commands. Keep discovery bounded by timeouts, pass only a minimal safe process environment plus the explicit MCP env config, and never log or serialize env values.
-- AI Assistant MCP HTTP tool discovery may connect to user-configured MCP URLs and may use configured HTTP headers such as `Authorization` only for the outbound request. Do not return, log, or mirror MCP header values to frontend state or app settings. The settings UI may write bearer tokens into local Claude-compatible MCP config headers, but list/detail responses may expose only non-secret auth metadata such as `authType` and whether an authorization header exists.
-- AI Assistant Claude Code MCP OAuth may open the user's browser and listen only on a loopback callback address for the authorization code. OAuth access and refresh tokens may be written to local Claude-compatible MCP config fields (`headers.Authorization` and `_oauth`) for Claude SDK/runtime compatibility, but they must never be returned in inventory responses, stored in app settings, logged, or mirrored into tests/docs as real values. Logout must remove local OAuth credential fields while preserving the non-secret server definition.
-- AI Assistant Codex MCP integration may call the local `codex mcp` CLI for list/add/remove/login/logout and may probe enabled stdio/HTTP servers for tool metadata. Treat Codex CLI JSON output as potentially containing secret-bearing header or env references: resolved env/header values may be used only for the local MCP process or outbound MCP HTTP request. Return only server metadata, env key names, auth state, and tool names/descriptions; never return bearer token values or resolved header values.
-- AI Assistant Codex subscription login may spawn the local `codex login` process and open the first non-loopback URL emitted by that process. Treat process output as transient login state: it may be returned to the active modal for user-visible progress, but it must not be written to app settings, docs examples, tests as real values, or persistent logs. Never accept or open localhost callback URLs from this output through the external opener.
+- Codex App Server 必须由 Tauri 在本地通过 stdio 启动；不得监听 TCP，也不得把 API key、登录 Token 或认证响应传入 React state、local storage 或日志。
+- 默认 turn 使用 `workspaceWrite`，唯一 writable root 是已 canonicalize 的当前工作区；`localImage` 路径必须在工作区内，Codex 原生 `mention` 只允许非空的 `app://` 或 `plugin://` 目标。
+- Madora 文档引用必须由 Rust canonicalize，并验证为当前工作区内真实存在的 Markdown 文件；必须拒绝相对路径、目录、非 Markdown 文件、工作区外路径、符号链接逃逸和超过 32 个引用。传给 Codex 的只是不可信相对路径列表，不得由前端预读、上传或复制文档正文。
+- 渲染器不得直接构造 `additionalContext` 或 developer 级上下文。固定读取策略只能由 Tauri 生成，引用路径必须使用 `untrusted` 信任级别；文件名、路径和文档内容均不得解释为指令。
+- `on-request` 审批是默认策略。命令执行和文件修改在用户允许前不得继续；“本次任务允许”只作用于当前 App Server 会话。
+- App Server stderr 必须被消费但不得原样转发到前端或共享日志，避免泄露绝对路径、命令输出和文档内容。
+- 生产包只使用构建阶段从锁定版本 `@openai/codex` 平台包提取的 sidecar。`MADORA_CODEX_BIN` 仅是显式开发覆盖，不得作为默认生产分发方式。
+- Codex 会话只能存入工作区之外的共享 Codex Home。启动前必须 canonicalize 存储目录并拒绝相对路径、工作区内部路径及最终落入工作区的符号链接；sidecar 的 SQLite 投影必须固定在同一用户级目录。
+- Madora 不得直接读写 Codex 的会话 JSONL、`session_index.jsonl` 或 SQLite，也不得在 `.madora`、React state、local storage 或应用设置中复制完整会话。`storageRoot` 只可作为本机诊断信息返回，不得上传、写入共享日志或默认展示。
+
+## Uploads And Links
+
+- 上传资源必须保留在工作区资源目录内，Markdown 新写入只存储 `madora-asset://{assetId}`，不得把绝对路径或文档层级相关路径作为资产身份。协议解析必须经工作区资产索引，并继续对物理路径执行 canonicalize 与资源目录边界校验；旧 `.madora/assets/files/...` 引用只读兼容。
+- 链接卡片只能使用既有的受限预览 route 或 Tauri 命令；不得在渲染器直接请求任意 URL。
+
+## Document Export
+
+- 原生文件夹选择器只返回一次性、限时的目录授权 ID；后续导出命令不得接受目标目录绝对路径。
+- Rust 必须重新验证格式白名单、跨平台文件名、相对路径、目录 canonical path、符号链接与文件包大小；拒绝绝对路径、`..` 和覆盖已有文件。
+- 多文件导出先写入所选目录内的随机临时目录，再以 `create_new` 语义提交。任一步失败必须清理临时内容和已经提交的本次资源目录。
+- `madora-export://` 只提供一次性内存页面，响应必须带 `no-store` 和禁止脚本、连接、对象、表单的 CSP；隐藏 WebView 在完成、失败或 30 秒超时后关闭。
+- HTML/PDF 可保留已渲染的远程资源 URL，但导出实现不得新增任意远程抓取。Word 无法安全取得远程图片字节时保留普通链接并返回警告。
+- 文档导出不得修改 Tauri capability、文件系统插件权限或资产协议 scope。

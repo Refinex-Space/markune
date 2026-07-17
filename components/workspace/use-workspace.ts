@@ -36,6 +36,7 @@ import {
   isDescendantPath,
   joinPath,
 } from './workspace-paths';
+import { createSourceMarkdownDraft } from './workspace-source-markdown';
 import { searchWorkspace } from './workspace-tree';
 import type {
   DocumentLoadState,
@@ -81,8 +82,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   const [error, setError] = React.useState<WorkspaceLoadError | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
   const [isSidebarCollapsed, setSidebarCollapsed] = React.useState(false);
-  const [rightPanelMode, setRightPanelMode] =
-    React.useState<RightPanelMode>(null);
+  const [rightPanelMode, setRightPanelMode] = React.useState<RightPanelMode>(null);
   const [storedWorkspaceHistory, setStoredWorkspaceHistory] = React.useState<
     WorkspaceHistoryItem[]
   >(() => getWorkspaceHistory());
@@ -365,16 +365,22 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   );
 
   const renameNode = React.useCallback(
-    async (node: WorkspaceNode, newName: string) => {
+    async (
+      node: WorkspaceNode,
+      newName: string,
+      draftOverride?: MarkdownDraft,
+    ) => {
       if (!snapshot) {
         return null;
       }
+
+      const activeDraft = draftOverride ?? draftDocument;
 
       if (
         currentDocument?.absolutePath === node.absolutePath &&
         (saveState === 'dirty' || saveState === 'saving')
       ) {
-        await saveCurrentDocumentNow(draftDocument);
+        await saveCurrentDocumentNow(activeDraft);
       }
 
       const renamed = await renameWorkspaceNode(
@@ -388,16 +394,16 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         if (renamed.kind === 'document') {
           setCurrentDocument(renamed);
 
-          if (isRenamingRef.current && draftDocument) {
+          if (isRenamingRef.current && activeDraft) {
             // H1 同步：保持内存 draft（保留原始 H1），保存到新路径覆盖 Rust 规范化内容
             const saveMeta = await saveMarkdownDocument(
               snapshot.rootPath,
               renamed.absolutePath,
-              draftDocument.markdown,
+              activeDraft.markdown,
               null,
             );
             setDocumentContent({
-              content: draftDocument.markdown,
+              content: activeDraft.markdown,
               modifiedAt: saveMeta.modifiedAt,
               path: saveMeta.path,
             });
@@ -406,7 +412,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
                 ? { ...prev, modifiedAt: saveMeta.modifiedAt, path: saveMeta.path }
                 : null,
             );
-            lastSavedMarkdownRef.current = draftDocument.markdown;
+            lastSavedMarkdownRef.current = activeDraft.markdown;
             setLastSavedAt(saveMeta.modifiedAt);
             setSaveState('saved');
           } else if (draftDocument) {
@@ -450,16 +456,30 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   );
 
   const updateMarkdown = React.useCallback(
-    (nextMarkdown: string) => {
+    (
+      nextMarkdown: string,
+      options?: { readonly preserveSource?: boolean },
+    ) => {
       if (!draftDocument) {
         return;
       }
 
-      const nextDraft = withUpdatedMarkdown(draftDocument, nextMarkdown);
+      const nextDraft = options?.preserveSource
+        ? createSourceMarkdownDraft(
+            draftDocument,
+            nextMarkdown,
+            currentDocument?.name ?? '',
+          )
+        : withUpdatedMarkdown(draftDocument, nextMarkdown);
       const titleChanged =
         nextDraft.metadata.title !== draftDocument.metadata.title;
+      const shouldDebounceSourceRename = options?.preserveSource === true;
 
       setDraftDocument(nextDraft);
+
+      if (shouldDebounceSourceRename) {
+        clearPendingRename();
+      }
 
       if (nextDraft.markdown === lastSavedMarkdownRef.current) {
         clearPendingSave();
@@ -475,17 +495,23 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         void saveCurrentDocumentNow(nextDraft);
       }, 800);
 
-      if (titleChanged && !isRenamingRef.current && currentDocument) {
+      if (
+        (titleChanged || shouldDebounceSourceRename) &&
+        !isRenamingRef.current &&
+        currentDocument
+      ) {
         const newFileName = sanitizeTitleForFileName(nextDraft.metadata.title);
         const currentFileName = currentDocument.name.replace(/\.md$/i, '');
 
         if (newFileName !== currentFileName) {
-          clearPendingRename();
+          if (!shouldDebounceSourceRename) {
+            clearPendingRename();
+          }
           const targetNode = currentDocument;
 
           pendingRenameTimerRef.current = setTimeout(() => {
             isRenamingRef.current = true;
-            void renameNode(targetNode, newFileName).finally(() => {
+            void renameNode(targetNode, newFileName, nextDraft).finally(() => {
               isRenamingRef.current = false;
             });
           }, 300);

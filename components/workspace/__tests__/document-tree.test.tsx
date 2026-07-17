@@ -146,6 +146,7 @@ describe('DocumentTree', () => {
     );
 
     await user.click(screen.getByLabelText('打开 Guides 操作菜单'));
+    expect(screen.queryByRole('menuitem', { name: '导出' })).toBeNull();
     await user.click(screen.getByRole('menuitem', { name: '新建文档' }));
     await user.click(screen.getByLabelText('打开 Guides 操作菜单'));
     await user.click(screen.getByRole('menuitem', { name: '新建目录' }));
@@ -178,7 +179,22 @@ describe('DocumentTree', () => {
 
     expect(screen.getByRole('menuitem', { name: '重命名' })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: '删除文档' })).toBeTruthy();
-    expect(screen.getByRole('menuitem', { name: '导出' })).toBeTruthy();
+    const exportTrigger = screen.getByRole('menuitem', { name: '导出' });
+    await user.click(exportTrigger);
+
+    expect(screen.getByRole('menuitem', { name: '导出为 HTML' })).toBeTruthy();
+    expect(
+      screen.getByRole('menuitem', { name: '导出为 Markdown' }),
+    ).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: '导出为 PDF' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: '导出为 Word' })).toBeTruthy();
+    expect(screen.queryByRole('menuitem', { name: '导出为 Image' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('menuitem', { name: '导出为 HTML' }));
+    expect(onExportNode).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'README.md' }),
+      'html',
+    );
   });
 
   it('opens a document from the node action menu in the file manager', async () => {

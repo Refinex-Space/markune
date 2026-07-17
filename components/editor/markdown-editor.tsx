@@ -4,11 +4,15 @@ import * as React from 'react';
 import { ArrowUp } from 'lucide-react';
 import {
   MarkweaveEditor,
-  type MarkweaveEditorRuntimeSnapshot,
   type MarkweaveEditorUpdatePayload,
+  type MarkweaveSearchController,
 } from '@markweave/react';
 import { useTheme } from 'next-themes';
 
+import {
+  DocumentFindBar,
+  type DocumentFindRequest,
+} from '@/components/editor/document-find-bar';
 import {
   parseFrontmatter,
   serializeFrontmatter,
@@ -18,16 +22,19 @@ import { useWorkspaceAssetUploader } from '@/components/editor/use-workspace-ass
 import type { PageWidthMode } from '@/components/workspace/workspace-types';
 import { cn } from '@/lib/utils';
 
+export type MarkdownEditorChangeOrigin = 'source';
+
 interface MarkdownEditorProps {
   documentKey?: string;
   markdown: string;
   pageWidthMode?: PageWidthMode;
   onSaveRequested?: () => void;
-  onMarkdownChange?: (markdown: string) => void;
-  onSelectionChange?: (
-    selection: { markdown: string; from: number; to: number } | null,
+  onMarkdownChange?: (
+    markdown: string,
+    origin?: MarkdownEditorChangeOrigin,
   ) => void;
   readOnly?: boolean;
+  themeOverride?: 'dark' | 'light';
   workspaceRootPath?: string | null;
 }
 
@@ -41,19 +48,26 @@ export function MarkdownEditor({
   pageWidthMode = 'wide',
   onSaveRequested,
   onMarkdownChange,
-  onSelectionChange,
   readOnly = false,
+  themeOverride,
   workspaceRootPath = null,
 }: MarkdownEditorProps) {
   const { resolvedTheme } = useTheme();
+  const editorRootRef = React.useRef<HTMLDivElement | null>(null);
+  const markweaveModeRef = React.useRef<HTMLDivElement | null>(null);
   const scrollAreaRef = React.useRef<HTMLDivElement | null>(null);
-  const runtimeSelectionRef =
-    React.useRef<MarkweaveEditorRuntimeSnapshot['selection']>(null);
-  const selectionAnimationFrameRef = React.useRef<number | null>(null);
+  const findRequestRevisionRef = React.useRef(0);
+  const sourceModeToggledRef = React.useRef(false);
+  const sourceTextareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   const cancelBackToTopAnimationRef = React.useRef<(() => void) | null>(
     null,
   );
   const [backToTopVisible, setBackToTopVisible] = React.useState(false);
+  const [findRequest, setFindRequest] =
+    React.useState<DocumentFindRequest | null>(null);
+  const [searchController, setSearchController] =
+    React.useState<MarkweaveSearchController | null>(null);
+  const [sourceMode, setSourceMode] = React.useState(false);
 
   const frontmatterView = React.useMemo(() => {
     const parsed = parseFrontmatter(markdown);
@@ -107,46 +121,73 @@ export function MarkdownEditor({
     [onMarkdownChange, readOnly, serializeBody, toStorageMarkdown],
   );
 
-  const syncSelectionContext = React.useCallback(() => {
-    if (!onSelectionChange) {
-      return;
-    }
-
-    const selection = runtimeSelectionRef.current;
-    const selectedText = getDomSelectionText(scrollAreaRef.current);
-
-    if (!selection || selection.empty || !selectedText.trim()) {
-      onSelectionChange(null);
-      return;
-    }
-
-    onSelectionChange({
-      from: Math.min(selection.from, selection.to),
-      markdown: selectedText,
-      to: Math.max(selection.from, selection.to),
-    });
-  }, [onSelectionChange]);
-
-  const handleRuntimeStateChange = React.useCallback(
-    (snapshot: MarkweaveEditorRuntimeSnapshot) => {
-      runtimeSelectionRef.current = snapshot.selection;
-
-      if (selectionAnimationFrameRef.current !== null) {
-        return;
-      }
-
-      selectionAnimationFrameRef.current = window.requestAnimationFrame(() => {
-        selectionAnimationFrameRef.current = null;
-        syncSelectionContext();
-      });
-    },
-    [syncSelectionContext],
-  );
-
   const handleTocChange = React.useCallback(() => {
     // Markweave owns the visible inner TOC; this callback keeps the runtime
     // bridge explicit for future workspace integrations.
   }, []);
+
+  const handleSearchControllerChange = React.useCallback(
+    (controller: MarkweaveSearchController | null) => {
+      setSearchController(controller);
+    },
+    [],
+  );
+
+  const getSelectedText = React.useCallback(() => {
+    if (sourceMode) {
+      const textarea = sourceTextareaRef.current;
+
+      if (!textarea || textarea.selectionStart === textarea.selectionEnd) {
+        return '';
+      }
+
+      return textarea.value.slice(
+        textarea.selectionStart,
+        textarea.selectionEnd,
+      );
+    }
+
+    const selection = window.getSelection();
+    const anchorNode = selection?.anchorNode;
+
+    if (
+      !selection ||
+      selection.isCollapsed ||
+      !anchorNode ||
+      !markweaveModeRef.current?.contains(anchorNode)
+    ) {
+      return '';
+    }
+
+    return selection.toString();
+  }, [sourceMode]);
+
+  const openFind = React.useCallback(
+    (expandReplace: boolean) => {
+      findRequestRevisionRef.current += 1;
+      setFindRequest({
+        documentKey,
+        expandReplace,
+        initialQuery: normalizeFindSeed(getSelectedText()),
+        revision: findRequestRevisionRef.current,
+      });
+    },
+    [documentKey, getSelectedText],
+  );
+
+  const closeFind = React.useCallback(() => {
+    setFindRequest(null);
+
+    requestAnimationFrame(() => {
+      const focusTarget = sourceMode
+        ? sourceTextareaRef.current
+        : markweaveModeRef.current?.querySelector<HTMLElement>(
+            '.ProseMirror, [contenteditable], textarea',
+          ) ?? editorRootRef.current;
+
+      focusTarget?.focus({ preventScroll: true });
+    });
+  }, [sourceMode]);
 
   React.useEffect(() => {
     const scroller = scrollAreaRef.current;
@@ -170,12 +211,27 @@ export function MarkdownEditor({
   React.useEffect(
     () => () => {
       cancelBackToTopAnimationRef.current?.();
-      if (selectionAnimationFrameRef.current !== null) {
-        window.cancelAnimationFrame(selectionAnimationFrameRef.current);
-      }
     },
     [],
   );
+
+  React.useEffect(() => {
+    if (!sourceModeToggledRef.current) {
+      return;
+    }
+
+    const frameId = requestAnimationFrame(() => {
+      const focusTarget = sourceMode
+        ? sourceTextareaRef.current
+        : markweaveModeRef.current?.querySelector<HTMLElement>(
+            '.ProseMirror, [contenteditable], textarea',
+          ) ?? editorRootRef.current;
+
+      focusTarget?.focus({ preventScroll: true });
+    });
+
+    return () => cancelAnimationFrame(frameId);
+  }, [sourceMode]);
 
   const handleBackToTop = React.useCallback(() => {
     const scroller = scrollAreaRef.current;
@@ -198,47 +254,139 @@ export function MarkdownEditor({
         'workspace-editor-shell relative flex h-full min-h-0 flex-col',
         `workspace-editor-page-${pageWidthMode}`,
       )}
+      data-editor-mode={sourceMode ? 'source' : readOnly ? 'view' : 'live'}
       data-page-width-mode={pageWidthMode}
       data-testid="markdown-editor-root"
-      onKeyDown={(event) => {
-        if (
-          (event.metaKey || event.ctrlKey) &&
-          event.key.toLowerCase() === 's'
-        ) {
+      ref={editorRootRef}
+      tabIndex={-1}
+      onKeyDownCapture={(event) => {
+        const primaryModifier = event.metaKey || event.ctrlKey;
+        const key = event.key.toLowerCase();
+        const findShortcut =
+          primaryModifier &&
+          !event.altKey &&
+          !event.shiftKey &&
+          !event.repeat &&
+          key === 'f';
+        const replaceShortcut =
+          !event.repeat &&
+          !event.shiftKey &&
+          ((event.ctrlKey && !event.metaKey && !event.altKey && key === 'h') ||
+            (event.metaKey && !event.ctrlKey && event.altKey && key === 'f'));
+
+        if (findShortcut || replaceShortcut) {
+          event.preventDefault();
+          event.stopPropagation();
+          openFind(replaceShortcut);
+          return;
+        }
+
+        const sourceModeShortcut =
+          primaryModifier &&
+          !event.altKey &&
+          !event.shiftKey &&
+          !event.repeat &&
+          (event.key === '/' || event.code === 'Slash');
+
+        if (sourceModeShortcut) {
+          event.preventDefault();
+          event.stopPropagation();
+          sourceModeToggledRef.current = true;
+          setSourceMode((current) => !current);
+          return;
+        }
+
+        if (primaryModifier && key === 's') {
           event.preventDefault();
           onSaveRequested?.();
         }
       }}
     >
       <div
-        className="markdown-editor-scrollarea min-h-0 flex-1 overflow-auto"
+        className="markdown-editor-scrollarea flex min-h-0 flex-1 flex-col overflow-auto"
         data-testid="markdown-editor-scrollarea"
-        onKeyUp={syncSelectionContext}
-        onMouseUp={syncSelectionContext}
         ref={scrollAreaRef}
       >
-        <MarkweaveEditor
-          ariaLabel="Markdown 正文"
-          canvasColor="var(--background)"
-          className="madora-markweave-editor"
-          content={editorMarkdown}
-          contentFormat="markdown"
-          editable={!readOnly}
-          innerToc
-          innerTocPlacement="container"
-          key={documentKey}
-          lang="zh"
-          mode={readOnly ? 'view' : 'live'}
-          onRuntimeStateChange={handleRuntimeStateChange}
-          onSlashCommandUpload={onSlashCommandUpload}
-          onTocChange={handleTocChange}
-          onUpdate={handleEditorUpdate}
-          linkCardResolver={resolveMarkweaveLinkCard}
-          theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
-        />
+        <div
+          aria-hidden={sourceMode}
+          className={cn('min-h-full w-full flex-1', sourceMode && 'hidden')}
+          data-testid="markweave-editor-mode"
+          ref={markweaveModeRef}
+        >
+          <MarkweaveEditor
+            ariaLabel="Markdown 正文"
+            canvasColor="var(--background)"
+            className="madora-markweave-editor"
+            content={editorMarkdown}
+            contentFormat="markdown"
+            editable={!readOnly}
+            innerToc
+            innerTocPlacement="container"
+            key={documentKey}
+            lang="zh"
+            mode={readOnly ? 'view' : 'live'}
+            onSlashCommandUpload={onSlashCommandUpload}
+            onSearchControllerChange={handleSearchControllerChange}
+            onTocChange={handleTocChange}
+            onUpdate={handleEditorUpdate}
+            linkCardResolver={resolveMarkweaveLinkCard}
+            theme={themeOverride ?? (resolvedTheme === 'dark' ? 'dark' : 'light')}
+          />
+        </div>
+
+        {sourceMode ? (
+          <section
+            className="flex min-h-0 w-full flex-1 flex-col bg-background"
+            data-testid="markdown-source-mode"
+          >
+            <div className="flex h-10 shrink-0 items-center justify-between border-b bg-muted/30 px-4 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">
+                Markdown 源码
+              </span>
+              <span>
+                {readOnly ? '只读' : '可编辑'} · Ctrl / Cmd + / 返回
+              </span>
+            </div>
+            <textarea
+              aria-label="Markdown 文档源码"
+              autoCapitalize="off"
+              autoCorrect="off"
+              className="min-h-0 flex-1 resize-none overflow-auto border-0 bg-transparent px-6 py-5 font-mono text-sm leading-6 text-foreground outline-none selection:bg-primary/20"
+              readOnly={readOnly}
+              ref={sourceTextareaRef}
+              spellCheck={false}
+              value={markdown}
+              wrap="off"
+              onChange={
+                readOnly || !onMarkdownChange
+                  ? undefined
+                  : (event) =>
+                      onMarkdownChange(event.currentTarget.value, 'source')
+              }
+            />
+          </section>
+        ) : null}
       </div>
 
-      {backToTopVisible ? (
+      {findRequest && findRequest.documentKey === documentKey ? (
+        <DocumentFindBar
+          controller={searchController}
+          key={findRequest.revision}
+          onClose={closeFind}
+          onSourceChange={
+            readOnly || !onMarkdownChange
+              ? undefined
+              : (nextMarkdown) => onMarkdownChange(nextMarkdown, 'source')
+          }
+          readOnly={readOnly}
+          request={findRequest}
+          sourceMode={sourceMode}
+          sourceText={markdown}
+          sourceTextareaRef={sourceTextareaRef}
+        />
+      ) : null}
+
+      {!sourceMode && backToTopVisible ? (
         <button
           aria-label="回到顶部"
           className="absolute right-10 bottom-4 z-40 flex size-8 items-center justify-center rounded-md border bg-background/95 text-muted-foreground shadow-sm backdrop-blur transition-colors hover:bg-muted hover:text-foreground"
@@ -252,28 +400,10 @@ export function MarkdownEditor({
   );
 }
 
-function getDomSelectionText(root: HTMLElement | null) {
-  if (!root || typeof window === 'undefined') {
-    return '';
-  }
+function normalizeFindSeed(selection: string) {
+  const normalized = selection.replace(/\s+/g, ' ').trim();
 
-  const selection = window.getSelection();
-
-  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-    return '';
-  }
-
-  const anchorNode = selection.anchorNode;
-  const focusNode = selection.focusNode;
-
-  if (
-    (anchorNode && root.contains(anchorNode)) ||
-    (focusNode && root.contains(focusNode))
-  ) {
-    return selection.toString();
-  }
-
-  return '';
+  return normalized.length <= 200 ? normalized : '';
 }
 
 function animateScrollToTop(scroller: HTMLElement, onComplete: () => void) {

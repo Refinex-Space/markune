@@ -3,7 +3,7 @@ import { readWorkspaceAssetData } from './workspace-api';
 export const LOCAL_ASSET_URL_PREFIX = 'madora-asset://';
 export const LOCAL_ASSET_RELATIVE_PREFIX = '.madora/assets/files/';
 
-const LOCAL_ASSET_LEGACY_ID_PATTERN = /^[A-Za-z0-9._-]+$/u;
+const LOCAL_ASSET_ID_PATTERN = /^[A-Za-z0-9._-]+$/u;
 const LOCAL_ASSET_RELATIVE_PATTERN =
   /\.madora\/assets\/files\/[^\s"'()<>{}\[\]\\]+/gu;
 const LOCAL_ASSET_URL_PATTERN = /madora-asset:\/\/[A-Za-z0-9._-]+/gu;
@@ -58,7 +58,7 @@ export function getWorkspaceAssetIdFromReference(
 
   const assetId = value.slice(LOCAL_ASSET_URL_PREFIX.length).trim();
 
-  return LOCAL_ASSET_LEGACY_ID_PATTERN.test(assetId) ? assetId : null;
+  return LOCAL_ASSET_ID_PATTERN.test(assetId) ? assetId : null;
 }
 
 export function extractWorkspaceAssetReferences(markdown: string) {
@@ -94,5 +94,5 @@ function getWorkspaceAssetIdFromRelativePath(relativePath: string) {
   const dotIndex = fileName.indexOf('.');
   const assetId = dotIndex === -1 ? fileName : fileName.slice(0, dotIndex);
 
-  return LOCAL_ASSET_LEGACY_ID_PATTERN.test(assetId) ? assetId : null;
+  return LOCAL_ASSET_ID_PATTERN.test(assetId) ? assetId : null;
 }

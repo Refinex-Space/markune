@@ -1,6 +1,23 @@
-import type { AiProviderSettings } from './ai-provider/provider-types';
-
 export type WorkspaceNodeKind = 'directory' | 'document';
+
+export type WorkspaceExportFormat = 'html' | 'markdown' | 'pdf' | 'word';
+
+export interface ExportDirectoryGrant {
+  grantId: string;
+  displayPath: string;
+}
+
+export interface DocumentExportFile {
+  base64Data: string;
+  relativePath: string;
+  role: 'asset' | 'primary';
+}
+
+export interface DocumentExportResult {
+  primaryPath: string;
+  createdPaths: string[];
+  warnings: string[];
+}
 
 export type RightPanelMode = 'ai' | 'meta' | null;
 
@@ -108,91 +125,12 @@ export interface LinkPreviewMetadata {
   error?: 'blocked_url' | 'invalid_url';
 }
 
-export type AiConfiguredProfileKind =
-  | 'fake'
-  | 'codex_app_server'
-  | 'claude_cli'
-  | 'acp_stdio'
-  | 'acp_websocket'
-  | 'sdk_sidecar'
-  | 'provider';
-
-export interface AiConfiguredProfile {
-  id: string;
-  label: string;
-  kind: AiConfiguredProfileKind;
-  providerId: string;
-  providerLabel: string;
-  modelId: string;
-  modelLabel: string;
-  enabled: boolean;
-  isTestRuntime: boolean;
-}
-
-export interface AiCustomClaudeConfig {
-  baseUrl: string;
-  model: string;
-}
-
-export type AiPreferredEditor =
-  | 'clion'
-  | 'cursor'
-  | 'fleet'
-  | 'ghostty'
-  | 'goland'
-  | 'intellij'
-  | 'iterm'
-  | 'phpstorm'
-  | 'pycharm'
-  | 'rider'
-  | 'rustrover'
-  | 'sublime'
-  | 'terminal'
-  | 'trae'
-  | 'vscode'
-  | 'vscode-insiders'
-  | 'warp'
-  | 'webstorm'
-  | 'windsurf'
-  | 'xcode'
-  | 'zed';
-
-export interface AiSettingsSidebarWidths {
-  agents: number;
-  mcp: number;
-  plugins: number;
-  skills: number;
-}
-
-export interface AiSettings {
-  analyticsOptOut: boolean;
-  autoAdvanceTarget: 'close' | 'next' | 'previous';
-  customClaudeConfig: AiCustomClaudeConfig;
-  ctrlTabTarget: 'agents' | 'workspaces';
-  defaultAgentMode: 'agent' | 'plan';
-  desktopNotificationsEnabled: boolean;
-  enabledProfileId: string | null;
-  extendedThinkingEnabled: boolean;
-  hiddenModelIds: string[];
-  includeCoAuthoredBy: boolean;
-  lastSelectedCodexModelId: string;
-  lastSelectedCodexThinking: 'low' | 'medium' | 'high' | 'xhigh';
-  lastSelectedModelId: string;
-  notifyWhenFocused: boolean;
-  preferredEditor: AiPreferredEditor;
-  profiles: AiConfiguredProfile[];
-  providers: AiProviderSettings;
-  settingsSidebarWidths: AiSettingsSidebarWidths;
-  soundNotificationsEnabled: boolean;
-}
-
 export interface AppSettings {
   schemaVersion: 1;
   storage: {
     defaultProvider: 'local';
   };
   appearance: AppearanceSettings;
-  ai: AiSettings;
 }
 
 export interface UploadWorkspaceAssetInput {

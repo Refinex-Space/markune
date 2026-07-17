@@ -18,7 +18,10 @@ import {
   X,
 } from 'lucide-react';
 
-import { MarkdownEditor } from '@/components/editor/markdown-editor';
+import {
+  MarkdownEditor,
+  type MarkdownEditorChangeOrigin,
+} from '@/components/editor/markdown-editor';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,8 +40,7 @@ import { cn } from '@/lib/utils';
 import {
   RightSidePanel,
   RightToolRail,
-} from './ai-side-panel';
-import type { AiSelectionContext } from './ai-panel/ai-types';
+} from './right-side-panel';
 import { DirectoryPage } from './directory-page';
 import { DailyNoteCalendar } from './daily-note-calendar';
 import {
@@ -48,6 +50,7 @@ import {
   getDailyContentDates,
 } from './daily-notes';
 import { DocumentTabBar } from './document-tab-bar';
+import { resolveDocumentExportMarkdown } from './document-export-core';
 import {
   closeAllDocumentTabs,
   closeDocumentTab,
@@ -68,6 +71,7 @@ import { PinnedChromeMenu } from './pinned-chrome-menu';
 import { TerminalPanel, type TerminalTab } from './terminal-panel';
 import { useWorkspace } from './use-workspace';
 import { WorkspaceGlobalSearchDialog } from './workspace-global-search-dialog';
+import { useDocumentExport } from './use-document-export';
 import {
   buildWorkspaceSearchIndex,
   searchWorkspaceIndex,
@@ -105,7 +109,6 @@ import {
   minimizeAppWindow,
   openDailyNote,
   openPathInFileManager,
-  openPathInPreferredEditor,
   setAppWindowTitle,
   toggleMaximizeAppWindow,
   terminalKill,
@@ -115,7 +118,6 @@ import {
 } from './workspace-api';
 import {
   DEFAULT_APP_SETTINGS,
-  getAiPreferredEditorLabel,
   withDefaultAppSettings,
 } from './workspace-settings';
 import {
@@ -151,6 +153,7 @@ import type {
   MarkdownDraft,
   PageWidthMode,
   WorkspaceNode,
+  WorkspaceExportFormat,
   WorkspaceGitSyncSettings,
   WorkspaceSnapshot,
 } from './workspace-types';
@@ -183,10 +186,16 @@ const LEFT_PANEL_WIDTH = {
   min: 280,
 };
 
-const RIGHT_PANEL_WIDTH = {
+const META_PANEL_WIDTH = {
   defaultValue: 340,
   max: 520,
   min: 340,
+};
+
+const AI_PANEL_WIDTH = {
+  defaultValue: 420,
+  max: 640,
+  min: 360,
 };
 
 const GIT_LOG_DETAIL_WIDTH = {
@@ -219,7 +228,8 @@ const WORKSPACE_PANEL_WIDTH_STORAGE_KEYS = {
   gitLogDetailWidth: 'madora:workspace:git-log-detail-width',
   gitLogHeight: 'madora:workspace:git-log-height',
   left: 'madora:workspace:left-sidebar-width',
-  right: 'madora:workspace:right-panel-width',
+  ai: 'madora:workspace:ai-panel-width',
+  meta: 'madora:workspace:right-panel-width',
   terminalHeight: 'madora:workspace:terminal-height',
 };
 
@@ -251,20 +261,27 @@ export function WorkspaceLayout({
   initialSnapshot = null,
 }: WorkspaceLayoutProps) {
   const workspace = useWorkspace(initialSnapshot);
+  const refreshWorkspaceTree = workspace.refreshWorkspaceTree;
   const [leftSidebarWidth, setLeftSidebarWidth] = useStoredPanelWidth(
     WORKSPACE_PANEL_WIDTH_STORAGE_KEYS.left,
     LEFT_PANEL_WIDTH.defaultValue,
     LEFT_PANEL_WIDTH.min,
     LEFT_PANEL_WIDTH.max,
   );
-  const [rightPanelWidth, setRightPanelWidth] = useStoredPanelWidth(
-    WORKSPACE_PANEL_WIDTH_STORAGE_KEYS.right,
-    RIGHT_PANEL_WIDTH.defaultValue,
-    RIGHT_PANEL_WIDTH.min,
-    RIGHT_PANEL_WIDTH.max,
+  const [metaPanelWidth, setMetaPanelWidth] = useStoredPanelWidth(
+    WORKSPACE_PANEL_WIDTH_STORAGE_KEYS.meta,
+    META_PANEL_WIDTH.defaultValue,
+    META_PANEL_WIDTH.min,
+    META_PANEL_WIDTH.max,
+  );
+  const [aiPanelWidth, setAiPanelWidth] = useStoredPanelWidth(
+    WORKSPACE_PANEL_WIDTH_STORAGE_KEYS.ai,
+    AI_PANEL_WIDTH.defaultValue,
+    AI_PANEL_WIDTH.min,
+    AI_PANEL_WIDTH.max,
   );
   const [settingsInitialSectionId, setSettingsInitialSectionId] =
-    React.useState<'appearance' | 'storage' | 'git-sync' | 'ai'>('appearance');
+    React.useState<'appearance' | 'storage' | 'git-sync'>('appearance');
   const [settingsVersion, setSettingsVersion] = React.useState(0);
   const [gitLogDetailWidth, setGitLogDetailWidth] = useStoredPanelWidth(
     WORKSPACE_PANEL_WIDTH_STORAGE_KEYS.gitLogDetailWidth,
@@ -301,8 +318,6 @@ export function WorkspaceLayout({
   >({});
   const [activeEditorDocumentPath, setActiveEditorDocumentPath] =
     React.useState<string | null>(null);
-  const [selectedTextContext, setSelectedTextContext] =
-    React.useState<AiSelectionContext | null>(null);
   const [documentEditorLayout, setDocumentEditorLayout] =
     React.useState<DocumentEditorLayout>(() => createInitialEditorLayout());
   const [recentDocuments, setRecentDocuments] = React.useState<
@@ -334,6 +349,12 @@ export function WorkspaceLayout({
   const pageTitle = documentTitle ?? workspace.currentDirectory?.name;
   const currentDocumentPath = workspace.currentDocument?.absolutePath ?? null;
   const workspaceRootPath = workspace.snapshot?.rootPath ?? null;
+  const rightPanelWidth =
+    workspace.rightPanelMode === 'ai' ? aiPanelWidth : metaPanelWidth;
+  const rightPanelWidthLimits =
+    workspace.rightPanelMode === 'ai' ? AI_PANEL_WIDTH : META_PANEL_WIDTH;
+  const setActiveRightPanelWidth =
+    workspace.rightPanelMode === 'ai' ? setAiPanelWidth : setMetaPanelWidth;
   const saveCurrentDocumentNow = workspace.saveCurrentDocumentNow;
   const activePanelDocumentPath =
     activeEditorDocumentPath ?? currentDocumentPath;
@@ -344,10 +365,6 @@ export function WorkspaceLayout({
           activePanelDocumentPath,
         )
       : workspace.currentDocument;
-  const activePanelSelectionContext =
-    selectedTextContext?.documentPath === activePanelDocumentPath
-      ? selectedTextContext
-      : null;
   const hasOpenDocumentTabs = documentEditorLayout.tabs.length > 0;
   const dailyContentDates = React.useMemo(
     () => getDailyContentDates(dailyNoteEntries),
@@ -436,11 +453,7 @@ export function WorkspaceLayout({
     ],
   );
   const documentPanelData = React.useMemo(
-    () =>
-      createDocumentPanelData(
-        workspace.draftDocument,
-        workspace.rightPanelMode,
-      ),
+    () => createDocumentPanelData(workspace.draftDocument, workspace.rightPanelMode),
     [workspace.draftDocument, workspace.rightPanelMode],
   );
   const isTauriRuntime = useIsTauriRuntime();
@@ -459,6 +472,11 @@ export function WorkspaceLayout({
   const [settingsSessionCache] = React.useState(
     createWorkspaceSettingsSessionCache(),
   );
+  const documentExport = useDocumentExport({
+    pageWidthMode,
+    rootPath: workspaceRootPath,
+    theme: resolvedTheme === 'dark' ? 'dark' : 'light',
+  });
   const [leftPanelMode, setLeftPanelMode] =
     React.useState<LeftPanelMode>('workspace');
   const [systemPage, setSystemPage] = React.useState<WorkspaceSystemPage>(null);
@@ -509,9 +527,7 @@ export function WorkspaceLayout({
   const terminalOpen = bottomPanelMode === 'terminal';
 
   const openSettingsPage = React.useCallback(
-    (
-      sectionId: 'appearance' | 'storage' | 'git-sync' | 'ai' = 'appearance',
-    ) => {
+    (sectionId: 'appearance' | 'storage' | 'git-sync' = 'appearance') => {
       setSettingsInitialSectionId(sectionId);
       setSystemPage('settings');
     },
@@ -836,8 +852,11 @@ export function WorkspaceLayout({
   }, [setLeftSidebarWidth]);
 
   const handleRightPanelResize = React.useCallback((nextWidth: number) => {
-    setRightPanelWidth(nextWidth);
-  }, [setRightPanelWidth]);
+    setActiveRightPanelWidth(nextWidth);
+  }, [setActiveRightPanelWidth]);
+  const handleAiWorkspaceChanged = React.useCallback(() => {
+    void refreshWorkspaceTree();
+  }, [refreshWorkspaceTree]);
 
   const refreshGitStatus = React.useCallback(async () => {
     if (!workspaceRootPath) {
@@ -1565,18 +1584,37 @@ export function WorkspaceLayout({
     [],
   );
 
-  const handleOpenNodeInPreferredEditor = React.useCallback(
-    (node: WorkspaceNode) => {
-      void Promise.resolve(
-        openPathInPreferredEditor(
-          node.absolutePath,
-          appSettings.ai.preferredEditor,
-        ),
-      ).catch((error: unknown) => {
-        console.error('Failed to open workspace node in preferred editor', error);
-      });
-    },
-    [appSettings.ai.preferredEditor],
+  const handleExportDocument = React.useCallback(
+    (node: WorkspaceNode, format: WorkspaceExportFormat) =>
+      documentExport.exportDocument(
+        {
+          node,
+          loadMarkdown: () =>
+            resolveDocumentExportMarkdown({
+              cachedMarkdown: editorSessions[node.absolutePath]?.markdown,
+              currentDocumentPath,
+              documentPath: node.absolutePath,
+              draftMarkdown: workspace.draftDocument?.markdown,
+              readDisk: async () => {
+                if (!workspaceRootPath) {
+                  throw new Error('未打开工作区，无法读取导出文档。');
+                }
+
+                return (
+                  await readMarkdownDocument(workspaceRootPath, node.absolutePath)
+                ).content;
+              },
+            }),
+        },
+        format,
+      ),
+    [
+      currentDocumentPath,
+      documentExport,
+      editorSessions,
+      workspace.draftDocument,
+      workspaceRootPath,
+    ],
   );
 
   const handleOpenRecentDocument = React.useCallback(
@@ -1752,7 +1790,11 @@ export function WorkspaceLayout({
   );
 
   const handleEditorMarkdownChange = React.useCallback(
-    (documentPath: string, markdown: string) => {
+    (
+      documentPath: string,
+      markdown: string,
+      origin?: MarkdownEditorChangeOrigin,
+    ) => {
       const perf = startWorkspacePerformanceMeasure('workspace.editor.markdown_change');
 
       setEditorSessions((current) => {
@@ -1769,7 +1811,9 @@ export function WorkspaceLayout({
 
       if (documentPath === currentDocumentPath) {
         rememberRecentDocumentByPath(documentPath);
-        workspace.updateMarkdown(markdown);
+        workspace.updateMarkdown(markdown, {
+          preserveSource: origin === 'source',
+        });
       }
 
       perf.finish({
@@ -1801,26 +1845,11 @@ export function WorkspaceLayout({
     const handleKeyDown = (event: KeyboardEvent) => {
       const isCtrlTabOnly =
         event.ctrlKey && event.key === 'Tab' && !event.altKey && !event.metaKey;
-      const isAltCtrlTab =
-        event.altKey && event.ctrlKey && event.key === 'Tab' && !event.metaKey;
-
-      if (!isCtrlTabOnly && !isAltCtrlTab) {
+      if (!isCtrlTabOnly) {
         return;
       }
-
-      const primaryTarget = appSettings.ai.ctrlTabTarget;
-      const shortcutTarget = isCtrlTabOnly
-        ? primaryTarget
-        : primaryTarget === 'agents'
-          ? 'workspaces'
-          : 'agents';
 
       event.preventDefault();
-
-      if (shortcutTarget === 'agents') {
-        workspace.setRightPanelMode('ai');
-        return;
-      }
 
       if (documentEditorLayout.tabs.length < 2) {
         return;
@@ -1846,10 +1875,8 @@ export function WorkspaceLayout({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
-    appSettings.ai.ctrlTabTarget,
     applyDocumentEditorLayout,
     documentEditorLayout,
-    workspace,
   ]);
 
   const handleRemoveWorkspace = React.useCallback(
@@ -1860,13 +1887,9 @@ export function WorkspaceLayout({
         (item) => item.rootPath === rootPath,
       );
       const canAutoAdvance = isRemovingCurrent && currentIndex >= 0;
-      const autoAdvanceTarget = appSettings.ai.autoAdvanceTarget;
-      const nextWorkspacePath =
-        canAutoAdvance && autoAdvanceTarget === 'next'
-          ? history[currentIndex + 1]?.rootPath
-          : canAutoAdvance && autoAdvanceTarget === 'previous'
-            ? history[currentIndex - 1]?.rootPath
-            : null;
+      const nextWorkspacePath = canAutoAdvance
+        ? history[currentIndex + 1]?.rootPath
+        : null;
 
       workspace.removeWorkspace(rootPath);
 
@@ -1874,7 +1897,7 @@ export function WorkspaceLayout({
         void workspace.switchWorkspace(nextWorkspacePath);
       }
     },
-    [appSettings.ai.autoAdvanceTarget, workspace],
+    [workspace],
   );
 
   const handleCloseDocumentTab = React.useCallback(
@@ -1978,7 +2001,7 @@ export function WorkspaceLayout({
   return (
     <main
       className="relative flex h-screen w-full overflow-hidden bg-sidebar text-foreground antialiased"
-      data-chrome="codex-workspace"
+      data-chrome="workspace"
       data-testid="workspace-shell"
     >
       {isTauriRuntime && isWindowsRuntime ? (
@@ -2068,17 +2091,16 @@ export function WorkspaceLayout({
                 width={leftSidebarWidth}
                 workspace={workspace}
                 onCreateDocument={handleCreateDocument}
+                onExportNode={
+                  documentExport.available ? handleExportDocument : undefined
+                }
                 onOpenDailyNote={() =>
                   void handleOpenDailyNote(formatDailyDate(new Date()))
                 }
                 onOpenViews={handleOpenViewsPage}
                 onOpenInFileManager={handleOpenNodeInFileManager}
-                onOpenInPreferredEditor={handleOpenNodeInPreferredEditor}
                 onOpenSettings={() => openSettingsPage('appearance')}
                 onRemoveWorkspace={handleRemoveWorkspace}
-                preferredEditorLabel={getAiPreferredEditorLabel(
-                  appSettings.ai.preferredEditor,
-                )}
                 revealDirectoryPath={revealedDirectoryPath}
                 onSelectDirectory={handleSelectWorkspaceDirectory}
                 onSelectDocument={openDocumentNode}
@@ -2134,7 +2156,7 @@ export function WorkspaceLayout({
             >
               <section
                 className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
-                data-chrome="codex-main-surface"
+                data-chrome="workspace-main-surface"
                 data-testid="workspace-editor-block"
               >
                 <WorkspaceMainHeader
@@ -2200,7 +2222,6 @@ export function WorkspaceLayout({
                           void workspace.saveCurrentDocumentNow()
                         }
                         onSelectTab={handleSelectDocumentTab}
-                        onSelectionChange={setSelectedTextContext}
                       />
                     ) : (
                       <EditorPane
@@ -2243,10 +2264,10 @@ export function WorkspaceLayout({
                   {workspace.rightPanelMode ? (
                     <WorkspaceResizeHandle
                       aria-label="调整右侧面板宽度"
-                      className="-mx-2"
+                      className="-mx-1"
                       direction="right"
-                      max={RIGHT_PANEL_WIDTH.max}
-                      min={RIGHT_PANEL_WIDTH.min}
+                      max={rightPanelWidthLimits.max}
+                      min={rightPanelWidthLimits.min}
                       value={rightPanelWidth}
                       onResize={handleRightPanelResize}
                     />
@@ -2255,16 +2276,21 @@ export function WorkspaceLayout({
                   <RightSidePanel
                     currentDocument={activePanelDocument}
                     documentPanelData={documentPanelData}
+                    documents={
+                      workspace.snapshot
+                        ? flattenDocuments(workspace.snapshot.nodes)
+                        : []
+                    }
                     documentReadOnly={
                       activePanelDocument
                         ? getDocumentReadOnly(activePanelDocument.absolutePath)
                         : false
                     }
                     mode={workspace.rightPanelMode}
-                    selectedTextContext={activePanelSelectionContext}
-                    settingsVersion={settingsVersion}
                     width={rightPanelWidth}
                     workspaceRootPath={workspaceRootPath}
+                    onOpenDocument={handleOpenRecentDocument}
+                    onWorkspaceChanged={handleAiWorkspaceChanged}
                     onToggleDocumentReadOnly={
                       activePanelDocument
                         ? () =>
@@ -2273,11 +2299,6 @@ export function WorkspaceLayout({
                             )
                         : undefined
                     }
-                    onClearSelectedTextContext={() => setSelectedTextContext(null)}
-                    onMarkdownDocumentApplied={(document) => {
-                      void workspace.syncAppliedMarkdownDocument(document);
-                    }}
-                    onOpenSettings={() => openSettingsPage('ai')}
                   />
                 </div>
 
@@ -2374,6 +2395,7 @@ export function WorkspaceLayout({
         </div>
         )}
       </div>
+      {documentExport.renderer}
     </main>
   );
 }
@@ -2632,7 +2654,7 @@ function WorkspaceMainHeader({
       <button
         aria-label="搜索文档"
         className="absolute left-1/2 top-1/2 inline-flex h-7 w-[min(420px,34vw)] -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full border border-border/70 bg-background/80 px-3 text-sm text-muted-foreground shadow-[inset_0_1px_1px_rgba(15,23,42,0.05)] transition-colors hover:bg-accent hover:text-foreground"
-        data-chrome="codex-centered-search"
+        data-chrome="workspace-centered-search"
         type="button"
         onClick={onOpenGlobalSearch}
       >
@@ -2652,7 +2674,7 @@ function WorkspaceMainHeader({
           <HeaderToolTooltip label="打开 Git 面板">
             <button
               aria-label="打开 Git 面板"
-              className={codexHeaderToolButtonClassName(leftPanelMode === 'git')}
+              className={headerToolButtonClassName(leftPanelMode === 'git')}
               type="button"
               onClick={onOpenGitPanel}
             >
@@ -2662,7 +2684,7 @@ function WorkspaceMainHeader({
           <HeaderToolTooltip label={terminalOpen ? '关闭终端' : '打开终端'}>
             <button
               aria-label={terminalOpen ? '关闭终端' : '打开终端'}
-              className={codexHeaderToolButtonClassName(terminalOpen)}
+              className={headerToolButtonClassName(terminalOpen)}
               type="button"
               onClick={onToggleTerminal}
             >
@@ -2672,7 +2694,7 @@ function WorkspaceMainHeader({
           <HeaderToolTooltip label={gitLogOpen ? '关闭 Git 日志' : '打开 Git 日志'}>
             <button
               aria-label={gitLogOpen ? '关闭 Git 日志' : '打开 Git 日志'}
-              className={codexHeaderToolButtonClassName(gitLogOpen)}
+              className={headerToolButtonClassName(gitLogOpen)}
               type="button"
               onClick={onToggleGitLog}
             >
@@ -2680,6 +2702,13 @@ function WorkspaceMainHeader({
             </button>
           </HeaderToolTooltip>
           {children}
+          {windowsChromeInset ? (
+            <span
+              aria-hidden="true"
+              className="mx-1 h-4 w-px shrink-0 bg-border/80"
+              data-testid="windows-titlebar-tools-divider"
+            />
+          ) : null}
         </div>
       </TooltipProvider>
     </header>
@@ -2715,7 +2744,7 @@ function ThemeQuickMenu() {
           <TooltipTrigger asChild>
             <button
               aria-label="切换主题"
-              className={codexHeaderToolButtonClassName(open)}
+              className={headerToolButtonClassName(open)}
               type="button"
             >
               <Palette size={16} strokeWidth={1.75} />
@@ -2779,7 +2808,7 @@ function quoteCssFontFamily(fontFamily: string) {
   return `'${fontFamily.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 }
 
-function codexHeaderToolButtonClassName(active: boolean) {
+function headerToolButtonClassName(active: boolean) {
   return cn(
     'inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
     active && 'bg-accent text-foreground',
@@ -2807,7 +2836,6 @@ function DocumentEditorSurface({
   onRetryDocument,
   onSaveRequested,
   onSelectTab,
-  onSelectionChange,
 }: {
   activeDocumentPath: string | null;
   currentDocumentPath: string | null;
@@ -2825,11 +2853,14 @@ function DocumentEditorSurface({
   onCloseTab: (tabPath: string) => void;
   onCloseTabsToLeft: (tabPath: string) => void;
   onCloseTabsToRight: (tabPath: string) => void;
-  onMarkdownChange: (documentPath: string, markdown: string) => void;
+  onMarkdownChange: (
+    documentPath: string,
+    markdown: string,
+    origin?: MarkdownEditorChangeOrigin,
+  ) => void;
   onRetryDocument: () => void;
   onSaveRequested: () => void;
   onSelectTab: (tabPath: string) => void;
-  onSelectionChange: (selection: AiSelectionContext | null) => void;
 }) {
   const activeTab = getActiveTab(documentEditorLayout);
   const activeTabPath = activeTab?.absolutePath ?? null;
@@ -2875,7 +2906,6 @@ function DocumentEditorSurface({
           onRetryDocument,
           onSaveRequested,
           onSelectTab,
-          onSelectionChange,
         })}
       </div>
     </div>
@@ -2896,7 +2926,6 @@ function renderDocumentEditorContent({
   onRetryDocument,
   onSaveRequested,
   onSelectTab,
-  onSelectionChange,
 }: {
   activeDocumentPath: string | null;
   activeTab: ReturnType<typeof getActiveTab>;
@@ -2907,11 +2936,14 @@ function renderDocumentEditorContent({
   pageWidthMode: PageWidthMode;
   workspaceRootPath: string | null;
   getDocumentReadOnly: (documentPath: string) => boolean;
-  onMarkdownChange: (documentPath: string, markdown: string) => void;
+  onMarkdownChange: (
+    documentPath: string,
+    markdown: string,
+    origin?: MarkdownEditorChangeOrigin,
+  ) => void;
   onRetryDocument: () => void;
   onSaveRequested: () => void;
   onSelectTab: (tabPath: string) => void;
-  onSelectionChange: (selection: AiSelectionContext | null) => void;
 }) {
   if (!activeTab) {
     return (
@@ -2976,59 +3008,42 @@ function renderDocumentEditorContent({
   return (
     <DocumentEditorInstance
       documentPath={activeTab.absolutePath}
-      documentTitle={activeTab.title}
       editorSession={editorSession}
       pageWidthMode={pageWidthMode}
       readOnly={getDocumentReadOnly(activeTab.absolutePath)}
       workspaceRootPath={workspaceRootPath}
       onMarkdownChange={onMarkdownChange}
       onSaveRequested={onSaveRequested}
-      onSelectionChange={onSelectionChange}
     />
   );
 }
 
 function DocumentEditorInstance({
   documentPath,
-  documentTitle,
   editorSession,
   pageWidthMode,
   readOnly,
   workspaceRootPath,
   onMarkdownChange,
   onSaveRequested,
-  onSelectionChange,
 }: {
   documentPath: string;
-  documentTitle: string;
   editorSession: DocumentEditorSession;
   pageWidthMode: PageWidthMode;
   readOnly: boolean;
   workspaceRootPath: string | null;
-  onMarkdownChange: (documentPath: string, markdown: string) => void;
+  onMarkdownChange: (
+    documentPath: string,
+    markdown: string,
+    origin?: MarkdownEditorChangeOrigin,
+  ) => void;
   onSaveRequested: () => void;
-  onSelectionChange: (selection: AiSelectionContext | null) => void;
 }) {
   const handleMarkdownChange = React.useCallback(
-    (markdown: string) => onMarkdownChange(documentPath, markdown),
+    (markdown: string, origin?: MarkdownEditorChangeOrigin) =>
+      onMarkdownChange(documentPath, markdown, origin),
     [documentPath, onMarkdownChange],
   );
-  const handleSelectionChange = React.useCallback(
-    (selection: { markdown: string; from: number; to: number } | null) => {
-      if (!selection) {
-        onSelectionChange(null);
-        return;
-      }
-
-      onSelectionChange({
-        ...selection,
-        documentPath,
-        documentTitle,
-      });
-    },
-    [documentPath, documentTitle, onSelectionChange],
-  );
-
   return (
     <div className="relative h-full min-h-0">
       <MarkdownEditor
@@ -3039,7 +3054,6 @@ function DocumentEditorInstance({
         workspaceRootPath={workspaceRootPath}
         onMarkdownChange={handleMarkdownChange}
         onSaveRequested={onSaveRequested}
-        onSelectionChange={handleSelectionChange}
       />
     </div>
   );

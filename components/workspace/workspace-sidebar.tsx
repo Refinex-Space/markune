@@ -8,13 +8,20 @@ import { cn } from '@/lib/utils';
 import { DocumentTree } from './document-tree';
 import type { useWorkspace } from './use-workspace';
 import { WorkspaceSwitcher } from './workspace-switcher';
-import type { WorkspaceNode } from './workspace-types';
+import type {
+  WorkspaceExportFormat,
+  WorkspaceNode,
+} from './workspace-types';
 
 interface WorkspaceSidebarProps {
   dailyCalendar?: ReactNode;
   width: number;
   workspace: ReturnType<typeof useWorkspace>;
   onCreateDocument?: (parentPath: string) => Promise<WorkspaceNode | null> | void;
+  onExportNode?: (
+    node: WorkspaceNode,
+    format: WorkspaceExportFormat,
+  ) => Promise<void> | void;
   onOpenDailyNote?: () => void;
   onOpenInFileManager?: (node: WorkspaceNode) => void;
   onOpenInPreferredEditor?: (node: WorkspaceNode) => void;
@@ -34,6 +41,7 @@ export function WorkspaceSidebar({
   width,
   workspace,
   onCreateDocument,
+  onExportNode,
   onOpenDailyNote,
   onOpenInFileManager,
   onOpenInPreferredEditor,
@@ -64,7 +72,7 @@ export function WorkspaceSidebar({
         'flex h-full shrink-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground transition-[width,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
         workspace.isSidebarCollapsed ? 'opacity-0' : 'opacity-100',
       )}
-      data-chrome="codex-sidebar"
+      data-chrome="workspace-sidebar"
       data-testid="workspace-sidebar"
       style={{ width: workspace.isSidebarCollapsed ? 0 : width }}
     >
@@ -139,6 +147,7 @@ export function WorkspaceSidebar({
               onCreateDirectory={workspace.createDirectory}
               onCreateDocument={createDocument}
               onDeleteNode={workspace.deleteNode}
+              onExportNode={onExportNode}
               onImportMarkdown={workspace.importMarkdownDocuments}
               onMoveNode={workspace.moveNode}
               onOpenInFileManager={onOpenInFileManager}

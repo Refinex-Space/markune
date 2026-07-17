@@ -527,7 +527,7 @@ mod tests {
         assert!(uploaded.url.starts_with("madora-asset://"));
         assert!(uploaded.relative_path.starts_with(".madora/assets/files/"));
         assert!(Path::new(&uploaded.absolute_path).is_file());
-        assert!(uploaded.absolute_path.contains(".madora/assets/files"));
+        assert!(Path::new(&uploaded.absolute_path).ends_with(Path::new(&uploaded.relative_path)));
         assert!(temp_dir.path().join(".madora/assets/index.json").is_file());
     }
 

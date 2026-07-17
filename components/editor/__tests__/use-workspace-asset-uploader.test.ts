@@ -21,7 +21,7 @@ describe('useWorkspaceAssetUploader', () => {
     vi.clearAllMocks();
   });
 
-  it('上传 File 后返回 Markweave 可显示 URL，并在入库前还原相对路径', async () => {
+  it('上传 File 后返回 Markweave 可显示 URL，并在入库前还原资产协议引用', async () => {
     vi.mocked(uploadWorkspaceAsset).mockResolvedValue({
       absolutePath: '/ws/.madora/assets/files/ab/hash.png',
       id: 'hash',
@@ -70,7 +70,7 @@ describe('useWorkspaceAssetUploader', () => {
       result.current.toStorageMarkdown(
         '![图](asset:///ws/.madora/assets/files/ab/hash.png)',
       ),
-    ).toBe('![图](.madora/assets/files/ab/hash.png)');
+    ).toBe('![图](madora-asset://hash)');
   });
 
   it('rootPath 为 null 时文件上传抛错', async () => {
@@ -90,6 +90,80 @@ describe('useWorkspaceAssetUploader', () => {
         }),
       ).rejects.toThrow('未打开工作区');
     });
+  });
+
+  it('为空文件名的剪贴板截图生成安全文件名', async () => {
+    vi.mocked(uploadWorkspaceAsset).mockResolvedValue({
+      absolutePath: '/ws/.madora/assets/files/ab/hash.png',
+      id: 'hash',
+      mediaType: 'image/png',
+      name: 'clipboard-image.png',
+      relativePath: '.madora/assets/files/ab/hash.png',
+      size: 3,
+      url: 'madora-asset://hash',
+    });
+    const { result } = renderHook(() =>
+      useWorkspaceAssetUploader('/ws/root', '# 文档'),
+    );
+
+    await act(async () => {
+      await result.current.onSlashCommandUpload({
+        kind: 'image',
+        source: {
+          file: new File([new Uint8Array([1, 2, 3])], '', {
+            type: 'image/png',
+          }),
+          mimeType: 'image/png',
+          type: 'file',
+        },
+        trigger: 'image-insert',
+      });
+    });
+
+    expect(uploadWorkspaceAsset).toHaveBeenCalledWith('/ws/root', {
+      base64Data: expect.any(String),
+      fileName: 'clipboard-image.png',
+      mediaType: 'image/png',
+    });
+  });
+
+  it('Windows 展示路径在保存时还原为与系统路径无关的资产协议引用', async () => {
+    vi.mocked(uploadWorkspaceAsset).mockResolvedValue({
+      absolutePath: 'C:\\workspace\\.madora\\assets\\files\\ab\\hash.png',
+      id: 'hash',
+      mediaType: 'image/png',
+      name: 'screenshot.png',
+      relativePath: '.madora/assets/files/ab/hash.png',
+      size: 3,
+      url: 'madora-asset://hash',
+    });
+    const { result } = renderHook(() =>
+      useWorkspaceAssetUploader('C:\\workspace', '# 文档'),
+    );
+    let uploaded:
+      | Awaited<ReturnType<typeof result.current.onSlashCommandUpload>>
+      | undefined;
+
+    await act(async () => {
+      uploaded = await result.current.onSlashCommandUpload({
+        kind: 'image',
+        source: {
+          file: new File([new Uint8Array([1, 2, 3])], 'screenshot.png', {
+            type: 'image/png',
+          }),
+          mimeType: 'image/png',
+          type: 'file',
+        },
+        trigger: 'image-insert',
+      });
+    });
+
+    expect(uploaded?.src).toBe(
+      'asset://C:\\workspace\\.madora\\assets\\files\\ab\\hash.png',
+    );
+    expect(
+      result.current.toStorageMarkdown(`![截图](${uploaded?.src})`),
+    ).toBe('![截图](madora-asset://hash)');
   });
 
   it('直接 URL、base64 或用户输入相对路径按 Markweave 协议透传', async () => {
@@ -118,7 +192,7 @@ describe('useWorkspaceAssetUploader', () => {
     );
   });
 
-  it('把正文中的 legacy URL 和新相对路径解析成 Markweave 可显示 URL，并保留原始存储格式', async () => {
+  it('把协议引用和旧相对路径解析成 Markweave 可显示 URL，并在保存时统一协议格式', async () => {
     vi.mocked(resolveWorkspaceAsset).mockImplementation(
       async (_rootPath, assetId) => ({
         absolutePath:
@@ -150,8 +224,26 @@ describe('useWorkspaceAssetUploader', () => {
     expect(resolveWorkspaceAsset).toHaveBeenCalledWith('/ws/root', 'legacy');
     expect(resolveWorkspaceAsset).toHaveBeenCalledWith('/ws/root', 'new');
     expect(result.current.toStorageMarkdown(result.current.editorMarkdown)).toBe(
-      markdown,
+      '![旧](madora-asset://legacy)\n![新](madora-asset://new)',
     );
+  });
+
+  it('旧相对路径解析失败时保留原文，不执行破坏性规范化', async () => {
+    vi.mocked(resolveWorkspaceAsset).mockRejectedValueOnce(
+      new Error('资产不存在'),
+    );
+    const markdown = '![缺失](.madora/assets/files/aa/missing.png)';
+
+    const { result } = renderHook(() =>
+      useWorkspaceAssetUploader('/ws/root', markdown),
+    );
+
+    await waitFor(() => {
+      expect(resolveWorkspaceAsset).toHaveBeenCalledWith('/ws/root', 'missing');
+    });
+
+    expect(result.current.editorMarkdown).toBe(markdown);
+    expect(result.current.toStorageMarkdown(markdown)).toBe(markdown);
   });
 
   it('没有工作区根路径时不解析存储引用', () => {
@@ -162,5 +254,25 @@ describe('useWorkspaceAssetUploader', () => {
 
     expect(result.current.editorMarkdown).toBe(markdown);
     expect(resolveWorkspaceAsset).not.toHaveBeenCalled();
+  });
+
+  it('切换文档时首帧立即返回新文档内容', () => {
+    const renderedMarkdown: string[] = [];
+    const { rerender } = renderHook(
+      ({ markdown }) => {
+        const bridge = useWorkspaceAssetUploader('/ws/root', markdown);
+
+        renderedMarkdown.push(bridge.editorMarkdown);
+        return bridge;
+      },
+      {
+        initialProps: { markdown: '# 旧文档' },
+      },
+    );
+
+    renderedMarkdown.length = 0;
+    rerender({ markdown: '# 新文档' });
+
+    expect(renderedMarkdown[0]).toBe('# 新文档');
   });
 });

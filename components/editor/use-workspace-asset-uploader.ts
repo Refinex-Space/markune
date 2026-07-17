@@ -14,6 +14,7 @@ import {
 import {
   extractWorkspaceAssetReferences,
   getWorkspaceAssetIdFromReference,
+  LOCAL_ASSET_URL_PREFIX,
 } from '@/components/workspace/workspace-local-assets';
 
 export interface WorkspaceAssetUploadBridge {
@@ -26,10 +27,18 @@ export function useWorkspaceAssetUploader(
   rootPath: string | null,
   storageMarkdown: string,
 ): WorkspaceAssetUploadBridge {
-  const [editorMarkdown, setEditorMarkdown] =
-    React.useState(storageMarkdown);
   const displayToStorageRef = React.useRef(new Map<string, string>());
   const storageToDisplayRef = React.useRef(new Map<string, string>());
+  const [resolvedMarkdown, setResolvedMarkdown] = React.useState(() => ({
+    editorMarkdown: storageMarkdown,
+    rootPath,
+    storageMarkdown,
+  }));
+  const editorMarkdown =
+    resolvedMarkdown.rootPath === rootPath &&
+    resolvedMarkdown.storageMarkdown === storageMarkdown
+      ? resolvedMarkdown.editorMarkdown
+      : storageMarkdown;
 
   React.useEffect(() => {
     displayToStorageRef.current.clear();
@@ -41,14 +50,22 @@ export function useWorkspaceAssetUploader(
 
     async function resolveStorageMarkdown() {
       if (!rootPath) {
-        setEditorMarkdown(storageMarkdown);
+        setResolvedMarkdown({
+          editorMarkdown: storageMarkdown,
+          rootPath,
+          storageMarkdown,
+        });
         return;
       }
 
       const references = extractWorkspaceAssetReferences(storageMarkdown);
 
       if (references.length === 0) {
-        setEditorMarkdown(storageMarkdown);
+        setResolvedMarkdown({
+          editorMarkdown: storageMarkdown,
+          rootPath,
+          storageMarkdown,
+        });
         return;
       }
 
@@ -65,10 +82,11 @@ export function useWorkspaceAssetUploader(
           try {
             const asset = await resolveWorkspaceAsset(rootPath, assetId);
             const displayUrl = convertFileSrc(asset.absolutePath);
+            const storageReference = `${LOCAL_ASSET_URL_PREFIX}${assetId}`;
 
             replacements.set(reference, displayUrl);
-            storageToDisplayRef.current.set(reference, displayUrl);
-            displayToStorageRef.current.set(displayUrl, reference);
+            storageToDisplayRef.current.set(storageReference, displayUrl);
+            displayToStorageRef.current.set(displayUrl, storageReference);
           } catch (error) {
             console.warn('Failed to resolve workspace asset.', error);
           }
@@ -76,7 +94,11 @@ export function useWorkspaceAssetUploader(
       );
 
       if (!cancelled) {
-        setEditorMarkdown(replaceMappedValues(storageMarkdown, replacements));
+        setResolvedMarkdown({
+          editorMarkdown: replaceMappedValues(storageMarkdown, replacements),
+          rootPath,
+          storageMarkdown,
+        });
       }
     }
 
@@ -108,12 +130,12 @@ export function useWorkspaceAssetUploader(
       }
 
       const uploaded = await uploadWorkspaceAsset(rootPath, {
-        fileName: file.name,
+        fileName: getUploadFileName(file),
         mediaType: file.type || 'application/octet-stream',
         base64Data: await fileToBase64(file),
       });
       const displayUrl = convertFileSrc(uploaded.absolutePath);
-      const storageReference = uploaded.relativePath || uploaded.url;
+      const storageReference = uploaded.url;
 
       displayToStorageRef.current.set(displayUrl, storageReference);
       storageToDisplayRef.current.set(storageReference, displayUrl);
@@ -133,6 +155,34 @@ export function useWorkspaceAssetUploader(
     onSlashCommandUpload,
     toStorageMarkdown,
   };
+}
+
+const clipboardFileExtensionByMediaType: Readonly<Record<string, string>> = {
+  'image/avif': 'avif',
+  'image/bmp': 'bmp',
+  'image/gif': 'gif',
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/svg+xml': 'svg',
+  'image/vnd.microsoft.icon': 'ico',
+  'image/webp': 'webp',
+  'image/x-icon': 'ico',
+};
+
+function getUploadFileName(file: File) {
+  const fileName = file.name.trim();
+
+  if (fileName) {
+    return fileName;
+  }
+
+  const mediaType = file.type.trim().toLowerCase();
+  const extension = clipboardFileExtensionByMediaType[mediaType] ?? 'bin';
+  const baseName = mediaType.startsWith('image/')
+    ? 'clipboard-image'
+    : 'clipboard-file';
+
+  return `${baseName}.${extension}`;
 }
 
 function createDirectUploadResult(

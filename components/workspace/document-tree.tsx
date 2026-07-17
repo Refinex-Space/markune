@@ -52,15 +52,11 @@ import { cn } from '@/lib/utils';
 import { isDescendantPath } from './workspace-paths';
 import { filterWorkspaceNodes } from './workspace-tree';
 import type {
+  WorkspaceExportFormat,
   WorkspaceMoveRequest,
   WorkspaceNode,
 } from './workspace-types';
 
-/**
- * 导出/导入格式（导出与 HTML/Word 导入能力后续基于 Markdown-first 编辑器重新设计，
- * 当前 document-tree 仅保留可选回调签名，不实际触发）。
- */
-type WorkspaceExportFormat = 'html' | 'pdf' | 'image' | 'markdown' | 'word';
 type WorkspaceImportFormat = 'html' | 'markdown' | 'word';
 
 interface DocumentTreeProps {
@@ -756,9 +752,8 @@ const EXPORT_ACTIONS: Array<{
   label: string;
 }> = [
   { format: 'html', label: '导出为 HTML' },
-  { format: 'pdf', label: '导出为 PDF' },
-  { format: 'image', label: '导出为 Image' },
   { format: 'markdown', label: '导出为 Markdown' },
+  { format: 'pdf', label: '导出为 PDF' },
   { format: 'word', label: '导出为 Word' },
 ];
 
@@ -1016,22 +1011,6 @@ function NodeDropdownActions({
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger disabled={!onExportNode}>
-            <Download />
-            导出
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="w-40">
-            {EXPORT_ACTIONS.map((action) => (
-              <DropdownMenuItem
-                key={action.format}
-                onSelect={() => void onExportNode?.(node, action.format)}
-              >
-                {action.label}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-        <DropdownMenuSub>
           <DropdownMenuSubTrigger disabled={!onImportDocuments}>
             <FileInput />
             导入
@@ -1171,22 +1150,6 @@ function NodeContextActions({
           删除目录
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuSub>
-          <ContextMenuSubTrigger disabled={!onExportNode}>
-            <Download />
-            导出
-          </ContextMenuSubTrigger>
-          <ContextMenuSubContent className="w-40">
-            {EXPORT_ACTIONS.map((action) => (
-              <ContextMenuItem
-                key={action.format}
-                onSelect={() => void onExportNode?.(node, action.format)}
-              >
-                {action.label}
-              </ContextMenuItem>
-            ))}
-          </ContextMenuSubContent>
-        </ContextMenuSub>
         <ContextMenuSub>
           <ContextMenuSubTrigger disabled={!onImportDocuments}>
             <FileInput />

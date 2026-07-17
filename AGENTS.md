@@ -16,7 +16,7 @@ Madora is a local knowledge-base desktop app built with Next.js App Router, Reac
 - Harness check: `pnpm harness:check`
 
 ## Repository Boundaries
-- Do not commit secrets or real API keys. `AI_GATEWAY_API_KEY` and UploadThing credentials must stay in local environment or secret storage.
+- Do not commit secrets or real API keys. UploadThing credentials must stay in local environment or secret storage.
 - Do not change CI, signing, installer, Tauri permissions, asset protocol scope, or infrastructure manifests without calling that out separately.
 - Preserve the Markdown-first storage model: persisted documents are `.md`; avoid reintroducing Plate/Slate document projections.
 - Keep Tauri defaults and frontend mirrors aligned for user settings such as `appearance.pageWidthMode`.
@@ -35,8 +35,8 @@ Madora is a local knowledge-base desktop app built with Next.js App Router, Reac
 - Architecture and module boundaries -> read `docs/architecture/overview.md` before design, refactor, editor/workspace shell, or Tauri boundary changes.
 - Config and environment -> read `docs/config/reference.md` before changing env vars, package scripts, Next/Tauri config, storage defaults, or desktop build behavior.
 - Coding standards -> read `docs/standards/coding.md` before implementation or test changes.
-- API standards -> read `docs/standards/api.md` before touching `app/api`, Tauri commands, UploadThing routes, workspace APIs, Git APIs, terminal APIs, or AI routes.
-- Security standards -> read `docs/standards/security.md` before secrets, permissions, filesystem, asset protocol, uploads, AI gateway, terminal, Git, or local data handling.
+- API standards -> read `docs/standards/api.md` before touching `app/api`, Tauri commands, UploadThing routes, workspace APIs, Git APIs, or terminal APIs.
+- Security standards -> read `docs/standards/security.md` before secrets, permissions, filesystem, asset protocol, uploads, terminal, Git, or local data handling.
 - Domain terms -> read `docs/domain/glossary.md` when naming workspace, document, asset, editor, or Git concepts.
 - Runbook -> read `docs/guides/runbook.md` for local startup, package, verification, incident recovery, or rollback work.
 - Historical plans/specs -> read `docs/README.md` when comparing current code with older superpowers plans or implementation specs.

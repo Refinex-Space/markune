@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-06-23
+updated: 2026-07-16
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -19,9 +19,15 @@ This directory contains routed repository knowledge for agent work. Root instruc
 - Domain glossary: `docs/domain/glossary.md`: [open](domain/glossary.md)
 - Runbook: `docs/guides/runbook.md`: [open](guides/runbook.md)
 
+## Validation Artifacts
+
+- Codex AI panel design QA: `design-qa.md`: [open](../design-qa.md)
+
 ## Historical Superpowers Plans
 
 These files are retained as historical planning/spec evidence. Prefer current source, README, and active docs for present behavior.
+
+所有在原生 Codex App Server 接入之前描述 `.madora/ai-sessions`、自建 AI conversation JSON 或前端会话镜像的 AI 方案均已被当前架构取代，只能作为历史证据，不能作为现行存储契约。
 
 - `docs/superpowers/plans/2026-05-30-markdown-document-edit-save.md`: [open](superpowers/plans/2026-05-30-markdown-document-edit-save.md)
 - `docs/superpowers/plans/2026-05-30-native-plate-workspace.md`: [open](superpowers/plans/2026-05-30-native-plate-workspace.md)

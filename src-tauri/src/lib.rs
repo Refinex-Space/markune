@@ -1,8 +1,6 @@
-mod agent_runtime;
-mod ai_http;
-mod ai_secret;
-mod ai_settings;
 mod assets;
+mod codex;
+mod export;
 mod git;
 mod link_preview;
 mod settings;
@@ -14,77 +12,37 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let export_state = export::ExportState::default();
+    let export_protocol_state = export_state.clone();
+
     tauri::Builder::default()
-        .manage(agent_runtime::AgentRuntimeState::default())
         .manage(terminal::TerminalState::default())
+        .manage(codex::CodexState::default())
+        .manage(export_state)
+        .register_uri_scheme_protocol("madora-export", move |_context, request| {
+            export_protocol_state.protocol_response(&request)
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_opener::init())
+        .plugin(
+            tauri_plugin_opener::Builder::new()
+                .open_js_links_on_click(false)
+                .build(),
+        )
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
-            agent_runtime::list_ai_agent_profiles,
-            agent_runtime::detect_ai_accounts,
-            agent_runtime::logout_codex_account,
-            agent_runtime::get_codex_integration,
-            agent_runtime::start_codex_login,
-            agent_runtime::get_codex_login_session,
-            agent_runtime::cancel_codex_login,
-            agent_runtime::open_codex_login_url,
-            agent_runtime::list_ai_agent_models,
-            agent_runtime::list_ai_conversations,
-            agent_runtime::read_ai_conversation,
-            agent_runtime::save_ai_conversation,
-            agent_runtime::read_ai_conversation_v2,
-            agent_runtime::save_ai_conversation_v2,
-            agent_runtime::list_ai_conversations_v2,
-            agent_runtime::start_ai_session,
-            agent_runtime::send_ai_prompt,
-            agent_runtime::cancel_ai_turn,
-            agent_runtime::respond_ai_permission,
-            agent_runtime::stop_ai_session,
-            ai_http::request_ai_provider_json,
-            ai_http::request_ai_chat,
-            ai_http::request_ai_chat_stream,
-            ai_settings::list_ai_skills,
-            ai_settings::list_ai_commands,
-            ai_settings::list_ai_custom_agents,
-            ai_settings::list_ai_mcp_servers,
-            ai_settings::list_ai_plugins,
-            ai_settings::set_ai_claude_include_co_authored_by,
-            ai_settings::list_ai_anthropic_accounts,
-            ai_settings::set_ai_anthropic_account_active,
-            ai_settings::rename_ai_anthropic_account,
-            ai_settings::delete_ai_anthropic_account,
-            ai_settings::start_ai_claude_code_auth,
-            ai_settings::poll_ai_claude_code_auth_status,
-            ai_settings::submit_ai_claude_code_auth_code,
-            ai_settings::open_ai_claude_code_oauth_url,
-            ai_settings::set_ai_plugin_enabled,
-            ai_settings::set_ai_plugin_mcp_server_approved,
-            ai_settings::set_ai_plugin_mcp_servers_approved,
-            ai_settings::create_ai_skill,
-            ai_settings::update_ai_skill,
-            ai_settings::delete_ai_skill,
-            ai_settings::create_ai_command,
-            ai_settings::update_ai_command,
-            ai_settings::delete_ai_command,
-            ai_settings::create_ai_custom_agent,
-            ai_settings::update_ai_custom_agent,
-            ai_settings::delete_ai_custom_agent,
-            ai_settings::create_ai_mcp_server,
-            ai_settings::set_ai_mcp_server_enabled,
-            ai_settings::update_ai_mcp_server,
-            ai_settings::delete_ai_mcp_server,
-            ai_settings::authenticate_ai_mcp_server,
-            ai_settings::logout_ai_mcp_server,
-            ai_settings::import_ai_anthropic_account_token,
-            ai_secret::get_ai_provider_secret_status,
-            ai_secret::save_ai_provider_secret,
-            ai_secret::delete_ai_provider_secret,
             assets::upload_workspace_asset,
             assets::resolve_workspace_asset,
             assets::read_workspace_asset_data,
+            codex::codex_runtime_probe,
+            codex::codex_runtime_start,
+            codex::codex_runtime_stop,
+            codex::codex_app_server_request,
+            codex::codex_app_server_respond,
+            export::select_document_export_directory,
+            export::write_document_export_bundle,
+            export::print_document_pdf,
             git::git_probe,
             git::git_init,
             git::git_status,

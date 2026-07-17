@@ -32,8 +32,10 @@ describe('app splash screen', () => {
     expect(layoutSource).toContain('/brand/madora-logo-light.svg');
     expect(layoutSource).toContain('dark:hidden');
     expect(layoutSource).toContain('dark:block');
-    expect(layoutSource).toContain('先让它存在，再把它做好');
-    expect(layoutSource).toContain('Make it exist first. Make it good later.');
+    expect(layoutSource).not.toContain('先让它存在，再把它做好');
+    expect(layoutSource).not.toContain('Make it exist first. Make it good later.');
+    expect(layoutSource).not.toContain('app-splash__title');
+    expect(layoutSource).not.toContain('app-splash__subtitle');
     expect(globalsCssSource).toContain('.app-splash');
     expect(globalsCssSource).toContain('app-splash-line-flow');
     expect(globalsCssSource).toContain('prefers-reduced-motion: reduce');
