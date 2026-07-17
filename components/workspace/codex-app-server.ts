@@ -7,6 +7,8 @@ export interface CodexRuntimeInfo {
   running: boolean;
   binarySource: string | null;
   version: string | null;
+  storageMode: 'sharedCodexHome';
+  storageRoot: string | null;
   message: string | null;
 }
 
@@ -61,6 +63,9 @@ export interface CodexTurn {
   id: string;
   status: string;
   items: CodexThreadItem[];
+  startedAt?: number | null;
+  completedAt?: number | null;
+  durationMs?: number | null;
 }
 
 export type CodexThreadItem = Record<string, unknown> & {

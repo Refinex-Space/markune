@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-15
+updated: 2026-07-16
 status: active
 referenced_by: docs/README.md#validation-artifacts
 ---
@@ -140,3 +140,36 @@ final result: passed
 Blocked. The composer and header are the required focused regions, but the updated Tauri window could not be isolated from the user's other running Madora instances.
 
 final result: blocked
+
+## 2026-07-16 Codex Tool Activity Follow-up
+
+### Evidence
+
+- source visual truth path: `/Users/refinex/Library/Application Support/PixPin/Temp/PixPin_2026-07-16_22-00-23.png`
+- implementation screenshot path: `/tmp/madora-tool-activity-after-polish.png`
+- focused comparison path: `/tmp/madora-tool-activity-after-polish-crop.png`
+- dark-theme verification path: `/tmp/madora-tool-activity-dark.png`
+- viewport: `1456 × 768`, light theme, right panel width `556px`
+- state: completed read-only Codex turn with commentary, two command activities and a final answer
+
+### Comparison History
+
+1. Pass 1 exposed `/bin/zsh -c` in a command title and omitted the separating space in the group count.
+2. Fix: shell wrappers now stay in technical details, `commandActions` generate semantic labels, and summaries use natural spacing.
+3. Pass 2 compared the reference and implementation together. Both use a low-noise processing header, commentary before grouped tool activity, nested disclosure rows and a final answer outside the activity group.
+
+### Verified Interactions
+
+- The live processing disclosure exposes `aria-expanded` and stays open while the turn runs.
+- The group disclosure summarizes two commands as a file-reading workflow.
+- Each command is a nested disclosure with a semantic title.
+- The final answer renders after the processing trace.
+- Reopening a completed thread collapses the historical processing trace by default.
+- The same completed trace remains readable in Madora's dark theme; the original follow-system preference was restored after verification.
+- Madora retains its existing side-panel typography, colors, spacing, icons and composer treatment instead of copying Codex branding.
+
+### Known Protocol Limit
+
+- Codex App Server sidecar `0.144.4` does not return completed command items from `thread/read` or `thread/turns/list`, and does not implement `thread/items/list`. The live visual state passes QA; exact historical tool-detail replay remains limited by the fixed sidecar contract and is not replaced with direct JSONL access.
+
+final result: passed
