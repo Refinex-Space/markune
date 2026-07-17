@@ -136,13 +136,32 @@ type AiTimelineEntry = { type: 'timeline' } & AiTimelineItem;
 
 export type AiConversationEntry = AiMessageEntry | AiTimelineEntry;
 
+export type AiApprovalChoiceKind =
+  | 'accept'
+  | 'acceptForSession'
+  | 'acceptWithExecpolicyAmendment'
+  | 'applyNetworkPolicyAmendment'
+  | 'cancel'
+  | 'decline'
+  | 'denyPermissions'
+  | 'grantPermissionsForSession'
+  | 'grantPermissionsForTurn'
+  | 'grantPermissionsForTurnStrict';
+
+export interface AiApprovalChoice {
+  description: string | null;
+  id: string;
+  kind: AiApprovalChoiceKind;
+  label: string;
+}
+
 export interface AiApprovalRequest {
-  decisions: Array<'accept' | 'acceptForSession' | 'decline'>;
+  choices: AiApprovalChoice[];
+  detail: string;
   id: number | string;
   itemId: string | null;
   method: string;
   title: string;
-  detail: string;
   turnId: string | null;
 }
 
@@ -361,18 +380,79 @@ export function reduceCodexProtocolMessage(
     return next;
   }
 
+  if (
+    message.method === 'item/autoApprovalReview/started' ||
+    message.method === 'item/autoApprovalReview/completed'
+  ) {
+    const reviewId = getString(params, 'reviewId');
+    const review = getRecord(params, 'review');
+    if (!reviewId || !review) {
+      return next;
+    }
+    const completed = message.method.endsWith('/completed');
+    const reviewStatus = getString(review, 'status');
+    const riskLevel = getString(review, 'riskLevel');
+    const rationale = getString(review, 'rationale');
+    upsertTimeline(next, {
+      completedAtMs: completed ? getNumber(params, 'completedAtMs') : null,
+      detail: [riskLevel ? `风险：${approvalRiskLabel(riskLevel)}` : null, rationale]
+        .filter(Boolean)
+        .join(' · ') || null,
+      durationMs:
+        completed && getNumber(params, 'completedAtMs') !== null
+          ? Math.max(
+              0,
+              (getNumber(params, 'completedAtMs') ?? 0) -
+                (getNumber(params, 'startedAtMs') ?? 0),
+            )
+          : null,
+      id: `auto-review-${reviewId}`,
+      kind: 'status',
+      label: completed
+        ? reviewStatus === 'approved'
+          ? '自动审查已批准操作'
+          : reviewStatus === 'denied'
+            ? '自动审查已拒绝操作'
+            : '自动审查已结束'
+        : '正在自动审查操作风险',
+      startedAtMs: getNumber(params, 'startedAtMs'),
+      status: completed
+        ? reviewStatus === 'denied'
+          ? 'declined'
+          : matches(reviewStatus ?? undefined, ['timedOut', 'aborted'])
+            ? 'failed'
+            : 'completed'
+        : 'inProgress',
+      turnId: getString(params, 'turnId'),
+    });
+    return next;
+  }
+
   if (isApprovalMethod(message.method) && message.id !== undefined) {
     const command = getString(params, 'command');
     const reason = getString(params, 'reason');
+    const permissions = getRecord(params, 'permissions');
+    const permissionDetail = permissions
+      ? describePermissionRequest(permissions)
+      : null;
     next.approvals.push({
-      decisions: supportedApprovalDecisions(params.availableDecisions),
+      choices: supportedApprovalChoices(
+        params.madoraApprovalChoices,
+        params.availableDecisions,
+        message.method,
+      ),
+      detail:
+        command ||
+        [reason, permissionDetail].filter(Boolean).join('\n') ||
+        'Codex 需要你的确认后才能继续。',
       id: message.id,
       itemId: getString(params, 'itemId'),
       method: message.method,
-      title: message.method.includes('fileChange')
-        ? '请求修改工作区文件'
-        : '请求执行工具命令',
-      detail: command || reason || 'Codex 需要你的确认后才能继续。',
+      title: message.method.includes('permissions')
+        ? '请求扩展操作权限'
+        : message.method.includes('fileChange') || message.method === 'applyPatchApproval'
+          ? '请求修改工作区文件'
+          : '请求执行工具命令',
       turnId: getString(params, 'turnId'),
     });
     return next;
@@ -1560,12 +1640,129 @@ function stringifyToolValue(value: unknown) {
   }
 }
 
-function supportedApprovalDecisions(value: unknown) {
-  const supported = ['accept', 'acceptForSession', 'decline'] as const;
-  if (!Array.isArray(value)) {
-    return [...supported];
+function supportedApprovalChoices(
+  bridgeChoices: unknown,
+  availableDecisions: unknown,
+  method: string,
+): AiApprovalChoice[] {
+  if (Array.isArray(bridgeChoices)) {
+    return bridgeChoices.flatMap(parseBridgeApprovalChoice);
   }
-  return supported.filter((decision) => value.includes(decision));
+
+  if (method === 'item/permissions/requestApproval') {
+    return [];
+  }
+
+  if (!Array.isArray(availableDecisions)) {
+    return [];
+  }
+
+  return availableDecisions.flatMap((decision, index) => {
+    if (typeof decision === 'string') {
+      return approvalChoiceForKind(decision, decision);
+    }
+    if (!isRecord(decision)) return [];
+    if (isRecord(decision.acceptWithExecpolicyAmendment)) {
+      return approvalChoiceForKind(
+        `candidate:${index}`,
+        'acceptWithExecpolicyAmendment',
+      );
+    }
+    if (isRecord(decision.applyNetworkPolicyAmendment)) {
+      return approvalChoiceForKind(
+        `candidate:${index}`,
+        'applyNetworkPolicyAmendment',
+      );
+    }
+    return [];
+  });
+}
+
+function parseBridgeApprovalChoice(value: unknown): AiApprovalChoice[] {
+  if (!isRecord(value)) return [];
+  const id = getString(value, 'id');
+  const kind = getString(value, 'kind');
+  const label = getString(value, 'label');
+  if (!id || !kind || !label || !isApprovalChoiceKind(kind)) return [];
+  return [{
+    description: getString(value, 'description'),
+    id,
+    kind,
+    label,
+  }];
+}
+
+function approvalChoiceForKind(id: string, kind: string): AiApprovalChoice[] {
+  const labels: Partial<Record<AiApprovalChoiceKind, [string, string | null]>> = {
+    accept: ['允许一次', null],
+    acceptForSession: ['本次任务允许', '同类操作在当前任务中不再询问'],
+    acceptWithExecpolicyAmendment: ['允许并记住命令规则', '仅允许服务端建议的命令规则'],
+    applyNetworkPolicyAmendment: ['应用联网规则', '仅应用服务端建议的主机访问规则'],
+    cancel: ['拒绝并停止', '拒绝操作并中断当前任务'],
+    decline: ['拒绝并继续', '拒绝操作，但允许 Codex 尝试其他方案'],
+  };
+  if (!isApprovalChoiceKind(kind) || !labels[kind]) return [];
+  return [{ description: labels[kind]![1], id, kind, label: labels[kind]![0] }];
+}
+
+function isApprovalChoiceKind(value: string): value is AiApprovalChoiceKind {
+  return matches(value, [
+    'accept',
+    'acceptForSession',
+    'acceptWithExecpolicyAmendment',
+    'applyNetworkPolicyAmendment',
+    'cancel',
+    'decline',
+    'denyPermissions',
+    'grantPermissionsForSession',
+    'grantPermissionsForTurn',
+    'grantPermissionsForTurnStrict',
+  ]);
+}
+
+function describePermissionRequest(permissions: Record<string, unknown>) {
+  const parts: string[] = [];
+  if (isRecord(permissions.network)) {
+    const enabled = permissions.network.enabled;
+    if (enabled === true) parts.push('访问互联网');
+  }
+  if (isRecord(permissions.fileSystem)) {
+    const entries = permissions.fileSystem.entries;
+    if (Array.isArray(entries)) {
+      for (const entry of entries.slice(0, 8)) {
+        if (!isRecord(entry)) continue;
+        const access = getString(entry, 'access');
+        const path = permissionPathLabel(entry.path);
+        if (!access || !path) continue;
+        const accessLabel =
+          access === 'read' ? '读取' : access === 'write' ? '写入' : '禁止';
+        parts.push(`${accessLabel}：${path}`);
+      }
+      if (entries.length > 8) {
+        parts.push(`另有 ${entries.length - 8} 个路径范围`);
+      }
+    }
+  }
+  return parts.length > 0
+    ? parts.join('\n')
+    : '请求临时扩展文件或网络访问范围';
+}
+
+function permissionPathLabel(value: unknown) {
+  if (typeof value === 'string') return value;
+  if (!isRecord(value)) return null;
+  if (value.type === 'path') return getString(value, 'path');
+  if (value.type === 'glob_pattern') return getString(value, 'pattern');
+  if (value.type === 'special') return getString(value, 'value');
+  return null;
+}
+
+function approvalRiskLabel(value: string) {
+  if (value === 'low') return '低';
+  if (value === 'medium') return '中';
+  if (value === 'high') return '高';
+  if (value === 'critical') return '严重';
+  return value;
 }
 
 function webSearchDetail(item: CodexThreadItem) {
@@ -1599,6 +1796,7 @@ function isApprovalMethod(method: string | undefined): method is string {
   return matches(method, [
     'item/commandExecution/requestApproval',
     'item/fileChange/requestApproval',
+    'item/permissions/requestApproval',
     'execCommandApproval',
     'applyPatchApproval',
   ]);

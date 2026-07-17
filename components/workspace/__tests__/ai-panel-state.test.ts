@@ -863,7 +863,7 @@ describe('AI panel event reducer', () => {
     ).toBe('编辑了文件并运行了命令');
   });
 
-  it('把审批关联到具体 turn 和 item，并只保留 bridge 支持的决定', () => {
+  it('把审批关联到具体 turn 和 item，并保留拒绝与结构化服务端决定', () => {
     const next = reduceCodexProtocolMessage(createEmptyConversation(), {
       id: 'approval-2',
       method: 'item/commandExecution/requestApproval',
@@ -883,17 +883,103 @@ describe('AI panel event reducer', () => {
     expect(next.approvals[0]).toMatchObject({
       turnId: 'turn-1',
       itemId: 'command-1',
-      decisions: ['accept', 'acceptForSession', 'decline'],
     });
+    expect(next.approvals[0].choices.map((choice) => choice.kind)).toEqual([
+      'accept',
+      'acceptForSession',
+      'acceptWithExecpolicyAmendment',
+      'decline',
+    ]);
 
-    const unsupported = reduceCodexProtocolMessage(createEmptyConversation(), {
+    const structured = reduceCodexProtocolMessage(createEmptyConversation(), {
       id: 'approval-3',
       method: 'item/commandExecution/requestApproval',
       params: {
         availableDecisions: [{ acceptWithExecpolicyAmendment: {} }],
       },
     });
-    expect(unsupported.approvals[0].decisions).toEqual([]);
+    expect(structured.approvals[0].choices).toEqual([
+      expect.objectContaining({
+        id: 'candidate:0',
+        kind: 'acceptWithExecpolicyAmendment',
+      }),
+    ]);
+  });
+
+  it('使用 bridge 提供的不透明权限审批选项并展示请求范围', () => {
+    const next = reduceCodexProtocolMessage(createEmptyConversation(), {
+      id: 'permission-1',
+      method: 'item/permissions/requestApproval',
+      params: {
+        itemId: 'permission-item',
+        turnId: 'turn-1',
+        permissions: {
+          network: { enabled: true },
+          fileSystem: {
+            entries: [{ access: 'write', path: { type: 'path', path: '/tmp' } }],
+          },
+        },
+        madoraApprovalChoices: [
+          {
+            id: 'permissions:turn',
+            kind: 'grantPermissionsForTurn',
+            label: '允许本次操作',
+            description: '仅授予当前 turn',
+          },
+          {
+            id: 'permissions:deny',
+            kind: 'denyPermissions',
+            label: '拒绝',
+            description: '不授予额外权限',
+          },
+        ],
+      },
+    });
+
+    expect(next.approvals[0]).toMatchObject({
+      title: '请求扩展操作权限',
+      detail: expect.stringContaining('访问互联网'),
+      choices: [
+        expect.objectContaining({ id: 'permissions:turn' }),
+        expect.objectContaining({ id: 'permissions:deny' }),
+      ],
+    });
+  });
+
+  it('把自动审批审查的风险与结果放入处理时间线', () => {
+    const started = reduceCodexProtocolMessage(createEmptyConversation(), {
+      method: 'item/autoApprovalReview/started',
+      params: {
+        reviewId: 'review-1',
+        turnId: 'turn-1',
+        startedAtMs: 1_000,
+        review: { status: 'inProgress', riskLevel: 'medium' },
+      },
+    });
+    const completed = reduceCodexProtocolMessage(started, {
+      method: 'item/autoApprovalReview/completed',
+      params: {
+        reviewId: 'review-1',
+        turnId: 'turn-1',
+        startedAtMs: 1_000,
+        completedAtMs: 2_500,
+        review: {
+          status: 'denied',
+          riskLevel: 'high',
+          rationale: '目标路径超出工作区',
+        },
+      },
+    });
+
+    expect(completed.entries).toContainEqual(
+      expect.objectContaining({
+        id: 'auto-review-review-1',
+        label: '自动审查已拒绝操作',
+        status: 'declined',
+        durationMs: 1_500,
+        detail: '风险：高 · 目标路径超出工作区',
+      }),
+    );
   });
 });
 

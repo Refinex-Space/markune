@@ -16,9 +16,11 @@ import {
   ChevronRight,
   Circle,
   CircleX,
+  Eye,
   FilePenLine,
   FileText,
   Globe2,
+  Hand,
   History,
   LoaderCircle,
   MessageSquareText,
@@ -27,6 +29,7 @@ import {
   Search,
   SearchCode,
   ShieldCheck,
+  ShieldAlert,
   ShieldX,
   Sparkles,
   Square,
@@ -54,11 +57,18 @@ import {
   respondToCodexApproval,
   startCodexRuntime,
   type CodexAccountResponse,
+  type CodexApprovalPolicy,
+  type CodexApprovalsReviewer,
+  type CodexConfigRequirementsResponse,
+  type CodexExperimentalFeatureListResponse,
   type CodexModel,
   type CodexModelListResponse,
+  type CodexPermissionProfileListResponse,
+  type CodexPermissionProfileSummary,
   type CodexReasoningEffort,
   type CodexThread,
   type CodexThreadListResponse,
+  type CodexThreadPermissionSettings,
 } from './codex-app-server';
 import {
   conversationFromThread,
@@ -105,7 +115,7 @@ const mentionLinkClassName =
 type PanelView = 'chat' | 'history';
 type RuntimeStatus = 'error' | 'loading' | 'ready' | 'web';
 
-interface ThreadStartResponse {
+interface ThreadStartResponse extends CodexThreadPermissionSettings {
   thread: CodexThread;
   model: string;
   reasoningEffort: CodexReasoningEffort | null;
@@ -114,6 +124,8 @@ interface ThreadStartResponse {
 interface ThreadReadResponse {
   thread: CodexThread;
 }
+
+type ThreadResumeResponse = ThreadStartResponse;
 
 interface TurnStartResponse {
   turn: { id: string };
@@ -137,7 +149,118 @@ const STARTER_PROMPTS = [
 
 const SCROLL_BOTTOM_THRESHOLD = 64;
 
-const DEVELOPER_INSTRUCTIONS = `你运行在 Madora 的工作区级 AI 面板中。只可在当前工作区内读取和修改文件。Madora 以 Markdown 为唯一持久化文档格式，请保持现有 frontmatter 和目录约定。收到 Madora 文档引用且用户请求依赖其内容时，必须先使用工作区工具读取相关文件，并让读取动作通过正常工具事件返回；不得在尝试读取前声称缺少路径。所有命令与文件修改都必须经过客户端审批。删除文档前必须明确说明将删除的路径和影响，并等待用户确认。不要读取、输出或记录密钥、Token、Cookie、连接串或其他敏感信息。完成文件变更后简要列出实际修改和验证结果。`;
+const DEVELOPER_INSTRUCTIONS = `你运行在 Madora 的工作区级 AI 面板中。默认只在当前工作区内读取和修改文件；仅当当前命名权限配置明确允许、且用户请求确实需要时，才可访问工作区外路径。Madora 以 Markdown 为唯一持久化文档格式，请保持现有 frontmatter 和目录约定。收到 Madora 文档引用且用户请求依赖其内容时，必须先使用工作区工具读取相关文件，并让读取动作通过正常工具事件返回；不得在尝试读取前声称缺少路径。严格遵循当前线程的 Codex 权限配置和审批结果，不得绕过权限边界。删除文档前必须明确说明将删除的路径和影响，并等待用户确认。不要读取、输出或记录密钥、Token、Cookie、连接串或其他敏感信息。完成文件变更后简要列出实际修改和验证结果。`;
+
+type PermissionModeId = 'ask' | 'auto' | 'full' | 'readOnly' | `profile:${string}`;
+
+interface PermissionSettings {
+  approvalPolicy: CodexApprovalPolicy;
+  approvalsReviewer: CodexApprovalsReviewer;
+  profileId: string;
+}
+
+const DEFAULT_PERMISSION_SETTINGS: PermissionSettings = {
+  approvalPolicy: 'on-request',
+  approvalsReviewer: 'user',
+  profileId: ':workspace',
+};
+
+function permissionSettingsFromResponse(
+  response: Pick<
+    ThreadStartResponse,
+    'activePermissionProfile' | 'approvalPolicy' | 'approvalsReviewer'
+  >,
+): PermissionSettings {
+  return {
+    approvalPolicy: response.approvalPolicy,
+    approvalsReviewer:
+      response.approvalsReviewer === 'guardian_subagent'
+        ? 'auto_review'
+        : response.approvalsReviewer,
+    profileId:
+      response.activePermissionProfile?.id ??
+      DEFAULT_PERMISSION_SETTINGS.profileId,
+  };
+}
+
+function permissionSettingsFromProtocol(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const settings = value as Record<string, unknown>;
+  const activeProfile = settings.activePermissionProfile;
+  const profileId =
+    activeProfile && typeof activeProfile === 'object' && !Array.isArray(activeProfile)
+      ? (activeProfile as Record<string, unknown>).id
+      : null;
+  const approvalPolicy = settings.approvalPolicy;
+  const approvalsReviewer = settings.approvalsReviewer;
+  if (
+    typeof profileId !== 'string' ||
+    !['never', 'on-request', 'untrusted'].includes(String(approvalPolicy)) ||
+    !['auto_review', 'guardian_subagent', 'user'].includes(
+      String(approvalsReviewer),
+    )
+  ) {
+    return null;
+  }
+  return permissionSettingsFromResponse({
+    activePermissionProfile: { extends: null, id: profileId },
+    approvalPolicy: approvalPolicy as CodexApprovalPolicy,
+    approvalsReviewer: approvalsReviewer as CodexApprovalsReviewer,
+  });
+}
+
+function permissionSettingsForMode(mode: PermissionModeId): PermissionSettings {
+  if (mode === 'auto') {
+    return {
+      approvalPolicy: 'on-request',
+      approvalsReviewer: 'auto_review',
+      profileId: ':workspace',
+    };
+  }
+  if (mode === 'full') {
+    return {
+      approvalPolicy: 'never',
+      approvalsReviewer: 'user',
+      profileId: ':danger-full-access',
+    };
+  }
+  if (mode === 'readOnly') {
+    return {
+      approvalPolicy: 'on-request',
+      approvalsReviewer: 'user',
+      profileId: ':read-only',
+    };
+  }
+  if (mode.startsWith('profile:')) {
+    return {
+      approvalPolicy: 'on-request',
+      approvalsReviewer: 'user',
+      profileId: mode.slice('profile:'.length),
+    };
+  }
+  return DEFAULT_PERMISSION_SETTINGS;
+}
+
+function permissionModeFromSettings(settings: PermissionSettings): PermissionModeId {
+  if (settings.profileId === ':danger-full-access') return 'full';
+  if (settings.profileId === ':read-only') return 'readOnly';
+  if (
+    settings.profileId === ':workspace' &&
+    settings.approvalsReviewer === 'auto_review'
+  ) {
+    return 'auto';
+  }
+  if (settings.profileId === ':workspace') return 'ask';
+  return `profile:${settings.profileId}`;
+}
+
+function permissionModeLabel(mode: PermissionModeId) {
+  if (mode === 'ask') return '请求审批';
+  if (mode === 'auto') return '替我审批';
+  if (mode === 'full') return '完全访问';
+  if (mode === 'readOnly') return '只读访问';
+  return mode.slice('profile:'.length);
+}
 
 export function AiPanel({
   currentDocument,
@@ -162,6 +285,18 @@ export function AiPanel({
     createEmptyConversation,
   );
   const [mcpServerCount, setMcpServerCount] = React.useState(0);
+  const [permissionProfiles, setPermissionProfiles] = React.useState<
+    CodexPermissionProfileSummary[]
+  >([]);
+  const [permissionSettings, setPermissionSettings] = React.useState<PermissionSettings>(
+    DEFAULT_PERMISSION_SETTINGS,
+  );
+  const [permissionUpdating, setPermissionUpdating] = React.useState(false);
+  const [autoReviewAvailable, setAutoReviewAvailable] = React.useState(false);
+  const [approvalPolicyAvailability, setApprovalPolicyAvailability] = React.useState({
+    never: true,
+    onRequest: true,
+  });
   const [composerValue, setComposerValue] = React.useState('');
   const [selectedMentions, setSelectedMentions] = React.useState<
     AiComposerMention[]
@@ -172,6 +307,11 @@ export function AiPanel({
   const [signingIn, setSigningIn] = React.useState(false);
   const [followLatestRequest, setFollowLatestRequest] = React.useState(0);
   const modelSelectionInitializedRef = React.useRef(false);
+  const activeThreadIdRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    activeThreadIdRef.current = activeThread?.id ?? null;
+  }, [activeThread?.id]);
 
   const applyThreadName = React.useCallback((threadId: string, name: string) => {
     setActiveThread((current) =>
@@ -228,7 +368,15 @@ export function AiPanel({
       return;
     }
 
-    const [accountResponse, modelResponse, threadResponse, mcpResponse] =
+    const [
+      accountResponse,
+      modelResponse,
+      threadResponse,
+      mcpResponse,
+      permissionResponse,
+      requirementsResponse,
+      featureResponse,
+    ] =
       await Promise.all([
         codexAppServerClient.request<CodexAccountResponse>('account/read', {
           refreshToken: false,
@@ -249,6 +397,20 @@ export function AiPanel({
             limit: 100,
           })
           .catch(() => ({ data: [] })),
+        codexAppServerClient
+          .request<CodexPermissionProfileListResponse>('permissionProfile/list', {
+            cwd: workspaceRootPath,
+            limit: 100,
+          })
+          .catch(() => ({ data: [], nextCursor: null })),
+        codexAppServerClient
+          .request<CodexConfigRequirementsResponse>('configRequirements/read')
+          .catch(() => ({ requirements: null })),
+        codexAppServerClient
+          .request<CodexExperimentalFeatureListResponse>('experimentalFeature/list', {
+            limit: 100,
+          })
+          .catch(() => ({ data: [], nextCursor: null })),
       ]);
 
     setAccount(accountResponse.account);
@@ -258,6 +420,38 @@ export function AiPanel({
     setModels(modelResponse.data);
     setThreads(threadResponse.data);
     setMcpServerCount(mcpResponse.data.length);
+    const profileRequirements =
+      requirementsResponse.requirements?.allowedPermissionProfiles;
+    const profiles = permissionResponse.data.map((profile) => ({
+      ...profile,
+      allowed:
+        profile.allowed && profileRequirements?.[profile.id] !== false,
+    }));
+    if (profileRequirements) {
+      for (const [id, allowed] of Object.entries(profileRequirements)) {
+        if (!profiles.some((profile) => profile.id === id)) {
+          profiles.push({ allowed, description: null, id });
+        }
+      }
+    }
+    setPermissionProfiles(profiles);
+    const allowedPolicies =
+      requirementsResponse.requirements?.allowedApprovalPolicies?.filter(
+        (policy): policy is string => typeof policy === 'string',
+      );
+    setApprovalPolicyAvailability({
+      never: !allowedPolicies || allowedPolicies.includes('never'),
+      onRequest: !allowedPolicies || allowedPolicies.includes('on-request'),
+    });
+    const guardianEnabled = featureResponse.data.some(
+      (feature) => feature.name === 'guardian_approval' && feature.enabled,
+    );
+    const allowedReviewers =
+      requirementsResponse.requirements?.allowedApprovalsReviewers;
+    setAutoReviewAvailable(
+      guardianEnabled &&
+        (!allowedReviewers || allowedReviewers.includes('auto_review')),
+    );
 
     const defaultModel =
       modelResponse.data.find((model) => model.isDefault) ??
@@ -324,6 +518,16 @@ export function AiPanel({
       ) {
         void onWorkspaceChanged();
       }
+
+      if (
+        message.method === 'thread/settings/updated' &&
+        message.params?.threadId === activeThreadIdRef.current
+      ) {
+        const settings = permissionSettingsFromProtocol(
+          message.params.threadSettings,
+        );
+        if (settings) setPermissionSettings(settings);
+      }
     });
 
     void (async () => {
@@ -362,9 +566,11 @@ export function AiPanel({
 
   const startNewChat = React.useCallback(() => {
     setActiveThread(null);
+    activeThreadIdRef.current = null;
     setConversation(createEmptyConversation());
     setSelectedMentions([]);
     setComposerValue('');
+    setPermissionSettings(DEFAULT_PERMISSION_SETTINGS);
     setView('chat');
   }, []);
 
@@ -376,12 +582,13 @@ export function AiPanel({
         'thread/read',
         { threadId: thread.id, includeTurns: true },
       );
-      await codexAppServerClient.request('thread/resume', {
-        threadId: thread.id,
-        approvalPolicy: 'on-request',
-        sandbox: 'workspace-write',
-      });
+      const resumed = await codexAppServerClient.request<ThreadResumeResponse>(
+        'thread/resume',
+        { threadId: thread.id },
+      );
       setActiveThread(response.thread);
+      activeThreadIdRef.current = response.thread.id;
+      setPermissionSettings(permissionSettingsFromResponse(resumed));
       setConversation(
         conversationFromThread(response.thread, workspaceRootPath ?? undefined),
       );
@@ -461,17 +668,21 @@ export function AiPanel({
             await codexAppServerClient.request<ThreadStartResponse>(
               'thread/start',
               {
-                approvalPolicy: 'on-request',
+                approvalPolicy: permissionSettings.approvalPolicy,
+                approvalsReviewer: permissionSettings.approvalsReviewer,
                 config: { web_search: 'live' },
                 cwd: workspaceRootPath,
                 developerInstructions: DEVELOPER_INSTRUCTIONS,
                 model: selectedModel || null,
-                sandbox: 'workspace-write',
+                permissions: permissionSettings.profileId,
+                runtimeWorkspaceRoots: [workspaceRootPath],
               },
             );
           const threadTitle = createThreadTitle(text);
           thread = { ...response.thread, name: threadTitle };
           setActiveThread(thread);
+          activeThreadIdRef.current = thread.id;
+          setPermissionSettings(permissionSettingsFromResponse(response));
           setThreads((current) => [thread!, ...current]);
           void codexAppServerClient
             .request('thread/name/set', {
@@ -497,14 +708,6 @@ export function AiPanel({
               path: document.absolutePath,
             })),
             cwd: workspaceRootPath,
-            approvalPolicy: 'on-request',
-            sandboxPolicy: {
-              type: 'workspaceWrite',
-              writableRoots: [workspaceRootPath],
-              networkAccess: true,
-              excludeTmpdirEnvVar: true,
-              excludeSlashTmp: true,
-            },
             model: selectedModel || null,
             effort,
             summary: 'concise',
@@ -527,6 +730,7 @@ export function AiPanel({
       currentDocument,
       effort,
       runtimeStatus,
+      permissionSettings,
       selectedMentions,
       selectedModel,
       submitting,
@@ -575,10 +779,10 @@ export function AiPanel({
   const approve = React.useCallback(
     async (
       approval: AiApprovalRequest,
-      decision: 'accept' | 'acceptForSession' | 'decline',
+      choiceId: string,
     ) => {
       try {
-        await respondToCodexApproval(approval.id, decision);
+        await respondToCodexApproval(approval.id, choiceId);
         setConversation((current) => ({
           ...current,
           approvals: current.approvals.filter(
@@ -590,6 +794,51 @@ export function AiPanel({
       }
     },
     [],
+  );
+
+  const changePermissionMode = React.useCallback(
+    async (modeId: PermissionModeId) => {
+      if (
+        conversation.activeTurnId ||
+        conversation.approvals.length > 0 ||
+        permissionUpdating
+      ) {
+        return;
+      }
+      const next = permissionSettingsForMode(modeId);
+      if (
+        next.profileId === ':danger-full-access' &&
+        !window.confirm(
+          '完全访问权限允许 Codex 不受工作区边界限制地访问本机文件和互联网，并且不会再请求审批。确定切换吗？',
+        )
+      ) {
+        return;
+      }
+
+      setPermissionUpdating(true);
+      setRuntimeError(null);
+      try {
+        if (activeThread) {
+          await codexAppServerClient.request('thread/settings/update', {
+            threadId: activeThread.id,
+            permissions: next.profileId,
+            approvalPolicy: next.approvalPolicy,
+            approvalsReviewer: next.approvalsReviewer,
+          });
+        }
+        setPermissionSettings(next);
+      } catch (error) {
+        setRuntimeError(getErrorMessage(error));
+      } finally {
+        setPermissionUpdating(false);
+      }
+    },
+    [
+      activeThread,
+      conversation.activeTurnId,
+      conversation.approvals.length,
+      permissionUpdating,
+    ],
   );
 
   return (
@@ -643,6 +892,15 @@ export function AiPanel({
             selectedModel={selectedModel}
             selectedModelInfo={selectedModelInfo}
             submitting={submitting}
+            autoReviewAvailable={autoReviewAvailable}
+            approvalPolicyAvailability={approvalPolicyAvailability}
+            permissionMode={permissionModeFromSettings(permissionSettings)}
+            permissionProfiles={permissionProfiles}
+            permissionSwitchDisabled={
+              Boolean(conversation.activeTurnId) ||
+              conversation.approvals.length > 0 ||
+              permissionUpdating
+            }
             value={composerValue}
             version={runtimeVersion}
             onEffortChange={setEffort}
@@ -656,6 +914,7 @@ export function AiPanel({
                 setEffort(next.defaultReasoningEffort);
               }
             }}
+            onPermissionModeChange={(mode) => void changePermissionMode(mode)}
             onOpenMention={onOpenDocument}
             onSend={() => void sendMessage()}
             onValueChange={(value) => {
@@ -854,7 +1113,7 @@ function PanelContent({
   signingIn: boolean;
   onApprove: (
     approval: AiApprovalRequest,
-    decision: 'accept' | 'acceptForSession' | 'decline',
+    choiceId: string,
   ) => void;
   onOpenDocument: (documentPath: string) => void;
   onPrompt: (prompt: string) => void;
@@ -1178,7 +1437,7 @@ export function ProcessingTrace({
   trace: AiTraceBlock;
   onApprove: (
     approval: AiApprovalRequest,
-    decision: 'accept' | 'acceptForSession' | 'decline',
+    choiceId: string,
   ) => void;
   onOpenDocument: (documentPath: string) => void;
 }) {
@@ -1292,7 +1551,7 @@ function ActivityGroupRow({
   group: AiActivityGroup;
   onApprove: (
     approval: AiApprovalRequest,
-    decision: 'accept' | 'acceptForSession' | 'decline',
+    choiceId: string,
   ) => void;
   onOpenDocument: (documentPath: string) => void;
 }) {
@@ -1358,7 +1617,7 @@ function ActivityItemRow({
   approvals: AiApprovalRequest[];
   onApprove: (
     approval: AiApprovalRequest,
-    decision: 'accept' | 'acceptForSession' | 'decline',
+    choiceId: string,
   ) => void;
   onOpenDocument: (documentPath: string) => void;
 }) {
@@ -1687,7 +1946,7 @@ function ApprovalCard({
   approval: AiApprovalRequest;
   onApprove: (
     approval: AiApprovalRequest,
-    decision: 'accept' | 'acceptForSession' | 'decline',
+    choiceId: string,
   ) => void;
 }) {
   return (
@@ -1702,41 +1961,44 @@ function ApprovalCard({
         </div>
       </div>
       <div className="mt-2.5 flex flex-wrap justify-end gap-1.5">
-        {approval.decisions.length === 0 ? (
+        {approval.choices.length === 0 ? (
           <p className="mr-auto text-[10px] leading-4 text-muted-foreground">
             当前客户端不支持服务端要求的审批方式。
           </p>
         ) : null}
-        {approval.decisions.includes('decline') ? (
+        {approval.choices.map((choice) => (
           <button
-            className="h-7 rounded-md px-2 text-[11px] text-muted-foreground hover:bg-accent"
+            className={cn(
+              'h-7 rounded-md px-2 text-[11px] transition-colors',
+              approvalChoiceClassName(choice.kind),
+            )}
+            key={choice.id}
+            title={choice.description ?? undefined}
             type="button"
-            onClick={() => onApprove(approval, 'decline')}
+            onClick={() => onApprove(approval, choice.id)}
           >
-            拒绝
+            {choice.label}
           </button>
-        ) : null}
-        {approval.decisions.includes('acceptForSession') ? (
-          <button
-            className="h-7 rounded-md border border-border bg-background px-2 text-[11px] hover:bg-accent"
-            type="button"
-            onClick={() => onApprove(approval, 'acceptForSession')}
-          >
-            本次任务允许
-          </button>
-        ) : null}
-        {approval.decisions.includes('accept') ? (
-          <button
-            className="h-7 rounded-md bg-foreground px-2 text-[11px] text-background"
-            type="button"
-            onClick={() => onApprove(approval, 'accept')}
-          >
-            允许
-          </button>
-        ) : null}
+        ))}
       </div>
     </section>
   );
+}
+
+function approvalChoiceClassName(kind: AiApprovalRequest['choices'][number]['kind']) {
+  if (kind === 'accept' || kind === 'grantPermissionsForTurn') {
+    return 'bg-foreground text-background hover:bg-foreground/90';
+  }
+  if (
+    kind === 'decline' ||
+    kind === 'denyPermissions'
+  ) {
+    return 'text-muted-foreground hover:bg-accent hover:text-foreground';
+  }
+  if (kind === 'cancel') {
+    return 'text-destructive hover:bg-destructive/10';
+  }
+  return 'border border-border bg-background hover:bg-accent';
 }
 
 function ThreadHistory({
@@ -1832,14 +2094,49 @@ function ThreadHistory({
   );
 }
 
+function PermissionModeItem({
+  description,
+  disabled,
+  icon,
+  label,
+  value,
+}: {
+  description: string;
+  disabled?: boolean;
+  icon: React.ReactNode;
+  label: string;
+  value: PermissionModeId;
+}) {
+  return (
+    <DropdownMenuRadioItem
+      className="items-start py-1.5"
+      disabled={disabled}
+      value={value}
+    >
+      <span className="mt-0.5 text-muted-foreground">{icon}</span>
+      <span className="min-w-0">
+        <span className="block text-xs font-medium">{label}</span>
+        <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
+          {description}
+        </span>
+      </span>
+    </DropdownMenuRadioItem>
+  );
+}
+
 export function AiComposer({
   active,
+  approvalPolicyAvailability,
+  autoReviewAvailable,
   currentDocument,
   effort,
   mentionDocuments,
   mentionQuery,
   mcpServerCount,
   models,
+  permissionMode,
+  permissionProfiles,
+  permissionSwitchDisabled,
   runtimeStatus,
   selectedModel,
   selectedModelInfo,
@@ -1851,17 +2148,23 @@ export function AiComposer({
   onMentionQueryChange,
   onMentionsChange,
   onModelChange,
+  onPermissionModeChange,
   onOpenMention,
   onSend,
   onValueChange,
 }: {
   active: boolean;
+  approvalPolicyAvailability: { never: boolean; onRequest: boolean };
+  autoReviewAvailable: boolean;
   currentDocument: WorkspaceNode | null;
   effort: CodexReasoningEffort;
   mentionDocuments: AiDocumentReference[];
   mentionQuery: string | null;
   mcpServerCount: number;
   models: CodexModel[];
+  permissionMode: PermissionModeId;
+  permissionProfiles: CodexPermissionProfileSummary[];
+  permissionSwitchDisabled: boolean;
   runtimeStatus: RuntimeStatus;
   selectedModel: string;
   selectedModelInfo: CodexModel | null;
@@ -1873,12 +2176,15 @@ export function AiComposer({
   onMentionQueryChange: (query: string | null) => void;
   onMentionsChange: (documents: AiComposerMention[]) => void;
   onModelChange: (model: string) => void;
+  onPermissionModeChange: (mode: PermissionModeId) => void;
   onOpenMention: (path: string) => void;
   onSend: () => void;
   onValueChange: (value: string) => void;
 }) {
   const disabled = runtimeStatus !== 'ready';
   const effortOptions = selectedModelInfo?.supportedReasoningEfforts ?? [];
+  const profileAllowed = (profileId: string) =>
+    permissionProfiles.find((profile) => profile.id === profileId)?.allowed ?? true;
   const editorRef = React.useRef<HTMLDivElement>(null);
   const initializedRef = React.useRef(false);
   const savedRangeRef = React.useRef<Range | null>(null);
@@ -2100,10 +2406,120 @@ export function AiComposer({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <div className="inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-[11px] text-amber-600 dark:text-amber-400">
-            <ShieldCheck size={13} />
-            工作区访问
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                aria-label={`权限模式：${permissionModeLabel(permissionMode)}`}
+                className={cn(
+                  'inline-flex h-7 max-w-32 items-center gap-1 truncate rounded-md px-1.5 text-[11px] transition-colors hover:bg-accent',
+                  permissionMode === 'full'
+                    ? 'text-orange-600 dark:text-orange-400'
+                    : 'text-amber-600 dark:text-amber-400',
+                )}
+                disabled={disabled}
+                type="button"
+              >
+                {permissionMode === 'full' ? (
+                  <ShieldAlert size={13} />
+                ) : permissionMode === 'readOnly' ? (
+                  <Eye size={13} />
+                ) : (
+                  <ShieldCheck size={13} />
+                )}
+                <span className="truncate">{permissionModeLabel(permissionMode)}</span>
+                <ChevronDown size={11} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-72" side="top">
+              <DropdownMenuLabel>Codex 权限</DropdownMenuLabel>
+              <DropdownMenuRadioGroup
+                value={permissionMode}
+                onValueChange={(value) =>
+                  onPermissionModeChange(value as PermissionModeId)
+                }
+              >
+                <PermissionModeItem
+                  description="编辑工作区外文件或使用互联网时询问"
+                  icon={<Hand size={15} />}
+                  label="请求审批"
+                  disabled={
+                    permissionSwitchDisabled ||
+                    !approvalPolicyAvailability.onRequest ||
+                    !profileAllowed(':workspace')
+                  }
+                  value="ask"
+                />
+                <PermissionModeItem
+                  description="仅对检测到的风险操作自动评估"
+                  disabled={
+                    !autoReviewAvailable ||
+                    permissionSwitchDisabled ||
+                    !approvalPolicyAvailability.onRequest ||
+                    !profileAllowed(':workspace')
+                  }
+                  icon={<ShieldCheck size={15} />}
+                  label="替我审批"
+                  value="auto"
+                />
+                <PermissionModeItem
+                  description="不受限制地访问本机文件和互联网"
+                  icon={<ShieldAlert size={15} />}
+                  label="完全访问权限"
+                  disabled={
+                    permissionSwitchDisabled ||
+                    !approvalPolicyAvailability.never ||
+                    !profileAllowed(':danger-full-access')
+                  }
+                  value="full"
+                />
+                <PermissionModeItem
+                  description="默认只读，修改前必须请求授权"
+                  icon={<Eye size={15} />}
+                  label="只读访问"
+                  disabled={
+                    permissionSwitchDisabled ||
+                    !approvalPolicyAvailability.onRequest ||
+                    !profileAllowed(':read-only')
+                  }
+                  value="readOnly"
+                />
+                {permissionProfiles.some(
+                  (profile) => !profile.id.startsWith(':'),
+                ) ? (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>自定义（config.toml）</DropdownMenuLabel>
+                    {permissionProfiles
+                      .filter((profile) => !profile.id.startsWith(':'))
+                      .map((profile) => (
+                        <PermissionModeItem
+                          description={
+                            profile.description || '使用 Codex 配置中的命名权限配置'
+                          }
+                          disabled={
+                            !profile.allowed ||
+                            permissionSwitchDisabled ||
+                            !approvalPolicyAvailability.onRequest
+                          }
+                          icon={<ShieldCheck size={15} />}
+                          key={profile.id}
+                          label={profile.id}
+                          value={`profile:${profile.id}`}
+                        />
+                      ))}
+                  </>
+                ) : null}
+              </DropdownMenuRadioGroup>
+              {permissionSwitchDisabled ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <p className="px-1.5 py-1 text-[10px] leading-4 text-muted-foreground">
+                    当前任务运行中或等待审批，完成后可切换权限。
+                  </p>
+                </>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <div className="ml-auto flex min-w-0 items-center gap-0.5">
             <DropdownMenu>

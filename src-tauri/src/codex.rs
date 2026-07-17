@@ -44,7 +44,13 @@ struct CodexSession {
     version: String,
     writer: Arc<Mutex<ChildStdin>>,
     child: Child,
-    pending_server_requests: Arc<Mutex<HashMap<String, String>>>,
+    pending_server_requests: Arc<Mutex<HashMap<String, PendingServerRequest>>>,
+}
+
+#[derive(Debug, Clone)]
+struct PendingServerRequest {
+    choices: HashMap<String, Value>,
+    method: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -199,6 +205,7 @@ pub fn codex_runtime_start(
         app.clone(),
         stdout_reader,
         Arc::clone(&pending_server_requests),
+        Arc::clone(&writer),
     );
 
     let session = CodexSession {
@@ -273,13 +280,6 @@ pub fn codex_app_server_respond(
     request_id: Value,
     decision: String,
 ) -> Result<(), String> {
-    if !matches!(
-        decision.as_str(),
-        "accept" | "acceptForSession" | "decline" | "cancel"
-    ) {
-        return Err("无效的 Codex 审批决定".to_string());
-    }
-
     let session_guard = state
         .session
         .lock()
@@ -288,33 +288,26 @@ pub fn codex_app_server_respond(
         .as_ref()
         .ok_or_else(|| "Codex App Server 尚未启动".to_string())?;
     let request_key = request_id_key(&request_id)?;
-    let method = session
+    let mut pending_requests = session
         .pending_server_requests
         .lock()
-        .map_err(|_| "Codex 审批状态锁已损坏".to_string())?
-        .remove(&request_key)
+        .map_err(|_| "Codex 审批状态锁已损坏".to_string())?;
+    let pending = pending_requests
+        .get(&request_key)
         .ok_or_else(|| "Codex 审批请求不存在或已处理".to_string())?;
-    let protocol_decision = match method.as_str() {
-        "item/commandExecution/requestApproval" | "item/fileChange/requestApproval" => {
-            Value::String(decision)
-        }
-        "execCommandApproval" | "applyPatchApproval" => Value::String(
-            match decision.as_str() {
-                "accept" => "approved",
-                "acceptForSession" => "approved_for_session",
-                "decline" => "denied",
-                _ => "abort",
-            }
-            .to_string(),
-        ),
-        _ => return Err("当前 Codex 请求不支持由审批按钮处理".to_string()),
-    };
+    let result = pending
+        .choices
+        .get(&decision)
+        .cloned()
+        .ok_or_else(|| format!("Codex 审批选项不存在或不适用于请求 {}", pending.method))?;
+    pending_requests.remove(&request_key);
+    drop(pending_requests);
 
     write_json_line(
         &session.writer,
         &json!({
             "id": request_id,
-            "result": { "decision": protocol_decision },
+            "result": result,
         }),
     )
 }
@@ -322,7 +315,8 @@ pub fn codex_app_server_respond(
 fn spawn_stdout_reader(
     app: AppHandle,
     stdout: impl BufRead + Send + 'static,
-    pending_server_requests: Arc<Mutex<HashMap<String, String>>>,
+    pending_server_requests: Arc<Mutex<HashMap<String, PendingServerRequest>>>,
+    writer: Arc<Mutex<ChildStdin>>,
 ) {
     thread::spawn(move || {
         for line in stdout.lines() {
@@ -330,7 +324,7 @@ fn spawn_stdout_reader(
                 emit_runtime_event(&app, "madora/runtime/readError", "读取 Codex 输出失败");
                 break;
             };
-            let Ok(payload) = serde_json::from_str::<Value>(&line) else {
+            let Ok(mut payload) = serde_json::from_str::<Value>(&line) else {
                 emit_runtime_event(&app, "madora/runtime/protocolError", "Codex 返回了无效消息");
                 continue;
             };
@@ -340,11 +334,50 @@ fn spawn_stdout_reader(
                 payload.get("method").and_then(Value::as_str),
             ) {
                 if is_supported_server_request(method) {
-                    if let Ok(key) = request_id_key(request_id) {
-                        if let Ok(mut pending) = pending_server_requests.lock() {
-                            pending.insert(key, method.to_string());
+                    let request_id = request_id.clone();
+                    match prepare_pending_server_request(&mut payload) {
+                        Ok(pending_request) => {
+                            if let Ok(key) = request_id_key(&request_id) {
+                                if let Ok(mut pending) = pending_server_requests.lock() {
+                                    pending.insert(key, pending_request);
+                                }
+                            }
+                        }
+                        Err(message) => {
+                            let _ = write_json_line(
+                                &writer,
+                                &json!({
+                                    "id": request_id,
+                                    "error": { "code": -32602, "message": message },
+                                }),
+                            );
+                            emit_runtime_event(
+                                &app,
+                                "madora/runtime/protocolError",
+                                "Codex 审批请求格式无效，已安全拒绝",
+                            );
+                            continue;
                         }
                     }
+                } else {
+                    let request_id = request_id.clone();
+                    let method = method.to_string();
+                    let _ = write_json_line(
+                        &writer,
+                        &json!({
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": format!("Madora 不支持 Codex server request: {method}"),
+                            },
+                        }),
+                    );
+                    emit_runtime_event(
+                        &app,
+                        "madora/runtime/unsupportedServerRequest",
+                        "Codex 请求了当前客户端不支持的交互，已安全拒绝",
+                    );
+                    continue;
                 }
             }
 
@@ -353,6 +386,195 @@ fn spawn_stdout_reader(
 
         emit_runtime_event(&app, "madora/runtime/exited", "Codex App Server 已停止");
     });
+}
+
+fn prepare_pending_server_request(payload: &mut Value) -> Result<PendingServerRequest, String> {
+    let method = payload
+        .get("method")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "Codex server request 缺少 method".to_string())?
+        .to_string();
+    let params = payload
+        .get_mut("params")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| "Codex server request 缺少 params".to_string())?;
+    let mut choices = HashMap::new();
+    let mut display_choices = Vec::new();
+
+    match method.as_str() {
+        "item/commandExecution/requestApproval" => {
+            let decisions = params
+                .get("availableDecisions")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_else(|| vec![json!("accept"), json!("cancel")]);
+            add_modern_approval_choices(&decisions, &mut choices, &mut display_choices)?;
+        }
+        "item/fileChange/requestApproval" => {
+            add_modern_approval_choices(
+                &[json!("accept"), json!("acceptForSession"), json!("cancel")],
+                &mut choices,
+                &mut display_choices,
+            )?;
+        }
+        "execCommandApproval" | "applyPatchApproval" => {
+            for (choice_id, protocol_decision, kind, label, description) in [
+                ("accept", "approved", "accept", "允许一次", None),
+                (
+                    "acceptForSession",
+                    "approved_for_session",
+                    "acceptForSession",
+                    "本次任务允许",
+                    Some("同类操作在当前任务中不再询问"),
+                ),
+                (
+                    "decline",
+                    "denied",
+                    "decline",
+                    "拒绝并继续",
+                    Some("拒绝操作，但允许 Codex 尝试其他方案"),
+                ),
+                (
+                    "cancel",
+                    "abort",
+                    "cancel",
+                    "拒绝并停止",
+                    Some("拒绝操作并中断当前任务"),
+                ),
+            ] {
+                choices.insert(
+                    choice_id.to_string(),
+                    json!({ "decision": protocol_decision }),
+                );
+                display_choices.push(approval_choice_display(choice_id, kind, label, description));
+            }
+        }
+        "item/permissions/requestApproval" => {
+            let requested_permissions = params
+                .get("permissions")
+                .filter(|value| value.is_object())
+                .cloned()
+                .ok_or_else(|| "Codex 权限审批请求缺少 permissions".to_string())?;
+            for (choice_id, scope, strict, kind, label, description) in [
+                (
+                    "permissions:turn",
+                    "turn",
+                    None,
+                    "grantPermissionsForTurn",
+                    "允许本次操作",
+                    Some("仅在当前操作所需的 turn 范围内授予"),
+                ),
+                (
+                    "permissions:turn-strict",
+                    "turn",
+                    Some(true),
+                    "grantPermissionsForTurnStrict",
+                    "允许并严格自动审查",
+                    Some("授予当前 turn，并审查后续每条命令"),
+                ),
+                (
+                    "permissions:session",
+                    "session",
+                    None,
+                    "grantPermissionsForSession",
+                    "本次任务允许",
+                    Some("在当前任务剩余期间保留该权限"),
+                ),
+            ] {
+                let mut result = json!({
+                    "permissions": requested_permissions,
+                    "scope": scope,
+                });
+                if let Some(strict) = strict {
+                    result["strictAutoReview"] = json!(strict);
+                }
+                choices.insert(choice_id.to_string(), result);
+                display_choices.push(approval_choice_display(choice_id, kind, label, description));
+            }
+            choices.insert(
+                "permissions:deny".to_string(),
+                json!({ "permissions": {}, "scope": "turn" }),
+            );
+            display_choices.push(approval_choice_display(
+                "permissions:deny",
+                "denyPermissions",
+                "拒绝",
+                Some("不授予额外文件或网络权限"),
+            ));
+        }
+        _ => return Err("当前 Codex 请求不支持由审批按钮处理".to_string()),
+    }
+
+    if choices.is_empty() {
+        return Err("Codex 审批请求没有可用决定".to_string());
+    }
+    params.insert(
+        "madoraApprovalChoices".to_string(),
+        Value::Array(display_choices),
+    );
+    Ok(PendingServerRequest { choices, method })
+}
+
+fn add_modern_approval_choices(
+    decisions: &[Value],
+    choices: &mut HashMap<String, Value>,
+    display_choices: &mut Vec<Value>,
+) -> Result<(), String> {
+    for (index, decision) in decisions.iter().enumerate() {
+        let (choice_id, kind, label, description) = match decision {
+            Value::String(value) if value == "accept" => {
+                (value.clone(), "accept", "允许一次", None)
+            }
+            Value::String(value) if value == "acceptForSession" => (
+                value.clone(),
+                "acceptForSession",
+                "本次任务允许",
+                Some("同类操作在当前任务中不再询问"),
+            ),
+            Value::String(value) if value == "decline" => (
+                value.clone(),
+                "decline",
+                "拒绝并继续",
+                Some("拒绝操作，但允许 Codex 尝试其他方案"),
+            ),
+            Value::String(value) if value == "cancel" => (
+                value.clone(),
+                "cancel",
+                "拒绝并停止",
+                Some("拒绝操作并中断当前任务"),
+            ),
+            Value::Object(value) if value.contains_key("acceptWithExecpolicyAmendment") => (
+                format!("candidate:{index}"),
+                "acceptWithExecpolicyAmendment",
+                "允许并记住命令规则",
+                Some("仅应用 Codex 建议的命令规则"),
+            ),
+            Value::Object(value) if value.contains_key("applyNetworkPolicyAmendment") => (
+                format!("candidate:{index}"),
+                "applyNetworkPolicyAmendment",
+                "应用联网规则",
+                Some("仅应用 Codex 建议的主机访问规则"),
+            ),
+            _ => continue,
+        };
+        choices.insert(choice_id.clone(), json!({ "decision": decision }));
+        display_choices.push(approval_choice_display(
+            &choice_id,
+            kind,
+            label,
+            description,
+        ));
+    }
+    Ok(())
+}
+
+fn approval_choice_display(id: &str, kind: &str, label: &str, description: Option<&str>) -> Value {
+    json!({
+        "id": id,
+        "kind": kind,
+        "label": label,
+        "description": description,
+    })
 }
 
 fn emit_runtime_event(app: &AppHandle, method: &str, message: &str) {
@@ -411,6 +633,20 @@ fn validate_request_params(root: &Path, method: &str, params: &Value) -> Result<
         }
     }
 
+    if method == "permissionProfile/list" {
+        if let Some(cwd) = params.get("cwd").and_then(Value::as_str) {
+            validate_path_within_root(root, cwd)?;
+        }
+    }
+
+    match method {
+        "thread/start" => validate_thread_permission_settings(root, params, true)?,
+        "thread/settings/update" => validate_thread_permission_settings(root, params, false)?,
+        "thread/resume" => reject_thread_permission_overrides(params)?,
+        "turn/start" => reject_turn_permission_overrides(params)?,
+        _ => {}
+    }
+
     if method == "turn/start" {
         if let Some(inputs) = params.get("input").and_then(Value::as_array) {
             for input in inputs {
@@ -433,6 +669,103 @@ fn validate_request_params(root: &Path, method: &str, params: &Value) -> Result<
         }
     }
 
+    Ok(())
+}
+
+fn validate_thread_permission_settings(
+    root: &Path,
+    params: &Value,
+    require_workspace_roots: bool,
+) -> Result<(), String> {
+    if params.get("sandbox").is_some() || params.get("sandboxPolicy").is_some() {
+        return Err("命名权限配置不得与 legacy sandbox 参数同时使用".to_string());
+    }
+    let permissions = params
+        .get("permissions")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "Codex 线程权限配置缺少 permissions".to_string())?;
+    if permissions.is_empty()
+        || permissions.len() > 128
+        || permissions.chars().any(char::is_control)
+    {
+        return Err("Codex permissions profile 标识无效".to_string());
+    }
+    let approval_policy = params
+        .get("approvalPolicy")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "Codex 线程权限配置缺少 approvalPolicy".to_string())?;
+    if !matches!(approval_policy, "on-request" | "never") {
+        return Err("Codex approvalPolicy 无效".to_string());
+    }
+    let reviewer = params
+        .get("approvalsReviewer")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "Codex 线程权限配置缺少 approvalsReviewer".to_string())?;
+    if !matches!(reviewer, "user" | "auto_review") {
+        return Err("Codex approvalsReviewer 无效".to_string());
+    }
+
+    if permissions == ":danger-full-access" {
+        if approval_policy != "never" || reviewer != "user" {
+            return Err("完全访问权限必须使用 never + user 审批配置".to_string());
+        }
+    } else if approval_policy != "on-request" {
+        return Err("非完全访问权限必须使用 on-request 审批策略".to_string());
+    }
+    if reviewer == "auto_review" && permissions != ":workspace" {
+        return Err("自动审批只允许用于 :workspace 权限配置".to_string());
+    }
+
+    match params.get("runtimeWorkspaceRoots") {
+        Some(Value::Array(paths)) => {
+            if paths.is_empty() {
+                return Err("runtimeWorkspaceRoots 不能为空".to_string());
+            }
+            for path in paths {
+                let path = path
+                    .as_str()
+                    .ok_or_else(|| "runtimeWorkspaceRoots 路径无效".to_string())?;
+                validate_path_within_root(root, path)?;
+            }
+        }
+        None if require_workspace_roots => {
+            return Err("新线程必须声明 runtimeWorkspaceRoots".to_string());
+        }
+        None => {}
+        _ => return Err("runtimeWorkspaceRoots 参数无效".to_string()),
+    }
+    Ok(())
+}
+
+fn reject_thread_permission_overrides(params: &Value) -> Result<(), String> {
+    if [
+        "approvalPolicy",
+        "approvalsReviewer",
+        "permissions",
+        "runtimeWorkspaceRoots",
+        "sandbox",
+    ]
+    .iter()
+    .any(|key| params.get(*key).is_some())
+    {
+        return Err("恢复线程不得隐式覆盖权限；请使用 thread/settings/update".to_string());
+    }
+    Ok(())
+}
+
+fn reject_turn_permission_overrides(params: &Value) -> Result<(), String> {
+    if [
+        "approvalPolicy",
+        "approvalsReviewer",
+        "permissions",
+        "runtimeWorkspaceRoots",
+        "sandboxPolicy",
+    ]
+    .iter()
+    .any(|key| params.get(*key).is_some())
+    {
+        return Err("turn/start 不得覆盖线程权限；请使用 thread/settings/update".to_string());
+    }
     Ok(())
 }
 
@@ -568,8 +901,12 @@ fn is_allowed_client_method(method: &str) -> bool {
             | "thread/archive"
             | "thread/delete"
             | "thread/name/set"
+            | "thread/settings/update"
             | "turn/start"
             | "turn/interrupt"
+            | "permissionProfile/list"
+            | "experimentalFeature/list"
+            | "configRequirements/read"
             | "mcpServerStatus/list"
             | "mcpServer/oauth/login"
             | "config/mcpServer/reload"
@@ -582,6 +919,7 @@ fn is_supported_server_request(method: &str) -> bool {
         method,
         "item/commandExecution/requestApproval"
             | "item/fileChange/requestApproval"
+            | "item/permissions/requestApproval"
             | "execCommandApproval"
             | "applyPatchApproval"
     )
@@ -894,8 +1232,130 @@ mod tests {
     #[test]
     fn allowlist_rejects_generic_filesystem_and_shell_methods() {
         assert!(is_allowed_client_method("thread/start"));
+        assert!(is_allowed_client_method("thread/settings/update"));
+        assert!(is_allowed_client_method("permissionProfile/list"));
+        assert!(is_allowed_client_method("configRequirements/read"));
         assert!(!is_allowed_client_method("fs/remove"));
+        assert!(!is_allowed_client_method("config/read"));
         assert!(!is_allowed_client_method("thread/shellCommand"));
+    }
+
+    #[test]
+    fn command_approval_preserves_server_candidates_and_exposes_safe_choice_ids() {
+        let mut payload = json!({
+            "id": "approval-1",
+            "method": "item/commandExecution/requestApproval",
+            "params": {
+                "threadId": "thread",
+                "turnId": "turn",
+                "itemId": "command",
+                "availableDecisions": [
+                    "accept",
+                    { "acceptWithExecpolicyAmendment": {
+                        "execpolicy_amendment": ["pnpm", "test:run"]
+                    }},
+                    "decline",
+                    "cancel"
+                ]
+            }
+        });
+
+        let pending =
+            prepare_pending_server_request(&mut payload).expect("prepare approval request");
+
+        assert_eq!(pending.method, "item/commandExecution/requestApproval");
+        assert_eq!(pending.choices["accept"], json!({ "decision": "accept" }));
+        assert_eq!(
+            pending.choices["candidate:1"],
+            json!({
+                "decision": { "acceptWithExecpolicyAmendment": {
+                    "execpolicy_amendment": ["pnpm", "test:run"]
+                }}
+            })
+        );
+        assert!(pending.choices.contains_key("decline"));
+        assert!(pending.choices.contains_key("cancel"));
+        let display = payload["params"]["madoraApprovalChoices"]
+            .as_array()
+            .expect("display choices");
+        assert_eq!(display.len(), 4);
+        assert_eq!(display[1]["id"], "candidate:1");
+        assert_eq!(display[1]["kind"], "acceptWithExecpolicyAmendment");
+    }
+
+    #[test]
+    fn permission_approval_copies_server_scope_and_cannot_forge_permissions() {
+        let requested = json!({
+            "network": { "enabled": true },
+            "fileSystem": { "entries": [] }
+        });
+        let mut payload = json!({
+            "id": 7,
+            "method": "item/permissions/requestApproval",
+            "params": {
+                "threadId": "thread",
+                "turnId": "turn",
+                "itemId": "permission",
+                "cwd": "/workspace",
+                "permissions": requested
+            }
+        });
+
+        let pending =
+            prepare_pending_server_request(&mut payload).expect("prepare permission request");
+
+        assert_eq!(
+            pending.choices["permissions:turn"],
+            json!({ "permissions": requested, "scope": "turn" })
+        );
+        assert_eq!(
+            pending.choices["permissions:session"],
+            json!({ "permissions": requested, "scope": "session" })
+        );
+        assert_eq!(
+            pending.choices["permissions:deny"],
+            json!({ "permissions": {}, "scope": "turn" })
+        );
+        assert!(!pending.choices.contains_key("permissions:custom"));
+    }
+
+    #[test]
+    fn thread_permissions_require_named_profiles_and_turns_cannot_override_them() {
+        let root = tempdir().expect("create root");
+        let start = json!({
+            "cwd": root.path(),
+            "permissions": ":workspace",
+            "approvalPolicy": "on-request",
+            "approvalsReviewer": "user",
+            "runtimeWorkspaceRoots": [root.path()]
+        });
+        assert!(validate_request_params(root.path(), "thread/start", &start).is_ok());
+
+        let unsafe_full = json!({
+            "threadId": "thread",
+            "permissions": ":danger-full-access",
+            "approvalPolicy": "on-request",
+            "approvalsReviewer": "user"
+        });
+        assert!(
+            validate_request_params(root.path(), "thread/settings/update", &unsafe_full).is_err()
+        );
+
+        let turn_override = json!({
+            "threadId": "thread",
+            "input": [],
+            "permissions": ":danger-full-access"
+        });
+        assert!(validate_request_params(root.path(), "turn/start", &turn_override).is_err());
+    }
+
+    #[test]
+    fn unsupported_interactive_requests_are_not_registered() {
+        assert!(is_supported_server_request(
+            "item/permissions/requestApproval"
+        ));
+        assert!(!is_supported_server_request("tool/requestUserInput"));
+        assert!(!is_supported_server_request("dynamicToolCall"));
     }
 
     #[test]

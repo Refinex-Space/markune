@@ -44,7 +44,9 @@ AI 面板是工作区级客户端，不在浏览器渲染器中运行 Node.js SD
 
 历史恢复以 App Server 实际返回的 thread items 为上限。固定 sidecar `0.144.4` 的 `thread/read` 与 `thread/turns/list` 当前不会回放已完成 turn 的命令和其他工具 item，`thread/items/list` 也尚未实现；因此 Madora 可以恢复 commentary、最终回答和 App Server 返回的持久 item，但不能通过读取 Codex JSONL 或维护第二份日志补齐缺失的历史工具明细。升级 sidecar 后必须重新验证该投影能力。
 
-线程以当前工作区根目录作为 `cwd`，默认使用 `workspace-write` sandbox 和 `on-request` 审批。渲染器不能调用 App Server 的通用 `fs/*`、`command/exec` 或 `thread/shellCommand` 接口；用户允许的命令和文件修改由 Codex turn 内部工具执行并逐项回到审批 UI。
+线程以当前工作区根目录作为 `cwd`，默认选择 Codex 命名权限配置 `:workspace`、`on-request` 审批策略和 `user` reviewer。用户可以切换为自动风险审查、`:danger-full-access`、`:read-only` 或 App Server 从 `config.toml` 返回的自定义 permission profile；模式切换统一走 `thread/settings/update`，后续 `turn/start` 不再重复覆盖线程权限。自动审查只改变审批 reviewer，不扩大 permission profile；完全访问必须经过显式风险确认，并固定为 `:danger-full-access + never + user`。
+
+权限目录、企业要求和实验能力分别通过只读的 `permissionProfile/list`、`configRequirements/read` 与 `experimentalFeature/list` 发现。渲染器不能调用 App Server 的通用 `fs/*`、`command/exec`、`thread/shellCommand` 或通用配置读取/写入接口。命令、文件与权限升级 server request 由 Rust 保存服务端原始候选，前端只接收可展示的 opaque choice id；响应时 Rust 再映射回原候选，防止渲染器伪造 execpolicy、network policy、文件范围或权限对象。未知交互请求必须返回 JSON-RPC 错误并失败关闭，不能悬挂 turn。
 
 文档提及采用路径上下文，不复制文档正文。前端把显式 `@` 文档在模型文本中编码为带引号的工作区相对路径，并用 `text_elements.placeholder` 保留标题链接；当前文档与显式提及文档的绝对路径只通过 Madora 私有字段提交给 Tauri。Rust canonicalize 并验证这些路径后，将相对路径列表写入实验性的 `turn/start.additionalContext`：固定读取策略使用 `application` 信任级别，路径 JSON 使用 `untrusted` 信任级别。Codex 仅在请求依赖文档内容时通过正常工作区工具读取，因此读取动作仍进入原生工具时间线。
 

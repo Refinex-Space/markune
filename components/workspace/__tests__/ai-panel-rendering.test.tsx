@@ -429,6 +429,7 @@ describe('AI message rendering', () => {
   });
 
   it('审批显示在对应工具下，并遵循服务端允许的决定集合', () => {
+    const onApprove = vi.fn();
     const trace = createTrace({ historical: false, status: 'waitingApproval' });
     trace.approvals = [
       {
@@ -438,24 +439,111 @@ describe('AI message rendering', () => {
         method: 'item/commandExecution/requestApproval',
         title: '请求执行工具命令',
         detail: 'pnpm test:run',
-        decisions: ['accept', 'decline'],
+        choices: [
+          {
+            id: 'decline',
+            kind: 'decline',
+            label: '拒绝并继续',
+            description: '允许 Codex 尝试其他方案',
+          },
+          {
+            id: 'cancel',
+            kind: 'cancel',
+            label: '拒绝并停止',
+            description: '中断当前任务',
+          },
+          {
+            id: 'accept',
+            kind: 'accept',
+            label: '允许一次',
+            description: null,
+          },
+        ],
       },
     ];
 
     render(
       <ProcessingTrace
         trace={trace}
-        onApprove={vi.fn()}
+        onApprove={onApprove}
         onOpenDocument={vi.fn()}
       />,
     );
 
     expect(screen.getByText('请求执行工具命令')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '允许' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '拒绝' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '允许一次' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '拒绝并继续' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '拒绝并停止' })).toBeTruthy();
     expect(
       screen.queryByRole('button', { name: '本次任务允许' }),
     ).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '拒绝并停止' }));
+    expect(onApprove).toHaveBeenCalledWith(trace.approvals[0], 'cancel');
+  });
+
+  it('权限入口展示标准模式、自定义配置和服务端禁用状态', async () => {
+    const user = userEvent.setup();
+    const onPermissionModeChange = vi.fn();
+
+    render(
+      <AiComposer
+        active={false}
+        approvalPolicyAvailability={{ never: true, onRequest: true }}
+        autoReviewAvailable={false}
+        currentDocument={null}
+        effort="medium"
+        mentionDocuments={[]}
+        mentionQuery={null}
+        mcpServerCount={0}
+        models={[]}
+        permissionMode="ask"
+        permissionProfiles={[
+          {
+            id: 'team-safe',
+            allowed: true,
+            description: '团队安全配置',
+          },
+          {
+            id: 'blocked-profile',
+            allowed: false,
+            description: null,
+          },
+        ]}
+        permissionSwitchDisabled={false}
+        runtimeStatus="ready"
+        selectedModel=""
+        selectedModelInfo={null}
+        submitting={false}
+        value=""
+        version={null}
+        onEffortChange={vi.fn()}
+        onInterrupt={vi.fn()}
+        onMentionQueryChange={vi.fn()}
+        onMentionsChange={vi.fn()}
+        onModelChange={vi.fn()}
+        onOpenMention={vi.fn()}
+        onPermissionModeChange={onPermissionModeChange}
+        onSend={vi.fn()}
+        onValueChange={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '权限模式：请求审批' }));
+    expect(
+      screen
+        .getByText('替我审批')
+        .closest('[role="menuitemradio"]')
+        ?.getAttribute('data-disabled'),
+    ).toBe('');
+    expect(
+      screen
+        .getByText('blocked-profile')
+        .closest('[role="menuitemradio"]')
+        ?.getAttribute('data-disabled'),
+    ).toBe('');
+    await user.click(screen.getByText('team-safe'));
+    expect(onPermissionModeChange).toHaveBeenCalledWith('profile:team-safe');
   });
 
   it('服务端只提供 bridge 不支持的审批决定时不伪造允许按钮', () => {
@@ -468,7 +556,7 @@ describe('AI message rendering', () => {
         method: 'item/commandExecution/requestApproval',
         title: '请求执行工具命令',
         detail: 'pnpm test:run',
-        decisions: [],
+        choices: [],
       },
     ];
 
@@ -568,12 +656,17 @@ function ComposerHarness({
     <>
       <AiComposer
         active={false}
+        approvalPolicyAvailability={{ never: true, onRequest: true }}
+        autoReviewAvailable
         currentDocument={null}
         effort="medium"
         mentionDocuments={[mentionedDocument]}
         mentionQuery={mentionQuery}
         mcpServerCount={0}
         models={[]}
+        permissionMode="ask"
+        permissionProfiles={[]}
+        permissionSwitchDisabled={false}
         runtimeStatus="ready"
         selectedModel=""
         selectedModelInfo={null}
@@ -585,6 +678,7 @@ function ComposerHarness({
         onMentionQueryChange={setMentionQuery}
         onMentionsChange={setMentions}
         onModelChange={vi.fn()}
+        onPermissionModeChange={vi.fn()}
         onOpenMention={onOpenMention}
         onSend={onSend}
         onValueChange={(nextValue) => {
