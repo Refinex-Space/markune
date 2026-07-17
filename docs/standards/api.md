@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-16
+updated: 2026-07-17
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -25,19 +25,21 @@ referenced_by: AGENTS.md#knowledge-map
 
 - Codex 协议封装位于 `components/workspace/codex-app-server.ts` 与 `src-tauri/src/codex.rs`；不得从 React 组件直接启动进程或写入 stdio。
 - Windows 上的 Codex 版本探测与 App Server sidecar 必须复用无窗口命令构造入口，设置 `CREATE_NO_WINDOW`；不得让控制台子系统的 `codex.exe` 拉起独立终端窗口。
-- 客户端请求必须由 Rust allowlist 限制。当前允许账户、模型、线程、turn、MCP inventory/OAuth、skills 与审批相关方法；禁止向渲染器暴露通用 App Server `fs/*`、`command/exec` 和 `thread/shellCommand`。
+- 客户端请求必须由 Rust allowlist 限制。当前允许账户、模型、线程、turn、MCP inventory/OAuth、skills，以及只读的 `permissionProfile/list`、`configRequirements/read`、`experimentalFeature/list` 和受控的 `thread/settings/update`；禁止向渲染器暴露通用 App Server `fs/*`、`command/exec`、`thread/shellCommand`、`config/read` 或配置写入方法。
 - App Server 的响应、通知与 server request 使用统一 `codex:event` 事件。前端必须按 JSON-RPC `id` 关联请求，并在运行时退出时拒绝所有 pending 请求。
 - 消息与工具通知必须按首次到达顺序保存在同一会话流中；同一 item 的完成通知只更新原位置，不得把工具记录统一追加到回答末尾。`thread/name/updated` 必须同步当前标题与历史列表。
 - 历史投影只能消费 App Server 返回的 thread items。固定 sidecar `0.144.4` 不得通过直接读取 Codex JSONL、SQLite 或维护第二份 Madora 会话日志来弥补 `thread/read` / `thread/turns/list` 缺失的工具 item；sidecar 升级后应以 `thread/items/list` 或等价官方接口补齐并重新运行契约测试。
 - 前端必须保留 turn 的 `startedAt`、`completedAt`、`durationMs` 和 agent message phase。`commentary` 只进入处理过程，`final_answer` 独立展示；phase 缺失时不得推断或改写旧消息语义。
 - `item/commandExecution/outputDelta`、`item/commandExecution/terminalInteraction`、`item/fileChange/patchUpdated`、`item/mcpToolCall/progress`、`turn/plan/updated` 与 `turn/diff/updated` 必须更新对应 turn/item，不得创建伪造工具记录。命令输出必须使用有界首尾缓冲并在界面标明省略行数。
 - 工具摘要优先使用 App Server 的 `commandActions`，原始 shell 包装只可出现在展开详情。文件路径只有在规范化后仍位于当前工作区时才可作为可点击文档入口；其他路径仅显示为文本。
-- 审批请求必须保存 `turnId`、`itemId` 和服务端 `availableDecisions`，并尽量附着到对应工具 item。界面只能展示 Rust bridge 已支持的字符串决定；不得尝试响应未登记或不支持的权限修订对象。
+- 审批请求必须保存 `turnId`、`itemId` 和服务端原始候选，并尽量附着到对应工具 item。Rust 将字符串决定、execpolicy amendment、network policy amendment 与 permissions grant 投影为可展示的 opaque choice id；界面只能回传该 id，Rust 必须在对应 pending request 内重新映射，不能接受前端提交的任意结构化决定。
+- 命令审批必须区分 `decline`（拒绝并继续 turn）与 `cancel`（拒绝并中断 turn），并按服务端候选显示一次允许、会话允许和规则授权。`item/permissions/requestApproval` 的允许响应只能复制服务端原始 permissions，可选择 turn、session 或 strict auto-review；拒绝固定返回空 permissions 和 turn scope。
+- `thread/start` 使用命名 `permissions`、`approvalPolicy`、`approvalsReviewer` 与 `runtimeWorkspaceRoots` 建立权限状态，且不得同时发送 legacy `sandbox`。`thread/resume` 不覆盖权限，`turn/start` 不发送安全字段；切换模式只用 `thread/settings/update`，且不得同时发送 `sandboxPolicy`。界面以 `thread/settings/updated` 和 start/resume response 为真实状态来源。
 - Markdown 文档不得作为 Codex 原生 `mention` 输入发送；该类型只用于 `app://` 与 `plugin://` 目标。显式文档提及必须把带引号的工作区相对路径写入文本，并用 `text_elements.placeholder` 保存显示标题；`byteRange` 使用替换后文本的 UTF-8 字节偏移。
 - 当前文档与显式提及文档只可通过顶层 `madoraDocumentReferences` 传给 Tauri。Rust 必须移除该私有字段、校验绝对路径与工作区边界，再生成 `madora_document_context_policy`（`application`）和 `madora_document_references`（`untrusted`）两项 `additionalContext`；渲染器直接提交原始 `additionalContext` 必须被拒绝。
 - 会话历史恢复只能依据 `text_elements` 的精确区间解析受控的带引号相对路径，并用当前工作区根目录恢复可点击绝对路径；绝对路径、空路径和包含父目录段的标记必须被拒绝。旧版 `mention + text_elements` 仅保留读取兼容，不得继续生成。
 - `turn/start.additionalContext` 是随固定 Codex sidecar 使用的实验协议。升级 Codex 时必须重新生成带 `--experimental` 的 App Server Schema，并运行前端与 Rust 契约测试。
-- 命令与文件修改审批只能响应 App Server 已登记的 server request id，不能由前端构造任意响应。
+- 命令、文件修改与权限升级审批只能响应 App Server 已登记的 server request id。未知 server request 必须由 Rust 返回 `-32601`，格式无效的已知请求返回 `-32602`，不能转发成可操作 UI 或留在 pending 状态。
 
 ## Local Files And Assets
 

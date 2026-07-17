@@ -43,6 +43,12 @@ referenced_by: AGENTS.md#knowledge-map
 
 旧设置文件中的未知字段读取时会忽略；用户保存设置后仅写回当前 schema 支持的字段。
 
+## Codex Permission Profiles
+
+Madora 不在自身设置或 `.madora` 中复制 Codex 权限配置。权限目录由共享 `CODEX_HOME/config.toml` 管理，App Server 通过 `permissionProfile/list` 返回内置 `:workspace`、`:read-only`、`:danger-full-access` 及用户定义的 `[permissions.<id>]` profile；`allowed: false` 的 profile 在界面中保持可见但不可选。
+
+默认模式为 `:workspace + on-request + user`。替我审批使用同一 `:workspace` profile，仅把 reviewer 切换为 `auto_review`；完全访问使用 `:danger-full-access + never + user`；只读访问使用 `:read-only + on-request + user`。企业级 `requirements.toml` / MDM 限制由 `configRequirements/read` 读取，Madora 不开放 `config/read`、`config/value/write`、`config/batchWrite` 或实验功能写入接口。
+
 ## Workspace Metadata
 
 每个工作区根目录下的 `.madora/workspace.json` 保存最近文档、目录展开状态、排序、每日笔记索引和 Git Sync 偏好。文档正文仍保存在工作区可见的 Markdown 文件中。

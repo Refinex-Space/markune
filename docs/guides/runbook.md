@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-16
+updated: 2026-07-17
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -72,6 +72,12 @@ test ! -d .madora/ai-sessions
 ```
 
 两条命令都不应发现旧会话。随后在 Madora 新建会话并重启应用，线程应能通过 App Server 恢复，且知识库中不得重新生成 `.madora/ai-sessions`。不要用 SQLite 或 JSONL 文件存在性替代 `thread/list`、`thread/read` 的功能验证。
+
+## Codex Permission Acceptance
+
+桌面端权限验收必须使用真实 App Server turn，至少覆盖：默认请求审批同时显示允许与“拒绝并停止”；`decline` 后 agent 可继续，`cancel` 后 turn 中断；替我审批出现自动审查进度与风险结论；只读模式拒绝文件修改；完全访问切换先显示风险确认；自定义 `config.toml` profile 可选且 requirements 禁止的 profile 保持禁用。运行中 turn 或待审批请求存在时不得切换模式，重启并恢复线程后入口必须显示 App Server 返回的实际 profile 与 reviewer。
+
+升级固定 Codex sidecar 时，重新执行 `app-server generate-json-schema --experimental`，核对 `permissionProfile/list`、`thread/settings/update`、`item/permissions/requestApproval`、命令审批候选和 `item/autoApprovalReview/*`，再运行 Rust 与前端契约测试。不得只凭现有 UI 继续兼容未知协议。
 
 ## Desktop Packaging
 

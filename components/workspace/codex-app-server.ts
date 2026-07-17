@@ -92,6 +92,54 @@ export interface CodexThreadListResponse {
   nextCursor: string | null;
 }
 
+export type CodexApprovalPolicy = 'never' | 'on-request' | 'untrusted';
+
+export type CodexApprovalsReviewer =
+  | 'auto_review'
+  | 'guardian_subagent'
+  | 'user';
+
+export interface CodexActivePermissionProfile {
+  extends: string | null;
+  id: string;
+}
+
+export interface CodexThreadPermissionSettings {
+  activePermissionProfile: CodexActivePermissionProfile | null;
+  approvalPolicy: CodexApprovalPolicy;
+  approvalsReviewer: CodexApprovalsReviewer;
+}
+
+export interface CodexPermissionProfileSummary {
+  allowed: boolean;
+  description: string | null;
+  id: string;
+}
+
+export interface CodexPermissionProfileListResponse {
+  data: CodexPermissionProfileSummary[];
+  nextCursor: string | null;
+}
+
+export interface CodexConfigRequirementsResponse {
+  requirements: {
+    allowedApprovalPolicies?: unknown[] | null;
+    allowedApprovalsReviewers?: CodexApprovalsReviewer[] | null;
+    allowedPermissionProfiles?: Record<string, boolean> | null;
+    defaultPermissions?: string | null;
+  } | null;
+}
+
+export interface CodexExperimentalFeatureListResponse {
+  data: Array<{
+    defaultEnabled: boolean;
+    enabled: boolean;
+    name: string;
+    stage: 'beta' | 'deprecated' | 'removed' | 'stable' | 'underDevelopment';
+  }>;
+  nextCursor: string | null;
+}
+
 type PendingRequest = {
   reject: (reason?: unknown) => void;
   resolve: (value: unknown) => void;
@@ -182,12 +230,12 @@ export async function stopCodexRuntime() {
 
 export async function respondToCodexApproval(
   requestId: CodexRequestId,
-  decision: 'accept' | 'acceptForSession' | 'decline' | 'cancel',
+  choiceId: string,
 ) {
   const { invoke } = await import('@tauri-apps/api/core');
   return invoke<void>('codex_app_server_respond', {
     requestId,
-    decision,
+    decision: choiceId,
   });
 }
 

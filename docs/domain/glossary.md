@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-16
+updated: 2026-07-17
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -20,3 +20,5 @@ referenced_by: AGENTS.md#knowledge-map
 - Git panel: workspace UI for Git status, diff, staging, commit, branches, log, push, revert, and delete flows.
 - Git Sync: workspace-level Git automation for committing local changes, pulling remote updates, pushing to the configured remote, and recording sync preferences in `.madora/workspace.json`.
 - Terminal panel: workspace UI backed by Tauri terminal commands.
+- Codex permission profile: a named App Server permission boundary such as `:workspace`, `:read-only`, `:danger-full-access`, or a user-defined `[permissions.<id>]` entry in shared `config.toml`; it controls what the agent can access, independently from who reviews approvals.
+- Codex approval reviewer: `user` or `auto_review`, deciding who evaluates an escalation without changing the active permission profile itself.
