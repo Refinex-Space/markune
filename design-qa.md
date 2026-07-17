@@ -176,7 +176,6 @@ final result: passed
 Blocked. The composer and header are the required focused regions, but the updated Tauri window could not be isolated from the user's other running Madora instances.
 
 final result: blocked
-
 ## 2026-07-16 Codex Tool Activity Follow-up
 
 ### Evidence
@@ -209,3 +208,42 @@ final result: blocked
 - Codex App Server sidecar `0.144.4` does not return completed command items from `thread/read` or `thread/turns/list`, and does not implement `thread/items/list`. The live visual state passes QA; exact historical tool-detail replay remains limited by the fixed sidecar contract and is not replaced with direct JSONL access.
 
 final result: passed
+
+## 2026-07-17 File Change Hover Preview
+
+### Evidence
+
+- source visual truth path: `/Users/refinex/Library/Application Support/PixPin/Temp/PixPin_2026-07-17_19-57-03.png`
+- implementation screenshot path: `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/com.openai.sky.CUAService/Madora Screenshot 2026-07-17 at 8.29.31 PM.jpeg`
+- viewport: `1455 × 774`
+- state: Madora desktop with the AI history chooser open; no completed turn with replayable file-change diff
+
+### Full-view Comparison Evidence
+
+The source shows a hovered file-change row with a large diff preview above the summary card. The desktop build opened successfully, but the fixed Codex sidecar does not replay completed file-change items or turn diffs from history. Reproducing the target state would require modifying a real workspace document, which is outside this visual-verification pass.
+
+### Focused Region Comparison
+
+Blocked. The implementation capture does not contain a file-change summary row, so a trustworthy same-state crop cannot be produced. Component tests cover the hover trigger, accessible preview region, diff content, bounded long-output rendering, and click-to-open callback, but they are not a substitute for visual comparison.
+
+### Verified Interactions
+
+- Hovering a file row opens its diff preview in the rendering test.
+- The preview exposes an accessible named region.
+- Clicking a validated Markdown row calls the existing open-document callback.
+- Long diffs render a bounded head/tail preview with an omitted-line marker.
+
+### Findings
+
+- [P1] Same-state desktop capture unavailable.
+  - Location: AI panel completed-turn change summary.
+  - Evidence: the reference contains a hovered diff card; the implementation capture only exposes the history chooser.
+  - Impact: spacing, collision handling, scroll height, typography, and theme fidelity cannot be visually approved from real desktop evidence.
+  - Fix: create a fresh disposable file-change turn in a user-approved test workspace, hover its summary row, and capture the same light-theme state.
+
+### Comparison History
+
+1. The current Madora desktop build and AI panel opened successfully.
+2. The available restored thread did not contain historical tool or diff items, so the target state remained unavailable.
+
+final result: blocked

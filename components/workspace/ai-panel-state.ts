@@ -182,6 +182,14 @@ export interface AiConversationState {
   turns: Record<string, AiTurnState>;
 }
 
+export type AiWorkspaceChangeEvent =
+  | {
+      changes: AiFileChange[];
+      turnId: string | null;
+      type: 'fileChangesCompleted';
+    }
+  | { turnId: string | null; type: 'turnCompleted' };
+
 export function createEmptyConversation(): AiConversationState {
   return {
     activeTurnId: null,
@@ -234,7 +242,10 @@ export function reduceCodexProtocolMessage(
     const turn = getRecord(params, 'turn');
     const turnState = turn ? turnStateFromRecord(turn, false) : null;
     if (turnState) {
-      next.turns[turnState.id] = turnState;
+      next.turns[turnState.id] = {
+        ...turnState,
+        diff: next.turns[turnState.id]?.diff ?? turnState.diff,
+      };
       if (next.activeTurnId === turnState.id) {
         next.activeTurnId = null;
       }
@@ -483,6 +494,38 @@ export function reduceCodexProtocolMessage(
   }
 
   return next;
+}
+
+export function workspaceChangeEventFromProtocolMessage(
+  message: CodexProtocolMessage,
+  workspaceRootPath?: string | null,
+): AiWorkspaceChangeEvent | null {
+  const params = message.params ?? {};
+  if (message.method === 'turn/completed') {
+    const turn = getRecord(params, 'turn');
+    return {
+      turnId: turn ? getString(turn, 'id') : getString(params, 'turnId'),
+      type: 'turnCompleted',
+    };
+  }
+  if (message.method !== 'item/completed') {
+    return null;
+  }
+
+  const item = params.item as CodexThreadItem | undefined;
+  if (
+    !item ||
+    item.type !== 'fileChange' ||
+    parseActivityStatus(item.status, 'completed') !== 'completed'
+  ) {
+    return null;
+  }
+
+  return {
+    changes: parseFileChanges(item.changes, workspaceRootPath),
+    turnId: getString(params, 'turnId'),
+    type: 'fileChangesCompleted',
+  };
 }
 
 function appendStartedItem(
@@ -831,13 +874,26 @@ export interface AiTraceBlock {
   type: 'trace';
 }
 
-export type AiConversationBlock = AiMessageEntry | AiTraceBlock;
+export interface AiChangeSummaryBlock {
+  additions: number;
+  changes: AiFileChange[];
+  deletions: number;
+  id: string;
+  turnId: string;
+  type: 'changes';
+}
+
+export type AiConversationBlock =
+  | AiMessageEntry
+  | AiTraceBlock
+  | AiChangeSummaryBlock;
 
 export function buildConversationBlocks(
   state: AiConversationState,
 ): AiConversationBlock[] {
   const blocks: AiConversationBlock[] = [];
   const consumedApprovals = new Set<string>();
+  const consumedChangeSummaries = new Set<string>();
   let index = 0;
 
   while (index < state.entries.length) {
@@ -845,6 +901,19 @@ export function buildConversationBlocks(
     if (!isTraceEntry(entry)) {
       if (entry.type === 'message' && entry.text) {
         blocks.push(entry);
+        const turnId = entry.turnId ?? null;
+        if (
+          entry.role === 'assistant' &&
+          turnId &&
+          (entry.phase === 'final_answer' ||
+            isLastAssistantMessageForTurn(state.entries, index, turnId))
+        ) {
+          const summary = createChangeSummaryBlock(state, turnId);
+          if (summary) {
+            blocks.push(summary);
+            consumedChangeSummaries.add(turnId);
+          }
+        }
       }
       index += 1;
       continue;
@@ -888,7 +957,167 @@ export function buildConversationBlocks(
       createTraceBlock([], orphanApprovals, state.turns, state.activeTurnId),
     );
   }
+  for (const turnId of Object.keys(state.turns)) {
+    if (consumedChangeSummaries.has(turnId)) continue;
+    const summary = createChangeSummaryBlock(state, turnId);
+    if (summary) blocks.push(summary);
+  }
   return blocks;
+}
+
+function isLastAssistantMessageForTurn(
+  entries: AiConversationEntry[],
+  index: number,
+  turnId: string,
+) {
+  return !entries.slice(index + 1).some(
+    (entry) =>
+      entry.type === 'message' &&
+      entry.role === 'assistant' &&
+      entry.phase !== 'commentary' &&
+      entry.turnId === turnId,
+  );
+}
+
+function createChangeSummaryBlock(
+  state: AiConversationState,
+  turnId: string,
+): AiChangeSummaryBlock | null {
+  const turn = state.turns[turnId];
+  if (!turn || turn.status !== 'completed') {
+    return null;
+  }
+
+  const timelineChanges = state.entries.flatMap((entry) =>
+    entry.type === 'timeline' &&
+    entry.kind === 'file' &&
+    entry.status === 'completed' &&
+    entry.turnId === turnId
+      ? entry.changes
+      : [],
+  );
+  const diffChanges = turn.diff
+    ? parseUnifiedDiffFileChanges(
+        turn.diff,
+        timelineChanges.find((change) => change.absolutePath)?.absolutePath
+          ? inferWorkspaceRoot(timelineChanges)
+          : null,
+      )
+    : [];
+  const changes = mergeChangeSummaries(timelineChanges, diffChanges);
+  if (changes.length === 0) {
+    return null;
+  }
+
+  return {
+    additions: changes.reduce((total, change) => total + change.additions, 0),
+    changes,
+    deletions: changes.reduce((total, change) => total + change.deletions, 0),
+    id: `changes-${turnId}`,
+    turnId,
+    type: 'changes',
+  };
+}
+
+function inferWorkspaceRoot(changes: AiFileChange[]) {
+  for (const change of changes) {
+    if (!change.absolutePath) continue;
+    const normalizedAbsolute = change.absolutePath.replaceAll('\\', '/');
+    const normalizedRelative = change.path.replaceAll('\\', '/');
+    if (normalizedAbsolute.endsWith(`/${normalizedRelative}`)) {
+      return normalizedAbsolute.slice(0, -normalizedRelative.length - 1);
+    }
+  }
+  return null;
+}
+
+function mergeChangeSummaries(
+  timelineChanges: AiFileChange[],
+  diffChanges: AiFileChange[],
+) {
+  const merged = new Map<string, AiFileChange>();
+  for (const change of [...timelineChanges, ...diffChanges]) {
+    const matchingKeys = [...merged.entries()]
+      .filter(([, previous]) => changeSummariesReferToSameFile(previous, change))
+      .map(([key]) => key);
+    const key =
+      matchingKeys.length === 1
+        ? matchingKeys[0]
+        : normalizeChangeSummaryPath(change.absolutePath ?? change.path);
+    const previous = merged.get(key);
+    merged.set(key, {
+      ...previous,
+      ...change,
+      absolutePath: change.absolutePath ?? previous?.absolutePath ?? null,
+      movePath: change.movePath ?? previous?.movePath ?? null,
+      path: preferredChangeSummaryPath(previous?.path, change.path),
+    });
+  }
+  return [...merged.values()];
+}
+
+function changeSummariesReferToSameFile(
+  left: AiFileChange,
+  right: AiFileChange,
+) {
+  const leftPaths = [left.absolutePath, left.path].filter(
+    (value): value is string => Boolean(value),
+  );
+  const rightPaths = [right.absolutePath, right.path].filter(
+    (value): value is string => Boolean(value),
+  );
+  return leftPaths.some((leftPath) =>
+    rightPaths.some((rightPath) => changeSummaryPathsMatch(leftPath, rightPath)),
+  );
+}
+
+function changeSummaryPathsMatch(left: string, right: string) {
+  const normalizedLeft = normalizeChangeSummaryPath(left);
+  const normalizedRight = normalizeChangeSummaryPath(right);
+  const windows =
+    /^[A-Za-z]:\//.test(normalizedLeft) ||
+    /^[A-Za-z]:\//.test(normalizedRight);
+  const comparableLeft = windows
+    ? normalizedLeft.toLocaleLowerCase()
+    : normalizedLeft;
+  const comparableRight = windows
+    ? normalizedRight.toLocaleLowerCase()
+    : normalizedRight;
+  if (comparableLeft === comparableRight) {
+    return true;
+  }
+  const leftAbsolute = isAbsoluteChangeSummaryPath(normalizedLeft);
+  const rightAbsolute = isAbsoluteChangeSummaryPath(normalizedRight);
+  if (leftAbsolute === rightAbsolute) {
+    return false;
+  }
+  const absolutePath = leftAbsolute ? comparableLeft : comparableRight;
+  const relativePath = leftAbsolute ? comparableRight : comparableLeft;
+  return absolutePath.endsWith(`/${relativePath}`);
+}
+
+function preferredChangeSummaryPath(
+  previousPath: string | undefined,
+  nextPath: string,
+) {
+  if (
+    previousPath &&
+    isAbsoluteChangeSummaryPath(nextPath) &&
+    !isAbsoluteChangeSummaryPath(previousPath)
+  ) {
+    return previousPath;
+  }
+  return nextPath;
+}
+
+function normalizeChangeSummaryPath(value: string) {
+  const normalized = value.replaceAll('\\', '/');
+  return normalized.startsWith('./') ? normalized.slice(2) : normalized;
+}
+
+function isAbsoluteChangeSummaryPath(value: string) {
+  const normalized = normalizeChangeSummaryPath(value);
+  return normalized.startsWith('/') || /^[A-Za-z]:\//.test(normalized);
 }
 
 function createTraceBlock(
@@ -1416,7 +1645,7 @@ function turnStateFromRecord(value: unknown, historical: boolean): AiTurnState {
   const id = getString(record, 'id') ?? 'unknown-turn';
   return {
     completedAtMs: secondsToMilliseconds(getNumber(record, 'completedAt')),
-    diff: null,
+    diff: getString(record, 'diff'),
     durationMs: getNumber(record, 'durationMs'),
     historical,
     id,
@@ -1555,6 +1784,67 @@ function countDiffLines(diff: string) {
     if (line.startsWith('-') && !line.startsWith('---')) deletions += 1;
   }
   return { additions, deletions };
+}
+
+function parseUnifiedDiffFileChanges(
+  diff: string,
+  workspaceRootPath?: string | null,
+): AiFileChange[] {
+  const sections: string[][] = [];
+  let section: string[] = [];
+  for (const line of diff.split(/\r?\n/)) {
+    if (line.startsWith('diff --git ') && section.length > 0) {
+      sections.push(section);
+      section = [];
+    }
+    section.push(line);
+  }
+  if (section.length > 0) sections.push(section);
+
+  return sections.flatMap((lines): AiFileChange[] => {
+    const oldPath = diffHeaderPath(
+      lines.find((line) => line.startsWith('--- '))?.slice(4) ?? null,
+    );
+    const newPath = diffHeaderPath(
+      lines.find((line) => line.startsWith('+++ '))?.slice(4) ?? null,
+    );
+    const path = newPath === '/dev/null' ? oldPath : newPath;
+    if (!path || path === '/dev/null') return [];
+
+    const sectionDiff = lines.join('\n');
+    const { additions, deletions } = countDiffLines(sectionDiff);
+    return [
+      {
+        absolutePath: resolveWorkspaceItemPath(path, workspaceRootPath),
+        additions,
+        deletions,
+        diff: sectionDiff,
+        kind:
+          oldPath === '/dev/null'
+            ? 'add'
+            : newPath === '/dev/null'
+              ? 'delete'
+              : 'update',
+        movePath: null,
+        path,
+      },
+    ];
+  });
+}
+
+function diffHeaderPath(value: string | null) {
+  if (!value) return null;
+  const withoutTimestamp = value.replace(/\t.*$/, '').trim();
+  let decoded = withoutTimestamp;
+  if (withoutTimestamp.startsWith('"')) {
+    try {
+      decoded = JSON.parse(withoutTimestamp) as string;
+    } catch {
+      return null;
+    }
+  }
+  if (decoded === '/dev/null') return decoded;
+  return decoded.replace(/^[ab]\//, '');
 }
 
 function fileChangeLabel(value: unknown) {

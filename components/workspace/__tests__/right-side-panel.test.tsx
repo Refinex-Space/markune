@@ -80,6 +80,7 @@ describe('right AI panel integration', () => {
         mode="ai"
         width={420}
         workspaceRootPath="/workspace"
+        onBeforeTurnStart={vi.fn().mockResolvedValue(true)}
         onOpenDocument={onOpenDocument}
         onWorkspaceChanged={vi.fn()}
       />,

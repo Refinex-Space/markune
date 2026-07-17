@@ -49,6 +49,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from '@/components/ui/hover-card';
 import { cn } from '@/lib/utils';
 
 import {
@@ -79,14 +84,18 @@ import {
   getOutputPreviewLines,
   reduceCodexProtocolMessage,
   threadNameUpdateFromMessage,
+  workspaceChangeEventFromProtocolMessage,
   type AiActivityGroup,
   type AiApprovalRequest,
+  type AiChangeSummaryBlock,
   type AiConversationBlock,
   type AiConversationEntry,
   type AiConversationState,
+  type AiFileChange,
   type AiMessageMention,
   type AiTraceBlock,
   type AiTimelineItem,
+  type AiWorkspaceChangeEvent,
 } from './ai-panel-state';
 import {
   isTauriRuntime,
@@ -98,8 +107,11 @@ interface AiPanelProps {
   currentDocument: WorkspaceNode | null;
   documents: AiDocumentReference[];
   workspaceRootPath: string | null;
+  onBeforeTurnStart: () => Promise<boolean>;
   onOpenDocument: (documentPath: string) => void;
-  onWorkspaceChanged: () => void | Promise<void>;
+  onWorkspaceChanged: (
+    event: AiWorkspaceChangeEvent,
+  ) => void | Promise<void>;
 }
 
 type AiDocumentReference = Pick<
@@ -266,6 +278,7 @@ export function AiPanel({
   currentDocument,
   documents,
   workspaceRootPath,
+  onBeforeTurnStart,
   onOpenDocument,
   onWorkspaceChanged,
 }: AiPanelProps) {
@@ -308,10 +321,15 @@ export function AiPanel({
   const [followLatestRequest, setFollowLatestRequest] = React.useState(0);
   const modelSelectionInitializedRef = React.useRef(false);
   const activeThreadIdRef = React.useRef<string | null>(null);
+  const onWorkspaceChangedRef = React.useRef(onWorkspaceChanged);
 
   React.useEffect(() => {
     activeThreadIdRef.current = activeThread?.id ?? null;
   }, [activeThread?.id]);
+
+  React.useEffect(() => {
+    onWorkspaceChangedRef.current = onWorkspaceChanged;
+  }, [onWorkspaceChanged]);
 
   const applyThreadName = React.useCallback((threadId: string, name: string) => {
     setActiveThread((current) =>
@@ -511,12 +529,12 @@ export function AiPanel({
         void loadControlData().catch(() => undefined);
       }
 
-      if (
-        message.method === 'item/completed' &&
-        (message.params?.item as { type?: string } | undefined)?.type ===
-          'fileChange'
-      ) {
-        void onWorkspaceChanged();
+      const workspaceChange = workspaceChangeEventFromProtocolMessage(
+        message,
+        workspaceRootPath,
+      );
+      if (workspaceChange) {
+        void onWorkspaceChangedRef.current(workspaceChange);
       }
 
       if (
@@ -562,7 +580,7 @@ export function AiPanel({
       unlisten?.();
       unsubscribe();
     };
-  }, [applyThreadName, loadControlData, onWorkspaceChanged, workspaceRootPath]);
+  }, [applyThreadName, loadControlData, workspaceRootPath]);
 
   const startNewChat = React.useCallback(() => {
     setActiveThread(null);
@@ -632,6 +650,19 @@ export function AiPanel({
 
       setSubmitting(true);
       setRuntimeError(null);
+      let ready = false;
+      try {
+        ready = await onBeforeTurnStart();
+      } catch (error) {
+        setRuntimeError(getErrorMessage(error));
+        setSubmitting(false);
+        return;
+      }
+      if (!ready) {
+        setRuntimeError('当前文档保存失败，未发送消息。请先处理保存错误。');
+        setSubmitting(false);
+        return;
+      }
       const contextDocuments = uniqueDocuments([
         ...(currentDocument ? [currentDocument] : []),
         ...selectedMentions,
@@ -729,6 +760,7 @@ export function AiPanel({
       composerValue,
       currentDocument,
       effort,
+      onBeforeTurnStart,
       runtimeStatus,
       permissionSettings,
       selectedMentions,
@@ -1209,6 +1241,12 @@ function PanelContent({
               onApprove={onApprove}
               onOpenDocument={onOpenDocument}
             />
+          ) : block.type === 'changes' ? (
+            <ChangeSummaryCard
+              key={block.id}
+              summary={block}
+              onOpenDocument={onOpenDocument}
+            />
           ) : (
             <ConversationEntryRow
               entry={block}
@@ -1232,6 +1270,263 @@ function PanelContent({
 
 function previousConversationEntry(block: AiConversationBlock | undefined) {
   return block?.type === 'message' ? block : null;
+}
+
+export function ChangeSummaryCard({
+  summary,
+  onOpenDocument,
+}: {
+  summary: AiChangeSummaryBlock;
+  onOpenDocument: (documentPath: string) => void;
+}) {
+  const [expanded, setExpanded] = React.useState(false);
+  const visibleChanges = expanded
+    ? summary.changes
+    : summary.changes.slice(0, 3);
+  const remaining = Math.max(0, summary.changes.length - visibleChanges.length);
+
+  return (
+    <section className="mt-4 overflow-hidden rounded-xl border border-border/70 bg-background">
+      <div className="flex items-center gap-3 px-3 py-3">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted/45 text-muted-foreground">
+          <FilePenLine size={16} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-medium">
+            已编辑 {summary.changes.length} 个文件
+          </div>
+          <div className="mt-0.5 flex gap-2 text-[11px] tabular-nums">
+            <span className="text-emerald-600">+{summary.additions}</span>
+            <span className="text-red-500">-{summary.deletions}</span>
+          </div>
+        </div>
+      </div>
+      <div className="border-t border-border/60">
+        {visibleChanges.map((change) => (
+          <ChangeSummaryRow
+            change={change}
+            key={change.absolutePath ?? change.path}
+            onOpenDocument={onOpenDocument}
+          />
+        ))}
+      </div>
+      {remaining > 0 || (expanded && summary.changes.length > 3) ? (
+        <button
+          aria-label={expanded ? '收起文件列表' : `再显示 ${remaining} 个文件`}
+          className="flex w-full items-center justify-center gap-1 border-t border-border/60 px-3 py-2 text-[11px] text-muted-foreground outline-none transition-colors hover:bg-muted/20 hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30"
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {expanded ? '收起文件列表' : `再显示 ${remaining} 个文件`}
+          <ChevronDown
+            className={cn('size-3 transition-transform', expanded && 'rotate-180')}
+          />
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+function ChangeSummaryRow({
+  change,
+  onOpenDocument,
+}: {
+  change: AiFileChange;
+  onOpenDocument: (documentPath: string) => void;
+}) {
+  const clickable =
+    Boolean(change.absolutePath) &&
+    change.path.toLocaleLowerCase().endsWith('.md') &&
+    change.kind !== 'delete';
+  const hasPreview = Boolean(change.diff.trim());
+  const content = (
+    <>
+      <span className="min-w-0 flex-1 truncate">{change.path}</span>
+      <span className="flex shrink-0 gap-1.5 text-[10px] tabular-nums">
+        {change.additions > 0 ? (
+          <span className="text-emerald-600">+{change.additions}</span>
+        ) : null}
+        {change.deletions > 0 ? (
+          <span className="text-red-500">-{change.deletions}</span>
+        ) : null}
+      </span>
+    </>
+  );
+  const row = clickable ? (
+    <button
+      aria-label={change.path}
+      className="flex w-full items-center gap-3 border-b border-border/45 px-3 py-2 text-left text-xs text-foreground/75 outline-none transition-colors last:border-b-0 hover:bg-muted/25 hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30"
+      type="button"
+      onClick={() => onOpenDocument(change.absolutePath!)}
+    >
+      {content}
+    </button>
+  ) : (
+    <div
+      aria-label={hasPreview ? `${change.path}，查看变更预览` : undefined}
+      className="flex items-center gap-3 border-b border-border/45 px-3 py-2 text-xs text-foreground/75 outline-none last:border-b-0 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30"
+      tabIndex={hasPreview ? 0 : undefined}
+    >
+      {content}
+    </div>
+  );
+
+  if (!hasPreview) {
+    return row;
+  }
+
+  return (
+    <HoverCard closeDelay={100} openDelay={250}>
+      <HoverCardTrigger asChild>{row}</HoverCardTrigger>
+      <HoverCardContent
+        align="start"
+        aria-label={`${change.path} 变更预览`}
+        className="w-[min(680px,calc(100vw-2rem))] overflow-hidden rounded-xl p-0 shadow-lg"
+        collisionPadding={16}
+        role="region"
+        side="top"
+        sideOffset={8}
+      >
+        <ChangeDiffPreview change={change} />
+      </HoverCardContent>
+    </HoverCard>
+  );
+}
+
+type DiffPreviewLine = {
+  content: string;
+  kind: 'addition' | 'context' | 'deletion' | 'meta' | 'omitted';
+  lineNumber: number | null;
+};
+
+const MAX_DIFF_PREVIEW_LINES = 240;
+const DIFF_PREVIEW_HEAD_LINES = 180;
+const DIFF_PREVIEW_TAIL_LINES = 59;
+
+function ChangeDiffPreview({ change }: { change: AiFileChange }) {
+  const lines = React.useMemo(
+    () => createDiffPreviewLines(change.diff),
+    [change.diff],
+  );
+
+  return (
+    <div className="bg-popover text-popover-foreground">
+      <header className="flex items-center gap-3 border-b border-border/70 px-3 py-2.5">
+        <div className="min-w-0 flex-1 truncate text-[13px] font-medium" title={change.path}>
+          {change.path}
+        </div>
+        <div className="flex shrink-0 gap-2 text-[11px] tabular-nums">
+          <span className="text-emerald-600">+{change.additions}</span>
+          <span className="text-red-500">-{change.deletions}</span>
+        </div>
+      </header>
+      <div className="max-h-[min(420px,65vh)] overflow-auto overscroll-contain py-1 font-mono text-[11px] leading-5">
+        {lines.map((line, index) =>
+          line.kind === 'omitted' ? (
+            <div
+              className="border-y border-border/50 bg-muted/30 px-3 py-1 text-center font-sans text-[10px] text-muted-foreground"
+              key={`omitted-${index}`}
+            >
+              {line.content}
+            </div>
+          ) : (
+            <div
+              className={cn(
+                'grid min-w-max grid-cols-[3rem_1rem_minmax(0,1fr)] border-l-2 border-transparent pr-4',
+                line.kind === 'addition' &&
+                  'border-l-emerald-500 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200',
+                line.kind === 'deletion' &&
+                  'border-l-red-500 bg-red-500/10 text-red-800 dark:text-red-200',
+                line.kind === 'meta' && 'text-muted-foreground',
+              )}
+              key={`${index}:${line.kind}:${line.content}`}
+            >
+              <span className="select-none border-r border-border/45 pr-2 text-right text-muted-foreground/70 tabular-nums">
+                {line.lineNumber ?? ''}
+              </span>
+              <span className="select-none text-center text-muted-foreground/70">
+                {line.kind === 'addition'
+                  ? '+'
+                  : line.kind === 'deletion'
+                    ? '-'
+                    : ' '}
+              </span>
+              <span className="whitespace-pre">{line.content || ' '}</span>
+            </div>
+          ),
+        )}
+      </div>
+    </div>
+  );
+}
+
+function createDiffPreviewLines(diff: string): DiffPreviewLine[] {
+  const lines: DiffPreviewLine[] = [];
+  let oldLineNumber: number | null = null;
+  let newLineNumber: number | null = null;
+
+  for (const line of diff.split(/\r?\n/)) {
+    const hunk = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    if (hunk) {
+      oldLineNumber = Number(hunk[1]);
+      newLineNumber = Number(hunk[2]);
+      continue;
+    }
+    if (isDiffHeaderLine(line)) {
+      continue;
+    }
+    if (line.startsWith('\\ No newline at end of file')) {
+      lines.push({ content: line, kind: 'meta', lineNumber: null });
+      continue;
+    }
+    if (line.startsWith('+')) {
+      lines.push({
+        content: line.slice(1),
+        kind: 'addition',
+        lineNumber: newLineNumber,
+      });
+      if (newLineNumber !== null) newLineNumber += 1;
+      continue;
+    }
+    if (line.startsWith('-')) {
+      lines.push({
+        content: line.slice(1),
+        kind: 'deletion',
+        lineNumber: oldLineNumber,
+      });
+      if (oldLineNumber !== null) oldLineNumber += 1;
+      continue;
+    }
+
+    const content = line.startsWith(' ') ? line.slice(1) : line;
+    lines.push({
+      content,
+      kind: 'context',
+      lineNumber: newLineNumber ?? oldLineNumber,
+    });
+    if (oldLineNumber !== null) oldLineNumber += 1;
+    if (newLineNumber !== null) newLineNumber += 1;
+  }
+
+  if (lines.length <= MAX_DIFF_PREVIEW_LINES) {
+    return lines;
+  }
+  const omitted = lines.length - DIFF_PREVIEW_HEAD_LINES - DIFF_PREVIEW_TAIL_LINES;
+  return [
+    ...lines.slice(0, DIFF_PREVIEW_HEAD_LINES),
+    {
+      content: `已省略 ${omitted} 行`,
+      kind: 'omitted',
+      lineNumber: null,
+    },
+    ...lines.slice(-DIFF_PREVIEW_TAIL_LINES),
+  ];
+}
+
+function isDiffHeaderLine(line: string) {
+  return /^(diff --git |index |--- |\+\+\+ |new file mode |deleted file mode |similarity index |rename from |rename to )/.test(
+    line,
+  );
 }
 
 export function ConversationEntryRow({

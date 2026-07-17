@@ -95,6 +95,26 @@ test ! -d .madora/ai-sessions
 
 升级固定 Codex sidecar 时，重新执行 `app-server generate-json-schema --experimental`，核对 `permissionProfile/list`、`thread/settings/update`、`item/permissions/requestApproval`、命令审批候选和 `item/autoApprovalReview/*`，再运行 Rust 与前端契约测试。不得只凭现有 UI 继续兼容未知协议。
 
+## Codex File Change Acceptance
+
+使用真实桌面 turn 验收 AI 文件刷新时，先打开一个 Markdown 文档并让 Codex 修改当前文件、新建另一个文件，再通过 shell 命令修改第二个已打开标签。确认：
+
+- 发送前未保存草稿先写入磁盘，保存失败时消息不发送且输入仍保留；
+- patch 流式更新期间编辑器不闪烁，fileChange 成功完成后当前文档自动显示新内容；
+- turn 完成后所有已打开 Markdown 标签和目录树均与磁盘一致，新建文件可从树中打开；
+- 用户在 Codex 运行期间继续编辑同一文档时，本地草稿不会被覆盖，自动保存暂停，并显示两个带确认的冲突处理动作；
+- 最终回答后展示“已编辑 N 个文件”、净增删行数和前三个文件，展开后显示其余文件；工作区内现存 Markdown 可点击，删除项、非 Markdown 与工作区外路径不可点击；
+- 失败或拒绝的 fileChange 不触发文档重载，简单问答不生成空的文件变更摘要。
+
+前端验证至少执行：
+
+```bash
+pnpm test:run -- components/workspace/__tests__/ai-panel-state.test.ts components/workspace/__tests__/ai-panel-rendering.test.tsx components/workspace/__tests__/use-workspace-ai-sync.test.tsx
+pnpm exec tsc --noEmit
+pnpm lint
+pnpm build:desktop:web
+```
+
 ## Desktop Packaging
 
 Build the Tauri web export first when debugging static export issues:

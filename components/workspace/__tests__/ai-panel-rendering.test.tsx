@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -8,12 +8,14 @@ import {
   AiConversationViewport,
   AiMessageContent,
   AiPanelHeader,
+  ChangeSummaryCard,
   ConversationEntryRow,
   ProcessingTrace,
   UserMessageContent,
 } from '../ai-panel';
 import {
   createOutputPreview,
+  type AiChangeSummaryBlock,
   type AiTraceBlock,
 } from '../ai-panel-state';
 
@@ -24,6 +26,24 @@ const mentionedDocument = {
   relativePath: 'README.md',
   title: 'README',
 };
+
+function change(
+  path: string,
+  absolutePath: string | null,
+  additions: number,
+  deletions: number,
+  diff = '',
+) {
+  return {
+    absolutePath,
+    additions,
+    deletions,
+    diff,
+    kind: 'update' as const,
+    movePath: null,
+    path,
+  };
+}
 
 describe('AI message rendering', () => {
   it('用户消息按内容宽度收缩并保留长消息最大宽度', () => {
@@ -426,6 +446,98 @@ describe('AI message rendering', () => {
     expect(
       screen.queryByRole('button', { name: '/etc/passwd' }),
     ).toBeNull();
+  });
+
+  it('以紧凑摘要展示净文件修改并按需展开其余文件', async () => {
+    const user = userEvent.setup();
+    const onOpenDocument = vi.fn();
+    const summary: AiChangeSummaryBlock = {
+      additions: 12,
+      changes: [
+        change(
+          'README.md',
+          '/workspace/README.md',
+          5,
+          1,
+          [
+            'diff --git a/README.md b/README.md',
+            '--- a/README.md',
+            '+++ b/README.md',
+            '@@ -8,2 +8,2 @@',
+            '-旧内容',
+            '+新内容',
+            ' 保留内容',
+          ].join('\n'),
+        ),
+        change('docs/api.md', '/workspace/docs/api.md', 4, 2),
+        change('docs/security.md', '/workspace/docs/security.md', 3, 1),
+        change('package.json', null, 0, 0),
+      ],
+      deletions: 4,
+      id: 'changes-turn-1',
+      turnId: 'turn-1',
+      type: 'changes',
+    };
+
+    render(
+      <ChangeSummaryCard
+        summary={summary}
+        onOpenDocument={onOpenDocument}
+      />,
+    );
+
+    expect(screen.getByText('已编辑 4 个文件')).toBeTruthy();
+    expect(screen.getByText('+12')).toBeTruthy();
+    expect(screen.getByText('-4')).toBeTruthy();
+    expect(screen.queryByText('package.json')).toBeNull();
+
+    const readmeRow = screen.getByRole('button', { name: 'README.md' });
+    await user.hover(readmeRow);
+    const preview = await screen.findByRole('region', {
+      name: 'README.md 变更预览',
+    });
+    expect(within(preview).getByText('旧内容')).toBeTruthy();
+    expect(within(preview).getByText('新内容')).toBeTruthy();
+    expect(within(preview).getByText('+5')).toBeTruthy();
+    expect(within(preview).getByText('-1')).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: '再显示 1 个文件' }));
+    expect(screen.getByText('package.json')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'package.json' })).toBeNull();
+
+    await user.click(readmeRow);
+    expect(onOpenDocument).toHaveBeenCalledWith('/workspace/README.md');
+  });
+
+  it('限制长文件变更预览的渲染行数', async () => {
+    const user = userEvent.setup();
+    const diff = [
+      'diff --git a/README.md b/README.md',
+      '--- a/README.md',
+      '+++ b/README.md',
+      '@@ -1,260 +1,260 @@',
+      ...Array.from({ length: 260 }, (_, index) => `+新增内容 ${index + 1}`),
+    ].join('\n');
+
+    render(
+      <ChangeSummaryCard
+        summary={{
+          additions: 260,
+          changes: [change('README.md', '/workspace/README.md', 260, 0, diff)],
+          deletions: 0,
+          id: 'changes-turn-1',
+          turnId: 'turn-1',
+          type: 'changes',
+        }}
+        onOpenDocument={vi.fn()}
+      />,
+    );
+
+    await user.hover(screen.getByRole('button', { name: 'README.md' }));
+    const preview = await screen.findByRole('region', {
+      name: 'README.md 变更预览',
+    });
+    expect(within(preview).getByText('已省略 21 行')).toBeTruthy();
   });
 
   it('审批显示在对应工具下，并遵循服务端允许的决定集合', () => {

@@ -26,6 +26,7 @@ import { cn } from '@/lib/utils';
 
 import { DocumentMetaPanel } from './document-meta-panel';
 import { AiPanel } from './ai-panel';
+import type { AiWorkspaceChangeEvent } from './ai-panel-state';
 import type {
   RightPanelMode,
   WorkspaceNode,
@@ -46,8 +47,11 @@ interface RightSidePanelProps {
   mode: RightPanelMode;
   width: number;
   workspaceRootPath: string | null;
+  onBeforeTurnStart: () => Promise<boolean>;
   onOpenDocument: (documentPath: string) => void;
-  onWorkspaceChanged: () => void | Promise<void>;
+  onWorkspaceChanged: (
+    event: AiWorkspaceChangeEvent,
+  ) => void | Promise<void>;
   onToggleDocumentReadOnly?: () => void;
 }
 
@@ -67,6 +71,7 @@ export function RightSidePanel({
   mode,
   width,
   workspaceRootPath,
+  onBeforeTurnStart,
   onOpenDocument,
   onWorkspaceChanged,
   onToggleDocumentReadOnly,
@@ -86,6 +91,7 @@ export function RightSidePanel({
           currentDocument={currentDocument}
           documents={documents}
           workspaceRootPath={workspaceRootPath}
+          onBeforeTurnStart={onBeforeTurnStart}
           onOpenDocument={onOpenDocument}
           onWorkspaceChanged={onWorkspaceChanged}
         />
