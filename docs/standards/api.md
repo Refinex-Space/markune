@@ -39,7 +39,8 @@ referenced_by: AGENTS.md#knowledge-map
 - 命令审批必须区分 `decline`（拒绝并继续 turn）与 `cancel`（拒绝并中断 turn），并按服务端候选显示一次允许、会话允许和规则授权。`item/permissions/requestApproval` 的允许响应只能复制服务端原始 permissions，可选择 turn、session 或 strict auto-review；拒绝固定返回空 permissions 和 turn scope。
 - `thread/start` 使用命名 `permissions`、`approvalPolicy`、`approvalsReviewer` 与 `runtimeWorkspaceRoots` 建立权限状态，且不得同时发送 legacy `sandbox`。`thread/resume` 不覆盖权限，`turn/start` 不发送安全字段；切换模式只用 `thread/settings/update`，且不得同时发送 `sandboxPolicy`。界面以 `thread/settings/updated` 和 start/resume response 为真实状态来源。
 - Markdown 文档不得作为 Codex 原生 `mention` 输入发送；该类型只用于 `app://` 与 `plugin://` 目标。显式文档提及必须把带引号的工作区相对路径写入文本，并用 `text_elements.placeholder` 保存显示标题；`byteRange` 使用替换后文本的 UTF-8 字节偏移。
-- 当前文档与显式提及文档只可通过顶层 `madoraDocumentReferences` 传给 Tauri。Rust 必须移除该私有字段、校验绝对路径与工作区边界，再生成 `madora_document_context_policy`（`application`）和 `madora_document_references`（`untrusted`）两项 `additionalContext`；渲染器直接提交原始 `additionalContext` 必须被拒绝。
+- 当前文档与显式提及文档只可通过顶层 `madoraDocumentReferences` 传给 Tauri，每项分别标记 `role: "active" | "mention"`；缺少角色只按旧版 `mention` 兼容，每个 turn 最多一个 `active`。Rust 必须移除该私有字段、校验绝对路径与工作区边界，再生成 `madora_document_context_policy`（`application`）、`madora_active_document` 和 `madora_explicit_document_references`（后两者均为 `untrusted`）。即使当前无文档也必须写入 `null` 与空数组，以清除 App Server 上一 turn 的粘性上下文；渲染器直接提交原始 `additionalContext` 必须被拒绝。
+- “当前文档”“本文”“这篇文档”“current document”与“active file”只能解析为当前 turn 的 `madora_active_document`；不得根据日期、最近文件、线程历史或工作区惯例猜测。只有请求依赖正文时才读取活跃文档，普通问候不得强制产生无意义工具调用。
 - 会话历史恢复只能依据 `text_elements` 的精确区间解析受控的带引号相对路径，并用当前工作区根目录恢复可点击绝对路径；绝对路径、空路径和包含父目录段的标记必须被拒绝。旧版 `mention + text_elements` 仅保留读取兼容，不得继续生成。
 - `turn/start.additionalContext` 是随固定 Codex sidecar 使用的实验协议。升级 Codex 时必须重新生成带 `--experimental` 的 App Server Schema，并运行前端与 Rust 契约测试。
 - 命令、文件修改与权限升级审批只能响应 App Server 已登记的 server request id。未知 server request 必须由 Rust 返回 `-32601`，格式无效的已知请求返回 `-32602`，不能转发成可操作 UI 或留在 pending 状态。
