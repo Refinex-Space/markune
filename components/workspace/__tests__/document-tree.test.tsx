@@ -84,10 +84,8 @@ describe('DocumentTree', () => {
 
     await user.click(screen.getByText('Guides'));
 
-    expect(
-      screen.getByText('入门').closest('[role="button"]')?.getAttribute('style'),
-    ).toBe(
-      screen.getByText('Guides').closest('[role="button"]')?.getAttribute('style'),
+    expect(screen.getByTestId('tree-row-surface-intro').style.marginLeft).toBe(
+      screen.getByTestId('tree-row-surface-guides').style.marginLeft,
     );
   });
 
@@ -113,6 +111,90 @@ describe('DocumentTree', () => {
     expect(screen.getByTestId('tree-node-guides').className).toContain(
       'space-y-0.5',
     );
+    expect(screen.getByTestId('tree-row-guides').className).toContain('h-7');
+    expect(screen.getByTestId('tree-row-guides').className).toContain(
+      'text-[13px]',
+    );
+  });
+
+  it('renders a guide for each expanded directory subtree', async () => {
+    const user = userEvent.setup();
+    const nestedNodes: WorkspaceNode[] = [
+      {
+        id: 'parent',
+        name: 'Parent',
+        kind: 'directory',
+        relativePath: 'Parent',
+        absolutePath: '/repo/Parent',
+        children: [
+          {
+            id: 'child',
+            name: 'Child',
+            kind: 'directory',
+            relativePath: 'Parent/Child',
+            absolutePath: '/repo/Parent/Child',
+            children: [
+              {
+                id: 'leaf',
+                name: 'leaf.md',
+                kind: 'document',
+                relativePath: 'Parent/Child/leaf.md',
+                absolutePath: '/repo/Parent/Child/leaf.md',
+                title: 'Leaf',
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    render(
+      <DocumentTree
+        currentDocumentPath={null}
+        nodes={nestedNodes}
+        searchQuery=""
+        onCreateDirectory={vi.fn()}
+        onCreateDocument={vi.fn()}
+        onDeleteNode={vi.fn()}
+        onImportMarkdown={vi.fn()}
+        onRenameNode={vi.fn()}
+        onSelectDocument={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId('tree-guide-parent')).toBeNull();
+
+    await user.click(screen.getByText('Parent'));
+
+    expect(
+      screen.getByTestId('tree-guide-parent').getAttribute('aria-hidden'),
+    ).toBe('true');
+    expect(screen.getByTestId('tree-guide-parent').className).toContain(
+      'bg-sidebar-foreground/20',
+    );
+    expect(screen.getByTestId('tree-guide-parent').className).toContain(
+      'bottom-5',
+    );
+    expect(screen.getByTestId('tree-guide-parent').style.left).toBe('14.5px');
+    expect(screen.getByTestId('tree-row-surface-parent').style.marginLeft).toBe(
+      '0px',
+    );
+    expect(screen.getByTestId('tree-row-surface-child').style.marginLeft).toBe(
+      '20px',
+    );
+    expect(screen.queryByTestId('tree-guide-child')).toBeNull();
+
+    await user.click(screen.getByText('Child'));
+
+    expect(screen.getByTestId('tree-guide-child').style.left).toBe('34.5px');
+    expect(screen.getByTestId('tree-row-surface-leaf').style.marginLeft).toBe(
+      '20px',
+    );
+
+    await user.click(screen.getByText('Parent'));
+
+    expect(screen.queryByTestId('tree-guide-parent')).toBeNull();
+    expect(screen.queryByTestId('tree-guide-child')).toBeNull();
   });
 
   it('selects native documents and exposes folder menu actions', async () => {

@@ -55,6 +55,37 @@ export function selectDocumentTab(
   return tab ? { ...layout, activeTabPath: tab.absolutePath } : layout;
 }
 
+export function renameDocumentTab(
+  layout: DocumentEditorLayout,
+  previousPath: string,
+  document: WorkspaceNode,
+): DocumentEditorLayout {
+  if (document.kind !== 'document') {
+    return layout;
+  }
+
+  const tabIndex = layout.tabs.findIndex(
+    (tab) => tab.absolutePath === previousPath,
+  );
+
+  if (tabIndex === -1) {
+    return layout;
+  }
+
+  const renamedTab = createDocumentTab(document);
+  const tabs = layout.tabs.map((tab, index) =>
+    index === tabIndex ? renamedTab : tab,
+  );
+
+  return {
+    activeTabPath:
+      layout.activeTabPath === previousPath
+        ? renamedTab.absolutePath
+        : layout.activeTabPath,
+    tabs,
+  };
+}
+
 export function closeDocumentTab(
   layout: DocumentEditorLayout,
   tabPath: string,

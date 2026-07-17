@@ -60,6 +60,7 @@ import {
   createInitialEditorLayout,
   getActiveTab,
   openDocumentTab,
+  renameDocumentTab,
   selectDocumentTab,
   type DocumentEditorLayout,
 } from './document-tabs';
@@ -1666,6 +1667,45 @@ export function WorkspaceLayout({
     [rememberRecentDocument, workspace],
   );
 
+  const handleRenameWorkspaceNode = React.useCallback(
+    async (node: WorkspaceNode, newName: string) => {
+      const renamed = await workspace.renameNode(node, newName);
+
+      if (!renamed || node.kind !== 'document' || renamed.kind !== 'document') {
+        return renamed;
+      }
+
+      setDocumentEditorLayout((current) =>
+        renameDocumentTab(current, node.absolutePath, renamed),
+      );
+      setActiveEditorDocumentPath((current) =>
+        current === node.absolutePath ? renamed.absolutePath : current,
+      );
+      setEditorSessions((current) => {
+        const session = current[node.absolutePath];
+
+        if (!session || node.absolutePath === renamed.absolutePath) {
+          return current;
+        }
+
+        const next = { ...current };
+        delete next[node.absolutePath];
+        next[renamed.absolutePath] = session;
+        return next;
+      });
+      setRecentDocuments((current) =>
+        current.map((document) =>
+          document.absolutePath === node.absolutePath
+            ? toRecentDocument(renamed)
+            : document,
+        ),
+      );
+
+      return renamed;
+    },
+    [workspace],
+  );
+
   const handleOpenDailyNote = React.useCallback(
     async (date: string) => {
       if (!workspaceRootPath) {
@@ -2101,6 +2141,7 @@ export function WorkspaceLayout({
                 onOpenInFileManager={handleOpenNodeInFileManager}
                 onOpenSettings={() => openSettingsPage('appearance')}
                 onRemoveWorkspace={handleRemoveWorkspace}
+                onRenameNode={handleRenameWorkspaceNode}
                 revealDirectoryPath={revealedDirectoryPath}
                 onSelectDirectory={handleSelectWorkspaceDirectory}
                 onSelectDocument={openDocumentNode}
