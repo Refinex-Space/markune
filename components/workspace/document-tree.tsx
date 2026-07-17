@@ -4,7 +4,11 @@ import * as React from 'react';
 import {
   Download,
   ExternalLink,
+  FileCode2,
   FileInput,
+  FileSearch2,
+  FileText,
+  FileType2,
   FilePlus2,
   FolderClosed,
   FolderOpen,
@@ -53,11 +57,10 @@ import { isDescendantPath } from './workspace-paths';
 import { filterWorkspaceNodes } from './workspace-tree';
 import type {
   WorkspaceExportFormat,
+  WorkspaceImportFormat,
   WorkspaceMoveRequest,
   WorkspaceNode,
 } from './workspace-types';
-
-type WorkspaceImportFormat = 'html' | 'markdown' | 'word';
 
 interface DocumentTreeProps {
   nodes: WorkspaceNode[];
@@ -808,11 +811,13 @@ const EXPORT_ACTIONS: Array<{
 
 const IMPORT_ACTIONS: Array<{
   format: WorkspaceImportFormat;
+  icon: React.ComponentType<{ className?: string }>;
   label: string;
 }> = [
-  { format: 'html', label: '从 HTML 导入' },
-  { format: 'markdown', label: '从 Markdown 导入' },
-  { format: 'word', label: '从 Word 导入' },
+  { format: 'markdown', icon: FileText, label: '从 Markdown 导入' },
+  { format: 'word', icon: FileType2, label: '从 Word 导入' },
+  { format: 'pdf', icon: FileSearch2, label: '从 PDF 导入' },
+  { format: 'html', icon: FileCode2, label: '从 HTML 导入' },
 ];
 
 function DirectoryIcon({
@@ -1072,6 +1077,7 @@ function NodeDropdownActions({
                   void onImportDocuments?.(node.relativePath, action.format)
                 }
               >
+                <action.icon />
                 {action.label}
               </DropdownMenuItem>
             ))}
@@ -1212,6 +1218,7 @@ function NodeContextActions({
                   void onImportDocuments?.(node.relativePath, action.format)
                 }
               >
+                <action.icon />
                 {action.label}
               </ContextMenuItem>
             ))}

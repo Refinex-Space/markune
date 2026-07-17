@@ -69,3 +69,17 @@ interface DocumentExportResult {
 - `print_document_pdf(grantId, fileStem, html) -> DocumentExportResult`：通过隐藏平台 WebView 生成矢量 PDF。
 
 目录授权只能使用一次且 15 分钟过期。命令返回最终实际路径；同名时由 Rust 生成 `标题 (n)`，调用方不得假设请求 stem 就是最终 stem。旧 `write_export_file` 仍只服务既有资源下载，不得接入文档导出流程。
+
+## Document Import Commands
+
+统一导入格式为 `type WorkspaceImportFormat = 'markdown' | 'word' | 'pdf' | 'html'`。前端转换结果必须使用 `PreparedImportDocument`，其中 Markdown 只能引用当前清单声明的 `madora-import://asset/{token}` 占位符；提交完成后不得残留占位符。
+
+- `select_document_import_sources(format) -> DocumentImportGrant | null`：原生多选，最多 20 个文件，只返回 `grantId/sourceId/fileName/size/format`。
+- `read_document_import_source(grantId, sourceId) -> RawBytes`：重新验证来源状态后通过 Raw IPC 返回内容。
+- `begin_document_import_commit(rootPath, targetDir, manifest) -> ImportCommitSession`：校验目标目录、标题、Markdown、资产清单与占位符，并创建独立 staging。
+- `stage_document_import_asset(sessionId, assetToken, RawBytes)`：只接受 Raw IPC 和受控 header，不接受 Base64 JSON。
+- `stage_document_import_source_asset(sessionId, assetToken, grantId, sourceId, reference)`：仅解析已授权源目录内相对图片或经来源索引验证的 Madora 资产。
+- `commit_document_import(sessionId) -> ImportedDocumentResult`：校验完整资产、散列去重、替换协议引用并唯一命名写入 Markdown。
+- `cancel_document_import(sessionId)` 与 `release_document_import_grant(grantId)`：幂等清理当前 staging 或释放源授权。
+
+源授权有效期 15 分钟，提交会话有效期 30 分钟；过期 staging 在后续导入启动时清理。旧 `read_markdown_source_files`、`read_import_source_files` 和 `create_imported_plate_documents` 不得重新注册。

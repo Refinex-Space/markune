@@ -48,6 +48,22 @@ Then use a Markdown acceptance document containing Chinese and English text, H1-
 
 Windows native PDF must be exercised in a packaged or desktop-dev WebView2 runtime. The macOS WKWebView path is complete only after compiling and exporting on a real Mac; Windows or cross-target checks do not replace that acceptance step.
 
+For multi-format document import changes, stage local runtime resources and run the focused suites first:
+
+```bash
+pnpm import:stage
+pnpm test:run -- components/workspace/__tests__/document-import-core.test.ts components/workspace/__tests__/document-import-pdf.test.ts components/workspace/__tests__/use-document-import.test.tsx components/workspace/__tests__/document-tree.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml import::tests
+pnpm exec tsc --noEmit
+pnpm lint
+cargo check --manifest-path src-tauri/Cargo.toml
+pnpm build:desktop:web
+```
+
+真实桌面验收使用一组 Markdown、HTML、DOCX、原生文本 PDF、扫描中文 PDF、扫描英文 PDF、加密 PDF 和损坏文件，覆盖相对图片、Windows 反斜杠、Unicode 文件名、data URI、远程 URL、重复图片与另一 Madora 工作区的资产。确认批量任务可部分成功、取消保留已提交文件、错误报告可查看、目录刷新并展开到首个成功文档；重启后图片仍可显示。
+
+跨平台验收必须在真实 Windows 与 macOS 上使用同一夹具互相导入，至少覆盖 Windows 非系统盘和 macOS 外置卷。DOCX/PDF 是语义恢复而非像素级复刻；复杂公式、合并单元格、浮动文本框、矢量图或异常阅读顺序必须保留内容或出现明确警告，不能静默丢失。Windows 检查不能代替 macOS 验收。
+
 For Harness/control-plane changes:
 
 ```bash

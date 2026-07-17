@@ -2,6 +2,7 @@ mod assets;
 mod codex;
 mod export;
 mod git;
+mod import;
 mod link_preview;
 mod settings;
 mod system_fonts;
@@ -19,6 +20,7 @@ pub fn run() {
         .manage(terminal::TerminalState::default())
         .manage(codex::CodexState::default())
         .manage(export_state)
+        .manage(import::ImportState::default())
         .register_uri_scheme_protocol("madora-export", move |_context, request| {
             export_protocol_state.protocol_response(&request)
         })
@@ -43,6 +45,14 @@ pub fn run() {
             export::select_document_export_directory,
             export::write_document_export_bundle,
             export::print_document_pdf,
+            import::select_document_import_sources,
+            import::read_document_import_source,
+            import::begin_document_import_commit,
+            import::stage_document_import_asset,
+            import::stage_document_import_source_asset,
+            import::commit_document_import,
+            import::cancel_document_import,
+            import::release_document_import_grant,
             git::git_probe,
             git::git_init,
             git::git_status,
@@ -87,9 +97,6 @@ pub fn run() {
             workspace::rename_workspace_node,
             workspace::delete_workspace_node,
             workspace::move_workspace_node,
-            workspace::read_markdown_source_files,
-            workspace::read_import_source_files,
-            workspace::create_imported_plate_documents,
             workspace::write_export_file,
         ])
         .setup(|app| {

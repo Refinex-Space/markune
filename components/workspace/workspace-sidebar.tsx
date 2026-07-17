@@ -10,6 +10,7 @@ import type { useWorkspace } from './use-workspace';
 import { WorkspaceSwitcher } from './workspace-switcher';
 import type {
   WorkspaceExportFormat,
+  WorkspaceImportFormat,
   WorkspaceNode,
 } from './workspace-types';
 
@@ -22,6 +23,10 @@ interface WorkspaceSidebarProps {
   onExportNode?: (
     node: WorkspaceNode,
     format: WorkspaceExportFormat,
+  ) => Promise<void> | void;
+  onImportDocuments?: (
+    targetDir: string,
+    format: WorkspaceImportFormat,
   ) => Promise<void> | void;
   onOpenDailyNote?: () => void;
   onOpenInFileManager?: (node: WorkspaceNode) => void;
@@ -49,6 +54,7 @@ export function WorkspaceSidebar({
   onCreateDocument,
   onDeleteNode,
   onExportNode,
+  onImportDocuments,
   onOpenDailyNote,
   onOpenInFileManager,
   onOpenInPreferredEditor,
@@ -159,7 +165,10 @@ export function WorkspaceSidebar({
               onCreateDocument={createDocument}
               onDeleteNode={deleteNode}
               onExportNode={onExportNode}
-              onImportMarkdown={workspace.importMarkdownDocuments}
+              onImportDocuments={onImportDocuments}
+              onImportMarkdown={(targetDir) =>
+                void onImportDocuments?.(targetDir, 'markdown')
+              }
               onMoveNode={workspace.moveNode}
               onOpenInFileManager={onOpenInFileManager}
               onOpenInPreferredEditor={onOpenInPreferredEditor}

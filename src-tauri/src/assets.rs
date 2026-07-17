@@ -88,8 +88,6 @@ pub(crate) fn upload_workspace_asset_impl(
     root_path: String,
     input: UploadWorkspaceAssetInput,
 ) -> Result<UploadedWorkspaceAsset, String> {
-    let root = canonical_workspace_root(&root_path)?;
-    let original_name = validate_file_name(&input.file_name)?;
     let bytes = {
         use base64::Engine;
 
@@ -97,6 +95,19 @@ pub(crate) fn upload_workspace_asset_impl(
             .decode(input.base64_data.as_bytes())
             .map_err(|_| "文件内容编码无效".to_string())?
     };
+
+    store_workspace_asset_bytes_impl(root_path, input.file_name, input.media_type, bytes)
+        .map(|(uploaded, _)| uploaded)
+}
+
+pub(crate) fn store_workspace_asset_bytes_impl(
+    root_path: String,
+    file_name: String,
+    media_type: String,
+    bytes: Vec<u8>,
+) -> Result<(UploadedWorkspaceAsset, bool), String> {
+    let root = canonical_workspace_root(&root_path)?;
+    let original_name = validate_file_name(&file_name)?;
 
     if bytes.is_empty() {
         return Err("文件内容为空".to_string());
@@ -107,7 +118,7 @@ pub(crate) fn upload_workspace_asset_impl(
     }
 
     let sha256 = hex::encode(Sha256::digest(&bytes));
-    let extension = safe_extension(&original_name, &input.media_type);
+    let extension = safe_extension(&original_name, &media_type);
     let asset_id = sha256.clone();
     let shard = &asset_id[0..2];
     let asset_dir = asset_files_dir(&root).join(shard);
@@ -119,12 +130,13 @@ pub(crate) fn upload_workspace_asset_impl(
     }
 
     let mut index = read_asset_index(&root).map_err(|_| "无法读取资产索引".to_string())?;
+    let is_new_asset = !index.assets.contains_key(&asset_id);
     let record = WorkspaceAssetRecord {
         id: asset_id.clone(),
         storage: "local".to_string(),
         relative_path: relative_to_root(&root, &file_path)?,
         original_name: original_name.clone(),
-        media_type: normalize_media_type(&input.media_type),
+        media_type: normalize_media_type(&media_type),
         size: bytes.len() as u64,
         created_at: current_timestamp_millis(),
         sha256,
@@ -134,15 +146,18 @@ pub(crate) fn upload_workspace_asset_impl(
 
     let absolute_path = validate_asset_file_path(&root, &record.relative_path)?;
 
-    Ok(UploadedWorkspaceAsset {
-        id: asset_id.clone(),
-        url: format!("{ASSET_URL_PREFIX}{asset_id}"),
-        relative_path: record.relative_path.clone(),
-        name: original_name,
-        media_type: record.media_type,
-        size: record.size,
-        absolute_path: absolute_path.to_string_lossy().to_string(),
-    })
+    Ok((
+        UploadedWorkspaceAsset {
+            id: asset_id.clone(),
+            url: format!("{ASSET_URL_PREFIX}{asset_id}"),
+            relative_path: record.relative_path.clone(),
+            name: original_name,
+            media_type: record.media_type,
+            size: record.size,
+            absolute_path: absolute_path.to_string_lossy().to_string(),
+        },
+        is_new_asset,
+    ))
 }
 
 #[tauri::command]

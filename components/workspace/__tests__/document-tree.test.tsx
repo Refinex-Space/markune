@@ -407,6 +407,41 @@ describe('DocumentTree', () => {
     );
   });
 
+  it('exposes four professional import formats with their Lucide icons', async () => {
+    const user = userEvent.setup();
+    const onImportDocuments = vi.fn();
+
+    render(
+      <DocumentTree
+        currentDocumentPath={null}
+        nodes={nodes}
+        searchQuery=""
+        onCreateDirectory={vi.fn()}
+        onCreateDocument={vi.fn()}
+        onDeleteNode={vi.fn()}
+        onImportDocuments={onImportDocuments}
+        onImportMarkdown={vi.fn()}
+        onRenameNode={vi.fn()}
+        onSelectDocument={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByLabelText('打开 Guides 操作菜单'));
+    await user.click(screen.getByRole('menuitem', { name: '导入' }));
+
+    const markdown = screen.getByRole('menuitem', { name: '从 Markdown 导入' });
+    const word = screen.getByRole('menuitem', { name: '从 Word 导入' });
+    const pdf = screen.getByRole('menuitem', { name: '从 PDF 导入' });
+    const html = screen.getByRole('menuitem', { name: '从 HTML 导入' });
+    expect(markdown.querySelector('.lucide-file-text')).toBeTruthy();
+    expect(word.querySelector('.lucide-file-type-corner')).toBeTruthy();
+    expect(pdf.querySelector('.lucide-file-search-corner')).toBeTruthy();
+    expect(html.querySelector('.lucide-file-code-corner')).toBeTruthy();
+
+    fireEvent.click(pdf);
+    expect(onImportDocuments).toHaveBeenCalledWith('Guides', 'pdf');
+  });
+
   it('opens a document from the node action menu in the file manager', async () => {
     const user = userEvent.setup();
     const onOpenInFileManager = vi.fn();

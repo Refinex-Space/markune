@@ -73,6 +73,7 @@ import { TerminalPanel, type TerminalTab } from './terminal-panel';
 import { useWorkspace } from './use-workspace';
 import { WorkspaceGlobalSearchDialog } from './workspace-global-search-dialog';
 import { useDocumentExport } from './use-document-export';
+import { useDocumentImport } from './use-document-import';
 import {
   buildWorkspaceSearchIndex,
   searchWorkspaceIndex,
@@ -1631,6 +1632,19 @@ export function WorkspaceLayout({
     [workspace],
   );
 
+  const handleOpenImportedDocument = React.useCallback(
+    async (node: WorkspaceNode) => {
+      revealNodeInWorkspaceTree(node.absolutePath);
+      await openDocumentNode(node);
+    },
+    [openDocumentNode, revealNodeInWorkspaceTree],
+  );
+  const documentImport = useDocumentImport({
+    openDocument: handleOpenImportedDocument,
+    refreshWorkspaceTree: workspace.refreshWorkspaceTree,
+    rootPath: workspaceRootPath,
+  });
+
   const handleOpenRecentDocument = React.useCallback(
     (documentPath: string) => {
       const node = findWorkspaceDocumentByPath(
@@ -2184,6 +2198,11 @@ export function WorkspaceLayout({
                 onExportNode={
                   documentExport.available ? handleExportDocument : undefined
                 }
+                onImportDocuments={
+                  documentImport.available
+                    ? documentImport.importDocuments
+                    : undefined
+                }
                 onOpenDailyNote={() =>
                   void handleOpenDailyNote(formatDailyDate(new Date()))
                 }
@@ -2342,7 +2361,7 @@ export function WorkspaceLayout({
                         onCreateDirectory={() => void workspace.createDirectory('')}
                         onCreateDocument={() => void handleCreateDocument('')}
                         onImportMarkdown={() =>
-                          void workspace.importMarkdownDocuments('')
+                          void documentImport.importDocuments('', 'markdown')
                         }
                         onOpenRecentDocument={handleOpenRecentDocument}
                         onOpenWorkspace={workspace.openWorkspace}
@@ -2489,6 +2508,7 @@ export function WorkspaceLayout({
         )}
       </div>
       {documentExport.renderer}
+      {documentImport.reportDialog}
     </main>
   );
 }
