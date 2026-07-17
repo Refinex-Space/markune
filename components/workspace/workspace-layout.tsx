@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useTheme } from 'next-themes';
 import {
   Airplay,
+  AlertTriangle,
   Check,
   GitBranch,
   GitGraph,
@@ -70,6 +71,10 @@ import { GitLogDrawer } from './git-log-drawer';
 import { GitPanel } from './git-panel';
 import { PinnedChromeMenu } from './pinned-chrome-menu';
 import { TerminalPanel, type TerminalTab } from './terminal-panel';
+import type {
+  AiFileChange,
+  AiWorkspaceChangeEvent,
+} from './ai-panel-state';
 import { useWorkspace } from './use-workspace';
 import { WorkspaceGlobalSearchDialog } from './workspace-global-search-dialog';
 import { useDocumentExport } from './use-document-export';
@@ -318,6 +323,15 @@ export function WorkspaceLayout({
   const [editorSessions, setEditorSessions] = React.useState<
     Record<string, DocumentEditorSession>
   >({});
+  const pendingAiWorkspaceChangesRef = React.useRef(
+    new Map<string, AiFileChange>(),
+  );
+  const aiWorkspaceRefreshTimerRef = React.useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const aiWorkspaceRefreshQueueRef = React.useRef<Promise<void>>(
+    Promise.resolve(),
+  );
   const [activeEditorDocumentPath, setActiveEditorDocumentPath] =
     React.useState<string | null>(null);
   const [documentEditorLayout, setDocumentEditorLayout] =
@@ -351,6 +365,25 @@ export function WorkspaceLayout({
   const pageTitle = documentTitle ?? workspace.currentDirectory?.name;
   const currentDocumentPath = workspace.currentDocument?.absolutePath ?? null;
   const workspaceRootPath = workspace.snapshot?.rootPath ?? null;
+  const currentDocumentPathRef = React.useRef(currentDocumentPath);
+  const documentEditorLayoutRef = React.useRef(documentEditorLayout);
+  const syncExternalMarkdownDocumentRef = React.useRef(
+    workspace.syncExternalMarkdownDocument,
+  );
+  const workspaceRootPathRef = React.useRef(workspaceRootPath);
+
+  React.useEffect(() => {
+    currentDocumentPathRef.current = currentDocumentPath;
+    documentEditorLayoutRef.current = documentEditorLayout;
+    syncExternalMarkdownDocumentRef.current =
+      workspace.syncExternalMarkdownDocument;
+    workspaceRootPathRef.current = workspaceRootPath;
+  }, [
+    currentDocumentPath,
+    documentEditorLayout,
+    workspace.syncExternalMarkdownDocument,
+    workspaceRootPath,
+  ]);
   const rightPanelWidth =
     workspace.rightPanelMode === 'ai' ? aiPanelWidth : metaPanelWidth;
   const rightPanelWidthLimits =
@@ -857,10 +890,6 @@ export function WorkspaceLayout({
   const handleRightPanelResize = React.useCallback((nextWidth: number) => {
     setActiveRightPanelWidth(nextWidth);
   }, [setActiveRightPanelWidth]);
-  const handleAiWorkspaceChanged = React.useCallback(() => {
-    void refreshWorkspaceTree();
-  }, [refreshWorkspaceTree]);
-
   const refreshGitStatus = React.useCallback(async () => {
     if (!workspaceRootPath) {
       setGitProbeState(null);
@@ -1903,6 +1932,197 @@ export function WorkspaceLayout({
     [openActiveDocumentForLayout],
   );
 
+  const flushAiWorkspaceChanges = React.useCallback(
+    async (includeOpenTabs: boolean) => {
+      if (!workspaceRootPath) return;
+      const refreshRootPath = workspaceRootPath;
+      const changes = [...pendingAiWorkspaceChangesRef.current.values()];
+      pendingAiWorkspaceChangesRef.current.clear();
+
+      const removedPaths = new Set(
+        changes.flatMap((change) =>
+          change.absolutePath &&
+          (change.kind === 'delete' || Boolean(change.movePath))
+            ? [change.absolutePath]
+            : [],
+        ),
+      );
+      const reloadPaths = new Set(
+        changes.flatMap((change) =>
+          change.absolutePath &&
+          change.kind !== 'delete' &&
+          !change.movePath &&
+          change.absolutePath.toLocaleLowerCase().endsWith('.md')
+            ? [change.absolutePath]
+            : [],
+        ),
+      );
+      if (includeOpenTabs) {
+        for (const tab of documentEditorLayoutRef.current.tabs) {
+          if (!removedPaths.has(tab.absolutePath)) {
+            reloadPaths.add(tab.absolutePath);
+          }
+        }
+      }
+
+      let failedReads = 0;
+      const documents = (
+        await Promise.all(
+          [...reloadPaths].map(async (documentPath) => {
+            try {
+              return await readMarkdownDocument(workspaceRootPath, documentPath);
+            } catch {
+              failedReads += 1;
+              return null;
+            }
+          }),
+        )
+      ).filter((document): document is NonNullable<typeof document> => Boolean(document));
+      if (workspaceRootPathRef.current !== refreshRootPath) return;
+      if (failedReads > 0) {
+        console.warn('重新读取 Codex 修改的文档失败', { count: failedReads });
+      }
+
+      const refreshedSessions = new Map<string, DocumentEditorSession>();
+      const activeDocumentPath = currentDocumentPathRef.current;
+      for (const document of documents) {
+        const syncResult = syncExternalMarkdownDocumentRef.current(document);
+        if (
+          document.path !== activeDocumentPath ||
+          syncResult === 'reloaded'
+        ) {
+          refreshedSessions.set(document.path, {
+            documentVersion: document.modifiedAt,
+            markdown: document.content,
+          });
+        }
+      }
+
+      setEditorSessions((current) => {
+        const next = { ...current };
+        for (const path of removedPaths) delete next[path];
+        for (const [path, session] of refreshedSessions) {
+          if (path in current || path === activeDocumentPath) {
+            next[path] = session;
+          }
+        }
+        return next;
+      });
+
+      const nextSnapshot = await refreshWorkspaceTree();
+      if (!nextSnapshot || workspaceRootPathRef.current !== refreshRootPath) return;
+      const latestLayout = documentEditorLayoutRef.current;
+      const unavailablePaths = new Set(removedPaths);
+      for (const tab of latestLayout.tabs) {
+        if (!findWorkspaceDocumentByPath(nextSnapshot.nodes, tab.absolutePath)) {
+          unavailablePaths.add(tab.absolutePath);
+        }
+      }
+      if (unavailablePaths.size > 0) {
+        let nextLayout = latestLayout;
+        for (const path of unavailablePaths) {
+          nextLayout = closeDocumentTab(nextLayout, path);
+        }
+        if (nextLayout !== latestLayout) {
+          documentEditorLayoutRef.current = nextLayout;
+          applyDocumentEditorLayout(nextLayout);
+        }
+      }
+    },
+    [
+      applyDocumentEditorLayout,
+      refreshWorkspaceTree,
+      workspaceRootPath,
+    ],
+  );
+
+  const queueAiWorkspaceRefresh = React.useCallback(
+    (includeOpenTabs: boolean) => {
+      const refresh = aiWorkspaceRefreshQueueRef.current.then(() =>
+        flushAiWorkspaceChanges(includeOpenTabs),
+      );
+      aiWorkspaceRefreshQueueRef.current = refresh.catch((error) => {
+        console.error('刷新 Codex 修改后的工作区失败', error);
+      });
+      return aiWorkspaceRefreshQueueRef.current;
+    },
+    [flushAiWorkspaceChanges],
+  );
+
+  const handleAiWorkspaceChanged = React.useCallback(
+    (event: AiWorkspaceChangeEvent) => {
+      if (event.type === 'fileChangesCompleted') {
+        for (const change of event.changes) {
+          const key = `${change.absolutePath ?? change.path}:${change.movePath ?? ''}`;
+          pendingAiWorkspaceChangesRef.current.set(key, change);
+        }
+        if (aiWorkspaceRefreshTimerRef.current) {
+          clearTimeout(aiWorkspaceRefreshTimerRef.current);
+        }
+        aiWorkspaceRefreshTimerRef.current = setTimeout(() => {
+          aiWorkspaceRefreshTimerRef.current = null;
+          queueAiWorkspaceRefresh(false);
+        }, 120);
+        return;
+      }
+
+      if (aiWorkspaceRefreshTimerRef.current) {
+        clearTimeout(aiWorkspaceRefreshTimerRef.current);
+        aiWorkspaceRefreshTimerRef.current = null;
+      }
+      void queueAiWorkspaceRefresh(true).finally(() => {
+        workspace.finishAiDocumentSync();
+      });
+    },
+    [queueAiWorkspaceRefresh, workspace],
+  );
+
+  const handleBeforeAiTurnStart = React.useCallback(
+    () => workspace.prepareCurrentDocumentForAi(),
+    [workspace],
+  );
+
+  const handleResolveAiDocumentConflict = React.useCallback(
+    async (resolution: 'external' | 'local') => {
+      const conflict = workspace.externalDocumentConflict;
+      const localDraft = workspace.draftDocument;
+      if (!conflict) return;
+      const confirmed = window.confirm(
+        resolution === 'external'
+          ? '加载 Codex 写入的磁盘版本会丢弃当前未保存草稿，是否继续？'
+          : '用当前草稿覆盖 Codex 写入的磁盘版本，是否继续？',
+      );
+      if (!confirmed) return;
+      const resolved = await workspace.resolveExternalDocumentConflict(resolution);
+      if (!resolved) return;
+      const content =
+        resolution === 'external'
+          ? conflict.externalDocument.content
+          : localDraft?.markdown;
+      if (content === undefined) return;
+      setEditorSessions((current) => ({
+        ...current,
+        [conflict.path]: {
+          documentVersion:
+            resolution === 'external'
+              ? conflict.externalDocument.modifiedAt
+              : Date.now(),
+          markdown: content,
+        },
+      }));
+    },
+    [workspace],
+  );
+
+  React.useEffect(
+    () => () => {
+      if (aiWorkspaceRefreshTimerRef.current) {
+        clearTimeout(aiWorkspaceRefreshTimerRef.current);
+      }
+    },
+    [],
+  );
+
   const handleDeleteWorkspaceNode = React.useCallback(
     async (node: WorkspaceNode) => {
       await workspace.deleteNode(node);
@@ -2401,6 +2621,7 @@ export function WorkspaceLayout({
                     mode={workspace.rightPanelMode}
                     width={rightPanelWidth}
                     workspaceRootPath={workspaceRootPath}
+                    onBeforeTurnStart={handleBeforeAiTurnStart}
                     onOpenDocument={handleOpenRecentDocument}
                     onWorkspaceChanged={handleAiWorkspaceChanged}
                     onToggleDocumentReadOnly={
@@ -2413,6 +2634,17 @@ export function WorkspaceLayout({
                     }
                   />
                 </div>
+
+                {workspace.externalDocumentConflict ? (
+                  <ExternalDocumentConflictBanner
+                    onKeepLocal={() =>
+                      void handleResolveAiDocumentConflict('local')
+                    }
+                    onLoadExternal={() =>
+                      void handleResolveAiDocumentConflict('external')
+                    }
+                  />
+                ) : null}
 
                 <WorkspaceStatusBar
                   characterCount={documentCharacterCount}
@@ -3482,6 +3714,37 @@ function isWorkspaceGitSyncConflictResolution(
   value: string,
 ): value is GitSyncConflictResolution {
   return value === 'abort' || value === 'local' || value === 'remote';
+}
+
+function ExternalDocumentConflictBanner({
+  onKeepLocal,
+  onLoadExternal,
+}: {
+  onKeepLocal: () => void;
+  onLoadExternal: () => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-3 border-t border-amber-500/30 bg-amber-500/8 px-4 py-2 text-xs">
+      <AlertTriangle className="shrink-0 text-amber-600" size={15} />
+      <span className="min-w-0 flex-1 text-foreground/80">
+        当前草稿与 Codex 写入的磁盘版本发生冲突，Madora 已暂停自动保存。
+      </span>
+      <button
+        className="shrink-0 rounded-md px-2 py-1 text-muted-foreground outline-none hover:bg-background/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/30"
+        type="button"
+        onClick={onLoadExternal}
+      >
+        加载 AI 版本
+      </button>
+      <button
+        className="shrink-0 rounded-md border border-amber-500/35 bg-background px-2 py-1 font-medium outline-none hover:bg-amber-500/10 focus-visible:ring-2 focus-visible:ring-ring/30"
+        type="button"
+        onClick={onKeepLocal}
+      >
+        用我的版本覆盖
+      </button>
+    </div>
+  );
 }
 
 function WorkspaceStatusBar({

@@ -26,6 +26,7 @@ import { cn } from '@/lib/utils';
 
 import { DocumentMetaPanel } from './document-meta-panel';
 import { AiPanel } from './ai-panel';
+import type { AiWorkspaceChangeEvent } from './ai-panel-state';
 import type {
   RightPanelMode,
   WorkspaceNode,
@@ -46,8 +47,11 @@ interface RightSidePanelProps {
   mode: RightPanelMode;
   width: number;
   workspaceRootPath: string | null;
+  onBeforeTurnStart: () => Promise<boolean>;
   onOpenDocument: (documentPath: string) => void;
-  onWorkspaceChanged: () => void | Promise<void>;
+  onWorkspaceChanged: (
+    event: AiWorkspaceChangeEvent,
+  ) => void | Promise<void>;
   onToggleDocumentReadOnly?: () => void;
 }
 
@@ -67,38 +71,50 @@ export function RightSidePanel({
   mode,
   width,
   workspaceRootPath,
+  onBeforeTurnStart,
   onOpenDocument,
   onWorkspaceChanged,
   onToggleDocumentReadOnly,
 }: RightSidePanelProps) {
-  if (!mode) {
-    return null;
-  }
-
   return (
-    <aside
-      className="flex h-full shrink-0 flex-col overflow-hidden border-l bg-background"
-      data-testid={mode === 'ai' ? 'ai-side-panel' : 'document-meta-panel'}
-      style={{ width }}
-    >
-      {mode === 'ai' ? (
+    <>
+      <aside
+        aria-hidden={mode !== 'ai'}
+        className={cn(
+          'h-full shrink-0 flex-col overflow-hidden border-l bg-background',
+          mode === 'ai' ? 'flex' : 'hidden',
+        )}
+        data-testid="ai-side-panel"
+        hidden={mode !== 'ai'}
+        style={{ width }}
+      >
         <AiPanel
           currentDocument={currentDocument}
           documents={documents}
+          visible={mode === 'ai'}
           workspaceRootPath={workspaceRootPath}
+          onBeforeTurnStart={onBeforeTurnStart}
           onOpenDocument={onOpenDocument}
           onWorkspaceChanged={onWorkspaceChanged}
         />
-      ) : (
-        <DocumentMetaPanel
-          currentDocument={currentDocument}
-          documentPanelData={documentPanelData}
-          readOnly={documentReadOnly}
-          workspaceRootPath={workspaceRootPath}
-          onToggleReadOnly={onToggleDocumentReadOnly}
-        />
-      )}
-    </aside>
+      </aside>
+
+      {mode === 'meta' ? (
+        <aside
+          className="flex h-full shrink-0 flex-col overflow-hidden border-l bg-background"
+          data-testid="document-meta-panel"
+          style={{ width }}
+        >
+          <DocumentMetaPanel
+            currentDocument={currentDocument}
+            documentPanelData={documentPanelData}
+            readOnly={documentReadOnly}
+            workspaceRootPath={workspaceRootPath}
+            onToggleReadOnly={onToggleDocumentReadOnly}
+          />
+        </aside>
+      ) : null}
+    </>
   );
 }
 

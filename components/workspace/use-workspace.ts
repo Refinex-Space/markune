@@ -51,6 +51,11 @@ import type {
 
 const FRONTMATTER_OPENING_PATTERN = /^---\r?\n/;
 
+export interface ExternalDocumentConflict {
+  externalDocument: MarkdownDocumentContent;
+  path: string;
+}
+
 export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   const [snapshot, setSnapshot] = React.useState<WorkspaceSnapshot | null>(
     initialSnapshot ?? null,
@@ -73,6 +78,8 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   const [saveState, setSaveState] = React.useState<DocumentSaveState>('idle');
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = React.useState<number | null>(null);
+  const [externalDocumentConflict, setExternalDocumentConflict] =
+    React.useState<ExternalDocumentConflict | null>(null);
   const [searchQuery, setSearchQuery] = React.useState('');
   const [pendingRenameNodePath, setPendingRenameNodePath] = React.useState<
     string | null
@@ -106,6 +113,10 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     null,
   );
   const isRenamingRef = React.useRef(false);
+  const saveInFlightRef = React.useRef<Promise<boolean> | null>(null);
+  const aiTurnDocumentBaselinesRef = React.useRef<Map<string, string> | null>(
+    null,
+  );
 
   const clearPendingSave = React.useCallback(() => {
     if (pendingSaveTimerRef.current) {
@@ -135,8 +146,10 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     setSaveState('idle');
     setSaveError(null);
     setLastSavedAt(null);
+    setExternalDocumentConflict(null);
     setPendingRenameNodePath(null);
     lastSavedMarkdownRef.current = '';
+    aiTurnDocumentBaselinesRef.current = null;
   }, [clearPendingSave, clearPendingRename]);
 
   const refreshWorkspaceTree = React.useCallback(async () => {
@@ -177,57 +190,83 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
 
   const saveCurrentDocumentNow = React.useCallback(
     async (draftOverride?: MarkdownDraft | null) => {
+      if (saveInFlightRef.current) {
+        const saved = await saveInFlightRef.current;
+        if (!saved) return false;
+      }
       if (!snapshot || !currentDocument || currentDocument.kind !== 'document') {
-        return;
+        return true;
       }
 
       const draft = draftOverride ?? draftDocument;
 
       if (!draft) {
-        return;
+        return true;
       }
 
       clearPendingSave();
 
       if (draft.markdown === lastSavedMarkdownRef.current) {
         setSaveState('saved');
-        return;
+        return true;
+      }
+      if (externalDocumentConflict?.path === currentDocument.absolutePath) {
+        return false;
       }
 
       setSaveState('saving');
       setSaveError(null);
 
-      try {
-        const meta = await saveMarkdownDocument(
-          snapshot.rootPath,
-          currentDocument.absolutePath,
-          draft.markdown,
-          documentContent?.modifiedAt ?? null,
-        );
+      const savePromise = (async () => {
+        try {
+          const meta = await saveMarkdownDocument(
+            snapshot.rootPath,
+            currentDocument.absolutePath,
+            draft.markdown,
+            documentContent?.modifiedAt ?? null,
+          );
 
-        lastSavedMarkdownRef.current = draft.markdown;
-        setDocumentContent({
-          content: draft.markdown,
-          modifiedAt: meta.modifiedAt,
-          path: meta.path,
-        });
-        setDraftDocument({
-          ...draft,
-          modifiedAt: meta.modifiedAt,
-          path: meta.path,
-        });
-        setLastSavedAt(meta.modifiedAt);
-        setSaveState('saved');
-      } catch (saveDocumentError) {
-        setSaveState('error');
-        setSaveError(
-          saveDocumentError instanceof Error
-            ? saveDocumentError.message
-            : '无法保存 Markdown 文档内容',
-        );
+          lastSavedMarkdownRef.current = draft.markdown;
+          setDocumentContent({
+            content: draft.markdown,
+            modifiedAt: meta.modifiedAt,
+            path: meta.path,
+          });
+          setDraftDocument({
+            ...draft,
+            modifiedAt: meta.modifiedAt,
+            path: meta.path,
+          });
+          setLastSavedAt(meta.modifiedAt);
+          setSaveState('saved');
+          return true;
+        } catch (saveDocumentError) {
+          setSaveState('error');
+          setSaveError(
+            saveDocumentError instanceof Error
+              ? saveDocumentError.message
+              : '无法保存 Markdown 文档内容',
+          );
+          return false;
+        }
+      })();
+      saveInFlightRef.current = savePromise;
+      try {
+        return await savePromise;
+      } finally {
+        if (saveInFlightRef.current === savePromise) {
+          saveInFlightRef.current = null;
+        }
       }
     },
-    [clearPendingSave, currentDocument, documentContent, draftDocument, snapshot],
+    [
+      clearPendingSave,
+      currentDocument,
+      documentContent,
+      draftDocument,
+      externalDocumentConflict,
+      snapshot,
+    ],
   );
 
   const openDocument = React.useCallback(
@@ -250,6 +289,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       setDocumentLoadError(null);
       setSaveState('idle');
       setSaveError(null);
+      setExternalDocumentConflict(null);
 
       try {
         const rawContent = await readMarkdownDocument(
@@ -268,6 +308,12 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         setDocumentContent(content);
         setDraftDocument(draft);
         lastSavedMarkdownRef.current = content.content;
+        if (aiTurnDocumentBaselinesRef.current) {
+          aiTurnDocumentBaselinesRef.current.set(
+            node.absolutePath,
+            content.content,
+          );
+        }
         setDocumentVersion((version) => version + 1);
         setDocumentLoadState('loaded');
         setSaveState('saved');
@@ -295,6 +341,21 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       snapshot,
     ],
   );
+
+  const prepareCurrentDocumentForAi = React.useCallback(async () => {
+    const saved = await saveCurrentDocumentNow();
+    if (!saved) return false;
+    aiTurnDocumentBaselinesRef.current = new Map(
+      currentDocument
+        ? [[currentDocument.absolutePath, lastSavedMarkdownRef.current]]
+        : [],
+    );
+    return true;
+  }, [currentDocument, saveCurrentDocumentNow]);
+
+  const finishAiDocumentSync = React.useCallback(() => {
+    aiTurnDocumentBaselinesRef.current = null;
+  }, []);
 
   const retryCurrentDocument = React.useCallback(() => {
     if (currentDocument) {
@@ -329,6 +390,95 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       await refreshWorkspaceTree();
     },
     [clearPendingSave, currentDocument, refreshWorkspaceTree],
+  );
+
+  const syncExternalMarkdownDocument = React.useCallback(
+    (document: MarkdownDocumentContent) => {
+      if (currentDocument?.absolutePath !== document.path) {
+        return 'ignored' as const;
+      }
+      if (
+        (saveState === 'dirty' ||
+          saveState === 'saving' ||
+          (aiTurnDocumentBaselinesRef.current?.has(document.path) === true &&
+            draftDocument?.markdown !==
+              aiTurnDocumentBaselinesRef.current.get(document.path))) &&
+        draftDocument?.markdown !== document.content
+      ) {
+        clearPendingSave();
+        setExternalDocumentConflict({
+          externalDocument: document,
+          path: document.path,
+        });
+        setSaveState('error');
+        setSaveError('文档已被 Codex 修改，请选择保留本地草稿或加载磁盘版本。');
+        return 'conflict' as const;
+      }
+
+      const modifiedAt = document.modifiedAt ?? Date.now();
+      const normalized = { ...document, modifiedAt };
+      setDocumentContent(normalized);
+      setDraftDocument(createMarkdownDraft(normalized, currentDocument.name));
+      lastSavedMarkdownRef.current = document.content;
+      setDocumentVersion((version) => version + 1);
+      setSaveState('saved');
+      setSaveError(null);
+      setLastSavedAt(modifiedAt);
+      setExternalDocumentConflict(null);
+      clearPendingSave();
+      return 'reloaded' as const;
+    },
+    [clearPendingSave, currentDocument, draftDocument, saveState],
+  );
+
+  const resolveExternalDocumentConflict = React.useCallback(
+    async (resolution: 'external' | 'local') => {
+      const conflict = externalDocumentConflict;
+      if (!conflict || !snapshot || !currentDocument || !draftDocument) {
+        return false;
+      }
+
+      if (resolution === 'external') {
+        const modifiedAt = conflict.externalDocument.modifiedAt ?? Date.now();
+        const normalized = { ...conflict.externalDocument, modifiedAt };
+        setDocumentContent(normalized);
+        setDraftDocument(createMarkdownDraft(normalized, currentDocument.name));
+        lastSavedMarkdownRef.current = normalized.content;
+        setDocumentVersion((version) => version + 1);
+        setSaveState('saved');
+        setSaveError(null);
+        setLastSavedAt(modifiedAt);
+        setExternalDocumentConflict(null);
+        return true;
+      }
+
+      try {
+        const meta = await saveMarkdownDocument(
+          snapshot.rootPath,
+          currentDocument.absolutePath,
+          draftDocument.markdown,
+          conflict.externalDocument.modifiedAt,
+        );
+        const content = {
+          content: draftDocument.markdown,
+          modifiedAt: meta.modifiedAt,
+          path: meta.path,
+        };
+        setDocumentContent(content);
+        setDraftDocument({ ...draftDocument, modifiedAt: meta.modifiedAt });
+        lastSavedMarkdownRef.current = draftDocument.markdown;
+        setDocumentVersion((version) => version + 1);
+        setSaveState('saved');
+        setSaveError(null);
+        setLastSavedAt(meta.modifiedAt);
+        setExternalDocumentConflict(null);
+        return true;
+      } catch (error) {
+        setSaveState('error');
+        setSaveError(getWorkspaceErrorMessage(error, '无法覆盖 Codex 修改后的文档'));
+        return false;
+      }
+    }, [currentDocument, draftDocument, externalDocumentConflict, snapshot],
   );
 
   const selectDirectory = React.useCallback(
@@ -489,6 +639,9 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       setSaveState('dirty');
       setSaveError(null);
       clearPendingSave();
+      if (externalDocumentConflict?.path === currentDocument?.absolutePath) {
+        return;
+      }
       pendingSaveTimerRef.current = setTimeout(() => {
         void saveCurrentDocumentNow(nextDraft);
       }, 800);
@@ -521,6 +674,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       clearPendingRename,
       currentDocument,
       draftDocument,
+      externalDocumentConflict,
       renameNode,
       saveCurrentDocumentNow,
     ],
@@ -831,6 +985,8 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     documentLoadState,
     documentVersion,
     draftDocument,
+    externalDocumentConflict,
+    finishAiDocumentSync,
     deleteNode,
     error,
     initialRecentDocumentPaths,
@@ -842,7 +998,9 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     selectDirectory,
     openWorkspace,
     pendingRenameNodePath,
+    prepareCurrentDocumentForAi,
     refreshWorkspaceTree,
+    resolveExternalDocumentConflict,
     retryCurrentDocument,
     renameNode,
     rightPanelMode,
@@ -856,6 +1014,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     setSearchQuery,
     setSidebarCollapsed,
     syncAppliedMarkdownDocument,
+    syncExternalMarkdownDocument,
     clearPendingRenameNode,
     snapshot,
     switchWorkspace: loadWorkspace,

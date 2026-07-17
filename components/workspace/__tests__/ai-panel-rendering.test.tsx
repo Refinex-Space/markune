@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -8,12 +8,14 @@ import {
   AiConversationViewport,
   AiMessageContent,
   AiPanelHeader,
+  ChangeSummaryCard,
   ConversationEntryRow,
   ProcessingTrace,
   UserMessageContent,
 } from '../ai-panel';
 import {
   createOutputPreview,
+  type AiChangeSummaryBlock,
   type AiTraceBlock,
 } from '../ai-panel-state';
 
@@ -24,6 +26,40 @@ const mentionedDocument = {
   relativePath: 'README.md',
   title: 'README',
 };
+
+const releaseNotesDocument = {
+  absolutePath: '/workspace/Docs/Release Notes.md',
+  id: 'release-notes',
+  name: 'Release Notes.md',
+  relativePath: 'Docs/Release Notes.md',
+  title: 'Release Notes',
+};
+
+const roadmapDocument = {
+  absolutePath: '/workspace/Planning/Roadmap.md',
+  id: 'roadmap',
+  name: 'Roadmap.md',
+  relativePath: 'Planning/Roadmap.md',
+  title: 'Roadmap',
+};
+
+function change(
+  path: string,
+  absolutePath: string | null,
+  additions: number,
+  deletions: number,
+  diff = '',
+) {
+  return {
+    absolutePath,
+    additions,
+    deletions,
+    diff,
+    kind: 'update' as const,
+    movePath: null,
+    path,
+  };
+}
 
 describe('AI message rendering', () => {
   it('用户消息按内容宽度收缩并保留长消息最大宽度', () => {
@@ -91,7 +127,7 @@ describe('AI message rendering', () => {
     const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
     await user.click(editor);
     await user.type(editor, '请阅读 @READ');
-    await user.click(screen.getByRole('button', { name: /README/ }));
+    await user.click(screen.getByRole('option', { name: /README/ }));
 
     const mention = screen.getByRole('link', { name: 'README' });
     expect(editor.contains(mention)).toBe(true);
@@ -99,6 +135,107 @@ describe('AI message rendering', () => {
 
     await user.click(mention);
     expect(onOpenMention).toHaveBeenCalledWith('/workspace/README.md');
+  });
+
+  it('提及候选无上浮阴影并提供标准列表语义', async () => {
+    const user = userEvent.setup();
+    render(<ComposerHarness onOpenMention={vi.fn()} />);
+
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '@READ');
+
+    const listbox = screen.getByRole('listbox', { name: '提及工作区文档' });
+    const menu = listbox.closest('[data-mention-menu]');
+    expect(menu?.className).not.toContain('shadow-xl');
+    expect(menu?.className).toContain('shadow-none');
+    expect(editor.getAttribute('aria-controls')).toBe(listbox.id);
+    expect(
+      screen.getByRole('option', { name: /README/ }).getAttribute('aria-selected'),
+    ).toBe('true');
+  });
+
+  it('支持上下键循环选择、选中项自适应滚动和回车插入', async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    try {
+      render(
+        <ComposerHarness
+          mentionDocuments={[
+            mentionedDocument,
+            releaseNotesDocument,
+            roadmapDocument,
+          ]}
+          onOpenMention={vi.fn()}
+        />,
+      );
+
+      const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+      await user.click(editor);
+      await user.type(editor, '@');
+      await user.keyboard('{ArrowDown}');
+
+      expect(
+        screen
+          .getByRole('option', { name: /Release Notes/ })
+          .getAttribute('aria-selected'),
+      ).toBe('true');
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+
+      await user.keyboard('{Enter}');
+      expect(screen.getByRole('link', { name: 'Release Notes' })).toBeTruthy();
+      expect(screen.queryByRole('listbox')).toBeNull();
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+        configurable: true,
+        value: originalScrollIntoView,
+      });
+    }
+  });
+
+  it('上键从第一项循环到末项，Escape 只关闭候选不删除输入', async () => {
+    const user = userEvent.setup();
+    render(
+      <ComposerHarness
+        mentionDocuments={[
+          mentionedDocument,
+          releaseNotesDocument,
+          roadmapDocument,
+        ]}
+        onOpenMention={vi.fn()}
+      />,
+    );
+
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '@');
+    await user.keyboard('{ArrowUp}');
+    expect(
+      screen
+        .getByRole('option', { name: /Roadmap/ })
+        .getAttribute('aria-selected'),
+    ).toBe('true');
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(editor.textContent).toBe('@');
+  });
+
+  it('不会把邮箱中的 @ 识别为文档提及', async () => {
+    const user = userEvent.setup();
+    render(<ComposerHarness onOpenMention={vi.fn()} />);
+
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, 'foo@example.com');
+
+    expect(screen.queryByRole('listbox')).toBeNull();
   });
 
   it('在已发送消息中只把明确提及的文本区间渲染为文档链接', async () => {
@@ -169,7 +306,7 @@ describe('AI message rendering', () => {
     const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
     await user.click(editor);
     await user.type(editor, '@READ');
-    await user.click(screen.getByRole('button', { name: /README/ }));
+    await user.click(screen.getByRole('option', { name: /README/ }));
 
     expect(screen.getByRole('link', { name: 'README' })).toBeTruthy();
     await user.keyboard('{Backspace}');
@@ -197,6 +334,49 @@ describe('AI message rendering', () => {
     expect(editor.className).toContain('min-h-14');
     expect(editor.className).toContain('max-h-40');
     expect(editor.className).toContain('overflow-y-auto');
+  });
+
+  it('连接准备期间允许输入并保留显式发送意图', async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+
+    render(
+      <AiComposer
+        active={false}
+        approvalPolicyAvailability={{ never: true, onRequest: true }}
+        autoReviewAvailable={false}
+        currentDocument={null}
+        effort="medium"
+        mentionDocuments={[]}
+        mentionQuery={null}
+        mcpServerCount={0}
+        models={[]}
+        permissionMode="ask"
+        permissionProfiles={[]}
+        permissionSwitchDisabled={false}
+        runtimeStatus="loading"
+        selectedModel=""
+        selectedModelInfo={null}
+        submitting={false}
+        value="总结当前文档"
+        version={null}
+        onEffortChange={vi.fn()}
+        onInterrupt={vi.fn()}
+        onMentionQueryChange={vi.fn()}
+        onMentionsChange={vi.fn()}
+        onModelChange={vi.fn()}
+        onOpenMention={vi.fn()}
+        onPermissionModeChange={vi.fn()}
+        onSend={onSend}
+        onValueChange={vi.fn()}
+      />,
+    );
+
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    expect(editor.getAttribute('contenteditable')).toBe('true');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+    expect(onSend).toHaveBeenCalledOnce();
+    expect(screen.getByText('正在准备')).toBeTruthy();
   });
 
   it('离开消息底部后显示回到最新消息按钮并支持平滑返回', async () => {
@@ -428,6 +608,98 @@ describe('AI message rendering', () => {
     ).toBeNull();
   });
 
+  it('以紧凑摘要展示净文件修改并按需展开其余文件', async () => {
+    const user = userEvent.setup();
+    const onOpenDocument = vi.fn();
+    const summary: AiChangeSummaryBlock = {
+      additions: 12,
+      changes: [
+        change(
+          'README.md',
+          '/workspace/README.md',
+          5,
+          1,
+          [
+            'diff --git a/README.md b/README.md',
+            '--- a/README.md',
+            '+++ b/README.md',
+            '@@ -8,2 +8,2 @@',
+            '-旧内容',
+            '+新内容',
+            ' 保留内容',
+          ].join('\n'),
+        ),
+        change('docs/api.md', '/workspace/docs/api.md', 4, 2),
+        change('docs/security.md', '/workspace/docs/security.md', 3, 1),
+        change('package.json', null, 0, 0),
+      ],
+      deletions: 4,
+      id: 'changes-turn-1',
+      turnId: 'turn-1',
+      type: 'changes',
+    };
+
+    render(
+      <ChangeSummaryCard
+        summary={summary}
+        onOpenDocument={onOpenDocument}
+      />,
+    );
+
+    expect(screen.getByText('已编辑 4 个文件')).toBeTruthy();
+    expect(screen.getByText('+12')).toBeTruthy();
+    expect(screen.getByText('-4')).toBeTruthy();
+    expect(screen.queryByText('package.json')).toBeNull();
+
+    const readmeRow = screen.getByRole('button', { name: 'README.md' });
+    await user.hover(readmeRow);
+    const preview = await screen.findByRole('region', {
+      name: 'README.md 变更预览',
+    });
+    expect(within(preview).getByText('旧内容')).toBeTruthy();
+    expect(within(preview).getByText('新内容')).toBeTruthy();
+    expect(within(preview).getByText('+5')).toBeTruthy();
+    expect(within(preview).getByText('-1')).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: '再显示 1 个文件' }));
+    expect(screen.getByText('package.json')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'package.json' })).toBeNull();
+
+    await user.click(readmeRow);
+    expect(onOpenDocument).toHaveBeenCalledWith('/workspace/README.md');
+  });
+
+  it('限制长文件变更预览的渲染行数', async () => {
+    const user = userEvent.setup();
+    const diff = [
+      'diff --git a/README.md b/README.md',
+      '--- a/README.md',
+      '+++ b/README.md',
+      '@@ -1,260 +1,260 @@',
+      ...Array.from({ length: 260 }, (_, index) => `+新增内容 ${index + 1}`),
+    ].join('\n');
+
+    render(
+      <ChangeSummaryCard
+        summary={{
+          additions: 260,
+          changes: [change('README.md', '/workspace/README.md', 260, 0, diff)],
+          deletions: 0,
+          id: 'changes-turn-1',
+          turnId: 'turn-1',
+          type: 'changes',
+        }}
+        onOpenDocument={vi.fn()}
+      />,
+    );
+
+    await user.hover(screen.getByRole('button', { name: 'README.md' }));
+    const preview = await screen.findByRole('region', {
+      name: 'README.md 变更预览',
+    });
+    expect(within(preview).getByText('已省略 21 行')).toBeTruthy();
+  });
+
   it('审批显示在对应工具下，并遵循服务端允许的决定集合', () => {
     const onApprove = vi.fn();
     const trace = createTrace({ historical: false, status: 'waitingApproval' });
@@ -642,9 +914,11 @@ function createTrace({
 }
 
 function ComposerHarness({
+  mentionDocuments = [mentionedDocument],
   onOpenMention,
   onSend = vi.fn(),
 }: {
+  mentionDocuments?: Array<typeof mentionedDocument>;
   onOpenMention: (path: string) => void;
   onSend?: () => void;
 }) {
@@ -660,7 +934,7 @@ function ComposerHarness({
         autoReviewAvailable
         currentDocument={null}
         effort="medium"
-        mentionDocuments={[mentionedDocument]}
+        mentionDocuments={mentionDocuments}
         mentionQuery={mentionQuery}
         mcpServerCount={0}
         models={[]}
@@ -681,11 +955,7 @@ function ComposerHarness({
         onPermissionModeChange={vi.fn()}
         onOpenMention={onOpenMention}
         onSend={onSend}
-        onValueChange={(nextValue) => {
-          setValue(nextValue);
-          const match = nextValue.match(/@([^\s@]*)$/);
-          setMentionQuery(match ? match[1] : null);
-        }}
+        onValueChange={setValue}
       />
       <output data-testid="selected-mention-count">{mentions.length}</output>
     </>

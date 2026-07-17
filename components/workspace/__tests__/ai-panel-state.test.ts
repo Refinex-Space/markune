@@ -13,6 +13,7 @@ import {
   stripShellWrapper,
   summarizeActivityGroup,
   threadNameUpdateFromMessage,
+  workspaceChangeEventFromProtocolMessage,
 } from '../ai-panel-state';
 
 describe('AI panel event reducer', () => {
@@ -825,6 +826,252 @@ describe('AI panel event reducer', () => {
         kind: 'context',
       }),
     ]);
+  });
+
+  it('只把成功完成的文件修改投影为工作区刷新事件', () => {
+    expect(
+      workspaceChangeEventFromProtocolMessage(
+        {
+          method: 'item/completed',
+          params: {
+            turnId: 'turn-1',
+            item: {
+              id: 'file-1',
+              type: 'fileChange',
+              status: 'completed',
+              changes: [
+                {
+                  path: 'docs/README.md',
+                  kind: { type: 'update', move_path: null },
+                  diff: '+new\n-old',
+                },
+              ],
+            },
+          },
+        },
+        '/workspace',
+      ),
+    ).toEqual({
+      type: 'fileChangesCompleted',
+      turnId: 'turn-1',
+      changes: [
+        expect.objectContaining({
+          absolutePath: '/workspace/docs/README.md',
+          additions: 1,
+          deletions: 1,
+          path: 'docs/README.md',
+        }),
+      ],
+    });
+
+    expect(
+      workspaceChangeEventFromProtocolMessage(
+        {
+          method: 'item/completed',
+          params: {
+            turnId: 'turn-1',
+            item: {
+              id: 'file-2',
+              type: 'fileChange',
+              status: 'failed',
+              changes: [{ path: 'README.md', kind: { type: 'update' } }],
+            },
+          },
+        },
+        '/workspace',
+      ),
+    ).toBeNull();
+
+    expect(
+      workspaceChangeEventFromProtocolMessage({
+        method: 'turn/completed',
+        params: { turn: { id: 'turn-1', status: 'completed' } },
+      }),
+    ).toEqual({ type: 'turnCompleted', turnId: 'turn-1' });
+  });
+
+  it('完成 turn 后保留聚合 diff 并在最终回答后生成净文件变更摘要', () => {
+    let state = reduceCodexProtocolMessage(createEmptyConversation(), {
+      method: 'turn/started',
+      params: {
+        turn: { id: 'turn-1', status: 'inProgress', startedAt: 10 },
+      },
+    });
+    state = reduceCodexProtocolMessage(
+      state,
+      {
+        method: 'item/completed',
+        params: {
+          turnId: 'turn-1',
+          item: {
+            id: 'file-1',
+            type: 'fileChange',
+            status: 'completed',
+            changes: [
+              {
+                path: 'docs/计划.md',
+                kind: { type: 'update', move_path: null },
+                diff: '+intermediate',
+              },
+            ],
+          },
+        },
+      },
+      '/workspace',
+    );
+    state = reduceCodexProtocolMessage(state, {
+      method: 'turn/diff/updated',
+      params: {
+        turnId: 'turn-1',
+        diff: [
+          'diff --git a/docs/计划.md b/docs/计划.md',
+          '--- a/docs/计划.md',
+          '+++ b/docs/计划.md',
+          '@@ -1,2 +1,3 @@',
+          '-旧内容',
+          '+新内容',
+          '+补充内容',
+        ].join('\n'),
+      },
+    });
+    state = reduceCodexProtocolMessage(state, {
+      method: 'item/completed',
+      params: {
+        turnId: 'turn-1',
+        item: {
+          id: 'final-1',
+          type: 'agentMessage',
+          phase: 'final_answer',
+          text: '已完成修改。',
+        },
+      },
+    });
+    state = reduceCodexProtocolMessage(state, {
+      method: 'turn/completed',
+      params: {
+        turn: {
+          id: 'turn-1',
+          status: 'completed',
+          startedAt: 10,
+          completedAt: 12,
+          durationMs: 2_000,
+        },
+      },
+    });
+
+    expect(state.turns['turn-1'].diff).toContain('docs/计划.md');
+    expect(buildConversationBlocks(state)).toEqual([
+      expect.objectContaining({ type: 'trace', turnId: 'turn-1' }),
+      expect.objectContaining({
+        type: 'message',
+        id: 'final-1',
+        text: '已完成修改。',
+      }),
+      expect.objectContaining({
+        type: 'changes',
+        turnId: 'turn-1',
+        additions: 2,
+        deletions: 1,
+        changes: [
+          expect.objectContaining({
+            absolutePath: '/workspace/docs/计划.md',
+            additions: 2,
+            deletions: 1,
+            path: 'docs/计划.md',
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it('把同一工作区文件的绝对路径与相对路径合并为一条变更摘要', () => {
+    const workspaceRoot = '/Users/refinex/develop/refinex-vault';
+    const absolutePath = `${workspaceRoot}/软件合集/Octarine.md`;
+    let state = reduceCodexProtocolMessage(createEmptyConversation(), {
+      method: 'turn/started',
+      params: {
+        turn: { id: 'turn-1', status: 'inProgress', startedAt: 10 },
+      },
+    });
+    state = reduceCodexProtocolMessage(
+      state,
+      {
+        method: 'item/completed',
+        params: {
+          turnId: 'turn-1',
+          item: {
+            id: 'file-1',
+            type: 'fileChange',
+            status: 'completed',
+            changes: [
+              {
+                path: absolutePath,
+                kind: { type: 'update', move_path: null },
+                diff: '-官方网址：\n+官网地址：',
+              },
+            ],
+          },
+        },
+      },
+      workspaceRoot,
+    );
+    state = reduceCodexProtocolMessage(state, {
+      method: 'turn/diff/updated',
+      params: {
+        turnId: 'turn-1',
+        diff: [
+          'diff --git a/软件合集/Octarine.md b/软件合集/Octarine.md',
+          '--- a/软件合集/Octarine.md',
+          '+++ b/软件合集/Octarine.md',
+          '@@ -1 +1 @@',
+          '-官方网址：',
+          '+官网地址：',
+        ].join('\n'),
+      },
+    });
+    state = reduceCodexProtocolMessage(state, {
+      method: 'item/completed',
+      params: {
+        turnId: 'turn-1',
+        item: {
+          id: 'final-1',
+          type: 'agentMessage',
+          phase: 'final_answer',
+          text: '已完成修改。',
+        },
+      },
+    });
+    state = reduceCodexProtocolMessage(state, {
+      method: 'turn/completed',
+      params: {
+        turn: {
+          id: 'turn-1',
+          status: 'completed',
+          startedAt: 10,
+          completedAt: 12,
+          durationMs: 2_000,
+        },
+      },
+    });
+
+    const changesBlock = buildConversationBlocks(state).find(
+      (block) => block.type === 'changes',
+    );
+
+    expect(changesBlock).toEqual(
+      expect.objectContaining({
+        additions: 1,
+        deletions: 1,
+        changes: [
+          expect.objectContaining({
+            absolutePath,
+            additions: 1,
+            deletions: 1,
+            path: '软件合集/Octarine.md',
+          }),
+        ],
+      }),
+    );
   });
 
   it('为混合活动生成 Codex 式中文摘要', () => {

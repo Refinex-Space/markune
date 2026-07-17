@@ -49,6 +49,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from '@/components/ui/hover-card';
 import { cn } from '@/lib/utils';
 
 import {
@@ -79,15 +84,24 @@ import {
   getOutputPreviewLines,
   reduceCodexProtocolMessage,
   threadNameUpdateFromMessage,
+  workspaceChangeEventFromProtocolMessage,
   type AiActivityGroup,
   type AiApprovalRequest,
+  type AiChangeSummaryBlock,
   type AiConversationBlock,
   type AiConversationEntry,
   type AiConversationState,
+  type AiFileChange,
   type AiMessageMention,
   type AiTraceBlock,
   type AiTimelineItem,
+  type AiWorkspaceChangeEvent,
 } from './ai-panel-state';
+import {
+  findMentionToken,
+  mentionMatchIndices,
+  rankMentionDocuments,
+} from './ai-mention-search';
 import {
   isTauriRuntime,
   openUrlInDefaultBrowser,
@@ -97,9 +111,13 @@ import type { WorkspaceNode } from './workspace-types';
 interface AiPanelProps {
   currentDocument: WorkspaceNode | null;
   documents: AiDocumentReference[];
+  visible: boolean;
   workspaceRootPath: string | null;
+  onBeforeTurnStart: () => Promise<boolean>;
   onOpenDocument: (documentPath: string) => void;
-  onWorkspaceChanged: () => void | Promise<void>;
+  onWorkspaceChanged: (
+    event: AiWorkspaceChangeEvent,
+  ) => void | Promise<void>;
 }
 
 type AiDocumentReference = Pick<
@@ -109,11 +127,18 @@ type AiDocumentReference = Pick<
 
 type AiComposerMention = AiDocumentReference & AiMessageMention;
 
+interface ComposerMentionTarget {
+  key: string;
+  query: string;
+  range: Range;
+}
+
 const mentionLinkClassName =
   'mx-0.5 inline cursor-pointer select-none rounded-sm border-0 bg-transparent p-0 align-baseline font-[inherit] text-[#3574f0] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3574f0]/35';
 
 type PanelView = 'chat' | 'history';
 type RuntimeStatus = 'error' | 'loading' | 'ready' | 'web';
+type ControlLoadStatus = 'error' | 'idle' | 'loading' | 'ready';
 
 interface ThreadStartResponse extends CodexThreadPermissionSettings {
   thread: CodexThread;
@@ -149,7 +174,7 @@ const STARTER_PROMPTS = [
 
 const SCROLL_BOTTOM_THRESHOLD = 64;
 
-const DEVELOPER_INSTRUCTIONS = `你运行在 Madora 的工作区级 AI 面板中。默认只在当前工作区内读取和修改文件；仅当当前命名权限配置明确允许、且用户请求确实需要时，才可访问工作区外路径。Madora 以 Markdown 为唯一持久化文档格式，请保持现有 frontmatter 和目录约定。收到 Madora 文档引用且用户请求依赖其内容时，必须先使用工作区工具读取相关文件，并让读取动作通过正常工具事件返回；不得在尝试读取前声称缺少路径。严格遵循当前线程的 Codex 权限配置和审批结果，不得绕过权限边界。删除文档前必须明确说明将删除的路径和影响，并等待用户确认。不要读取、输出或记录密钥、Token、Cookie、连接串或其他敏感信息。完成文件变更后简要列出实际修改和验证结果。`;
+const DEVELOPER_INSTRUCTIONS = `你运行在 Madora 的工作区级 AI 面板中。默认只在当前工作区内读取和修改文件；仅当当前命名权限配置明确允许、且用户请求确实需要时，才可访问工作区外路径。Madora 以 Markdown 为唯一持久化文档格式，请保持现有 frontmatter 和目录约定。Madora 会为每个 turn 提供编辑器活跃文档和显式文档引用；“当前文档”“本文”“这篇文档”等表述只指向该 turn 的 madora_active_document，不得根据日期、最近文件或工作区惯例猜测。请求依赖文档内容时，必须先使用工作区工具读取相关文件，并让读取动作通过正常工具事件返回；不得在尝试读取前声称缺少路径。与文档无关的请求不必读取活跃文档。严格遵循当前线程的 Codex 权限配置和审批结果，不得绕过权限边界。删除文档前必须明确说明将删除的路径和影响，并等待用户确认。不要读取、输出或记录密钥、Token、Cookie、连接串或其他敏感信息。完成文件变更后简要列出实际修改和验证结果。`;
 
 type PermissionModeId = 'ask' | 'auto' | 'full' | 'readOnly' | `profile:${string}`;
 
@@ -265,7 +290,9 @@ function permissionModeLabel(mode: PermissionModeId) {
 export function AiPanel({
   currentDocument,
   documents,
+  visible,
   workspaceRootPath,
+  onBeforeTurnStart,
   onOpenDocument,
   onWorkspaceChanged,
 }: AiPanelProps) {
@@ -277,14 +304,20 @@ export function AiPanel({
   const [account, setAccount] = React.useState<CodexAccountResponse['account']>(null);
   const [authRequired, setAuthRequired] = React.useState(false);
   const [models, setModels] = React.useState<CodexModel[]>([]);
+  const [modelCatalogStatus, setModelCatalogStatus] =
+    React.useState<ControlLoadStatus>('idle');
   const [selectedModel, setSelectedModel] = React.useState<string>('');
   const [effort, setEffort] = React.useState<CodexReasoningEffort>('medium');
   const [threads, setThreads] = React.useState<CodexThread[]>([]);
+  const [threadListStatus, setThreadListStatus] =
+    React.useState<ControlLoadStatus>('idle');
   const [activeThread, setActiveThread] = React.useState<CodexThread | null>(null);
   const [conversation, setConversation] = React.useState<AiConversationState>(
     createEmptyConversation,
   );
   const [mcpServerCount, setMcpServerCount] = React.useState(0);
+  const [mcpStatus, setMcpStatus] =
+    React.useState<ControlLoadStatus>('idle');
   const [permissionProfiles, setPermissionProfiles] = React.useState<
     CodexPermissionProfileSummary[]
   >([]);
@@ -308,10 +341,39 @@ export function AiPanel({
   const [followLatestRequest, setFollowLatestRequest] = React.useState(0);
   const modelSelectionInitializedRef = React.useRef(false);
   const activeThreadIdRef = React.useRef<string | null>(null);
+  const onWorkspaceChangedRef = React.useRef(onWorkspaceChanged);
+  const runtimeReadyPromiseRef = React.useRef<Promise<void> | null>(null);
+  const runtimeStatusRef = React.useRef<RuntimeStatus>('loading');
+  const authRequiredRef = React.useRef(false);
+  const selectedModelRef = React.useRef('');
+  const effortRef = React.useRef<CodexReasoningEffort>('medium');
+  const permissionSettingsRef = React.useRef(DEFAULT_PERMISSION_SETTINGS);
+  const submittingRef = React.useRef(false);
+  const runtimeGenerationRef = React.useRef(0);
 
   React.useEffect(() => {
     activeThreadIdRef.current = activeThread?.id ?? null;
   }, [activeThread?.id]);
+
+  React.useEffect(() => {
+    onWorkspaceChangedRef.current = onWorkspaceChanged;
+  }, [onWorkspaceChanged]);
+
+  React.useEffect(() => {
+    authRequiredRef.current = authRequired;
+  }, [authRequired]);
+
+  React.useEffect(() => {
+    selectedModelRef.current = selectedModel;
+  }, [selectedModel]);
+
+  React.useEffect(() => {
+    effortRef.current = effort;
+  }, [effort]);
+
+  React.useEffect(() => {
+    permissionSettingsRef.current = permissionSettings;
+  }, [permissionSettings]);
 
   const applyThreadName = React.useCallback((threadId: string, name: string) => {
     setActiveThread((current) =>
@@ -325,24 +387,16 @@ export function AiPanel({
   }, []);
 
   const filteredMentionDocuments = React.useMemo(() => {
-    const query = mentionQuery?.trim().toLocaleLowerCase() ?? '';
-    return documents
-      .filter(
-        (document) =>
-          !selectedMentions.some(
-            (selected) => selected.absolutePath === document.absolutePath,
-          ),
-      )
-      .filter((document) => {
-        if (!query) {
-          return true;
-        }
-        return `${document.title ?? ''} ${document.name} ${document.relativePath}`
-          .toLocaleLowerCase()
-          .includes(query);
-      })
-      .slice(0, 8);
-  }, [documents, mentionQuery, selectedMentions]);
+    const excludedPaths = new Set(
+      selectedMentions.map((document) => document.absolutePath),
+    );
+    if (currentDocument?.absolutePath) {
+      excludedPaths.add(currentDocument.absolutePath);
+    }
+    return rankMentionDocuments(documents, mentionQuery ?? '', {
+      excludedPaths,
+    });
+  }, [currentDocument, documents, mentionQuery, selectedMentions]);
 
   const visibleThreads = React.useMemo(() => {
     const query = historyQuery.trim().toLocaleLowerCase();
@@ -363,16 +417,15 @@ export function AiPanel({
     [models, selectedModel],
   );
 
-  const loadControlData = React.useCallback(async () => {
+  const loadCoreControlData = React.useCallback(async (
+    generation = runtimeGenerationRef.current,
+  ) => {
     if (!workspaceRootPath) {
       return;
     }
 
     const [
       accountResponse,
-      modelResponse,
-      threadResponse,
-      mcpResponse,
       permissionResponse,
       requirementsResponse,
       featureResponse,
@@ -381,22 +434,6 @@ export function AiPanel({
         codexAppServerClient.request<CodexAccountResponse>('account/read', {
           refreshToken: false,
         }),
-        codexAppServerClient.request<CodexModelListResponse>('model/list', {
-          includeHidden: false,
-          limit: 100,
-        }),
-        codexAppServerClient.request<CodexThreadListResponse>('thread/list', {
-          cwd: workspaceRootPath,
-          limit: 100,
-          sortKey: 'updated_at',
-          sortDirection: 'desc',
-        }),
-        codexAppServerClient
-          .request<McpListResponse>('mcpServerStatus/list', {
-            detail: 'toolsAndAuthOnly',
-            limit: 100,
-          })
-          .catch(() => ({ data: [] })),
         codexAppServerClient
           .request<CodexPermissionProfileListResponse>('permissionProfile/list', {
             cwd: workspaceRootPath,
@@ -413,13 +450,13 @@ export function AiPanel({
           .catch(() => ({ data: [], nextCursor: null })),
       ]);
 
+    if (generation !== runtimeGenerationRef.current) return;
+
     setAccount(accountResponse.account);
-    setAuthRequired(
-      accountResponse.requiresOpenaiAuth && !accountResponse.account,
-    );
-    setModels(modelResponse.data);
-    setThreads(threadResponse.data);
-    setMcpServerCount(mcpResponse.data.length);
+    const requiresAuth =
+      accountResponse.requiresOpenaiAuth && !accountResponse.account;
+    authRequiredRef.current = requiresAuth;
+    setAuthRequired(requiresAuth);
     const profileRequirements =
       requirementsResponse.requirements?.allowedPermissionProfiles;
     const profiles = permissionResponse.data.map((profile) => ({
@@ -453,32 +490,113 @@ export function AiPanel({
         (!allowedReviewers || allowedReviewers.includes('auto_review')),
     );
 
-    const defaultModel =
-      modelResponse.data.find((model) => model.isDefault) ??
-      modelResponse.data[0];
-    if (defaultModel && !modelSelectionInitializedRef.current) {
-      modelSelectionInitializedRef.current = true;
-      setSelectedModel(defaultModel.model);
-      setEffort(defaultModel.defaultReasoningEffort);
+  }, [workspaceRootPath]);
+
+  const loadModelCatalog = React.useCallback(async (
+    generation = runtimeGenerationRef.current,
+  ) => {
+    if (generation !== runtimeGenerationRef.current) return;
+    setModelCatalogStatus('loading');
+    try {
+      const response = await codexAppServerClient.request<CodexModelListResponse>(
+        'model/list',
+        { includeHidden: false, limit: 100 },
+      );
+      if (generation !== runtimeGenerationRef.current) return;
+      setModels(response.data);
+      const defaultModel =
+        response.data.find((model) => model.isDefault) ?? response.data[0];
+      if (defaultModel && !modelSelectionInitializedRef.current) {
+        modelSelectionInitializedRef.current = true;
+        selectedModelRef.current = defaultModel.model;
+        effortRef.current = defaultModel.defaultReasoningEffort;
+        setSelectedModel(defaultModel.model);
+        setEffort(defaultModel.defaultReasoningEffort);
+      }
+      setModelCatalogStatus('ready');
+    } catch {
+      if (generation !== runtimeGenerationRef.current) return;
+      setModelCatalogStatus('error');
+    }
+  }, []);
+
+  const loadThreadHistory = React.useCallback(async (
+    generation = runtimeGenerationRef.current,
+  ) => {
+    if (!workspaceRootPath) return;
+    if (generation !== runtimeGenerationRef.current) return;
+    setThreadListStatus('loading');
+    try {
+      const response = await codexAppServerClient.request<CodexThreadListResponse>(
+        'thread/list',
+        {
+          cwd: workspaceRootPath,
+          limit: 100,
+          sortKey: 'updated_at',
+          sortDirection: 'desc',
+        },
+      );
+      if (generation !== runtimeGenerationRef.current) return;
+      setThreads(response.data);
+      setThreadListStatus('ready');
+    } catch {
+      if (generation !== runtimeGenerationRef.current) return;
+      setThreadListStatus('error');
     }
   }, [workspaceRootPath]);
 
+  const loadMcpStatus = React.useCallback(async (
+    generation = runtimeGenerationRef.current,
+  ) => {
+    if (generation !== runtimeGenerationRef.current) return;
+    setMcpStatus('loading');
+    try {
+      const response = await codexAppServerClient.request<McpListResponse>(
+        'mcpServerStatus/list',
+        { detail: 'toolsAndAuthOnly', limit: 100 },
+      );
+      if (generation !== runtimeGenerationRef.current) return;
+      setMcpServerCount(response.data.length);
+      setMcpStatus('ready');
+    } catch {
+      if (generation !== runtimeGenerationRef.current) return;
+      setMcpStatus('error');
+    }
+  }, []);
+
   React.useEffect(() => {
+    const generation = runtimeGenerationRef.current + 1;
+    runtimeGenerationRef.current = generation;
+    const nextRuntimeStatus: RuntimeStatus = !workspaceRootPath
+      ? 'error'
+      : !isTauriRuntime()
+        ? 'web'
+        : 'loading';
+    runtimeStatusRef.current = nextRuntimeStatus;
+    queueMicrotask(() => {
+      if (generation !== runtimeGenerationRef.current) return;
+      setRuntimeStatus(nextRuntimeStatus);
+      setRuntimeError(
+        workspaceRootPath ? null : '请先打开一个工作区。',
+      );
+      setThreads([]);
+      setActiveThread(null);
+      activeThreadIdRef.current = null;
+      setConversation(createEmptyConversation());
+      setSelectedMentions([]);
+      setComposerValue('');
+      permissionSettingsRef.current = DEFAULT_PERMISSION_SETTINGS;
+      setPermissionSettings(DEFAULT_PERMISSION_SETTINGS);
+      setModelCatalogStatus('idle');
+      setThreadListStatus('idle');
+      setMcpStatus('idle');
+      setMcpServerCount(0);
+    });
     if (!workspaceRootPath) {
-      queueMicrotask(() => {
-        setRuntimeStatus('error');
-        setRuntimeError('请先打开一个工作区。');
-      });
       return;
     }
 
-    if (!isTauriRuntime()) {
-      queueMicrotask(() => {
-        setRuntimeStatus('web');
-        setRuntimeError(null);
-      });
-      return;
-    }
+    if (nextRuntimeStatus === 'web') return;
 
     let disposed = false;
     let unlisten: (() => void) | null = null;
@@ -500,6 +618,7 @@ export function AiPanel({
         codexAppServerClient.rejectPending(
           new Error('Codex App Server 已停止'),
         );
+        runtimeStatusRef.current = 'error';
         setRuntimeStatus('error');
         setRuntimeError('Codex App Server 已停止，请关闭并重新打开 AI 面板。');
       }
@@ -508,15 +627,22 @@ export function AiPanel({
         message.method === 'account/login/completed' ||
         message.method === 'account/updated'
       ) {
-        void loadControlData().catch(() => undefined);
+        void loadCoreControlData(generation)
+          .then(() =>
+            Promise.allSettled([
+              loadModelCatalog(generation),
+              loadThreadHistory(generation),
+            ]),
+          )
+          .catch(() => undefined);
       }
 
-      if (
-        message.method === 'item/completed' &&
-        (message.params?.item as { type?: string } | undefined)?.type ===
-          'fileChange'
-      ) {
-        void onWorkspaceChanged();
+      const workspaceChange = workspaceChangeEventFromProtocolMessage(
+        message,
+        workspaceRootPath,
+      );
+      if (workspaceChange) {
+        void onWorkspaceChangedRef.current(workspaceChange);
       }
 
       if (
@@ -526,31 +652,38 @@ export function AiPanel({
         const settings = permissionSettingsFromProtocol(
           message.params.threadSettings,
         );
-        if (settings) setPermissionSettings(settings);
+        if (settings) {
+          permissionSettingsRef.current = settings;
+          setPermissionSettings(settings);
+        }
       }
     });
 
+    const bootstrap = (async () => {
+      const activeUnlisten = await listenCodexEventsUntilDisposed(
+        (message) => codexAppServerClient.handleMessage(message),
+        () => disposed,
+      );
+      if (!activeUnlisten) return;
+      unlisten = activeUnlisten;
+      const runtime = await startCodexRuntime(workspaceRootPath);
+      if (disposed) return;
+      setRuntimeVersion(runtime.version);
+      await loadCoreControlData(generation);
+      if (disposed) return;
+      runtimeStatusRef.current = 'ready';
+      setRuntimeStatus('ready');
+      void loadModelCatalog(generation);
+      void loadThreadHistory(generation);
+    })();
+    runtimeReadyPromiseRef.current = bootstrap;
+
     void (async () => {
       try {
-        const activeUnlisten = await listenCodexEventsUntilDisposed(
-          (message) => codexAppServerClient.handleMessage(message),
-          () => disposed,
-        );
-        if (!activeUnlisten) {
-          return;
-        }
-        unlisten = activeUnlisten;
-        const runtime = await startCodexRuntime(workspaceRootPath);
-        if (disposed) {
-          return;
-        }
-        setRuntimeVersion(runtime.version);
-        await loadControlData();
-        if (!disposed) {
-          setRuntimeStatus('ready');
-        }
+        await bootstrap;
       } catch (error) {
         if (!disposed) {
+          runtimeStatusRef.current = 'error';
           setRuntimeStatus('error');
           setRuntimeError(getErrorMessage(error));
         }
@@ -559,10 +692,30 @@ export function AiPanel({
 
     return () => {
       disposed = true;
+      if (runtimeReadyPromiseRef.current === bootstrap) {
+        runtimeReadyPromiseRef.current = null;
+      }
       unlisten?.();
       unsubscribe();
     };
-  }, [applyThreadName, loadControlData, onWorkspaceChanged, workspaceRootPath]);
+  }, [
+    applyThreadName,
+    loadCoreControlData,
+    loadModelCatalog,
+    loadThreadHistory,
+    workspaceRootPath,
+  ]);
+
+  React.useEffect(() => {
+    if (!visible || runtimeStatus !== 'ready' || mcpStatus !== 'idle') return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) void loadMcpStatus();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [loadMcpStatus, mcpStatus, runtimeStatus, visible]);
 
   const startNewChat = React.useCallback(() => {
     setActiveThread(null);
@@ -570,6 +723,7 @@ export function AiPanel({
     setConversation(createEmptyConversation());
     setSelectedMentions([]);
     setComposerValue('');
+    permissionSettingsRef.current = DEFAULT_PERMISSION_SETTINGS;
     setPermissionSettings(DEFAULT_PERMISSION_SETTINGS);
     setView('chat');
   }, []);
@@ -588,7 +742,9 @@ export function AiPanel({
       );
       setActiveThread(response.thread);
       activeThreadIdRef.current = response.thread.id;
-      setPermissionSettings(permissionSettingsFromResponse(resumed));
+      const nextPermissionSettings = permissionSettingsFromResponse(resumed);
+      permissionSettingsRef.current = nextPermissionSettings;
+      setPermissionSettings(nextPermissionSettings);
       setConversation(
         conversationFromThread(response.thread, workspaceRootPath ?? undefined),
       );
@@ -620,61 +776,76 @@ export function AiPanel({
   const sendMessage = React.useCallback(
     async (messageOverride?: string) => {
       const text = (messageOverride ?? composerValue).trim();
-      if (
-        !text ||
-        !workspaceRootPath ||
-        runtimeStatus !== 'ready' ||
-        authRequired ||
-        submitting
-      ) {
-        return;
-      }
+      if (!text || !workspaceRootPath || submittingRef.current) return;
 
+      submittingRef.current = true;
       setSubmitting(true);
       setRuntimeError(null);
-      const contextDocuments = uniqueDocuments([
-        ...(currentDocument ? [currentDocument] : []),
-        ...selectedMentions,
-      ]);
-      const userInput = createDocumentAwareUserInput(text, selectedMentions);
-      setComposerValue('');
-      setSelectedMentions([]);
-      setMentionQuery(null);
-      setFollowLatestRequest((current) => current + 1);
-      const clientMessageId = `madora-${Date.now()}`;
-      setConversation((current) => ({
-        ...current,
-        entries: [
-          ...current.entries,
-          {
-            type: 'message',
-            id: clientMessageId,
-            mentions: selectedMentions.map(({ end, label, path, start }) => ({
-              end,
-              label,
-              path,
-              start,
-            })),
-            role: 'user',
-            text,
-          },
-        ],
-      }));
-
       try {
+        if (runtimeStatusRef.current === 'loading') {
+          const runtimeReady = runtimeReadyPromiseRef.current;
+          if (!runtimeReady) {
+            throw new Error('Codex 正在准备，请稍后重试。');
+          }
+          await runtimeReady;
+        }
+        if (runtimeStatusRef.current !== 'ready') {
+          throw new Error('Codex 运行时当前不可用。');
+        }
+        if (authRequiredRef.current) {
+          throw new Error('请先完成 ChatGPT 登录。');
+        }
+
+        const ready = await onBeforeTurnStart();
+        if (!ready) {
+          throw new Error('当前文档保存失败，未发送消息。请先处理保存错误。');
+        }
+
+        const explicitDocuments = uniqueDocuments(selectedMentions).filter(
+          (document) =>
+            document.absolutePath !== currentDocument?.absolutePath,
+        );
+        const userInput = createDocumentAwareUserInput(text, selectedMentions);
+        const currentPermissionSettings = permissionSettingsRef.current;
+        const currentModel = selectedModelRef.current;
+        const currentEffort = effortRef.current;
+        setComposerValue('');
+        setSelectedMentions([]);
+        setMentionQuery(null);
+        setFollowLatestRequest((current) => current + 1);
+        const clientMessageId = `madora-${Date.now()}`;
+        setConversation((current) => ({
+          ...current,
+          entries: [
+            ...current.entries,
+            {
+              type: 'message',
+              id: clientMessageId,
+              mentions: selectedMentions.map(({ end, label, path, start }) => ({
+                end,
+                label,
+                path,
+                start,
+              })),
+              role: 'user',
+              text,
+            },
+          ],
+        }));
+
         let thread = activeThread;
         if (!thread) {
           const response =
             await codexAppServerClient.request<ThreadStartResponse>(
               'thread/start',
               {
-                approvalPolicy: permissionSettings.approvalPolicy,
-                approvalsReviewer: permissionSettings.approvalsReviewer,
+                approvalPolicy: currentPermissionSettings.approvalPolicy,
+                approvalsReviewer: currentPermissionSettings.approvalsReviewer,
                 config: { web_search: 'live' },
                 cwd: workspaceRootPath,
                 developerInstructions: DEVELOPER_INSTRUCTIONS,
-                model: selectedModel || null,
-                permissions: permissionSettings.profileId,
+                ...(currentModel ? { model: currentModel } : {}),
+                permissions: currentPermissionSettings.profileId,
                 runtimeWorkspaceRoots: [workspaceRootPath],
               },
             );
@@ -682,7 +853,9 @@ export function AiPanel({
           thread = { ...response.thread, name: threadTitle };
           setActiveThread(thread);
           activeThreadIdRef.current = thread.id;
-          setPermissionSettings(permissionSettingsFromResponse(response));
+          const nextPermissionSettings = permissionSettingsFromResponse(response);
+          permissionSettingsRef.current = nextPermissionSettings;
+          setPermissionSettings(nextPermissionSettings);
           setThreads((current) => [thread!, ...current]);
           void codexAppServerClient
             .request('thread/name/set', {
@@ -704,12 +877,24 @@ export function AiPanel({
                 text_elements: userInput.textElements,
               },
             ],
-            madoraDocumentReferences: contextDocuments.map((document) => ({
-              path: document.absolutePath,
-            })),
+            madoraDocumentReferences: [
+              ...(currentDocument
+                ? [
+                    {
+                      path: currentDocument.absolutePath,
+                      role: 'active',
+                    },
+                  ]
+                : []),
+              ...explicitDocuments.map((document) => ({
+                path: document.absolutePath,
+                role: 'mention',
+              })),
+            ],
             cwd: workspaceRootPath,
-            model: selectedModel || null,
-            effort,
+            ...(currentModel
+              ? { effort: currentEffort, model: currentModel }
+              : {}),
             summary: 'concise',
           },
         );
@@ -720,20 +905,16 @@ export function AiPanel({
       } catch (error) {
         setRuntimeError(getErrorMessage(error));
       } finally {
+        submittingRef.current = false;
         setSubmitting(false);
       }
     },
     [
       activeThread,
-      authRequired,
       composerValue,
       currentDocument,
-      effort,
-      runtimeStatus,
-      permissionSettings,
+      onBeforeTurnStart,
       selectedMentions,
-      selectedModel,
-      submitting,
       workspaceRootPath,
     ],
   );
@@ -826,6 +1007,7 @@ export function AiPanel({
             approvalsReviewer: next.approvalsReviewer,
           });
         }
+        permissionSettingsRef.current = next;
         setPermissionSettings(next);
       } catch (error) {
         setRuntimeError(getErrorMessage(error));
@@ -853,11 +1035,13 @@ export function AiPanel({
       {view === 'history' ? (
         <ThreadHistory
           query={historyQuery}
+          status={threadListStatus}
           threads={visibleThreads}
           onArchive={(thread) => void removeThread(thread, 'archive')}
           onDelete={(thread) => void removeThread(thread, 'delete')}
           onOpen={(thread) => void openThread(thread)}
           onQueryChange={setHistoryQuery}
+          onRetry={() => void loadThreadHistory()}
         />
       ) : (
         <>
@@ -886,8 +1070,11 @@ export function AiPanel({
             effort={effort}
             mentionDocuments={filteredMentionDocuments}
             mentionQuery={mentionQuery}
+            mcpStatus={mcpStatus}
             mcpServerCount={mcpServerCount}
+            modelCatalogStatus={modelCatalogStatus}
             models={models}
+            authRequired={authRequired}
             runtimeStatus={runtimeStatus}
             selectedModel={selectedModel}
             selectedModelInfo={selectedModelInfo}
@@ -919,8 +1106,6 @@ export function AiPanel({
             onSend={() => void sendMessage()}
             onValueChange={(value) => {
               setComposerValue(value);
-              const match = value.match(/@([^\s@]*)$/);
-              setMentionQuery(match ? match[1] : null);
             }}
           />
         </>
@@ -1119,14 +1304,6 @@ function PanelContent({
   onPrompt: (prompt: string) => void;
   onSignIn: () => void;
 }) {
-  if (runtimeStatus === 'loading') {
-    return (
-      <EmptyPanel icon={<LoaderCircle className="animate-spin" size={20} />} title="正在连接 Codex">
-        <p>启动本地 App Server 并读取账户、模型与历史记录。</p>
-      </EmptyPanel>
-    );
-  }
-
   if (runtimeStatus === 'web') {
     return (
       <EmptyPanel icon={<Bot size={20} />} title="AI 面板已就绪">
@@ -1209,6 +1386,12 @@ function PanelContent({
               onApprove={onApprove}
               onOpenDocument={onOpenDocument}
             />
+          ) : block.type === 'changes' ? (
+            <ChangeSummaryCard
+              key={block.id}
+              summary={block}
+              onOpenDocument={onOpenDocument}
+            />
           ) : (
             <ConversationEntryRow
               entry={block}
@@ -1232,6 +1415,263 @@ function PanelContent({
 
 function previousConversationEntry(block: AiConversationBlock | undefined) {
   return block?.type === 'message' ? block : null;
+}
+
+export function ChangeSummaryCard({
+  summary,
+  onOpenDocument,
+}: {
+  summary: AiChangeSummaryBlock;
+  onOpenDocument: (documentPath: string) => void;
+}) {
+  const [expanded, setExpanded] = React.useState(false);
+  const visibleChanges = expanded
+    ? summary.changes
+    : summary.changes.slice(0, 3);
+  const remaining = Math.max(0, summary.changes.length - visibleChanges.length);
+
+  return (
+    <section className="mt-4 overflow-hidden rounded-xl border border-border/70 bg-background">
+      <div className="flex items-center gap-3 px-3 py-3">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted/45 text-muted-foreground">
+          <FilePenLine size={16} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-medium">
+            已编辑 {summary.changes.length} 个文件
+          </div>
+          <div className="mt-0.5 flex gap-2 text-[11px] tabular-nums">
+            <span className="text-emerald-600">+{summary.additions}</span>
+            <span className="text-red-500">-{summary.deletions}</span>
+          </div>
+        </div>
+      </div>
+      <div className="border-t border-border/60">
+        {visibleChanges.map((change) => (
+          <ChangeSummaryRow
+            change={change}
+            key={change.absolutePath ?? change.path}
+            onOpenDocument={onOpenDocument}
+          />
+        ))}
+      </div>
+      {remaining > 0 || (expanded && summary.changes.length > 3) ? (
+        <button
+          aria-label={expanded ? '收起文件列表' : `再显示 ${remaining} 个文件`}
+          className="flex w-full items-center justify-center gap-1 border-t border-border/60 px-3 py-2 text-[11px] text-muted-foreground outline-none transition-colors hover:bg-muted/20 hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30"
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {expanded ? '收起文件列表' : `再显示 ${remaining} 个文件`}
+          <ChevronDown
+            className={cn('size-3 transition-transform', expanded && 'rotate-180')}
+          />
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+function ChangeSummaryRow({
+  change,
+  onOpenDocument,
+}: {
+  change: AiFileChange;
+  onOpenDocument: (documentPath: string) => void;
+}) {
+  const clickable =
+    Boolean(change.absolutePath) &&
+    change.path.toLocaleLowerCase().endsWith('.md') &&
+    change.kind !== 'delete';
+  const hasPreview = Boolean(change.diff.trim());
+  const content = (
+    <>
+      <span className="min-w-0 flex-1 truncate">{change.path}</span>
+      <span className="flex shrink-0 gap-1.5 text-[10px] tabular-nums">
+        {change.additions > 0 ? (
+          <span className="text-emerald-600">+{change.additions}</span>
+        ) : null}
+        {change.deletions > 0 ? (
+          <span className="text-red-500">-{change.deletions}</span>
+        ) : null}
+      </span>
+    </>
+  );
+  const row = clickable ? (
+    <button
+      aria-label={change.path}
+      className="flex w-full items-center gap-3 border-b border-border/45 px-3 py-2 text-left text-xs text-foreground/75 outline-none transition-colors last:border-b-0 hover:bg-muted/25 hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30"
+      type="button"
+      onClick={() => onOpenDocument(change.absolutePath!)}
+    >
+      {content}
+    </button>
+  ) : (
+    <div
+      aria-label={hasPreview ? `${change.path}，查看变更预览` : undefined}
+      className="flex items-center gap-3 border-b border-border/45 px-3 py-2 text-xs text-foreground/75 outline-none last:border-b-0 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30"
+      tabIndex={hasPreview ? 0 : undefined}
+    >
+      {content}
+    </div>
+  );
+
+  if (!hasPreview) {
+    return row;
+  }
+
+  return (
+    <HoverCard closeDelay={100} openDelay={250}>
+      <HoverCardTrigger asChild>{row}</HoverCardTrigger>
+      <HoverCardContent
+        align="start"
+        aria-label={`${change.path} 变更预览`}
+        className="w-[min(680px,calc(100vw-2rem))] overflow-hidden rounded-xl p-0 shadow-lg"
+        collisionPadding={16}
+        role="region"
+        side="top"
+        sideOffset={8}
+      >
+        <ChangeDiffPreview change={change} />
+      </HoverCardContent>
+    </HoverCard>
+  );
+}
+
+type DiffPreviewLine = {
+  content: string;
+  kind: 'addition' | 'context' | 'deletion' | 'meta' | 'omitted';
+  lineNumber: number | null;
+};
+
+const MAX_DIFF_PREVIEW_LINES = 240;
+const DIFF_PREVIEW_HEAD_LINES = 180;
+const DIFF_PREVIEW_TAIL_LINES = 59;
+
+function ChangeDiffPreview({ change }: { change: AiFileChange }) {
+  const lines = React.useMemo(
+    () => createDiffPreviewLines(change.diff),
+    [change.diff],
+  );
+
+  return (
+    <div className="bg-popover text-popover-foreground">
+      <header className="flex items-center gap-3 border-b border-border/70 px-3 py-2.5">
+        <div className="min-w-0 flex-1 truncate text-[13px] font-medium" title={change.path}>
+          {change.path}
+        </div>
+        <div className="flex shrink-0 gap-2 text-[11px] tabular-nums">
+          <span className="text-emerald-600">+{change.additions}</span>
+          <span className="text-red-500">-{change.deletions}</span>
+        </div>
+      </header>
+      <div className="max-h-[min(420px,65vh)] overflow-auto overscroll-contain py-1 font-mono text-[11px] leading-5">
+        {lines.map((line, index) =>
+          line.kind === 'omitted' ? (
+            <div
+              className="border-y border-border/50 bg-muted/30 px-3 py-1 text-center font-sans text-[10px] text-muted-foreground"
+              key={`omitted-${index}`}
+            >
+              {line.content}
+            </div>
+          ) : (
+            <div
+              className={cn(
+                'grid min-w-max grid-cols-[3rem_1rem_minmax(0,1fr)] border-l-2 border-transparent pr-4',
+                line.kind === 'addition' &&
+                  'border-l-emerald-500 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200',
+                line.kind === 'deletion' &&
+                  'border-l-red-500 bg-red-500/10 text-red-800 dark:text-red-200',
+                line.kind === 'meta' && 'text-muted-foreground',
+              )}
+              key={`${index}:${line.kind}:${line.content}`}
+            >
+              <span className="select-none border-r border-border/45 pr-2 text-right text-muted-foreground/70 tabular-nums">
+                {line.lineNumber ?? ''}
+              </span>
+              <span className="select-none text-center text-muted-foreground/70">
+                {line.kind === 'addition'
+                  ? '+'
+                  : line.kind === 'deletion'
+                    ? '-'
+                    : ' '}
+              </span>
+              <span className="whitespace-pre">{line.content || ' '}</span>
+            </div>
+          ),
+        )}
+      </div>
+    </div>
+  );
+}
+
+function createDiffPreviewLines(diff: string): DiffPreviewLine[] {
+  const lines: DiffPreviewLine[] = [];
+  let oldLineNumber: number | null = null;
+  let newLineNumber: number | null = null;
+
+  for (const line of diff.split(/\r?\n/)) {
+    const hunk = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    if (hunk) {
+      oldLineNumber = Number(hunk[1]);
+      newLineNumber = Number(hunk[2]);
+      continue;
+    }
+    if (isDiffHeaderLine(line)) {
+      continue;
+    }
+    if (line.startsWith('\\ No newline at end of file')) {
+      lines.push({ content: line, kind: 'meta', lineNumber: null });
+      continue;
+    }
+    if (line.startsWith('+')) {
+      lines.push({
+        content: line.slice(1),
+        kind: 'addition',
+        lineNumber: newLineNumber,
+      });
+      if (newLineNumber !== null) newLineNumber += 1;
+      continue;
+    }
+    if (line.startsWith('-')) {
+      lines.push({
+        content: line.slice(1),
+        kind: 'deletion',
+        lineNumber: oldLineNumber,
+      });
+      if (oldLineNumber !== null) oldLineNumber += 1;
+      continue;
+    }
+
+    const content = line.startsWith(' ') ? line.slice(1) : line;
+    lines.push({
+      content,
+      kind: 'context',
+      lineNumber: newLineNumber ?? oldLineNumber,
+    });
+    if (oldLineNumber !== null) oldLineNumber += 1;
+    if (newLineNumber !== null) newLineNumber += 1;
+  }
+
+  if (lines.length <= MAX_DIFF_PREVIEW_LINES) {
+    return lines;
+  }
+  const omitted = lines.length - DIFF_PREVIEW_HEAD_LINES - DIFF_PREVIEW_TAIL_LINES;
+  return [
+    ...lines.slice(0, DIFF_PREVIEW_HEAD_LINES),
+    {
+      content: `已省略 ${omitted} 行`,
+      kind: 'omitted',
+      lineNumber: null,
+    },
+    ...lines.slice(-DIFF_PREVIEW_TAIL_LINES),
+  ];
+}
+
+function isDiffHeaderLine(line: string) {
+  return /^(diff --git |index |--- |\+\+\+ |new file mode |deleted file mode |similarity index |rename from |rename to )/.test(
+    line,
+  );
 }
 
 export function ConversationEntryRow({
@@ -2003,18 +2443,22 @@ function approvalChoiceClassName(kind: AiApprovalRequest['choices'][number]['kin
 
 function ThreadHistory({
   query,
+  status,
   threads,
   onArchive,
   onDelete,
   onOpen,
   onQueryChange,
+  onRetry,
 }: {
   query: string;
+  status: ControlLoadStatus;
   threads: CodexThread[];
   onArchive: (thread: CodexThread) => void;
   onDelete: (thread: CodexThread) => void;
   onOpen: (thread: CodexThread) => void;
   onQueryChange: (query: string) => void;
+  onRetry: () => void;
 }) {
   const grouped = groupThreadsByDate(threads);
 
@@ -2030,7 +2474,23 @@ function ThreadHistory({
         />
       </label>
 
-      {grouped.length === 0 ? (
+      {status === 'loading' && grouped.length === 0 ? (
+        <div className="flex items-center justify-center gap-2 px-3 py-16 text-xs text-muted-foreground">
+          <LoaderCircle className="animate-spin" size={14} />
+          正在读取历史任务
+        </div>
+      ) : status === 'error' && grouped.length === 0 ? (
+        <div className="px-3 py-16 text-center text-xs text-muted-foreground">
+          <p>历史任务暂时无法读取</p>
+          <button
+            className="mt-3 rounded-md border border-border/70 px-2.5 py-1.5 text-foreground hover:bg-accent"
+            type="button"
+            onClick={onRetry}
+          >
+            重试
+          </button>
+        </div>
+      ) : grouped.length === 0 ? (
         <div className="px-3 py-16 text-center text-xs text-muted-foreground">
           暂无历史任务
         </div>
@@ -2127,12 +2587,15 @@ function PermissionModeItem({
 export function AiComposer({
   active,
   approvalPolicyAvailability,
+  authRequired = false,
   autoReviewAvailable,
   currentDocument,
   effort,
   mentionDocuments,
   mentionQuery,
+  mcpStatus = 'ready',
   mcpServerCount,
+  modelCatalogStatus = 'ready',
   models,
   permissionMode,
   permissionProfiles,
@@ -2155,12 +2618,15 @@ export function AiComposer({
 }: {
   active: boolean;
   approvalPolicyAvailability: { never: boolean; onRequest: boolean };
+  authRequired?: boolean;
   autoReviewAvailable: boolean;
   currentDocument: WorkspaceNode | null;
   effort: CodexReasoningEffort;
   mentionDocuments: AiDocumentReference[];
   mentionQuery: string | null;
+  mcpStatus?: ControlLoadStatus;
   mcpServerCount: number;
+  modelCatalogStatus?: ControlLoadStatus;
   models: CodexModel[];
   permissionMode: PermissionModeId;
   permissionProfiles: CodexPermissionProfileSummary[];
@@ -2181,15 +2647,28 @@ export function AiComposer({
   onSend: () => void;
   onValueChange: (value: string) => void;
 }) {
-  const disabled = runtimeStatus !== 'ready';
+  const runtimeUnavailable = runtimeStatus === 'error' || runtimeStatus === 'web';
+  const preparing = runtimeStatus === 'loading';
+  const editorDisabled = runtimeUnavailable || authRequired || submitting;
+  const controlsDisabled =
+    runtimeStatus !== 'ready' || authRequired || submitting;
   const effortOptions = selectedModelInfo?.supportedReasoningEfforts ?? [];
   const profileAllowed = (profileId: string) =>
     permissionProfiles.find((profile) => profile.id === profileId)?.allowed ?? true;
   const editorRef = React.useRef<HTMLDivElement>(null);
   const initializedRef = React.useRef(false);
   const savedRangeRef = React.useRef<Range | null>(null);
+  const mentionTargetRef = React.useRef<ComposerMentionTarget | null>(null);
+  const dismissedMentionKeyRef = React.useRef<string | null>(null);
   const mentionPathsRef = React.useRef<string[]>([]);
-  const placeholder = disabled
+  const mentionListboxId = React.useId();
+  const [mentionSelection, setMentionSelection] = React.useState<{
+    path: string | null;
+    query: string | null;
+  }>({ path: null, query: null });
+  const placeholder = authRequired
+    ? '登录 ChatGPT 后可用'
+    : runtimeUnavailable
     ? '桌面端连接 Codex 后可用'
     : '要求后续变更，使用 @ 提及文档';
 
@@ -2208,6 +2687,18 @@ export function AiComposer({
 
     savedRangeRef.current = range.cloneRange();
   }, []);
+
+  const syncMentionTarget = React.useCallback(() => {
+    const target = getComposerMentionTarget(editorRef.current);
+    if (!target || target.key === dismissedMentionKeyRef.current) {
+      mentionTargetRef.current = null;
+      onMentionQueryChange(null);
+      return;
+    }
+
+    mentionTargetRef.current = target;
+    onMentionQueryChange(target.query);
+  }, [onMentionQueryChange]);
 
   const syncEditorState = React.useCallback(() => {
     const editor = editorRef.current;
@@ -2259,8 +2750,11 @@ export function AiComposer({
       }
 
       editor.focus();
-      const range = getComposerRange(editor, savedRangeRef.current);
-      removeMentionQuery(editor, range, `@${mentionQuery ?? ''}`);
+      const targetRange = mentionTargetRef.current?.range;
+      const range =
+        targetRange && editor.contains(targetRange.commonAncestorContainer)
+          ? targetRange.cloneRange()
+          : getComposerRange(editor, savedRangeRef.current);
       range.deleteContents();
 
       const mention = createMentionElement(document);
@@ -2275,10 +2769,42 @@ export function AiComposer({
       selection?.addRange(range);
       savedRangeRef.current = range.cloneRange();
 
+      mentionTargetRef.current = null;
+      dismissedMentionKeyRef.current = null;
+      setMentionSelection({ path: null, query: null });
       onMentionQueryChange(null);
       syncEditorState();
     },
-    [mentionQuery, onMentionQueryChange, syncEditorState],
+    [onMentionQueryChange, syncEditorState],
+  );
+
+  const closeMentionMenu = React.useCallback(() => {
+    dismissedMentionKeyRef.current = mentionTargetRef.current?.key ?? null;
+    mentionTargetRef.current = null;
+    setMentionSelection({ path: null, query: null });
+    onMentionQueryChange(null);
+  }, [onMentionQueryChange]);
+
+  const selectedMentionIndex =
+    mentionSelection.query === mentionQuery
+      ? mentionDocuments.findIndex(
+          (document) => document.absolutePath === mentionSelection.path,
+        )
+      : -1;
+  const activeMentionIndex =
+    mentionDocuments.length === 0 ? -1 : Math.max(0, selectedMentionIndex);
+  const activeMention =
+    activeMentionIndex >= 0
+      ? (mentionDocuments[activeMentionIndex] ?? null)
+      : null;
+  const selectMentionIndex = React.useCallback(
+    (index: number) => {
+      setMentionSelection({
+        path: mentionDocuments[index]?.absolutePath ?? null,
+        query: mentionQuery,
+      });
+    },
+    [mentionDocuments, mentionQuery],
   );
 
   return (
@@ -2286,9 +2812,12 @@ export function AiComposer({
       <div className="relative rounded-2xl border border-border/80 bg-background shadow-[0_1px_4px_rgba(15,23,42,0.06)] focus-within:border-foreground/20">
         {mentionQuery !== null ? (
           <MentionMenu
+            activeIndex={activeMentionIndex}
             documents={mentionDocuments}
+            listboxId={mentionListboxId}
             query={mentionQuery}
-            onClose={() => onMentionQueryChange(null)}
+            onActiveIndexChange={selectMentionIndex}
+            onClose={closeMentionMenu}
             onSelect={insertMention}
           />
         ) : null}
@@ -2301,10 +2830,17 @@ export function AiComposer({
 
         <div
           aria-label="向 Codex 提问"
+          aria-activedescendant={
+            mentionQuery !== null && activeMention
+              ? mentionOptionId(mentionListboxId, activeMentionIndex)
+              : undefined
+          }
+          aria-autocomplete="list"
+          aria-controls={mentionQuery !== null ? mentionListboxId : undefined}
           aria-multiline="true"
           className="scrollbar-thin block min-h-14 max-h-40 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent px-3 pb-2 pt-3 text-[13px] leading-5 outline-none data-[disabled=true]:cursor-not-allowed data-[empty=true]:before:pointer-events-none data-[empty=true]:before:text-muted-foreground/60 data-[empty=true]:before:content-[attr(data-placeholder)]"
-          contentEditable={!disabled}
-          data-disabled={disabled}
+          contentEditable={!editorDisabled}
+          data-disabled={editorDisabled}
           data-empty={!value}
           data-placeholder={placeholder}
           ref={editorRef}
@@ -2319,10 +2855,13 @@ export function AiComposer({
               return;
             }
             saveSelection();
+            syncMentionTarget();
           }}
           onInput={() => {
+            dismissedMentionKeyRef.current = null;
             saveSelection();
             syncEditorState();
+            syncMentionTarget();
           }}
           onKeyDown={(event) => {
             const mention = findMentionElement(event.target);
@@ -2330,6 +2869,44 @@ export function AiComposer({
               event.preventDefault();
               onOpenMention(mention.dataset.mentionPath ?? '');
               return;
+            }
+
+            if (mentionQuery !== null && !event.nativeEvent.isComposing) {
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                if (mentionDocuments.length > 0) {
+                  const direction = event.key === 'ArrowDown' ? 1 : -1;
+                  selectMentionIndex(
+                    (activeMentionIndex +
+                      direction +
+                      mentionDocuments.length) %
+                      mentionDocuments.length,
+                  );
+                }
+                return;
+              }
+
+              if (
+                (event.key === 'Enter' && !event.shiftKey) ||
+                event.key === 'Tab'
+              ) {
+                event.preventDefault();
+                if (activeMention) {
+                  insertMention(activeMention);
+                } else {
+                  closeMentionMenu();
+                  if (event.key === 'Enter') {
+                    onSend();
+                  }
+                }
+                return;
+              }
+
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                closeMentionMenu();
+                return;
+              }
             }
 
             if (
@@ -2355,7 +2932,16 @@ export function AiComposer({
               onSend();
             }
           }}
-          onKeyUp={saveSelection}
+          onKeyUp={(event) => {
+            saveSelection();
+            if (
+              !['ArrowDown', 'ArrowUp', 'Enter', 'Escape', 'Tab'].includes(
+                event.key,
+              )
+            ) {
+              syncMentionTarget();
+            }
+          }}
           onPaste={(event) => {
             event.preventDefault();
             insertPlainTextAtSelection(
@@ -2373,7 +2959,7 @@ export function AiComposer({
               <button
                 aria-label="添加上下文与工具"
                 className="flex size-7 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
-                disabled={disabled}
+                disabled={controlsDisabled}
                 type="button"
               >
                 <Plus size={17} />
@@ -2391,7 +2977,13 @@ export function AiComposer({
               </DropdownMenuItem>
               <DropdownMenuItem disabled>
                 <Blocks size={14} />
-                {mcpServerCount > 0
+                {mcpStatus === 'loading'
+                  ? '正在发现 MCP Server…'
+                  : mcpStatus === 'error'
+                    ? 'MCP 状态暂不可用'
+                    : mcpStatus === 'idle'
+                      ? '打开面板后发现 MCP Server'
+                      : mcpServerCount > 0
                   ? `${mcpServerCount} 个 MCP Server 可用`
                   : '暂无 MCP Server'}
               </DropdownMenuItem>
@@ -2416,7 +3008,7 @@ export function AiComposer({
                     ? 'text-orange-600 dark:text-orange-400'
                     : 'text-amber-600 dark:text-amber-400',
                 )}
-                disabled={disabled}
+                disabled={controlsDisabled}
                 type="button"
               >
                 {permissionMode === 'full' ? (
@@ -2522,15 +3114,27 @@ export function AiComposer({
           </DropdownMenu>
 
           <div className="ml-auto flex min-w-0 items-center gap-0.5">
+            {preparing ? (
+              <span
+                aria-live="polite"
+                className="mr-1 inline-flex items-center gap-1 text-[10px] text-muted-foreground"
+              >
+                <LoaderCircle className="animate-spin" size={12} />
+                正在准备
+              </span>
+            ) : null}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
                   className="flex h-7 max-w-32 items-center gap-1 truncate rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                  disabled={disabled || models.length === 0}
+                  disabled={controlsDisabled || models.length === 0}
                   type="button"
                 >
                   <span className="truncate">
-                    {selectedModelInfo?.displayName || 'Codex'}
+                    {selectedModelInfo?.displayName ||
+                      (modelCatalogStatus === 'loading'
+                        ? '正在加载模型'
+                        : 'Codex 默认模型')}
                   </span>
                   <ChevronDown size={12} />
                 </button>
@@ -2556,7 +3160,7 @@ export function AiComposer({
               <DropdownMenuTrigger asChild>
                 <button
                   className="flex h-7 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                  disabled={disabled || effortOptions.length === 0}
+                  disabled={controlsDisabled || effortOptions.length === 0}
                   type="button"
                 >
                   {formatEffort(effort)}
@@ -2598,7 +3202,7 @@ export function AiComposer({
               <button
                 aria-label="发送"
                 className="ml-1 flex size-8 items-center justify-center rounded-full bg-foreground text-background disabled:opacity-30"
-                disabled={disabled || submitting || !value.trim()}
+                disabled={runtimeUnavailable || submitting || !value.trim()}
                 type="button"
                 onClick={onSend}
               >
@@ -2617,46 +3221,93 @@ export function AiComposer({
 }
 
 function MentionMenu({
+  activeIndex,
   documents,
+  listboxId,
   query,
+  onActiveIndexChange,
   onClose,
   onSelect,
 }: {
+  activeIndex: number;
   documents: AiDocumentReference[];
+  listboxId: string;
   query: string;
+  onActiveIndexChange: (index: number) => void;
   onClose: () => void;
   onSelect: (document: AiDocumentReference) => void;
 }) {
+  const optionRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
+
+  React.useLayoutEffect(() => {
+    if (activeIndex < 0) {
+      return;
+    }
+    optionRefs.current[activeIndex]?.scrollIntoView?.({ block: 'nearest' });
+  }, [activeIndex]);
+
   return (
-    <div className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-30 overflow-hidden rounded-xl border border-border bg-popover p-1.5 shadow-xl">
+    <div
+      className="absolute bottom-[calc(100%+6px)] left-0 right-0 z-30 overflow-hidden rounded-xl border border-border/80 bg-popover p-1.5 shadow-none"
+      data-mention-menu
+    >
       <div className="flex items-center justify-between px-2 py-1.5 text-[11px] text-muted-foreground">
         <span>@ 提及文档{query ? ` · ${query}` : ''}</span>
-        <button aria-label="关闭提及列表" type="button" onClick={onClose}>
+        <button
+          aria-label="关闭提及列表"
+          className="rounded-sm p-0.5 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={onClose}
+        >
           <X size={13} />
         </button>
       </div>
-      <div className="max-h-56 overflow-y-auto">
+      <div
+        aria-label="提及工作区文档"
+        className="scrollbar-thin max-h-56 overflow-y-auto"
+        id={listboxId}
+        role="listbox"
+      >
         {documents.length === 0 ? (
           <div className="px-2 py-5 text-center text-xs text-muted-foreground">
             没有匹配的文档
           </div>
         ) : (
-          documents.map((document) => (
+          documents.map((document, index) => (
             <button
               aria-label={`提及 ${document.title || document.name}`}
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-accent"
+              aria-selected={index === activeIndex}
+              className={cn(
+                'flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left outline-none',
+                index === activeIndex
+                  ? 'bg-accent text-accent-foreground'
+                  : 'hover:bg-accent/60',
+              )}
+              id={mentionOptionId(listboxId, index)}
               key={document.absolutePath}
+              ref={(element) => {
+                optionRefs.current[index] = element;
+              }}
+              role="option"
               type="button"
               onMouseDown={(event) => event.preventDefault()}
+              onMouseMove={() => onActiveIndexChange(index)}
               onClick={() => onSelect(document)}
             >
               <FileText className="shrink-0 text-muted-foreground" size={14} />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-xs">
-                  {document.title || document.name}
+                  <MentionMatchedText
+                    query={query}
+                    text={document.title || document.name}
+                  />
                 </div>
                 <div className="truncate text-[10px] text-muted-foreground">
-                  {document.relativePath}
+                  <MentionMatchedText
+                    query={query}
+                    text={document.relativePath}
+                  />
                 </div>
               </div>
             </button>
@@ -2665,6 +3316,27 @@ function MentionMenu({
       </div>
     </div>
   );
+}
+
+function MentionMatchedText({ query, text }: { query: string; text: string }) {
+  const matchedIndices = new Set(mentionMatchIndices(text, query));
+  if (matchedIndices.size === 0) {
+    return text;
+  }
+
+  return Array.from(text).map((character, index) =>
+    matchedIndices.has(index) ? (
+      <span className="font-medium text-foreground" key={`${index}-${character}`}>
+        {character}
+      </span>
+    ) : (
+      character
+    ),
+  );
+}
+
+function mentionOptionId(listboxId: string, index: number) {
+  return `${listboxId}-option-${index}`;
 }
 
 function ContextChip({
@@ -2728,31 +3400,64 @@ function getComposerRange(editor: HTMLElement, savedRange: Range | null) {
   return range;
 }
 
-function removeMentionQuery(
-  editor: HTMLElement,
-  range: Range,
-  expectedQuery: string,
-) {
-  if (!expectedQuery) {
-    return;
+function getComposerMentionTarget(editor: HTMLElement | null) {
+  const selection = window.getSelection();
+  if (
+    !editor ||
+    !selection ||
+    selection.rangeCount === 0 ||
+    !selection.isCollapsed
+  ) {
+    return null;
+  }
+
+  const selectionRange = selection.getRangeAt(0);
+  if (!editor.contains(selectionRange.commonAncestorContainer)) {
+    return null;
+  }
+
+  const selectionElement =
+    selectionRange.startContainer instanceof Element
+      ? selectionRange.startContainer
+      : selectionRange.startContainer.parentElement;
+  if (selectionElement?.closest('[data-mention-path]')) {
+    return null;
   }
 
   const prefixRange = window.document.createRange();
   prefixRange.selectNodeContents(editor);
-  prefixRange.setEnd(range.startContainer, range.startOffset);
+  prefixRange.setEnd(
+    selectionRange.startContainer,
+    selectionRange.startOffset,
+  );
+  const suffixRange = window.document.createRange();
+  suffixRange.selectNodeContents(editor);
+  suffixRange.setStart(
+    selectionRange.endContainer,
+    selectionRange.endOffset,
+  );
+
   const prefix = prefixRange.toString();
-
-  if (!prefix.endsWith(expectedQuery)) {
-    return;
+  const text = `${prefix}${suffixRange.toString()}`;
+  const token = findMentionToken(text, prefix.length);
+  if (!token) {
+    return null;
   }
 
-  const start = findTextPosition(editor, prefix.length - expectedQuery.length);
-  if (!start) {
-    return;
+  const start = findTextPosition(editor, token.start);
+  const end = findTextPosition(editor, token.end);
+  if (!start || !end) {
+    return null;
   }
 
+  const range = window.document.createRange();
   range.setStart(start.node, start.offset);
-  range.deleteContents();
+  range.setEnd(end.node, end.offset);
+  return {
+    key: `${token.start}:${token.end}:${prefix.length}:${text}`,
+    query: token.query,
+    range,
+  } satisfies ComposerMentionTarget;
 }
 
 function findTextPosition(root: HTMLElement, targetOffset: number) {
