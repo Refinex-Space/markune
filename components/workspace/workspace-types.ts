@@ -2,6 +2,8 @@ export type WorkspaceNodeKind = 'directory' | 'document';
 
 export type WorkspaceExportFormat = 'html' | 'markdown' | 'pdf' | 'word';
 
+export type WorkspaceImportFormat = 'html' | 'markdown' | 'pdf' | 'word';
+
 export interface ExportDirectoryGrant {
   grantId: string;
   displayPath: string;
@@ -16,6 +18,40 @@ export interface DocumentExportFile {
 export interface DocumentExportResult {
   primaryPath: string;
   createdPaths: string[];
+  warnings: string[];
+}
+
+export interface DocumentImportSource {
+  fileName: string;
+  format: WorkspaceImportFormat;
+  size: number;
+  sourceId: string;
+}
+
+export interface DocumentImportGrant {
+  grantId: string;
+  sources: DocumentImportSource[];
+}
+
+export interface DocumentImportAssetManifest {
+  fileName: string;
+  mediaType: string;
+  size: number;
+  token: string;
+}
+
+export interface DocumentImportManifest {
+  assets: DocumentImportAssetManifest[];
+  markdown: string;
+  title: string;
+}
+
+export interface ImportCommitSession {
+  sessionId: string;
+}
+
+export interface ImportedDocumentResult {
+  node: WorkspaceNode;
   warnings: string[];
 }
 
@@ -219,12 +255,6 @@ export interface DailyNoteMonth {
 export interface DailyNoteDocument {
   node: WorkspaceNode;
   content: MarkdownDocumentContent;
-}
-
-export interface MarkdownSourceFile {
-  path: string;
-  fileName: string;
-  content: string;
 }
 
 export type DocumentLoadState = 'idle' | 'loading' | 'loaded' | 'error';

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -84,10 +84,48 @@ describe('DocumentTree', () => {
 
     await user.click(screen.getByText('Guides'));
 
-    expect(
-      screen.getByText('入门').closest('[role="button"]')?.getAttribute('style'),
-    ).toBe(
-      screen.getByText('Guides').closest('[role="button"]')?.getAttribute('style'),
+    expect(screen.getByTestId('tree-row-surface-intro').style.marginLeft).toBe(
+      screen.getByTestId('tree-row-surface-guides').style.marginLeft,
+    );
+  });
+
+  it('insets document hover and selected backgrounds from tree guides', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <DocumentTree
+        currentDocumentPath="/repo/Guides/intro.md"
+        nodes={nodes}
+        searchQuery=""
+        onCreateDirectory={vi.fn()}
+        onCreateDocument={vi.fn()}
+        onDeleteNode={vi.fn()}
+        onImportMarkdown={vi.fn()}
+        onRenameNode={vi.fn()}
+        onSelectDocument={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByText('Guides'));
+
+    const directorySurface = screen.getByTestId('tree-row-surface-guides');
+    const documentSurface = screen.getByTestId('tree-row-surface-intro');
+
+    expect(directorySurface.className).toContain(
+      'group-hover/tree-row:bg-sidebar-accent/70',
+    );
+    expect(documentSurface.className).toContain('before:left-5');
+    expect(documentSurface.className).toContain('isolate');
+    expect(documentSurface.className).toContain('before:z-0');
+    expect(documentSurface.className).toContain(
+      'group-hover/tree-row:before:bg-sidebar-accent/70',
+    );
+    expect(documentSurface.className).toContain('before:bg-sidebar-accent');
+    expect(documentSurface.className).not.toContain(
+      'group-hover/tree-row:bg-sidebar-accent/70',
+    );
+    expect(screen.getByText('入门').parentElement?.className).toContain(
+      'z-[1]',
     );
   });
 
@@ -113,6 +151,178 @@ describe('DocumentTree', () => {
     expect(screen.getByTestId('tree-node-guides').className).toContain(
       'space-y-0.5',
     );
+    expect(screen.getByTestId('tree-row-guides').className).toContain('h-7');
+    expect(screen.getByTestId('tree-row-guides').className).toContain(
+      'text-[13px]',
+    );
+  });
+
+  it('reveals and scrolls to a deeply nested document for repeated requests', async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    const nestedNodes: WorkspaceNode[] = [
+      {
+        id: 'parent',
+        name: 'Parent',
+        kind: 'directory',
+        relativePath: 'Parent',
+        absolutePath: '/repo/Parent',
+        children: [
+          {
+            id: 'child',
+            name: 'Child',
+            kind: 'directory',
+            relativePath: 'Parent/Child',
+            absolutePath: '/repo/Parent/Child',
+            children: [
+              {
+                id: 'leaf',
+                name: 'leaf.md',
+                kind: 'document',
+                relativePath: 'Parent/Child/leaf.md',
+                absolutePath: '/repo/Parent/Child/leaf.md',
+                title: 'Leaf',
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    const props = {
+      currentDocumentPath: '/repo/Parent/Child/leaf.md',
+      nodes: nestedNodes,
+      searchQuery: '',
+      onCreateDirectory: vi.fn(),
+      onCreateDocument: vi.fn(),
+      onDeleteNode: vi.fn(),
+      onImportMarkdown: vi.fn(),
+      onRenameNode: vi.fn(),
+      onSelectDocument: vi.fn(),
+    };
+
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    try {
+      const { rerender } = render(
+        <DocumentTree
+          {...props}
+          revealNodePath="/repo/Parent/Child/leaf.md"
+          revealNodeRequestId={1}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('tree-row-leaf')).toBeTruthy();
+        expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      });
+      expect(screen.getByTestId('directory-folder-open-parent')).toBeTruthy();
+      expect(screen.getByTestId('directory-folder-open-child')).toBeTruthy();
+
+      await user.click(screen.getByText('Parent'));
+      expect(screen.queryByTestId('tree-row-leaf')).toBeNull();
+
+      rerender(
+        <DocumentTree
+          {...props}
+          revealNodePath="/repo/Parent/Child/leaf.md"
+          revealNodeRequestId={2}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('tree-row-leaf')).toBeTruthy();
+        expect(scrollIntoView).toHaveBeenCalledTimes(2);
+      });
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+        configurable: true,
+        value: originalScrollIntoView,
+      });
+    }
+  });
+
+  it('renders a guide for each expanded directory subtree', async () => {
+    const user = userEvent.setup();
+    const nestedNodes: WorkspaceNode[] = [
+      {
+        id: 'parent',
+        name: 'Parent',
+        kind: 'directory',
+        relativePath: 'Parent',
+        absolutePath: '/repo/Parent',
+        children: [
+          {
+            id: 'child',
+            name: 'Child',
+            kind: 'directory',
+            relativePath: 'Parent/Child',
+            absolutePath: '/repo/Parent/Child',
+            children: [
+              {
+                id: 'leaf',
+                name: 'leaf.md',
+                kind: 'document',
+                relativePath: 'Parent/Child/leaf.md',
+                absolutePath: '/repo/Parent/Child/leaf.md',
+                title: 'Leaf',
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    render(
+      <DocumentTree
+        currentDocumentPath={null}
+        nodes={nestedNodes}
+        searchQuery=""
+        onCreateDirectory={vi.fn()}
+        onCreateDocument={vi.fn()}
+        onDeleteNode={vi.fn()}
+        onImportMarkdown={vi.fn()}
+        onRenameNode={vi.fn()}
+        onSelectDocument={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId('tree-guide-parent')).toBeNull();
+
+    await user.click(screen.getByText('Parent'));
+
+    expect(
+      screen.getByTestId('tree-guide-parent').getAttribute('aria-hidden'),
+    ).toBe('true');
+    expect(screen.getByTestId('tree-guide-parent').className).toContain(
+      'bg-sidebar-foreground/20',
+    );
+    expect(screen.getByTestId('tree-guide-parent').className).toContain(
+      'bottom-0',
+    );
+    expect(screen.getByTestId('tree-guide-parent').style.left).toBe('14.5px');
+    expect(screen.getByTestId('tree-row-surface-parent').style.marginLeft).toBe(
+      '0px',
+    );
+    expect(screen.getByTestId('tree-row-surface-child').style.marginLeft).toBe(
+      '20px',
+    );
+    expect(screen.queryByTestId('tree-guide-child')).toBeNull();
+
+    await user.click(screen.getByText('Child'));
+
+    expect(screen.getByTestId('tree-guide-child').style.left).toBe('34.5px');
+    expect(screen.getByTestId('tree-row-surface-leaf').style.marginLeft).toBe(
+      '20px',
+    );
+
+    await user.click(screen.getByText('Parent'));
+
+    expect(screen.queryByTestId('tree-guide-parent')).toBeNull();
+    expect(screen.queryByTestId('tree-guide-child')).toBeNull();
   });
 
   it('selects native documents and exposes folder menu actions', async () => {
@@ -195,6 +405,41 @@ describe('DocumentTree', () => {
       expect.objectContaining({ name: 'README.md' }),
       'html',
     );
+  });
+
+  it('exposes four professional import formats with their Lucide icons', async () => {
+    const user = userEvent.setup();
+    const onImportDocuments = vi.fn();
+
+    render(
+      <DocumentTree
+        currentDocumentPath={null}
+        nodes={nodes}
+        searchQuery=""
+        onCreateDirectory={vi.fn()}
+        onCreateDocument={vi.fn()}
+        onDeleteNode={vi.fn()}
+        onImportDocuments={onImportDocuments}
+        onImportMarkdown={vi.fn()}
+        onRenameNode={vi.fn()}
+        onSelectDocument={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByLabelText('打开 Guides 操作菜单'));
+    await user.click(screen.getByRole('menuitem', { name: '导入' }));
+
+    const markdown = screen.getByRole('menuitem', { name: '从 Markdown 导入' });
+    const word = screen.getByRole('menuitem', { name: '从 Word 导入' });
+    const pdf = screen.getByRole('menuitem', { name: '从 PDF 导入' });
+    const html = screen.getByRole('menuitem', { name: '从 HTML 导入' });
+    expect(markdown.querySelector('.lucide-file-text')).toBeTruthy();
+    expect(word.querySelector('.lucide-file-type-corner')).toBeTruthy();
+    expect(pdf.querySelector('.lucide-file-search-corner')).toBeTruthy();
+    expect(html.querySelector('.lucide-file-code-corner')).toBeTruthy();
+
+    fireEvent.click(pdf);
+    expect(onImportDocuments).toHaveBeenCalledWith('Guides', 'pdf');
   });
 
   it('opens a document from the node action menu in the file manager', async () => {

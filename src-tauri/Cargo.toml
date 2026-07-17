@@ -38,6 +38,7 @@ tauri-plugin-shell = "2.3.5"
 tauri-plugin-updater = "2.10.1"
 uuid = { version = "1.18.1", features = ["v4"] }
 fontdb = "0.23.0"
+zip = { version = "=2.4.2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.38.2"

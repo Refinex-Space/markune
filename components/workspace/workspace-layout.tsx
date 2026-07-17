@@ -60,6 +60,7 @@ import {
   createInitialEditorLayout,
   getActiveTab,
   openDocumentTab,
+  renameDocumentTab,
   selectDocumentTab,
   type DocumentEditorLayout,
 } from './document-tabs';
@@ -72,6 +73,7 @@ import { TerminalPanel, type TerminalTab } from './terminal-panel';
 import { useWorkspace } from './use-workspace';
 import { WorkspaceGlobalSearchDialog } from './workspace-global-search-dialog';
 import { useDocumentExport } from './use-document-export';
+import { useDocumentImport } from './use-document-import';
 import {
   buildWorkspaceSearchIndex,
   searchWorkspaceIndex,
@@ -480,9 +482,10 @@ export function WorkspaceLayout({
   const [leftPanelMode, setLeftPanelMode] =
     React.useState<LeftPanelMode>('workspace');
   const [systemPage, setSystemPage] = React.useState<WorkspaceSystemPage>(null);
-  const [revealedDirectoryPath, setRevealedDirectoryPath] = React.useState<
-    string | null
-  >(null);
+  const [treeRevealRequest, setTreeRevealRequest] = React.useState<{
+    absolutePath: string;
+    requestId: number;
+  } | null>(null);
   const [bottomPanelMode, setBottomPanelMode] =
     React.useState<BottomPanelMode>(null);
   const [gitProbeState, setGitProbeState] = React.useState<GitProbe | null>(
@@ -1617,6 +1620,31 @@ export function WorkspaceLayout({
     ],
   );
 
+  const revealNodeInWorkspaceTree = React.useCallback(
+    (absolutePath: string) => {
+      setLeftPanelMode('workspace');
+      workspace.setSearchQuery('');
+      setTreeRevealRequest((current) => ({
+        absolutePath,
+        requestId: (current?.requestId ?? 0) + 1,
+      }));
+    },
+    [workspace],
+  );
+
+  const handleOpenImportedDocument = React.useCallback(
+    async (node: WorkspaceNode) => {
+      revealNodeInWorkspaceTree(node.absolutePath);
+      await openDocumentNode(node);
+    },
+    [openDocumentNode, revealNodeInWorkspaceTree],
+  );
+  const documentImport = useDocumentImport({
+    openDocument: handleOpenImportedDocument,
+    refreshWorkspaceTree: workspace.refreshWorkspaceTree,
+    rootPath: workspaceRootPath,
+  });
+
   const handleOpenRecentDocument = React.useCallback(
     (documentPath: string) => {
       const node = findWorkspaceDocumentByPath(
@@ -1628,9 +1656,10 @@ export function WorkspaceLayout({
         return;
       }
 
+      revealNodeInWorkspaceTree(node.absolutePath);
       void openDocumentNode(node);
     },
-    [openDocumentNode, workspace.snapshot?.nodes],
+    [openDocumentNode, revealNodeInWorkspaceTree, workspace.snapshot?.nodes],
   );
 
   const handleSelectGlobalSearchResult = React.useCallback(
@@ -1646,9 +1675,10 @@ export function WorkspaceLayout({
 
       setGlobalSearchOpen(false);
       setGlobalSearchQuery('');
+      revealNodeInWorkspaceTree(node.absolutePath);
       void openDocumentNode(node);
     },
-    [openDocumentNode, workspace.snapshot?.nodes],
+    [openDocumentNode, revealNodeInWorkspaceTree, workspace.snapshot?.nodes],
   );
 
   const handleCreateDocument = React.useCallback(
@@ -1664,6 +1694,45 @@ export function WorkspaceLayout({
       return created;
     },
     [rememberRecentDocument, workspace],
+  );
+
+  const handleRenameWorkspaceNode = React.useCallback(
+    async (node: WorkspaceNode, newName: string) => {
+      const renamed = await workspace.renameNode(node, newName);
+
+      if (!renamed || node.kind !== 'document' || renamed.kind !== 'document') {
+        return renamed;
+      }
+
+      setDocumentEditorLayout((current) =>
+        renameDocumentTab(current, node.absolutePath, renamed),
+      );
+      setActiveEditorDocumentPath((current) =>
+        current === node.absolutePath ? renamed.absolutePath : current,
+      );
+      setEditorSessions((current) => {
+        const session = current[node.absolutePath];
+
+        if (!session || node.absolutePath === renamed.absolutePath) {
+          return current;
+        }
+
+        const next = { ...current };
+        delete next[node.absolutePath];
+        next[renamed.absolutePath] = session;
+        return next;
+      });
+      setRecentDocuments((current) =>
+        current.map((document) =>
+          document.absolutePath === node.absolutePath
+            ? toRecentDocument(renamed)
+            : document,
+        ),
+      );
+
+      return renamed;
+    },
+    [workspace],
   );
 
   const handleOpenDailyNote = React.useCallback(
@@ -1718,16 +1787,16 @@ export function WorkspaceLayout({
   const handleOpenWorkspaceViewNode = React.useCallback(
     (node: WorkspaceNode) => {
       setSystemPage(null);
+      revealNodeInWorkspaceTree(node.absolutePath);
 
       if (node.kind === 'directory') {
-        setRevealedDirectoryPath(node.absolutePath);
         void workspace.selectDirectory(node);
         return;
       }
 
       void openDocumentNode(node);
     },
-    [openDocumentNode, workspace],
+    [openDocumentNode, revealNodeInWorkspaceTree, workspace],
   );
 
   const handleSelectWorkspaceDirectory = React.useCallback(
@@ -1832,6 +1901,41 @@ export function WorkspaceLayout({
       openActiveDocumentForLayout(nextLayout);
     },
     [openActiveDocumentForLayout],
+  );
+
+  const handleDeleteWorkspaceNode = React.useCallback(
+    async (node: WorkspaceNode) => {
+      await workspace.deleteNode(node);
+
+      if (node.kind !== 'document') {
+        return;
+      }
+
+      setEditorSessions((current) => {
+        if (!(node.absolutePath in current)) {
+          return current;
+        }
+
+        const next = { ...current };
+        delete next[node.absolutePath];
+        return next;
+      });
+      setRecentDocuments((current) =>
+        current.filter(
+          (document) => document.absolutePath !== node.absolutePath,
+        ),
+      );
+
+      const nextLayout = closeDocumentTab(
+        documentEditorLayout,
+        node.absolutePath,
+      );
+
+      if (nextLayout !== documentEditorLayout) {
+        applyDocumentEditorLayout(nextLayout);
+      }
+    },
+    [applyDocumentEditorLayout, documentEditorLayout, workspace],
   );
 
   const handleSelectDocumentTab = React.useCallback(
@@ -2094,6 +2198,11 @@ export function WorkspaceLayout({
                 onExportNode={
                   documentExport.available ? handleExportDocument : undefined
                 }
+                onImportDocuments={
+                  documentImport.available
+                    ? documentImport.importDocuments
+                    : undefined
+                }
                 onOpenDailyNote={() =>
                   void handleOpenDailyNote(formatDailyDate(new Date()))
                 }
@@ -2101,7 +2210,10 @@ export function WorkspaceLayout({
                 onOpenInFileManager={handleOpenNodeInFileManager}
                 onOpenSettings={() => openSettingsPage('appearance')}
                 onRemoveWorkspace={handleRemoveWorkspace}
-                revealDirectoryPath={revealedDirectoryPath}
+                onDeleteNode={handleDeleteWorkspaceNode}
+                onRenameNode={handleRenameWorkspaceNode}
+                revealNodePath={treeRevealRequest?.absolutePath ?? null}
+                revealNodeRequestId={treeRevealRequest?.requestId}
                 onSelectDirectory={handleSelectWorkspaceDirectory}
                 onSelectDocument={openDocumentNode}
                 onTogglePinned={handleToggleNodePinned}
@@ -2249,7 +2361,7 @@ export function WorkspaceLayout({
                         onCreateDirectory={() => void workspace.createDirectory('')}
                         onCreateDocument={() => void handleCreateDocument('')}
                         onImportMarkdown={() =>
-                          void workspace.importMarkdownDocuments('')
+                          void documentImport.importDocuments('', 'markdown')
                         }
                         onOpenRecentDocument={handleOpenRecentDocument}
                         onOpenWorkspace={workspace.openWorkspace}
@@ -2396,6 +2508,7 @@ export function WorkspaceLayout({
         )}
       </div>
       {documentExport.renderer}
+      {documentImport.reportDialog}
     </main>
   );
 }

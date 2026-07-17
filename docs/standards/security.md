@@ -35,7 +35,7 @@ referenced_by: AGENTS.md#knowledge-map
 
 ## Uploads And Links
 
-- 上传资源必须保留在工作区资源目录内，Markdown 新写入只存储 `madora-asset://{assetId}`，不得把绝对路径或文档层级相关路径作为资产身份。协议解析必须经工作区资产索引，并继续对物理路径执行 canonicalize 与资源目录边界校验；旧 `.madora/assets/files/...` 引用只读兼容。
+- 上传资源必须保留在工作区资源目录内，Markdown 新写入只存储 `madora-asset://{assetId}`，不得把绝对路径、Windows 盘符或文档层级相关路径作为资产身份。协议解析必须经当前工作区资产索引，并继续对物理路径执行 canonicalize 与资源目录边界校验；只有校验成功的单个物理文件可以动态加入当前进程的资源协议范围，不得授权整个工作区、磁盘或卷。旧 `.madora/assets/files/...` 引用只读兼容。
 - 链接卡片只能使用既有的受限预览 route 或 Tauri 命令；不得在渲染器直接请求任意 URL。
 
 ## Document Export
@@ -46,3 +46,12 @@ referenced_by: AGENTS.md#knowledge-map
 - `madora-export://` 只提供一次性内存页面，响应必须带 `no-store` 和禁止脚本、连接、对象、表单的 CSP；隐藏 WebView 在完成、失败或 30 秒超时后关闭。
 - HTML/PDF 可保留已渲染的远程资源 URL，但导出实现不得新增任意远程抓取。Word 无法安全取得远程图片字节时保留普通链接并返回警告。
 - 文档导出不得修改 Tauri capability、文件系统插件权限或资产协议 scope。
+
+## Document Import
+
+- 原生选择器不得把导入源绝对路径交给渲染器；授权和 source ID 必须不可猜测、限时，并在每次读取时重新校验 canonical path、大小、修改时间和格式签名。
+- Markdown/HTML 相对图片必须以已授权源文档的真实父目录为边界，拒绝绝对路径、`..`、Windows prefix、百分号编码逃逸和符号链接逃逸。跨工作区 `madora-asset://` 与旧资源路径必须先通过来源工作区索引或资产目录边界校验，再复制散列。
+- HTTP(S) 图片只保留原 URL 和警告，导入器不得发起网络请求。HTML 必须移除脚本、样式、iframe、表单、事件属性和危险 URL；MDX 只按静态 Markdown 解析，不执行 JSX。
+- DOCX 必须先检查 OOXML 关键条目、封闭 ZIP 路径、条目数、解压总量、压缩比和宏；PDF 必须检查 `%PDF-`。密码只可保留在当前前端任务内存，最多尝试三次。
+- 单源文件 100 MB、PDF 300 页、单资产 100 MB、单文档资产总量 500 MB、Markdown 20 MB。资产必须使用 Raw IPC；清单媒体类型还要和文件签名一致。
+- 文档提交必须使用独立 staging session。失败或取消必须清理 staging，并删除本次新建且仍未被任何 Markdown 引用的资产；不得覆盖已有文档或扩大 capability、通用文件协议及 `assetProtocol.scope`。

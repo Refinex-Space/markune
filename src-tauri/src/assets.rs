@@ -6,6 +6,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tauri::{AppHandle, Manager, Runtime};
 
 const ASSET_SCHEMA_VERSION: u32 = 1;
 const ASSET_URL_PREFIX: &str = "madora-asset://";
@@ -74,11 +75,19 @@ pub struct WorkspaceAssetData {
 
 #[tauri::command]
 pub fn upload_workspace_asset(
+    app: AppHandle,
     root_path: String,
     input: UploadWorkspaceAssetInput,
 ) -> Result<UploadedWorkspaceAsset, String> {
-    let root = canonical_workspace_root(&root_path)?;
-    let original_name = validate_file_name(&input.file_name)?;
+    let uploaded = upload_workspace_asset_impl(root_path, input)?;
+    allow_asset_protocol_file(&app, Path::new(&uploaded.absolute_path))?;
+    Ok(uploaded)
+}
+
+pub(crate) fn upload_workspace_asset_impl(
+    root_path: String,
+    input: UploadWorkspaceAssetInput,
+) -> Result<UploadedWorkspaceAsset, String> {
     let bytes = {
         use base64::Engine;
 
@@ -86,6 +95,19 @@ pub fn upload_workspace_asset(
             .decode(input.base64_data.as_bytes())
             .map_err(|_| "文件内容编码无效".to_string())?
     };
+
+    store_workspace_asset_bytes_impl(root_path, input.file_name, input.media_type, bytes)
+        .map(|(uploaded, _)| uploaded)
+}
+
+pub(crate) fn store_workspace_asset_bytes_impl(
+    root_path: String,
+    file_name: String,
+    media_type: String,
+    bytes: Vec<u8>,
+) -> Result<(UploadedWorkspaceAsset, bool), String> {
+    let root = canonical_workspace_root(&root_path)?;
+    let original_name = validate_file_name(&file_name)?;
 
     if bytes.is_empty() {
         return Err("文件内容为空".to_string());
@@ -96,7 +118,7 @@ pub fn upload_workspace_asset(
     }
 
     let sha256 = hex::encode(Sha256::digest(&bytes));
-    let extension = safe_extension(&original_name, &input.media_type);
+    let extension = safe_extension(&original_name, &media_type);
     let asset_id = sha256.clone();
     let shard = &asset_id[0..2];
     let asset_dir = asset_files_dir(&root).join(shard);
@@ -108,12 +130,13 @@ pub fn upload_workspace_asset(
     }
 
     let mut index = read_asset_index(&root).map_err(|_| "无法读取资产索引".to_string())?;
+    let is_new_asset = !index.assets.contains_key(&asset_id);
     let record = WorkspaceAssetRecord {
         id: asset_id.clone(),
         storage: "local".to_string(),
         relative_path: relative_to_root(&root, &file_path)?,
         original_name: original_name.clone(),
-        media_type: normalize_media_type(&input.media_type),
+        media_type: normalize_media_type(&media_type),
         size: bytes.len() as u64,
         created_at: current_timestamp_millis(),
         sha256,
@@ -123,19 +146,32 @@ pub fn upload_workspace_asset(
 
     let absolute_path = validate_asset_file_path(&root, &record.relative_path)?;
 
-    Ok(UploadedWorkspaceAsset {
-        id: asset_id.clone(),
-        url: format!("{ASSET_URL_PREFIX}{asset_id}"),
-        relative_path: record.relative_path.clone(),
-        name: original_name,
-        media_type: record.media_type,
-        size: record.size,
-        absolute_path: absolute_path.to_string_lossy().to_string(),
-    })
+    Ok((
+        UploadedWorkspaceAsset {
+            id: asset_id.clone(),
+            url: format!("{ASSET_URL_PREFIX}{asset_id}"),
+            relative_path: record.relative_path.clone(),
+            name: original_name,
+            media_type: record.media_type,
+            size: record.size,
+            absolute_path: absolute_path.to_string_lossy().to_string(),
+        },
+        is_new_asset,
+    ))
 }
 
 #[tauri::command]
 pub fn resolve_workspace_asset(
+    app: AppHandle,
+    root_path: String,
+    asset_id: String,
+) -> Result<ResolvedWorkspaceAsset, String> {
+    let resolved = resolve_workspace_asset_impl(root_path, asset_id)?;
+    allow_asset_protocol_file(&app, Path::new(&resolved.absolute_path))?;
+    Ok(resolved)
+}
+
+pub(crate) fn resolve_workspace_asset_impl(
     root_path: String,
     asset_id: String,
 ) -> Result<ResolvedWorkspaceAsset, String> {
@@ -154,6 +190,12 @@ pub fn resolve_workspace_asset(
         name: record.original_name.clone(),
         size: record.size,
     })
+}
+
+fn allow_asset_protocol_file<R: Runtime>(app: &AppHandle<R>, path: &Path) -> Result<(), String> {
+    app.asset_protocol_scope()
+        .allow_file(path)
+        .map_err(|_| "无法授权资产文件访问".to_string())
 }
 
 #[tauri::command]
@@ -511,7 +553,7 @@ mod tests {
     fn uploads_asset_under_madora_assets_and_writes_index() {
         let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
 
-        let uploaded = upload_workspace_asset(
+        let uploaded = upload_workspace_asset_impl(
             temp_dir.path().to_string_lossy().to_string(),
             UploadWorkspaceAssetInput {
                 file_name: "cover.png".to_string(),
@@ -525,7 +567,15 @@ mod tests {
         assert_eq!(uploaded.media_type, "image/png");
         assert_eq!(uploaded.size, 9);
         assert!(uploaded.url.starts_with("madora-asset://"));
-        assert!(uploaded.relative_path.starts_with(".madora/assets/files/"));
+        assert_eq!(
+            uploaded.relative_path,
+            format!(
+                ".madora/assets/files/{}/{}.png",
+                &uploaded.id[0..2],
+                uploaded.id
+            )
+        );
+        assert!(!uploaded.relative_path.contains('\\'));
         assert!(Path::new(&uploaded.absolute_path).is_file());
         assert!(Path::new(&uploaded.absolute_path).ends_with(Path::new(&uploaded.relative_path)));
         assert!(temp_dir.path().join(".madora/assets/index.json").is_file());
@@ -534,7 +584,7 @@ mod tests {
     #[test]
     fn resolves_only_indexed_assets() {
         let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
-        let uploaded = upload_workspace_asset(
+        let uploaded = upload_workspace_asset_impl(
             temp_dir.path().to_string_lossy().to_string(),
             UploadWorkspaceAssetInput {
                 file_name: "voice.mp3".to_string(),
@@ -544,7 +594,7 @@ mod tests {
         )
         .expect("上传音频失败");
 
-        let resolved = resolve_workspace_asset(
+        let resolved = resolve_workspace_asset_impl(
             temp_dir.path().to_string_lossy().to_string(),
             uploaded.id.clone(),
         )
@@ -554,7 +604,7 @@ mod tests {
         assert_eq!(resolved.name, "voice.mp3");
         assert_eq!(resolved.media_type, "audio/mpeg");
 
-        let error = resolve_workspace_asset(
+        let error = resolve_workspace_asset_impl(
             temp_dir.path().to_string_lossy().to_string(),
             "missing".to_string(),
         )
@@ -591,7 +641,7 @@ mod tests {
         .expect("写入旧资产索引失败");
 
         let error =
-            resolve_workspace_asset(root.to_string_lossy().to_string(), "asset-a".to_string())
+            resolve_workspace_asset_impl(root.to_string_lossy().to_string(), "asset-a".to_string())
                 .expect_err("不应解析 .refinex 下的旧资产索引");
 
         assert_eq!(error, "资产不存在");
@@ -602,7 +652,7 @@ mod tests {
     #[test]
     fn reads_workspace_asset_data_as_base64() {
         let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
-        let uploaded = upload_workspace_asset(
+        let uploaded = upload_workspace_asset_impl(
             temp_dir.path().to_string_lossy().to_string(),
             UploadWorkspaceAssetInput {
                 file_name: "cover.png".to_string(),
@@ -627,7 +677,7 @@ mod tests {
     #[test]
     fn rejects_path_like_file_name() {
         let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
-        let error = upload_workspace_asset(
+        let error = upload_workspace_asset_impl(
             temp_dir.path().to_string_lossy().to_string(),
             UploadWorkspaceAssetInput {
                 file_name: "../escape.png".to_string(),

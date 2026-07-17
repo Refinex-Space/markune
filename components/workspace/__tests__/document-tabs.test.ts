@@ -8,6 +8,7 @@ import {
   closeOtherDocumentTabs,
   createInitialEditorLayout,
   openDocumentTab,
+  renameDocumentTab,
   selectDocumentTab,
 } from '../document-tabs';
 import type { WorkspaceNode } from '../workspace-types';
@@ -53,6 +54,15 @@ describe('document tabs model', () => {
     expect(layout.activeTabPath).toBe('/repo/c.md');
   });
 
+  it('clears the active tab when the last open document is closed', () => {
+    let layout = createInitialEditorLayout();
+    layout = openDocumentTab(layout, doc('a'));
+
+    layout = closeDocumentTab(layout, '/repo/a.md');
+
+    expect(layout).toEqual({ activeTabPath: null, tabs: [] });
+  });
+
   it('selects a tab', () => {
     let layout = createInitialEditorLayout();
     layout = openDocumentTab(layout, doc('a'));
@@ -61,6 +71,28 @@ describe('document tabs model', () => {
     layout = selectDocumentTab(layout, '/repo/a.md');
 
     expect(layout.activeTabPath).toBe('/repo/a.md');
+  });
+
+  it('updates the active tab path and title after renaming a document', () => {
+    let layout = createInitialEditorLayout();
+    layout = openDocumentTab(layout, doc('a', 'A'));
+    layout = openDocumentTab(layout, doc('b', '未命名文档'));
+
+    layout = renameDocumentTab(
+      layout,
+      '/repo/b.md',
+      doc('renamed', '测试新增'),
+    );
+
+    expect(layout.activeTabPath).toBe('/repo/renamed.md');
+    expect(layout.tabs).toEqual([
+      { absolutePath: '/repo/a.md', name: 'a.md', title: 'A' },
+      {
+        absolutePath: '/repo/renamed.md',
+        name: 'renamed.md',
+        title: '测试新增',
+      },
+    ]);
   });
 
   it('returns the same layout when selecting the already active tab', () => {

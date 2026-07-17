@@ -6,6 +6,8 @@ import type {
   DeletedWorkspaceNode,
   DocumentExportFile,
   DocumentExportResult,
+  DocumentImportGrant,
+  DocumentImportManifest,
   DocumentContentMeta,
   ExportDirectoryGrant,
   GitBranchItem,
@@ -19,7 +21,8 @@ import type {
   GitStatus,
   LinkPreviewMetadata,
   MarkdownDocumentContent,
-  MarkdownSourceFile,
+  ImportCommitSession,
+  ImportedDocumentResult,
   ResolvedWorkspaceAsset,
   TerminalDataEvent,
   TerminalErrorEvent,
@@ -29,6 +32,7 @@ import type {
   UploadWorkspaceAssetInput,
   WorkspaceAssetData,
   WorkspaceExportFormat,
+  WorkspaceImportFormat,
   WorkspaceGitSyncSettings,
   WorkspaceMoveRequest,
   WorkspaceHistoryItem,
@@ -47,6 +51,15 @@ const MAX_WORKSPACE_HISTORY = 8;
 
 export function isTauriRuntime() {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+}
+
+export async function getMadoraVersion() {
+  if (!isTauriRuntime()) {
+    return null;
+  }
+
+  const { getVersion } = await import('@tauri-apps/api/app');
+  return getVersion();
 }
 
 export function getRecentWorkspacePath() {
@@ -334,12 +347,94 @@ export async function moveWorkspaceNode(
   });
 }
 
-export async function readMarkdownSourceFiles(sourcePaths: string[]) {
+export async function selectDocumentImportSources(
+  format: WorkspaceImportFormat,
+) {
   const { invoke } = await import('@tauri-apps/api/core');
 
-  return invoke<MarkdownSourceFile[]>('read_markdown_source_files', {
-    sourcePaths,
+  return invoke<DocumentImportGrant | null>('select_document_import_sources', {
+    format,
   });
+}
+
+export async function readDocumentImportSource(
+  grantId: string,
+  sourceId: string,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  const result = await invoke<ArrayBuffer | Uint8Array>(
+    'read_document_import_source',
+    { grantId, sourceId },
+  );
+
+  return result instanceof Uint8Array ? result : new Uint8Array(result);
+}
+
+export async function beginDocumentImportCommit(
+  rootPath: string,
+  targetDir: string,
+  manifest: DocumentImportManifest,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<ImportCommitSession>('begin_document_import_commit', {
+    rootPath,
+    targetDir,
+    manifest,
+  });
+}
+
+export async function stageDocumentImportAsset(
+  sessionId: string,
+  assetToken: string,
+  bytes: Uint8Array,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('stage_document_import_asset', bytes, {
+    headers: {
+      'x-madora-import-asset': assetToken,
+      'x-madora-import-session': sessionId,
+    },
+  });
+}
+
+export async function stageDocumentImportSourceAsset(
+  sessionId: string,
+  assetToken: string,
+  grantId: string,
+  sourceId: string,
+  reference: string,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('stage_document_import_source_asset', {
+    sessionId,
+    assetToken,
+    grantId,
+    sourceId,
+    reference,
+  });
+}
+
+export async function commitDocumentImport(sessionId: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<ImportedDocumentResult>('commit_document_import', {
+    sessionId,
+  });
+}
+
+export async function cancelDocumentImport(sessionId: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('cancel_document_import', { sessionId });
+}
+
+export async function releaseDocumentImportGrant(grantId: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('release_document_import_grant', { grantId });
 }
 
 export async function writeExportFile(targetPath: string, base64Data: string) {
@@ -654,30 +749,6 @@ export async function listenTerminalError(
   return listen<TerminalErrorEvent>('terminal:error', (event) =>
     handler(event.payload),
   );
-}
-
-export async function selectMarkdownSourceFiles() {
-  if (!isTauriRuntime()) {
-    return [];
-  }
-
-  const { open } = await import('@tauri-apps/plugin-dialog');
-  const selected = await open({
-    directory: false,
-    filters: [
-      {
-        name: 'Markdown',
-        extensions: ['md', 'mdx'],
-      },
-    ],
-    multiple: true,
-  });
-
-  if (Array.isArray(selected)) {
-    return selected.filter((item): item is string => typeof item === 'string');
-  }
-
-  return typeof selected === 'string' ? [selected] : [];
 }
 
 export async function selectWorkspaceAssetDownloadPath(

@@ -4,7 +4,11 @@ import * as React from 'react';
 import {
   Download,
   ExternalLink,
+  FileCode2,
   FileInput,
+  FileSearch2,
+  FileText,
+  FileType2,
   FilePlus2,
   FolderClosed,
   FolderOpen,
@@ -53,11 +57,10 @@ import { isDescendantPath } from './workspace-paths';
 import { filterWorkspaceNodes } from './workspace-tree';
 import type {
   WorkspaceExportFormat,
+  WorkspaceImportFormat,
   WorkspaceMoveRequest,
   WorkspaceNode,
 } from './workspace-types';
-
-type WorkspaceImportFormat = 'html' | 'markdown' | 'word';
 
 interface DocumentTreeProps {
   nodes: WorkspaceNode[];
@@ -86,7 +89,8 @@ interface DocumentTreeProps {
   onOpenInPreferredEditor?: (node: WorkspaceNode) => Promise<void> | void;
   preferredEditorLabel?: string;
   onPendingRenameConsumed?: () => void;
-  revealDirectoryPath?: string | null;
+  revealNodePath?: string | null;
+  revealNodeRequestId?: number;
   onSelectDirectory?: (node: WorkspaceNode) => Promise<void> | void;
   onRenameNode: (
     node: WorkspaceNode,
@@ -113,7 +117,8 @@ export function DocumentTree({
   onOpenInPreferredEditor,
   preferredEditorLabel,
   onPendingRenameConsumed,
-  revealDirectoryPath,
+  revealNodePath,
+  revealNodeRequestId,
   onSelectDirectory,
   onRenameNode,
   onSelectDocument,
@@ -131,35 +136,55 @@ export function DocumentTree({
     null,
   );
   const draggedNodeRef = React.useRef<WorkspaceNode | null>(null);
+  const treeRootRef = React.useRef<HTMLDivElement>(null);
   const visibleNodes = filterWorkspaceNodes(nodes, searchQuery);
   const forceExpanded = searchQuery.trim().length > 0;
   const dragDisabled = searchQuery.trim().length > 0 || !onMoveNode;
 
   React.useEffect(() => {
-    if (!revealDirectoryPath) {
+    if (!revealNodePath) {
       return;
     }
 
-    const revealIds = findDirectoryRevealIds(nodes, revealDirectoryPath);
+    const reveal = findNodeReveal(nodes, revealNodePath);
 
-    if (revealIds.length === 0) {
+    if (!reveal) {
       return;
     }
 
+    let animationFrame: number | null = null;
     const timer = window.setTimeout(() => {
       setExpanded((previous) => {
         const next = new Set(previous);
 
-        for (const id of revealIds) {
+        for (const id of reveal.expandedIds) {
           next.add(id);
         }
 
         return next;
       });
+
+      animationFrame = window.requestAnimationFrame(() => {
+        const targetRow = Array.from(
+          treeRootRef.current?.querySelectorAll<HTMLElement>(
+            '[data-workspace-node-path]',
+          ) ?? [],
+        ).find(
+          (row) => row.dataset.workspaceNodePath === revealNodePath,
+        );
+
+        targetRow?.scrollIntoView?.({ block: 'nearest' });
+      });
     }, 0);
 
-    return () => window.clearTimeout(timer);
-  }, [nodes, revealDirectoryPath]);
+    return () => {
+      window.clearTimeout(timer);
+
+      if (animationFrame !== null) {
+        window.cancelAnimationFrame(animationFrame);
+      }
+    };
+  }, [nodes, revealNodePath, revealNodeRequestId]);
 
   const startEditingNode = React.useCallback((node: WorkspaceNode) => {
     setEditingNodeId(node.id);
@@ -342,7 +367,9 @@ export function DocumentTree({
 
   return (
     <>
-      <div className="flex min-h-full flex-col py-1">{treeContent}</div>
+      <div ref={treeRootRef} className="flex min-h-full flex-col py-1">
+        {treeContent}
+      </div>
 
       <DeleteNodeDialog
         node={deleteTarget}
@@ -409,7 +436,8 @@ function TreeNode({
   const isEditing = editingNodeId === node.id || isPendingRename;
   const displayName = getNodeDisplayName(node);
   const visualLevel = isDirectory ? level : Math.max(0, level - 1);
-  const rowPaddingLeft = 12 + visualLevel * 14;
+  const rowPaddingLeft = 8 + visualLevel * 20;
+  const rowSurfaceLeft = visualLevel * 20;
   const isDragSource = draggedNode?.absolutePath === node.absolutePath;
   const previewPosition =
     dropPreview?.targetPath === node.absolutePath ? dropPreview.position : null;
@@ -507,13 +535,11 @@ function TreeNode({
         <ContextMenuTrigger asChild>
           <div
             className={cn(
-              'group/tree-row relative flex h-8 w-full items-center rounded-md text-sm transition-colors hover:bg-sidebar-accent/70',
-              (isCurrent || isCurrentDirectory) && 'bg-sidebar-accent',
+              'group/tree-row relative flex h-7 w-full items-center text-[13px]',
               isDragSource && 'opacity-45',
-              previewPosition === 'inside' &&
-                'bg-[#eef4ff] outline outline-1 outline-[#3574f0]/25',
             )}
             data-testid={`tree-row-${node.id}`}
+            data-workspace-node-path={node.absolutePath}
             draggable={!dragDisabled && !isEditing}
             role={isEditing ? undefined : 'button'}
             tabIndex={isEditing ? undefined : 0}
@@ -585,55 +611,69 @@ function TreeNode({
                   'pointer-events-none absolute right-2 h-0.5 rounded-full bg-[#3574f0]',
                   previewPosition === 'before' ? 'top-0' : 'bottom-0',
                 )}
-                style={{ left: rowPaddingLeft + 23 }}
+                style={{ left: rowPaddingLeft + 19 }}
               />
             ) : null}
 
-            {isEditing ? (
-              <div
-                className="grid h-full min-w-0 flex-1 grid-cols-[15px_minmax(0,1fr)] items-center gap-2 rounded-md px-2 text-left"
-                style={{ paddingLeft: rowPaddingLeft }}
-              >
-                <DirectoryIcon
-                  isDirectory={isDirectory}
-                  isExpanded={isExpanded}
-                  node={node}
-                />
-                <RenameInput
-                  initialValue={displayName}
-                  label={`重命名 ${displayName}`}
-                  onActivate={isPendingRename ? activatePendingRename : undefined}
-                  onCancel={() => onRenameSubmit(node, displayName)}
-                  onSubmit={(nextName) => onRenameSubmit(node, nextName)}
-                />
-              </div>
-            ) : (
-              <div
-                className="grid h-full min-w-0 flex-1 grid-cols-[15px_minmax(0,1fr)] items-center gap-2 rounded-md px-2 text-left text-foreground/80"
-                style={{ paddingLeft: rowPaddingLeft }}
-              >
-                <DirectoryIcon
-                  isDirectory={isDirectory}
-                  isExpanded={isExpanded}
-                  node={node}
-                />
-                <span className="truncate">{displayName}</span>
-              </div>
-            )}
+            <div
+              className={cn(
+                'relative isolate flex h-full min-w-0 flex-1 items-center rounded-md transition-colors',
+                isDirectory
+                  ? 'group-hover/tree-row:bg-sidebar-accent/70'
+                  : "before:pointer-events-none before:absolute before:inset-y-0 before:left-5 before:right-0 before:z-0 before:rounded-md before:transition-colors before:content-[''] group-hover/tree-row:before:bg-sidebar-accent/70",
+                isCurrentDirectory && 'bg-sidebar-accent',
+                isCurrent &&
+                  (isDirectory
+                    ? 'bg-sidebar-accent'
+                    : 'before:bg-sidebar-accent'),
+                previewPosition === 'inside' &&
+                  'bg-[#eef4ff] outline outline-1 outline-[#3574f0]/25',
+              )}
+              data-testid={`tree-row-surface-${node.id}`}
+              style={{ marginLeft: rowSurfaceLeft }}
+            >
+              {isEditing ? (
+                <div className="relative z-[1] grid h-full min-w-0 flex-1 grid-cols-[13px_minmax(0,1fr)] items-center gap-1.5 rounded-md px-2 text-left">
+                  <DirectoryIcon
+                    isDirectory={isDirectory}
+                    isExpanded={isExpanded}
+                    node={node}
+                  />
+                  <RenameInput
+                    initialValue={displayName}
+                    label={`重命名 ${displayName}`}
+                    onActivate={
+                      isPendingRename ? activatePendingRename : undefined
+                    }
+                    onCancel={() => onRenameSubmit(node, displayName)}
+                    onSubmit={(nextName) => onRenameSubmit(node, nextName)}
+                  />
+                </div>
+              ) : (
+                <div className="relative z-[1] grid h-full min-w-0 flex-1 grid-cols-[13px_minmax(0,1fr)] items-center gap-1.5 rounded-md px-2 text-left text-foreground/80">
+                  <DirectoryIcon
+                    isDirectory={isDirectory}
+                    isExpanded={isExpanded}
+                    node={node}
+                  />
+                  <span className="truncate">{displayName}</span>
+                </div>
+              )}
 
-            <NodeActionDropdown
-              node={node}
-              onCreateDirectory={onCreateDirectory}
-              onCreateDocument={onCreateDocument}
-              onDeleteRequest={onDeleteRequest}
-              onExportNode={onExportNode}
-              onImportDocuments={onImportDocuments}
-              onOpenInFileManager={onOpenInFileManager}
-              onOpenInPreferredEditor={onOpenInPreferredEditor}
-              preferredEditorLabel={preferredEditorLabel}
-              onRenameRequest={onRenameRequest}
-              onTogglePinned={onTogglePinned}
-            />
+              <NodeActionDropdown
+                node={node}
+                onCreateDirectory={onCreateDirectory}
+                onCreateDocument={onCreateDocument}
+                onDeleteRequest={onDeleteRequest}
+                onExportNode={onExportNode}
+                onImportDocuments={onImportDocuments}
+                onOpenInFileManager={onOpenInFileManager}
+                onOpenInPreferredEditor={onOpenInPreferredEditor}
+                preferredEditorLabel={preferredEditorLabel}
+                onRenameRequest={onRenameRequest}
+                onTogglePinned={onTogglePinned}
+              />
+            </div>
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent
@@ -656,8 +696,19 @@ function TreeNode({
         </ContextMenuContent>
       </ContextMenu>
 
-      {isDirectory && isExpanded
-        ? node.children?.map((child) => (
+      {isDirectory && isExpanded && node.children?.length ? (
+        <div
+          className="relative space-y-0.5"
+          data-testid={`tree-children-${node.id}`}
+        >
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute -top-2 bottom-0 w-px bg-sidebar-foreground/20"
+            data-testid={`tree-guide-${node.id}`}
+            style={{ left: rowPaddingLeft + 6.5 }}
+          />
+
+          {node.children.map((child) => (
             <TreeNode
               key={child.id}
               currentDocumentPath={currentDocumentPath}
@@ -692,8 +743,9 @@ function TreeNode({
               onSelectDocument={onSelectDocument}
               preferredEditorLabel={preferredEditorLabel}
             />
-          ))
-        : null}
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -759,11 +811,13 @@ const EXPORT_ACTIONS: Array<{
 
 const IMPORT_ACTIONS: Array<{
   format: WorkspaceImportFormat;
+  icon: React.ComponentType<{ className?: string }>;
   label: string;
 }> = [
-  { format: 'html', label: '从 HTML 导入' },
-  { format: 'markdown', label: '从 Markdown 导入' },
-  { format: 'word', label: '从 Word 导入' },
+  { format: 'markdown', icon: FileText, label: '从 Markdown 导入' },
+  { format: 'word', icon: FileType2, label: '从 Word 导入' },
+  { format: 'pdf', icon: FileSearch2, label: '从 PDF 导入' },
+  { format: 'html', icon: FileCode2, label: '从 HTML 导入' },
 ];
 
 function DirectoryIcon({
@@ -779,7 +833,7 @@ function DirectoryIcon({
     return (
       <span
         aria-hidden="true"
-        className="size-[15px] shrink-0"
+        className="size-[13px] shrink-0"
         data-testid={`document-icon-placeholder-${node.id}`}
       />
     );
@@ -794,7 +848,7 @@ function DirectoryIcon({
     <FolderClosed
       className="shrink-0 text-muted-foreground"
       data-testid={`directory-folder-closed-${node.id}`}
-      size={15}
+      size={13}
     />
   );
 }
@@ -806,7 +860,7 @@ function ExpandedFolderIcon({
   return (
     <svg
       aria-hidden="true"
-      className={cn('size-[15px]', className)}
+      className={cn('size-[13px]', className)}
       fill="currentColor"
       viewBox="0 0 1024 1024"
       xmlns="http://www.w3.org/2000/svg"
@@ -895,7 +949,7 @@ function NodeActionDropdown({
       <DropdownMenuTrigger asChild>
         <button
           aria-label={`打开 ${node.name} 操作菜单`}
-          className="mr-1 hidden size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground group-hover/tree-row:flex data-[state=open]:flex"
+          className="relative z-[1] mr-1 hidden size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground group-hover/tree-row:flex data-[state=open]:flex"
           data-tree-drag-disabled="true"
           type="button"
           onClick={(event) => event.stopPropagation()}
@@ -1023,6 +1077,7 @@ function NodeDropdownActions({
                   void onImportDocuments?.(node.relativePath, action.format)
                 }
               >
+                <action.icon />
                 {action.label}
               </DropdownMenuItem>
             ))}
@@ -1163,6 +1218,7 @@ function NodeContextActions({
                   void onImportDocuments?.(node.relativePath, action.format)
                 }
               >
+                <action.icon />
                 {action.label}
               </ContextMenuItem>
             ))}
@@ -1289,27 +1345,31 @@ function hasDescendantByAbsolutePath(
   );
 }
 
-function findDirectoryRevealIds(
+function findNodeReveal(
   nodes: WorkspaceNode[],
   absolutePath: string,
-): string[] {
+): { expandedIds: string[] } | null {
   for (const node of nodes) {
+    if (node.absolutePath === absolutePath) {
+      return {
+        expandedIds: node.kind === 'directory' ? [node.id] : [],
+      };
+    }
+
     if (node.kind !== 'directory') {
       continue;
     }
 
-    if (node.absolutePath === absolutePath) {
-      return [node.id];
-    }
+    const childReveal = findNodeReveal(node.children ?? [], absolutePath);
 
-    const childIds = findDirectoryRevealIds(node.children ?? [], absolutePath);
-
-    if (childIds.length > 0) {
-      return [node.id, ...childIds];
+    if (childReveal) {
+      return {
+        expandedIds: [node.id, ...childReveal.expandedIds],
+      };
     }
   }
 
-  return [];
+  return null;
 }
 
 function findNodeByAbsolutePath(

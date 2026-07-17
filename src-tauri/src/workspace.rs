@@ -236,53 +236,6 @@ pub struct MarkdownMigrationFailure {
     pub message: String,
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct MarkdownSourceFile {
-    pub path: String,
-    pub file_name: String,
-    pub content: String,
-}
-
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct ImportedPlateDocumentInput {
-    pub title: String,
-    pub source_file_name: String,
-    pub content: Value,
-}
-
-#[derive(Debug, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct ImportedPlateDocumentResult {
-    pub created: Vec<CreatedPlateDocument>,
-    pub failed: Vec<ImportFailure>,
-}
-
-#[derive(Debug, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ImportFailure {
-    pub source_file_name: String,
-    pub message: String,
-}
-
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct ImportSourceFile {
-    pub path: String,
-    pub file_name: String,
-    pub content: Option<String>,
-    pub base64_data: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum ImportSourceFormat {
-    Html,
-    Markdown,
-    Word,
-}
-
 #[tauri::command]
 pub fn ensure_workspace(root_path: String) -> Result<WorkspaceMetadata, String> {
     let root = canonical_workspace_root(&root_path)?;
@@ -680,6 +633,37 @@ pub fn create_markdown_document(
     result
 }
 
+pub(crate) fn create_imported_markdown_document(
+    root_path: String,
+    target_dir: String,
+    title: String,
+    markdown: String,
+) -> Result<CreatedMarkdownDocument, String> {
+    let root = canonical_workspace_root(&root_path)?;
+    let parent = validate_workspace_directory(&root, &target_dir)?;
+    let safe_title = normalize_document_title(&title);
+    let document_path = unique_markdown_document_path(&parent, &safe_title);
+
+    write_text_atomic(&document_path, &markdown)
+        .map_err(|error| format!("无法写入导入文档：{error}"))?;
+
+    let file_name = document_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("import.md")
+        .to_string();
+    let node = match build_document_node(&root, &document_path, file_name, &BTreeMap::new()) {
+        Ok(node) => node,
+        Err(error) => {
+            let _ = fs::remove_file(&document_path);
+            return Err(format!("无法创建导入文档节点：{error}"));
+        }
+    };
+    let content = read_markdown_document_sync(root_path, node.absolute_path.clone())?;
+
+    Ok(CreatedMarkdownDocument { node, content })
+}
+
 #[tauri::command]
 pub fn migrate_plate_documents_to_markdown(
     root_path: String,
@@ -1049,87 +1033,6 @@ pub fn move_workspace_node(
 }
 
 #[tauri::command]
-pub fn read_markdown_source_files(
-    source_paths: Vec<String>,
-) -> Result<Vec<MarkdownSourceFile>, String> {
-    source_paths
-        .into_iter()
-        .map(|source_path| {
-            let path = PathBuf::from(&source_path)
-                .canonicalize()
-                .map_err(|_| "Markdown 源文件不存在".to_string())?;
-
-            if !is_markdown_source_file(&path) {
-                return Err("仅支持导入 .md 或 .mdx 文件".to_string());
-            }
-
-            let content =
-                fs::read_to_string(&path).map_err(|_| "无法读取 Markdown 源文件".to_string())?;
-            let file_name = path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("import.md")
-                .to_string();
-
-            Ok(MarkdownSourceFile {
-                path: path.to_string_lossy().to_string(),
-                file_name,
-                content,
-            })
-        })
-        .collect()
-}
-
-#[tauri::command]
-pub fn read_import_source_files(
-    source_paths: Vec<String>,
-    format: ImportSourceFormat,
-) -> Result<Vec<ImportSourceFile>, String> {
-    source_paths
-        .into_iter()
-        .map(|source_path| {
-            let path = PathBuf::from(&source_path)
-                .canonicalize()
-                .map_err(|_| "导入源文件不存在".to_string())?;
-
-            if !is_import_source_file(&path, &format) {
-                return Err(import_source_format_error(&format).to_string());
-            }
-
-            let file_name = path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("import")
-                .to_string();
-
-            match format {
-                ImportSourceFormat::Html | ImportSourceFormat::Markdown => {
-                    let content =
-                        fs::read_to_string(&path).map_err(|_| "无法读取导入源文件".to_string())?;
-
-                    Ok(ImportSourceFile {
-                        path: path.to_string_lossy().to_string(),
-                        file_name,
-                        content: Some(content),
-                        base64_data: None,
-                    })
-                }
-                ImportSourceFormat::Word => {
-                    let bytes = fs::read(&path).map_err(|_| "无法读取 Word 源文件".to_string())?;
-
-                    Ok(ImportSourceFile {
-                        path: path.to_string_lossy().to_string(),
-                        file_name,
-                        content: None,
-                        base64_data: Some(general_purpose::STANDARD.encode(bytes)),
-                    })
-                }
-            }
-        })
-        .collect()
-}
-
-#[tauri::command]
 pub fn write_export_file(target_path: String, base64_data: String) -> Result<String, String> {
     let path = PathBuf::from(target_path);
     let bytes = decode_base64_export_data(&base64_data)?;
@@ -1141,63 +1044,6 @@ pub fn write_export_file(target_path: String, base64_data: String) -> Result<Str
     fs::write(&path, bytes).map_err(|_| "无法写入导出文件".to_string())?;
 
     Ok(path.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-pub fn create_imported_plate_documents(
-    root_path: String,
-    target_dir: String,
-    documents: Vec<ImportedPlateDocumentInput>,
-) -> Result<ImportedPlateDocumentResult, String> {
-    let root = canonical_workspace_root(&root_path)?;
-    let target = validate_workspace_directory(&root, &target_dir)?;
-    let mut created = Vec::new();
-    let mut failed = Vec::new();
-
-    for document in documents {
-        if !document.content.is_array() {
-            failed.push(ImportFailure {
-                source_file_name: document.source_file_name,
-                message: "文档内容格式无效".to_string(),
-            });
-            continue;
-        }
-
-        let title = normalize_document_title(&document.title);
-        let path = unique_plate_document_path(&target, &title);
-        let now = current_iso_timestamp();
-        let envelope = PlateDocumentEnvelope {
-            schema_version: 1,
-            title,
-            created_at: now.clone(),
-            updated_at: now,
-            content: document.content,
-        };
-
-        match write_json_pretty(&path, &envelope) {
-            Ok(()) => {
-                let file_name = path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("import.plate.json")
-                    .to_string();
-
-                match build_document_node(&root, &path, file_name, &BTreeMap::new()) {
-                    Ok(node) => created.push(CreatedPlateDocument { node, envelope }),
-                    Err(_) => failed.push(ImportFailure {
-                        source_file_name: document.source_file_name,
-                        message: "无法创建导入文档节点".to_string(),
-                    }),
-                }
-            }
-            Err(_) => failed.push(ImportFailure {
-                source_file_name: document.source_file_name,
-                message: "无法写入导入文档".to_string(),
-            }),
-        }
-    }
-
-    Ok(ImportedPlateDocumentResult { created, failed })
 }
 
 pub fn build_workspace_snapshot(root: &Path) -> std::io::Result<WorkspaceSnapshot> {
@@ -2018,36 +1864,6 @@ fn is_markdown_document_file(path: &Path) -> bool {
         .and_then(|extension| extension.to_str())
         .map(|extension| matches!(extension.to_ascii_lowercase().as_str(), "md" | "mdx"))
         .unwrap_or(false)
-}
-
-fn is_markdown_source_file(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .map(|extension| matches!(extension.to_ascii_lowercase().as_str(), "md" | "mdx"))
-        .unwrap_or(false)
-}
-
-fn is_import_source_file(path: &Path, format: &ImportSourceFormat) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .map(|extension| match format {
-            ImportSourceFormat::Html => {
-                matches!(extension.to_ascii_lowercase().as_str(), "html" | "htm")
-            }
-            ImportSourceFormat::Markdown => {
-                matches!(extension.to_ascii_lowercase().as_str(), "md" | "mdx")
-            }
-            ImportSourceFormat::Word => extension.eq_ignore_ascii_case("docx"),
-        })
-        .unwrap_or(false)
-}
-
-fn import_source_format_error(format: &ImportSourceFormat) -> &'static str {
-    match format {
-        ImportSourceFormat::Html => "仅支持导入 .html 或 .htm 文件",
-        ImportSourceFormat::Markdown => "仅支持导入 .md 或 .mdx 文件",
-        ImportSourceFormat::Word => "仅支持导入 .docx 文件",
-    }
 }
 
 fn decode_base64_export_data(base64_data: &str) -> Result<Vec<u8>, String> {
@@ -3669,7 +3485,7 @@ mod tests {
     #[test]
     fn saving_document_removes_unreferenced_local_asset() {
         let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
-        let uploaded = crate::assets::upload_workspace_asset(
+        let uploaded = crate::assets::upload_workspace_asset_impl(
             temp_dir.path().to_string_lossy().to_string(),
             crate::assets::UploadWorkspaceAssetInput {
                 file_name: "cover.png".to_string(),
@@ -3717,7 +3533,7 @@ mod tests {
     #[test]
     fn deleting_one_of_two_documents_keeps_shared_asset() {
         let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
-        let uploaded = crate::assets::upload_workspace_asset(
+        let uploaded = crate::assets::upload_workspace_asset_impl(
             temp_dir.path().to_string_lossy().to_string(),
             crate::assets::UploadWorkspaceAssetInput {
                 file_name: "cover.png".to_string(),
@@ -3778,47 +3594,6 @@ mod tests {
     }
 
     #[test]
-    fn reads_markdown_source_files_without_modifying_sources() {
-        let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
-        let markdown_path = temp_dir.path().join("source.md");
-        fs::write(&markdown_path, "# 标题\n正文").unwrap();
-
-        let files = read_markdown_source_files(vec![markdown_path.to_string_lossy().to_string()])
-            .expect("读取 Markdown 源文件失败");
-
-        assert_eq!(files[0].file_name, "source.md");
-        assert_eq!(files[0].content, "# 标题\n正文");
-        assert_eq!(fs::read_to_string(&markdown_path).unwrap(), "# 标题\n正文");
-    }
-
-    #[test]
-    fn reads_import_source_files_by_format() {
-        let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
-        let html_path = temp_dir.path().join("source.html");
-        let docx_path = temp_dir.path().join("source.docx");
-        fs::write(&html_path, "<h1>标题</h1>").unwrap();
-        fs::write(&docx_path, [1_u8, 2, 3]).unwrap();
-
-        let html_files = read_import_source_files(
-            vec![html_path.to_string_lossy().to_string()],
-            ImportSourceFormat::Html,
-        )
-        .expect("读取 HTML 源文件失败");
-        let word_files = read_import_source_files(
-            vec![docx_path.to_string_lossy().to_string()],
-            ImportSourceFormat::Word,
-        )
-        .expect("读取 Word 源文件失败");
-
-        assert_eq!(html_files[0].file_name, "source.html");
-        assert_eq!(html_files[0].content.as_deref(), Some("<h1>标题</h1>"));
-        assert_eq!(html_files[0].base64_data, None);
-        assert_eq!(word_files[0].file_name, "source.docx");
-        assert_eq!(word_files[0].content, None);
-        assert_eq!(word_files[0].base64_data.as_deref(), Some("AQID"));
-    }
-
-    #[test]
     fn writes_export_file() {
         let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
         let export_path = temp_dir.path().join("导出.md");
@@ -3830,26 +3605,6 @@ mod tests {
         .expect("写入导出文件失败");
 
         assert_eq!(fs::read_to_string(export_path).unwrap(), "中文");
-    }
-
-    #[test]
-    fn imported_plate_documents_write_inside_workspace_only() {
-        let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
-        let docs = vec![ImportedPlateDocumentInput {
-            title: "Spring Guide".to_string(),
-            source_file_name: "Spring Guide.md".to_string(),
-            content: serde_json::json!([{ "type": "p", "children": [{ "text": "正文" }] }]),
-        }];
-
-        let result = create_imported_plate_documents(
-            temp_dir.path().to_string_lossy().to_string(),
-            "".to_string(),
-            docs,
-        )
-        .expect("导入文档失败");
-
-        assert_eq!(result.created.len(), 1);
-        assert!(temp_dir.path().join("Spring Guide.plate.json").is_file());
     }
 
     #[test]
@@ -3989,7 +3744,7 @@ mod tests {
     fn moves_document_into_directory_and_returns_sorted_snapshot() {
         let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
         fs::create_dir(temp_dir.path().join("docs")).expect("创建目录失败");
-        let uploaded = crate::assets::upload_workspace_asset(
+        let uploaded = crate::assets::upload_workspace_asset_impl(
             temp_dir.path().to_string_lossy().to_string(),
             crate::assets::UploadWorkspaceAssetInput {
                 file_name: "cover.png".to_string(),
@@ -4020,7 +3775,7 @@ mod tests {
             fs::read_to_string(temp_dir.path().join("docs/guide.md")).expect("读取移动后文档失败"),
             markdown
         );
-        let resolved = crate::assets::resolve_workspace_asset(
+        let resolved = crate::assets::resolve_workspace_asset_impl(
             temp_dir.path().to_string_lossy().to_string(),
             uploaded.id,
         )

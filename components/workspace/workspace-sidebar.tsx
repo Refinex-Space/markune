@@ -10,6 +10,7 @@ import type { useWorkspace } from './use-workspace';
 import { WorkspaceSwitcher } from './workspace-switcher';
 import type {
   WorkspaceExportFormat,
+  WorkspaceImportFormat,
   WorkspaceNode,
 } from './workspace-types';
 
@@ -18,9 +19,14 @@ interface WorkspaceSidebarProps {
   width: number;
   workspace: ReturnType<typeof useWorkspace>;
   onCreateDocument?: (parentPath: string) => Promise<WorkspaceNode | null> | void;
+  onDeleteNode?: (node: WorkspaceNode) => Promise<void> | void;
   onExportNode?: (
     node: WorkspaceNode,
     format: WorkspaceExportFormat,
+  ) => Promise<void> | void;
+  onImportDocuments?: (
+    targetDir: string,
+    format: WorkspaceImportFormat,
   ) => Promise<void> | void;
   onOpenDailyNote?: () => void;
   onOpenInFileManager?: (node: WorkspaceNode) => void;
@@ -28,8 +34,13 @@ interface WorkspaceSidebarProps {
   onOpenViews?: () => void;
   onOpenSettings?: () => void;
   onRemoveWorkspace?: (rootPath: string) => void;
+  onRenameNode?: (
+    node: WorkspaceNode,
+    newName: string,
+  ) => Promise<WorkspaceNode | null | void> | WorkspaceNode | null | void;
   preferredEditorLabel?: string;
-  revealDirectoryPath?: string | null;
+  revealNodePath?: string | null;
+  revealNodeRequestId?: number;
   onSelectDirectory?: (node: WorkspaceNode) => Promise<void> | void;
   onSelectDocument?: (node: WorkspaceNode) => void;
   onTogglePinned?: (node: WorkspaceNode) => void;
@@ -41,21 +52,27 @@ export function WorkspaceSidebar({
   width,
   workspace,
   onCreateDocument,
+  onDeleteNode,
   onExportNode,
+  onImportDocuments,
   onOpenDailyNote,
   onOpenInFileManager,
   onOpenInPreferredEditor,
   onOpenViews,
   onOpenSettings,
   onRemoveWorkspace,
+  onRenameNode,
   preferredEditorLabel,
-  revealDirectoryPath,
+  revealNodePath,
+  revealNodeRequestId,
   onSelectDirectory,
   onSelectDocument,
   onTogglePinned,
   systemPage = null,
 }: WorkspaceSidebarProps) {
   const createDocument = onCreateDocument ?? workspace.createDocument;
+  const deleteNode = onDeleteNode ?? workspace.deleteNode;
+  const renameNode = onRenameNode ?? workspace.renameNode;
   const selectDirectory = onSelectDirectory ?? workspace.selectDirectory;
   const selectDocument = onSelectDocument ?? workspace.openDocument;
   const regularNodes = useMemo(
@@ -146,16 +163,20 @@ export function WorkspaceSidebar({
               searchQuery={workspace.searchQuery}
               onCreateDirectory={workspace.createDirectory}
               onCreateDocument={createDocument}
-              onDeleteNode={workspace.deleteNode}
+              onDeleteNode={deleteNode}
               onExportNode={onExportNode}
-              onImportMarkdown={workspace.importMarkdownDocuments}
+              onImportDocuments={onImportDocuments}
+              onImportMarkdown={(targetDir) =>
+                void onImportDocuments?.(targetDir, 'markdown')
+              }
               onMoveNode={workspace.moveNode}
               onOpenInFileManager={onOpenInFileManager}
               onOpenInPreferredEditor={onOpenInPreferredEditor}
               onPendingRenameConsumed={workspace.clearPendingRenameNode}
               preferredEditorLabel={preferredEditorLabel}
-              revealDirectoryPath={revealDirectoryPath}
-              onRenameNode={workspace.renameNode}
+              revealNodePath={revealNodePath}
+              revealNodeRequestId={revealNodeRequestId}
+              onRenameNode={renameNode}
               onSelectDirectory={selectDirectory}
               onSelectDocument={selectDocument}
               onTogglePinned={onTogglePinned}

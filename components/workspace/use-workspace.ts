@@ -14,12 +14,10 @@ import {
   moveWorkspaceNode,
   recordWorkspaceHistory,
   removeWorkspaceHistory,
-  readMarkdownSourceFiles,
   readMarkdownDocument,
   renameWorkspaceNode,
   saveRecentWorkspacePath,
   saveMarkdownDocument,
-  selectMarkdownSourceFiles,
   selectWorkspaceParentDirectory,
   selectWorkspaceRoot,
   setWorkspaceNodeState,
@@ -683,48 +681,6 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     ],
   );
 
-  const importMarkdownDocuments = React.useCallback(
-    async (targetDir = '') => {
-      if (!snapshot) {
-        return;
-      }
-
-      const selected = await selectMarkdownSourceFiles();
-
-      if (selected.length === 0) {
-        return;
-      }
-
-      const sourceFiles = await readMarkdownSourceFiles(selected);
-      const createdNodes: WorkspaceNode[] = [];
-
-      for (const source of sourceFiles) {
-        const title = parseMarkdownMetadata(source.content, source.fileName)
-          .metadata.title;
-        const created = await createMarkdownDocument(
-          snapshot.rootPath,
-          targetDir,
-          title,
-        );
-
-        await saveMarkdownDocument(
-          snapshot.rootPath,
-          created.node.absolutePath,
-          source.content,
-          created.content.modifiedAt,
-        );
-        createdNodes.push(created.node);
-      }
-
-      await refreshWorkspaceTree();
-
-      if (createdNodes[0]) {
-        await openDocument(createdNodes[0]);
-      }
-    },
-    [openDocument, refreshWorkspaceTree, snapshot],
-  );
-
   const updateNodeState = React.useCallback(
     async (
       node: WorkspaceNode,
@@ -877,7 +833,6 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     draftDocument,
     deleteNode,
     error,
-    importMarkdownDocuments,
     initialRecentDocumentPaths,
     isLoading,
     isSidebarCollapsed,
