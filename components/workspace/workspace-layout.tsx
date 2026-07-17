@@ -481,9 +481,10 @@ export function WorkspaceLayout({
   const [leftPanelMode, setLeftPanelMode] =
     React.useState<LeftPanelMode>('workspace');
   const [systemPage, setSystemPage] = React.useState<WorkspaceSystemPage>(null);
-  const [revealedDirectoryPath, setRevealedDirectoryPath] = React.useState<
-    string | null
-  >(null);
+  const [treeRevealRequest, setTreeRevealRequest] = React.useState<{
+    absolutePath: string;
+    requestId: number;
+  } | null>(null);
   const [bottomPanelMode, setBottomPanelMode] =
     React.useState<BottomPanelMode>(null);
   const [gitProbeState, setGitProbeState] = React.useState<GitProbe | null>(
@@ -1618,6 +1619,18 @@ export function WorkspaceLayout({
     ],
   );
 
+  const revealNodeInWorkspaceTree = React.useCallback(
+    (absolutePath: string) => {
+      setLeftPanelMode('workspace');
+      workspace.setSearchQuery('');
+      setTreeRevealRequest((current) => ({
+        absolutePath,
+        requestId: (current?.requestId ?? 0) + 1,
+      }));
+    },
+    [workspace],
+  );
+
   const handleOpenRecentDocument = React.useCallback(
     (documentPath: string) => {
       const node = findWorkspaceDocumentByPath(
@@ -1629,9 +1642,10 @@ export function WorkspaceLayout({
         return;
       }
 
+      revealNodeInWorkspaceTree(node.absolutePath);
       void openDocumentNode(node);
     },
-    [openDocumentNode, workspace.snapshot?.nodes],
+    [openDocumentNode, revealNodeInWorkspaceTree, workspace.snapshot?.nodes],
   );
 
   const handleSelectGlobalSearchResult = React.useCallback(
@@ -1647,9 +1661,10 @@ export function WorkspaceLayout({
 
       setGlobalSearchOpen(false);
       setGlobalSearchQuery('');
+      revealNodeInWorkspaceTree(node.absolutePath);
       void openDocumentNode(node);
     },
-    [openDocumentNode, workspace.snapshot?.nodes],
+    [openDocumentNode, revealNodeInWorkspaceTree, workspace.snapshot?.nodes],
   );
 
   const handleCreateDocument = React.useCallback(
@@ -1758,16 +1773,16 @@ export function WorkspaceLayout({
   const handleOpenWorkspaceViewNode = React.useCallback(
     (node: WorkspaceNode) => {
       setSystemPage(null);
+      revealNodeInWorkspaceTree(node.absolutePath);
 
       if (node.kind === 'directory') {
-        setRevealedDirectoryPath(node.absolutePath);
         void workspace.selectDirectory(node);
         return;
       }
 
       void openDocumentNode(node);
     },
-    [openDocumentNode, workspace],
+    [openDocumentNode, revealNodeInWorkspaceTree, workspace],
   );
 
   const handleSelectWorkspaceDirectory = React.useCallback(
@@ -2178,7 +2193,8 @@ export function WorkspaceLayout({
                 onRemoveWorkspace={handleRemoveWorkspace}
                 onDeleteNode={handleDeleteWorkspaceNode}
                 onRenameNode={handleRenameWorkspaceNode}
-                revealDirectoryPath={revealedDirectoryPath}
+                revealNodePath={treeRevealRequest?.absolutePath ?? null}
+                revealNodeRequestId={treeRevealRequest?.requestId}
                 onSelectDirectory={handleSelectWorkspaceDirectory}
                 onSelectDocument={openDocumentNode}
                 onTogglePinned={handleToggleNodePinned}

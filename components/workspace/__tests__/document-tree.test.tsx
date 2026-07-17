@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -89,6 +89,46 @@ describe('DocumentTree', () => {
     );
   });
 
+  it('insets document hover and selected backgrounds from tree guides', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <DocumentTree
+        currentDocumentPath="/repo/Guides/intro.md"
+        nodes={nodes}
+        searchQuery=""
+        onCreateDirectory={vi.fn()}
+        onCreateDocument={vi.fn()}
+        onDeleteNode={vi.fn()}
+        onImportMarkdown={vi.fn()}
+        onRenameNode={vi.fn()}
+        onSelectDocument={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByText('Guides'));
+
+    const directorySurface = screen.getByTestId('tree-row-surface-guides');
+    const documentSurface = screen.getByTestId('tree-row-surface-intro');
+
+    expect(directorySurface.className).toContain(
+      'group-hover/tree-row:bg-sidebar-accent/70',
+    );
+    expect(documentSurface.className).toContain('before:left-5');
+    expect(documentSurface.className).toContain('isolate');
+    expect(documentSurface.className).toContain('before:z-0');
+    expect(documentSurface.className).toContain(
+      'group-hover/tree-row:before:bg-sidebar-accent/70',
+    );
+    expect(documentSurface.className).toContain('before:bg-sidebar-accent');
+    expect(documentSurface.className).not.toContain(
+      'group-hover/tree-row:bg-sidebar-accent/70',
+    );
+    expect(screen.getByText('入门').parentElement?.className).toContain(
+      'z-[1]',
+    );
+  });
+
   it('keeps a subtle visual gap between parent and child row backgrounds', async () => {
     const user = userEvent.setup();
 
@@ -115,6 +155,94 @@ describe('DocumentTree', () => {
     expect(screen.getByTestId('tree-row-guides').className).toContain(
       'text-[13px]',
     );
+  });
+
+  it('reveals and scrolls to a deeply nested document for repeated requests', async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    const nestedNodes: WorkspaceNode[] = [
+      {
+        id: 'parent',
+        name: 'Parent',
+        kind: 'directory',
+        relativePath: 'Parent',
+        absolutePath: '/repo/Parent',
+        children: [
+          {
+            id: 'child',
+            name: 'Child',
+            kind: 'directory',
+            relativePath: 'Parent/Child',
+            absolutePath: '/repo/Parent/Child',
+            children: [
+              {
+                id: 'leaf',
+                name: 'leaf.md',
+                kind: 'document',
+                relativePath: 'Parent/Child/leaf.md',
+                absolutePath: '/repo/Parent/Child/leaf.md',
+                title: 'Leaf',
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    const props = {
+      currentDocumentPath: '/repo/Parent/Child/leaf.md',
+      nodes: nestedNodes,
+      searchQuery: '',
+      onCreateDirectory: vi.fn(),
+      onCreateDocument: vi.fn(),
+      onDeleteNode: vi.fn(),
+      onImportMarkdown: vi.fn(),
+      onRenameNode: vi.fn(),
+      onSelectDocument: vi.fn(),
+    };
+
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    try {
+      const { rerender } = render(
+        <DocumentTree
+          {...props}
+          revealNodePath="/repo/Parent/Child/leaf.md"
+          revealNodeRequestId={1}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('tree-row-leaf')).toBeTruthy();
+        expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      });
+      expect(screen.getByTestId('directory-folder-open-parent')).toBeTruthy();
+      expect(screen.getByTestId('directory-folder-open-child')).toBeTruthy();
+
+      await user.click(screen.getByText('Parent'));
+      expect(screen.queryByTestId('tree-row-leaf')).toBeNull();
+
+      rerender(
+        <DocumentTree
+          {...props}
+          revealNodePath="/repo/Parent/Child/leaf.md"
+          revealNodeRequestId={2}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('tree-row-leaf')).toBeTruthy();
+        expect(scrollIntoView).toHaveBeenCalledTimes(2);
+      });
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+        configurable: true,
+        value: originalScrollIntoView,
+      });
+    }
   });
 
   it('renders a guide for each expanded directory subtree', async () => {
@@ -173,7 +301,7 @@ describe('DocumentTree', () => {
       'bg-sidebar-foreground/20',
     );
     expect(screen.getByTestId('tree-guide-parent').className).toContain(
-      'bottom-5',
+      'bottom-0',
     );
     expect(screen.getByTestId('tree-guide-parent').style.left).toBe('14.5px');
     expect(screen.getByTestId('tree-row-surface-parent').style.marginLeft).toBe(

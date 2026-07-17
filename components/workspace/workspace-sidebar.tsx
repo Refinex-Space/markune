@@ -34,7 +34,8 @@ interface WorkspaceSidebarProps {
     newName: string,
   ) => Promise<WorkspaceNode | null | void> | WorkspaceNode | null | void;
   preferredEditorLabel?: string;
-  revealDirectoryPath?: string | null;
+  revealNodePath?: string | null;
+  revealNodeRequestId?: number;
   onSelectDirectory?: (node: WorkspaceNode) => Promise<void> | void;
   onSelectDocument?: (node: WorkspaceNode) => void;
   onTogglePinned?: (node: WorkspaceNode) => void;
@@ -56,7 +57,8 @@ export function WorkspaceSidebar({
   onRemoveWorkspace,
   onRenameNode,
   preferredEditorLabel,
-  revealDirectoryPath,
+  revealNodePath,
+  revealNodeRequestId,
   onSelectDirectory,
   onSelectDocument,
   onTogglePinned,
@@ -163,7 +165,8 @@ export function WorkspaceSidebar({
               onOpenInPreferredEditor={onOpenInPreferredEditor}
               onPendingRenameConsumed={workspace.clearPendingRenameNode}
               preferredEditorLabel={preferredEditorLabel}
-              revealDirectoryPath={revealDirectoryPath}
+              revealNodePath={revealNodePath}
+              revealNodeRequestId={revealNodeRequestId}
               onRenameNode={renameNode}
               onSelectDirectory={selectDirectory}
               onSelectDocument={selectDocument}

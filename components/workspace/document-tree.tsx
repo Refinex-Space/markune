@@ -86,7 +86,8 @@ interface DocumentTreeProps {
   onOpenInPreferredEditor?: (node: WorkspaceNode) => Promise<void> | void;
   preferredEditorLabel?: string;
   onPendingRenameConsumed?: () => void;
-  revealDirectoryPath?: string | null;
+  revealNodePath?: string | null;
+  revealNodeRequestId?: number;
   onSelectDirectory?: (node: WorkspaceNode) => Promise<void> | void;
   onRenameNode: (
     node: WorkspaceNode,
@@ -113,7 +114,8 @@ export function DocumentTree({
   onOpenInPreferredEditor,
   preferredEditorLabel,
   onPendingRenameConsumed,
-  revealDirectoryPath,
+  revealNodePath,
+  revealNodeRequestId,
   onSelectDirectory,
   onRenameNode,
   onSelectDocument,
@@ -131,35 +133,55 @@ export function DocumentTree({
     null,
   );
   const draggedNodeRef = React.useRef<WorkspaceNode | null>(null);
+  const treeRootRef = React.useRef<HTMLDivElement>(null);
   const visibleNodes = filterWorkspaceNodes(nodes, searchQuery);
   const forceExpanded = searchQuery.trim().length > 0;
   const dragDisabled = searchQuery.trim().length > 0 || !onMoveNode;
 
   React.useEffect(() => {
-    if (!revealDirectoryPath) {
+    if (!revealNodePath) {
       return;
     }
 
-    const revealIds = findDirectoryRevealIds(nodes, revealDirectoryPath);
+    const reveal = findNodeReveal(nodes, revealNodePath);
 
-    if (revealIds.length === 0) {
+    if (!reveal) {
       return;
     }
 
+    let animationFrame: number | null = null;
     const timer = window.setTimeout(() => {
       setExpanded((previous) => {
         const next = new Set(previous);
 
-        for (const id of revealIds) {
+        for (const id of reveal.expandedIds) {
           next.add(id);
         }
 
         return next;
       });
+
+      animationFrame = window.requestAnimationFrame(() => {
+        const targetRow = Array.from(
+          treeRootRef.current?.querySelectorAll<HTMLElement>(
+            '[data-workspace-node-path]',
+          ) ?? [],
+        ).find(
+          (row) => row.dataset.workspaceNodePath === revealNodePath,
+        );
+
+        targetRow?.scrollIntoView?.({ block: 'nearest' });
+      });
     }, 0);
 
-    return () => window.clearTimeout(timer);
-  }, [nodes, revealDirectoryPath]);
+    return () => {
+      window.clearTimeout(timer);
+
+      if (animationFrame !== null) {
+        window.cancelAnimationFrame(animationFrame);
+      }
+    };
+  }, [nodes, revealNodePath, revealNodeRequestId]);
 
   const startEditingNode = React.useCallback((node: WorkspaceNode) => {
     setEditingNodeId(node.id);
@@ -342,7 +364,9 @@ export function DocumentTree({
 
   return (
     <>
-      <div className="flex min-h-full flex-col py-1">{treeContent}</div>
+      <div ref={treeRootRef} className="flex min-h-full flex-col py-1">
+        {treeContent}
+      </div>
 
       <DeleteNodeDialog
         node={deleteTarget}
@@ -512,6 +536,7 @@ function TreeNode({
               isDragSource && 'opacity-45',
             )}
             data-testid={`tree-row-${node.id}`}
+            data-workspace-node-path={node.absolutePath}
             draggable={!dragDisabled && !isEditing}
             role={isEditing ? undefined : 'button'}
             tabIndex={isEditing ? undefined : 0}
@@ -589,8 +614,15 @@ function TreeNode({
 
             <div
               className={cn(
-                'flex h-full min-w-0 flex-1 items-center rounded-md transition-colors group-hover/tree-row:bg-sidebar-accent/70',
-                (isCurrent || isCurrentDirectory) && 'bg-sidebar-accent',
+                'relative isolate flex h-full min-w-0 flex-1 items-center rounded-md transition-colors',
+                isDirectory
+                  ? 'group-hover/tree-row:bg-sidebar-accent/70'
+                  : "before:pointer-events-none before:absolute before:inset-y-0 before:left-5 before:right-0 before:z-0 before:rounded-md before:transition-colors before:content-[''] group-hover/tree-row:before:bg-sidebar-accent/70",
+                isCurrentDirectory && 'bg-sidebar-accent',
+                isCurrent &&
+                  (isDirectory
+                    ? 'bg-sidebar-accent'
+                    : 'before:bg-sidebar-accent'),
                 previewPosition === 'inside' &&
                   'bg-[#eef4ff] outline outline-1 outline-[#3574f0]/25',
               )}
@@ -598,7 +630,7 @@ function TreeNode({
               style={{ marginLeft: rowSurfaceLeft }}
             >
               {isEditing ? (
-                <div className="grid h-full min-w-0 flex-1 grid-cols-[13px_minmax(0,1fr)] items-center gap-1.5 rounded-md px-2 text-left">
+                <div className="relative z-[1] grid h-full min-w-0 flex-1 grid-cols-[13px_minmax(0,1fr)] items-center gap-1.5 rounded-md px-2 text-left">
                   <DirectoryIcon
                     isDirectory={isDirectory}
                     isExpanded={isExpanded}
@@ -615,7 +647,7 @@ function TreeNode({
                   />
                 </div>
               ) : (
-                <div className="grid h-full min-w-0 flex-1 grid-cols-[13px_minmax(0,1fr)] items-center gap-1.5 rounded-md px-2 text-left text-foreground/80">
+                <div className="relative z-[1] grid h-full min-w-0 flex-1 grid-cols-[13px_minmax(0,1fr)] items-center gap-1.5 rounded-md px-2 text-left text-foreground/80">
                   <DirectoryIcon
                     isDirectory={isDirectory}
                     isExpanded={isExpanded}
@@ -912,7 +944,7 @@ function NodeActionDropdown({
       <DropdownMenuTrigger asChild>
         <button
           aria-label={`打开 ${node.name} 操作菜单`}
-          className="mr-1 hidden size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground group-hover/tree-row:flex data-[state=open]:flex"
+          className="relative z-[1] mr-1 hidden size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground group-hover/tree-row:flex data-[state=open]:flex"
           data-tree-drag-disabled="true"
           type="button"
           onClick={(event) => event.stopPropagation()}
@@ -1306,27 +1338,31 @@ function hasDescendantByAbsolutePath(
   );
 }
 
-function findDirectoryRevealIds(
+function findNodeReveal(
   nodes: WorkspaceNode[],
   absolutePath: string,
-): string[] {
+): { expandedIds: string[] } | null {
   for (const node of nodes) {
+    if (node.absolutePath === absolutePath) {
+      return {
+        expandedIds: node.kind === 'directory' ? [node.id] : [],
+      };
+    }
+
     if (node.kind !== 'directory') {
       continue;
     }
 
-    if (node.absolutePath === absolutePath) {
-      return [node.id];
-    }
+    const childReveal = findNodeReveal(node.children ?? [], absolutePath);
 
-    const childIds = findDirectoryRevealIds(node.children ?? [], absolutePath);
-
-    if (childIds.length > 0) {
-      return [node.id, ...childIds];
+    if (childReveal) {
+      return {
+        expandedIds: [node.id, ...childReveal.expandedIds],
+      };
     }
   }
 
-  return [];
+  return null;
 }
 
 function findNodeByAbsolutePath(
