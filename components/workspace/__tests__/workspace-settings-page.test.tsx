@@ -8,6 +8,7 @@ import type { AppSettings } from '../workspace-types';
 
 const themeState = vi.hoisted(() => ({ setTheme: vi.fn() }));
 const workspaceApiState = vi.hoisted(() => ({
+  getMadoraVersion: vi.fn(() => Promise.resolve<string | null>('0.1.0')),
   isTauriRuntime: vi.fn(() => false),
   openUrlInDefaultBrowser: vi.fn(() => Promise.resolve()),
 }));
@@ -18,6 +19,7 @@ vi.mock('next-themes', () => ({
 
 vi.mock('../workspace-api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../workspace-api')>()),
+  getMadoraVersion: workspaceApiState.getMadoraVersion,
   isTauriRuntime: workspaceApiState.isTauriRuntime,
   openUrlInDefaultBrowser: workspaceApiState.openUrlInDefaultBrowser,
 }));
@@ -48,6 +50,8 @@ function renderSettingsPage() {
 
 describe('WorkspaceSettingsPage', () => {
   beforeEach(() => {
+    workspaceApiState.getMadoraVersion.mockClear();
+    workspaceApiState.getMadoraVersion.mockResolvedValue('0.1.0');
     workspaceApiState.isTauriRuntime.mockReturnValue(false);
     workspaceApiState.openUrlInDefaultBrowser.mockClear();
   });
@@ -68,6 +72,7 @@ describe('WorkspaceSettingsPage', () => {
     expect(screen.getByRole('button', { name: '外观' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '存储' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Git Sync' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '版本' })).toBeTruthy();
     expect(screen.queryByText(/^AI/)).toBeNull();
     expect(screen.getByTestId('theme-preview-system')).toBeTruthy();
     expect(screen.getByTestId('theme-preview-light')).toBeTruthy();
@@ -87,6 +92,45 @@ describe('WorkspaceSettingsPage', () => {
     expect(
       screen.getByText('这是一段用于预览文档字体的文本。'),
     ).toBeTruthy();
+  });
+
+  it('shows the runtime Madora version from the last settings section', async () => {
+    const user = userEvent.setup();
+    renderSettingsPage();
+    const navigation = screen.getByRole('navigation', { name: '设置分类' });
+    const sectionButtons = navigation.querySelectorAll('button');
+
+    expect(sectionButtons.item(sectionButtons.length - 1).textContent).toContain(
+      '版本',
+    );
+
+    await user.click(screen.getByRole('button', { name: '版本' }));
+
+    expect(screen.getByRole('img', { name: 'Madora Logo' })).toBeTruthy();
+    expect((await screen.findByTestId('madora-version')).textContent).toBe(
+      '0.1.0',
+    );
+    expect(workspaceApiState.getMadoraVersion).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows an unavailable state when the runtime version cannot be read', async () => {
+    workspaceApiState.getMadoraVersion.mockRejectedValueOnce(
+      new Error('version unavailable'),
+    );
+
+    render(
+      <WorkspaceSettingsPage
+        initialSectionId="version"
+        initialSettings={initialSettings}
+        sessionCache={createWorkspaceSettingsSessionCache()}
+        workspaceRootPath="D:/notes"
+        onBack={vi.fn()}
+      />,
+    );
+
+    expect((await screen.findByTestId('madora-version')).textContent).toBe(
+      '版本信息不可用',
+    );
   });
 
   it('keeps storage and Git Sync information in structured cards', async () => {

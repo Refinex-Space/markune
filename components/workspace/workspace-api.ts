@@ -49,6 +49,15 @@ export function isTauriRuntime() {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
+export async function getMadoraVersion() {
+  if (!isTauriRuntime()) {
+    return null;
+  }
+
+  const { getVersion } = await import('@tauri-apps/api/app');
+  return getVersion();
+}
+
 export function getRecentWorkspacePath() {
   if (typeof window === 'undefined') {
     return null;

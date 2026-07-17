@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Image from 'next/image';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -9,6 +10,7 @@ import {
   ExternalLink,
   FolderArchive,
   GitBranch,
+  Info,
   Loader2,
   Monitor,
   Moon,
@@ -34,6 +36,7 @@ import { cn } from '@/lib/utils';
 
 import {
   ensureWorkspace,
+  getMadoraVersion,
   gitProbe,
   gitRemoteInfo,
   gitSyncNow,
@@ -59,7 +62,11 @@ import type {
   WorkspaceGitSyncSettings,
 } from './workspace-types';
 
-export type SettingsSectionId = 'appearance' | 'storage' | 'git-sync';
+export type SettingsSectionId =
+  | 'appearance'
+  | 'storage'
+  | 'git-sync'
+  | 'version';
 type GitActionState =
   | 'idle'
   | 'loading'
@@ -126,6 +133,12 @@ const SETTINGS_SECTIONS: Array<{
     icon: GitBranch,
     label: 'Git Sync',
     searchTerms: ['git', 'sync', '同步', '远程仓库'],
+  },
+  {
+    id: 'version',
+    icon: Info,
+    label: '版本',
+    searchTerms: ['版本', '关于', 'madora', 'logo'],
   },
 ];
 
@@ -506,6 +519,7 @@ export function WorkspaceSettingsPage({
                   onSyncNow={() => void syncNow()}
                 />
               ) : null}
+              {effectiveSection === 'version' ? <VersionSection /> : null}
               {!effectiveSection ? (
                 <div className="flex min-h-[360px] flex-col items-center justify-center text-center">
                   <Search className="mb-3 text-muted-foreground" size={26} />
@@ -724,6 +738,88 @@ function StorageSection({
         error={error}
         state="idle"
       />
+    </div>
+  );
+}
+
+function VersionSection() {
+  const [version, setVersion] = React.useState<string | null>(null);
+  const [loadState, setLoadState] = React.useState<
+    'loading' | 'loaded' | 'unavailable'
+  >('loading');
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    void getMadoraVersion()
+      .then((resolvedVersion) => {
+        if (cancelled) return;
+        setVersion(resolvedVersion);
+        setLoadState(resolvedVersion ? 'loaded' : 'unavailable');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setLoadState('unavailable');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <div className="space-y-6 pb-8" data-testid="version-settings-shell">
+      <SettingsSectionHeader
+        description="查看当前 Madora 桌面应用的版本信息。"
+        title="版本"
+      />
+
+      <section
+        className="overflow-hidden rounded-xl bg-muted/30"
+        data-testid="madora-version-card"
+      >
+        <div className="flex flex-col items-center px-6 py-10 text-center">
+          <div
+            aria-label="Madora Logo"
+            className="flex size-20 items-center justify-center rounded-2xl border border-border/60 bg-background/80 shadow-sm"
+            role="img"
+          >
+            <Image
+              alt=""
+              className="size-12 opacity-90 dark:hidden"
+              height={48}
+              src="/brand/madora-logo-dark.svg"
+              width={48}
+            />
+            <Image
+              alt=""
+              className="hidden size-12 opacity-90 dark:block"
+              height={48}
+              src="/brand/madora-logo-light.svg"
+              width={48}
+            />
+          </div>
+          <h2 className="mt-5 text-xl font-semibold tracking-tight">Madora</h2>
+          <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">
+            以 Markdown 为核心的本地知识库桌面应用。
+          </p>
+        </div>
+
+        <div className="grid gap-3 border-t border-border/60 px-5 py-4 text-sm sm:grid-cols-[160px_minmax(0,1fr)] sm:items-center">
+          <span className="text-muted-foreground">当前版本</span>
+          <code
+            aria-live="polite"
+            className="font-mono text-sm text-foreground sm:text-right"
+            data-testid="madora-version"
+          >
+            {loadState === 'loading'
+              ? '正在读取...'
+              : loadState === 'loaded' && version
+                ? version
+                : '版本信息不可用'}
+          </code>
+        </div>
+      </section>
     </div>
   );
 }
