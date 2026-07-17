@@ -219,6 +219,49 @@ describe('AI message rendering', () => {
     expect(editor.className).toContain('overflow-y-auto');
   });
 
+  it('连接准备期间允许输入并保留显式发送意图', async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+
+    render(
+      <AiComposer
+        active={false}
+        approvalPolicyAvailability={{ never: true, onRequest: true }}
+        autoReviewAvailable={false}
+        currentDocument={null}
+        effort="medium"
+        mentionDocuments={[]}
+        mentionQuery={null}
+        mcpServerCount={0}
+        models={[]}
+        permissionMode="ask"
+        permissionProfiles={[]}
+        permissionSwitchDisabled={false}
+        runtimeStatus="loading"
+        selectedModel=""
+        selectedModelInfo={null}
+        submitting={false}
+        value="总结当前文档"
+        version={null}
+        onEffortChange={vi.fn()}
+        onInterrupt={vi.fn()}
+        onMentionQueryChange={vi.fn()}
+        onMentionsChange={vi.fn()}
+        onModelChange={vi.fn()}
+        onOpenMention={vi.fn()}
+        onPermissionModeChange={vi.fn()}
+        onSend={onSend}
+        onValueChange={vi.fn()}
+      />,
+    );
+
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    expect(editor.getAttribute('contenteditable')).toBe('true');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+    expect(onSend).toHaveBeenCalledOnce();
+    expect(screen.getByText('正在准备')).toBeTruthy();
+  });
+
   it('离开消息底部后显示回到最新消息按钮并支持平滑返回', async () => {
     const user = userEvent.setup();
     render(

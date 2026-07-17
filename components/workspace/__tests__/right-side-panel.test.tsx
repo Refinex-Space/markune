@@ -11,12 +11,14 @@ vi.mock('next-themes', () => ({
 vi.mock('../ai-panel', () => ({
   AiPanel: ({
     onOpenDocument,
+    visible,
     workspaceRootPath,
   }: {
     onOpenDocument: (path: string) => void;
+    visible: boolean;
     workspaceRootPath: string | null;
   }) => (
-    <div>
+    <div data-visible={visible}>
       AI:{workspaceRootPath}
       <button type="button" onClick={() => onOpenDocument('/workspace/README.md')}>
         打开提及文档
@@ -91,5 +93,34 @@ describe('right AI panel integration', () => {
     expect(screen.queryByTestId('document-meta-panel')).toBeNull();
     screen.getByRole('button', { name: '打开提及文档' }).click();
     expect(onOpenDocument).toHaveBeenCalledWith('/workspace/README.md');
+  });
+
+  it('折叠或切换元信息面板时仍保持 AI 运行时挂载', () => {
+    const props = {
+      currentDocument: null,
+      documentPanelData: null,
+      documentReadOnly: false,
+      documents: [],
+      width: 420,
+      workspaceRootPath: '/workspace',
+      onBeforeTurnStart: vi.fn().mockResolvedValue(true),
+      onOpenDocument: vi.fn(),
+      onWorkspaceChanged: vi.fn(),
+    };
+    const { rerender } = render(<RightSidePanel {...props} mode={null} />);
+
+    const hiddenAiPanel = screen.getByTestId('ai-side-panel');
+    expect(hiddenAiPanel.hasAttribute('hidden')).toBe(true);
+    expect(screen.getByText('AI:/workspace').getAttribute('data-visible')).toBe(
+      'false',
+    );
+
+    rerender(<RightSidePanel {...props} mode="meta" />);
+
+    expect(screen.getByTestId('ai-side-panel')).toBe(hiddenAiPanel);
+    expect(screen.getByTestId('ai-side-panel').hasAttribute('hidden')).toBe(
+      true,
+    );
+    expect(screen.getByTestId('document-meta-panel')).toBeTruthy();
   });
 });

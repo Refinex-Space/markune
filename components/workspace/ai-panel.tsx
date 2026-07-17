@@ -106,6 +106,7 @@ import type { WorkspaceNode } from './workspace-types';
 interface AiPanelProps {
   currentDocument: WorkspaceNode | null;
   documents: AiDocumentReference[];
+  visible: boolean;
   workspaceRootPath: string | null;
   onBeforeTurnStart: () => Promise<boolean>;
   onOpenDocument: (documentPath: string) => void;
@@ -126,6 +127,7 @@ const mentionLinkClassName =
 
 type PanelView = 'chat' | 'history';
 type RuntimeStatus = 'error' | 'loading' | 'ready' | 'web';
+type ControlLoadStatus = 'error' | 'idle' | 'loading' | 'ready';
 
 interface ThreadStartResponse extends CodexThreadPermissionSettings {
   thread: CodexThread;
@@ -277,6 +279,7 @@ function permissionModeLabel(mode: PermissionModeId) {
 export function AiPanel({
   currentDocument,
   documents,
+  visible,
   workspaceRootPath,
   onBeforeTurnStart,
   onOpenDocument,
@@ -290,14 +293,20 @@ export function AiPanel({
   const [account, setAccount] = React.useState<CodexAccountResponse['account']>(null);
   const [authRequired, setAuthRequired] = React.useState(false);
   const [models, setModels] = React.useState<CodexModel[]>([]);
+  const [modelCatalogStatus, setModelCatalogStatus] =
+    React.useState<ControlLoadStatus>('idle');
   const [selectedModel, setSelectedModel] = React.useState<string>('');
   const [effort, setEffort] = React.useState<CodexReasoningEffort>('medium');
   const [threads, setThreads] = React.useState<CodexThread[]>([]);
+  const [threadListStatus, setThreadListStatus] =
+    React.useState<ControlLoadStatus>('idle');
   const [activeThread, setActiveThread] = React.useState<CodexThread | null>(null);
   const [conversation, setConversation] = React.useState<AiConversationState>(
     createEmptyConversation,
   );
   const [mcpServerCount, setMcpServerCount] = React.useState(0);
+  const [mcpStatus, setMcpStatus] =
+    React.useState<ControlLoadStatus>('idle');
   const [permissionProfiles, setPermissionProfiles] = React.useState<
     CodexPermissionProfileSummary[]
   >([]);
@@ -322,6 +331,14 @@ export function AiPanel({
   const modelSelectionInitializedRef = React.useRef(false);
   const activeThreadIdRef = React.useRef<string | null>(null);
   const onWorkspaceChangedRef = React.useRef(onWorkspaceChanged);
+  const runtimeReadyPromiseRef = React.useRef<Promise<void> | null>(null);
+  const runtimeStatusRef = React.useRef<RuntimeStatus>('loading');
+  const authRequiredRef = React.useRef(false);
+  const selectedModelRef = React.useRef('');
+  const effortRef = React.useRef<CodexReasoningEffort>('medium');
+  const permissionSettingsRef = React.useRef(DEFAULT_PERMISSION_SETTINGS);
+  const submittingRef = React.useRef(false);
+  const runtimeGenerationRef = React.useRef(0);
 
   React.useEffect(() => {
     activeThreadIdRef.current = activeThread?.id ?? null;
@@ -330,6 +347,22 @@ export function AiPanel({
   React.useEffect(() => {
     onWorkspaceChangedRef.current = onWorkspaceChanged;
   }, [onWorkspaceChanged]);
+
+  React.useEffect(() => {
+    authRequiredRef.current = authRequired;
+  }, [authRequired]);
+
+  React.useEffect(() => {
+    selectedModelRef.current = selectedModel;
+  }, [selectedModel]);
+
+  React.useEffect(() => {
+    effortRef.current = effort;
+  }, [effort]);
+
+  React.useEffect(() => {
+    permissionSettingsRef.current = permissionSettings;
+  }, [permissionSettings]);
 
   const applyThreadName = React.useCallback((threadId: string, name: string) => {
     setActiveThread((current) =>
@@ -381,16 +414,15 @@ export function AiPanel({
     [models, selectedModel],
   );
 
-  const loadControlData = React.useCallback(async () => {
+  const loadCoreControlData = React.useCallback(async (
+    generation = runtimeGenerationRef.current,
+  ) => {
     if (!workspaceRootPath) {
       return;
     }
 
     const [
       accountResponse,
-      modelResponse,
-      threadResponse,
-      mcpResponse,
       permissionResponse,
       requirementsResponse,
       featureResponse,
@@ -399,22 +431,6 @@ export function AiPanel({
         codexAppServerClient.request<CodexAccountResponse>('account/read', {
           refreshToken: false,
         }),
-        codexAppServerClient.request<CodexModelListResponse>('model/list', {
-          includeHidden: false,
-          limit: 100,
-        }),
-        codexAppServerClient.request<CodexThreadListResponse>('thread/list', {
-          cwd: workspaceRootPath,
-          limit: 100,
-          sortKey: 'updated_at',
-          sortDirection: 'desc',
-        }),
-        codexAppServerClient
-          .request<McpListResponse>('mcpServerStatus/list', {
-            detail: 'toolsAndAuthOnly',
-            limit: 100,
-          })
-          .catch(() => ({ data: [] })),
         codexAppServerClient
           .request<CodexPermissionProfileListResponse>('permissionProfile/list', {
             cwd: workspaceRootPath,
@@ -431,13 +447,13 @@ export function AiPanel({
           .catch(() => ({ data: [], nextCursor: null })),
       ]);
 
+    if (generation !== runtimeGenerationRef.current) return;
+
     setAccount(accountResponse.account);
-    setAuthRequired(
-      accountResponse.requiresOpenaiAuth && !accountResponse.account,
-    );
-    setModels(modelResponse.data);
-    setThreads(threadResponse.data);
-    setMcpServerCount(mcpResponse.data.length);
+    const requiresAuth =
+      accountResponse.requiresOpenaiAuth && !accountResponse.account;
+    authRequiredRef.current = requiresAuth;
+    setAuthRequired(requiresAuth);
     const profileRequirements =
       requirementsResponse.requirements?.allowedPermissionProfiles;
     const profiles = permissionResponse.data.map((profile) => ({
@@ -471,32 +487,113 @@ export function AiPanel({
         (!allowedReviewers || allowedReviewers.includes('auto_review')),
     );
 
-    const defaultModel =
-      modelResponse.data.find((model) => model.isDefault) ??
-      modelResponse.data[0];
-    if (defaultModel && !modelSelectionInitializedRef.current) {
-      modelSelectionInitializedRef.current = true;
-      setSelectedModel(defaultModel.model);
-      setEffort(defaultModel.defaultReasoningEffort);
+  }, [workspaceRootPath]);
+
+  const loadModelCatalog = React.useCallback(async (
+    generation = runtimeGenerationRef.current,
+  ) => {
+    if (generation !== runtimeGenerationRef.current) return;
+    setModelCatalogStatus('loading');
+    try {
+      const response = await codexAppServerClient.request<CodexModelListResponse>(
+        'model/list',
+        { includeHidden: false, limit: 100 },
+      );
+      if (generation !== runtimeGenerationRef.current) return;
+      setModels(response.data);
+      const defaultModel =
+        response.data.find((model) => model.isDefault) ?? response.data[0];
+      if (defaultModel && !modelSelectionInitializedRef.current) {
+        modelSelectionInitializedRef.current = true;
+        selectedModelRef.current = defaultModel.model;
+        effortRef.current = defaultModel.defaultReasoningEffort;
+        setSelectedModel(defaultModel.model);
+        setEffort(defaultModel.defaultReasoningEffort);
+      }
+      setModelCatalogStatus('ready');
+    } catch {
+      if (generation !== runtimeGenerationRef.current) return;
+      setModelCatalogStatus('error');
+    }
+  }, []);
+
+  const loadThreadHistory = React.useCallback(async (
+    generation = runtimeGenerationRef.current,
+  ) => {
+    if (!workspaceRootPath) return;
+    if (generation !== runtimeGenerationRef.current) return;
+    setThreadListStatus('loading');
+    try {
+      const response = await codexAppServerClient.request<CodexThreadListResponse>(
+        'thread/list',
+        {
+          cwd: workspaceRootPath,
+          limit: 100,
+          sortKey: 'updated_at',
+          sortDirection: 'desc',
+        },
+      );
+      if (generation !== runtimeGenerationRef.current) return;
+      setThreads(response.data);
+      setThreadListStatus('ready');
+    } catch {
+      if (generation !== runtimeGenerationRef.current) return;
+      setThreadListStatus('error');
     }
   }, [workspaceRootPath]);
 
+  const loadMcpStatus = React.useCallback(async (
+    generation = runtimeGenerationRef.current,
+  ) => {
+    if (generation !== runtimeGenerationRef.current) return;
+    setMcpStatus('loading');
+    try {
+      const response = await codexAppServerClient.request<McpListResponse>(
+        'mcpServerStatus/list',
+        { detail: 'toolsAndAuthOnly', limit: 100 },
+      );
+      if (generation !== runtimeGenerationRef.current) return;
+      setMcpServerCount(response.data.length);
+      setMcpStatus('ready');
+    } catch {
+      if (generation !== runtimeGenerationRef.current) return;
+      setMcpStatus('error');
+    }
+  }, []);
+
   React.useEffect(() => {
+    const generation = runtimeGenerationRef.current + 1;
+    runtimeGenerationRef.current = generation;
+    const nextRuntimeStatus: RuntimeStatus = !workspaceRootPath
+      ? 'error'
+      : !isTauriRuntime()
+        ? 'web'
+        : 'loading';
+    runtimeStatusRef.current = nextRuntimeStatus;
+    queueMicrotask(() => {
+      if (generation !== runtimeGenerationRef.current) return;
+      setRuntimeStatus(nextRuntimeStatus);
+      setRuntimeError(
+        workspaceRootPath ? null : '请先打开一个工作区。',
+      );
+      setThreads([]);
+      setActiveThread(null);
+      activeThreadIdRef.current = null;
+      setConversation(createEmptyConversation());
+      setSelectedMentions([]);
+      setComposerValue('');
+      permissionSettingsRef.current = DEFAULT_PERMISSION_SETTINGS;
+      setPermissionSettings(DEFAULT_PERMISSION_SETTINGS);
+      setModelCatalogStatus('idle');
+      setThreadListStatus('idle');
+      setMcpStatus('idle');
+      setMcpServerCount(0);
+    });
     if (!workspaceRootPath) {
-      queueMicrotask(() => {
-        setRuntimeStatus('error');
-        setRuntimeError('请先打开一个工作区。');
-      });
       return;
     }
 
-    if (!isTauriRuntime()) {
-      queueMicrotask(() => {
-        setRuntimeStatus('web');
-        setRuntimeError(null);
-      });
-      return;
-    }
+    if (nextRuntimeStatus === 'web') return;
 
     let disposed = false;
     let unlisten: (() => void) | null = null;
@@ -518,6 +615,7 @@ export function AiPanel({
         codexAppServerClient.rejectPending(
           new Error('Codex App Server 已停止'),
         );
+        runtimeStatusRef.current = 'error';
         setRuntimeStatus('error');
         setRuntimeError('Codex App Server 已停止，请关闭并重新打开 AI 面板。');
       }
@@ -526,7 +624,14 @@ export function AiPanel({
         message.method === 'account/login/completed' ||
         message.method === 'account/updated'
       ) {
-        void loadControlData().catch(() => undefined);
+        void loadCoreControlData(generation)
+          .then(() =>
+            Promise.allSettled([
+              loadModelCatalog(generation),
+              loadThreadHistory(generation),
+            ]),
+          )
+          .catch(() => undefined);
       }
 
       const workspaceChange = workspaceChangeEventFromProtocolMessage(
@@ -544,31 +649,38 @@ export function AiPanel({
         const settings = permissionSettingsFromProtocol(
           message.params.threadSettings,
         );
-        if (settings) setPermissionSettings(settings);
+        if (settings) {
+          permissionSettingsRef.current = settings;
+          setPermissionSettings(settings);
+        }
       }
     });
 
+    const bootstrap = (async () => {
+      const activeUnlisten = await listenCodexEventsUntilDisposed(
+        (message) => codexAppServerClient.handleMessage(message),
+        () => disposed,
+      );
+      if (!activeUnlisten) return;
+      unlisten = activeUnlisten;
+      const runtime = await startCodexRuntime(workspaceRootPath);
+      if (disposed) return;
+      setRuntimeVersion(runtime.version);
+      await loadCoreControlData(generation);
+      if (disposed) return;
+      runtimeStatusRef.current = 'ready';
+      setRuntimeStatus('ready');
+      void loadModelCatalog(generation);
+      void loadThreadHistory(generation);
+    })();
+    runtimeReadyPromiseRef.current = bootstrap;
+
     void (async () => {
       try {
-        const activeUnlisten = await listenCodexEventsUntilDisposed(
-          (message) => codexAppServerClient.handleMessage(message),
-          () => disposed,
-        );
-        if (!activeUnlisten) {
-          return;
-        }
-        unlisten = activeUnlisten;
-        const runtime = await startCodexRuntime(workspaceRootPath);
-        if (disposed) {
-          return;
-        }
-        setRuntimeVersion(runtime.version);
-        await loadControlData();
-        if (!disposed) {
-          setRuntimeStatus('ready');
-        }
+        await bootstrap;
       } catch (error) {
         if (!disposed) {
+          runtimeStatusRef.current = 'error';
           setRuntimeStatus('error');
           setRuntimeError(getErrorMessage(error));
         }
@@ -577,10 +689,30 @@ export function AiPanel({
 
     return () => {
       disposed = true;
+      if (runtimeReadyPromiseRef.current === bootstrap) {
+        runtimeReadyPromiseRef.current = null;
+      }
       unlisten?.();
       unsubscribe();
     };
-  }, [applyThreadName, loadControlData, workspaceRootPath]);
+  }, [
+    applyThreadName,
+    loadCoreControlData,
+    loadModelCatalog,
+    loadThreadHistory,
+    workspaceRootPath,
+  ]);
+
+  React.useEffect(() => {
+    if (!visible || runtimeStatus !== 'ready' || mcpStatus !== 'idle') return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) void loadMcpStatus();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [loadMcpStatus, mcpStatus, runtimeStatus, visible]);
 
   const startNewChat = React.useCallback(() => {
     setActiveThread(null);
@@ -588,6 +720,7 @@ export function AiPanel({
     setConversation(createEmptyConversation());
     setSelectedMentions([]);
     setComposerValue('');
+    permissionSettingsRef.current = DEFAULT_PERMISSION_SETTINGS;
     setPermissionSettings(DEFAULT_PERMISSION_SETTINGS);
     setView('chat');
   }, []);
@@ -606,7 +739,9 @@ export function AiPanel({
       );
       setActiveThread(response.thread);
       activeThreadIdRef.current = response.thread.id;
-      setPermissionSettings(permissionSettingsFromResponse(resumed));
+      const nextPermissionSettings = permissionSettingsFromResponse(resumed);
+      permissionSettingsRef.current = nextPermissionSettings;
+      setPermissionSettings(nextPermissionSettings);
       setConversation(
         conversationFromThread(response.thread, workspaceRootPath ?? undefined),
       );
@@ -638,74 +773,76 @@ export function AiPanel({
   const sendMessage = React.useCallback(
     async (messageOverride?: string) => {
       const text = (messageOverride ?? composerValue).trim();
-      if (
-        !text ||
-        !workspaceRootPath ||
-        runtimeStatus !== 'ready' ||
-        authRequired ||
-        submitting
-      ) {
-        return;
-      }
+      if (!text || !workspaceRootPath || submittingRef.current) return;
 
+      submittingRef.current = true;
       setSubmitting(true);
       setRuntimeError(null);
-      let ready = false;
       try {
-        ready = await onBeforeTurnStart();
-      } catch (error) {
-        setRuntimeError(getErrorMessage(error));
-        setSubmitting(false);
-        return;
-      }
-      if (!ready) {
-        setRuntimeError('当前文档保存失败，未发送消息。请先处理保存错误。');
-        setSubmitting(false);
-        return;
-      }
-      const contextDocuments = uniqueDocuments([
-        ...(currentDocument ? [currentDocument] : []),
-        ...selectedMentions,
-      ]);
-      const userInput = createDocumentAwareUserInput(text, selectedMentions);
-      setComposerValue('');
-      setSelectedMentions([]);
-      setMentionQuery(null);
-      setFollowLatestRequest((current) => current + 1);
-      const clientMessageId = `madora-${Date.now()}`;
-      setConversation((current) => ({
-        ...current,
-        entries: [
-          ...current.entries,
-          {
-            type: 'message',
-            id: clientMessageId,
-            mentions: selectedMentions.map(({ end, label, path, start }) => ({
-              end,
-              label,
-              path,
-              start,
-            })),
-            role: 'user',
-            text,
-          },
-        ],
-      }));
+        if (runtimeStatusRef.current === 'loading') {
+          const runtimeReady = runtimeReadyPromiseRef.current;
+          if (!runtimeReady) {
+            throw new Error('Codex 正在准备，请稍后重试。');
+          }
+          await runtimeReady;
+        }
+        if (runtimeStatusRef.current !== 'ready') {
+          throw new Error('Codex 运行时当前不可用。');
+        }
+        if (authRequiredRef.current) {
+          throw new Error('请先完成 ChatGPT 登录。');
+        }
 
-      try {
+        const ready = await onBeforeTurnStart();
+        if (!ready) {
+          throw new Error('当前文档保存失败，未发送消息。请先处理保存错误。');
+        }
+
+        const contextDocuments = uniqueDocuments([
+          ...(currentDocument ? [currentDocument] : []),
+          ...selectedMentions,
+        ]);
+        const userInput = createDocumentAwareUserInput(text, selectedMentions);
+        const currentPermissionSettings = permissionSettingsRef.current;
+        const currentModel = selectedModelRef.current;
+        const currentEffort = effortRef.current;
+        setComposerValue('');
+        setSelectedMentions([]);
+        setMentionQuery(null);
+        setFollowLatestRequest((current) => current + 1);
+        const clientMessageId = `madora-${Date.now()}`;
+        setConversation((current) => ({
+          ...current,
+          entries: [
+            ...current.entries,
+            {
+              type: 'message',
+              id: clientMessageId,
+              mentions: selectedMentions.map(({ end, label, path, start }) => ({
+                end,
+                label,
+                path,
+                start,
+              })),
+              role: 'user',
+              text,
+            },
+          ],
+        }));
+
         let thread = activeThread;
         if (!thread) {
           const response =
             await codexAppServerClient.request<ThreadStartResponse>(
               'thread/start',
               {
-                approvalPolicy: permissionSettings.approvalPolicy,
-                approvalsReviewer: permissionSettings.approvalsReviewer,
+                approvalPolicy: currentPermissionSettings.approvalPolicy,
+                approvalsReviewer: currentPermissionSettings.approvalsReviewer,
                 config: { web_search: 'live' },
                 cwd: workspaceRootPath,
                 developerInstructions: DEVELOPER_INSTRUCTIONS,
-                model: selectedModel || null,
-                permissions: permissionSettings.profileId,
+                ...(currentModel ? { model: currentModel } : {}),
+                permissions: currentPermissionSettings.profileId,
                 runtimeWorkspaceRoots: [workspaceRootPath],
               },
             );
@@ -713,7 +850,9 @@ export function AiPanel({
           thread = { ...response.thread, name: threadTitle };
           setActiveThread(thread);
           activeThreadIdRef.current = thread.id;
-          setPermissionSettings(permissionSettingsFromResponse(response));
+          const nextPermissionSettings = permissionSettingsFromResponse(response);
+          permissionSettingsRef.current = nextPermissionSettings;
+          setPermissionSettings(nextPermissionSettings);
           setThreads((current) => [thread!, ...current]);
           void codexAppServerClient
             .request('thread/name/set', {
@@ -739,8 +878,9 @@ export function AiPanel({
               path: document.absolutePath,
             })),
             cwd: workspaceRootPath,
-            model: selectedModel || null,
-            effort,
+            ...(currentModel
+              ? { effort: currentEffort, model: currentModel }
+              : {}),
             summary: 'concise',
           },
         );
@@ -751,21 +891,16 @@ export function AiPanel({
       } catch (error) {
         setRuntimeError(getErrorMessage(error));
       } finally {
+        submittingRef.current = false;
         setSubmitting(false);
       }
     },
     [
       activeThread,
-      authRequired,
       composerValue,
       currentDocument,
-      effort,
       onBeforeTurnStart,
-      runtimeStatus,
-      permissionSettings,
       selectedMentions,
-      selectedModel,
-      submitting,
       workspaceRootPath,
     ],
   );
@@ -858,6 +993,7 @@ export function AiPanel({
             approvalsReviewer: next.approvalsReviewer,
           });
         }
+        permissionSettingsRef.current = next;
         setPermissionSettings(next);
       } catch (error) {
         setRuntimeError(getErrorMessage(error));
@@ -885,11 +1021,13 @@ export function AiPanel({
       {view === 'history' ? (
         <ThreadHistory
           query={historyQuery}
+          status={threadListStatus}
           threads={visibleThreads}
           onArchive={(thread) => void removeThread(thread, 'archive')}
           onDelete={(thread) => void removeThread(thread, 'delete')}
           onOpen={(thread) => void openThread(thread)}
           onQueryChange={setHistoryQuery}
+          onRetry={() => void loadThreadHistory()}
         />
       ) : (
         <>
@@ -918,8 +1056,11 @@ export function AiPanel({
             effort={effort}
             mentionDocuments={filteredMentionDocuments}
             mentionQuery={mentionQuery}
+            mcpStatus={mcpStatus}
             mcpServerCount={mcpServerCount}
+            modelCatalogStatus={modelCatalogStatus}
             models={models}
+            authRequired={authRequired}
             runtimeStatus={runtimeStatus}
             selectedModel={selectedModel}
             selectedModelInfo={selectedModelInfo}
@@ -1151,14 +1292,6 @@ function PanelContent({
   onPrompt: (prompt: string) => void;
   onSignIn: () => void;
 }) {
-  if (runtimeStatus === 'loading') {
-    return (
-      <EmptyPanel icon={<LoaderCircle className="animate-spin" size={20} />} title="正在连接 Codex">
-        <p>启动本地 App Server 并读取账户、模型与历史记录。</p>
-      </EmptyPanel>
-    );
-  }
-
   if (runtimeStatus === 'web') {
     return (
       <EmptyPanel icon={<Bot size={20} />} title="AI 面板已就绪">
@@ -2298,18 +2431,22 @@ function approvalChoiceClassName(kind: AiApprovalRequest['choices'][number]['kin
 
 function ThreadHistory({
   query,
+  status,
   threads,
   onArchive,
   onDelete,
   onOpen,
   onQueryChange,
+  onRetry,
 }: {
   query: string;
+  status: ControlLoadStatus;
   threads: CodexThread[];
   onArchive: (thread: CodexThread) => void;
   onDelete: (thread: CodexThread) => void;
   onOpen: (thread: CodexThread) => void;
   onQueryChange: (query: string) => void;
+  onRetry: () => void;
 }) {
   const grouped = groupThreadsByDate(threads);
 
@@ -2325,7 +2462,23 @@ function ThreadHistory({
         />
       </label>
 
-      {grouped.length === 0 ? (
+      {status === 'loading' && grouped.length === 0 ? (
+        <div className="flex items-center justify-center gap-2 px-3 py-16 text-xs text-muted-foreground">
+          <LoaderCircle className="animate-spin" size={14} />
+          正在读取历史任务
+        </div>
+      ) : status === 'error' && grouped.length === 0 ? (
+        <div className="px-3 py-16 text-center text-xs text-muted-foreground">
+          <p>历史任务暂时无法读取</p>
+          <button
+            className="mt-3 rounded-md border border-border/70 px-2.5 py-1.5 text-foreground hover:bg-accent"
+            type="button"
+            onClick={onRetry}
+          >
+            重试
+          </button>
+        </div>
+      ) : grouped.length === 0 ? (
         <div className="px-3 py-16 text-center text-xs text-muted-foreground">
           暂无历史任务
         </div>
@@ -2422,12 +2575,15 @@ function PermissionModeItem({
 export function AiComposer({
   active,
   approvalPolicyAvailability,
+  authRequired = false,
   autoReviewAvailable,
   currentDocument,
   effort,
   mentionDocuments,
   mentionQuery,
+  mcpStatus = 'ready',
   mcpServerCount,
+  modelCatalogStatus = 'ready',
   models,
   permissionMode,
   permissionProfiles,
@@ -2450,12 +2606,15 @@ export function AiComposer({
 }: {
   active: boolean;
   approvalPolicyAvailability: { never: boolean; onRequest: boolean };
+  authRequired?: boolean;
   autoReviewAvailable: boolean;
   currentDocument: WorkspaceNode | null;
   effort: CodexReasoningEffort;
   mentionDocuments: AiDocumentReference[];
   mentionQuery: string | null;
+  mcpStatus?: ControlLoadStatus;
   mcpServerCount: number;
+  modelCatalogStatus?: ControlLoadStatus;
   models: CodexModel[];
   permissionMode: PermissionModeId;
   permissionProfiles: CodexPermissionProfileSummary[];
@@ -2476,7 +2635,11 @@ export function AiComposer({
   onSend: () => void;
   onValueChange: (value: string) => void;
 }) {
-  const disabled = runtimeStatus !== 'ready';
+  const runtimeUnavailable = runtimeStatus === 'error' || runtimeStatus === 'web';
+  const preparing = runtimeStatus === 'loading';
+  const editorDisabled = runtimeUnavailable || authRequired || submitting;
+  const controlsDisabled =
+    runtimeStatus !== 'ready' || authRequired || submitting;
   const effortOptions = selectedModelInfo?.supportedReasoningEfforts ?? [];
   const profileAllowed = (profileId: string) =>
     permissionProfiles.find((profile) => profile.id === profileId)?.allowed ?? true;
@@ -2484,7 +2647,9 @@ export function AiComposer({
   const initializedRef = React.useRef(false);
   const savedRangeRef = React.useRef<Range | null>(null);
   const mentionPathsRef = React.useRef<string[]>([]);
-  const placeholder = disabled
+  const placeholder = authRequired
+    ? '登录 ChatGPT 后可用'
+    : runtimeUnavailable
     ? '桌面端连接 Codex 后可用'
     : '要求后续变更，使用 @ 提及文档';
 
@@ -2598,8 +2763,8 @@ export function AiComposer({
           aria-label="向 Codex 提问"
           aria-multiline="true"
           className="scrollbar-thin block min-h-14 max-h-40 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent px-3 pb-2 pt-3 text-[13px] leading-5 outline-none data-[disabled=true]:cursor-not-allowed data-[empty=true]:before:pointer-events-none data-[empty=true]:before:text-muted-foreground/60 data-[empty=true]:before:content-[attr(data-placeholder)]"
-          contentEditable={!disabled}
-          data-disabled={disabled}
+          contentEditable={!editorDisabled}
+          data-disabled={editorDisabled}
           data-empty={!value}
           data-placeholder={placeholder}
           ref={editorRef}
@@ -2668,7 +2833,7 @@ export function AiComposer({
               <button
                 aria-label="添加上下文与工具"
                 className="flex size-7 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
-                disabled={disabled}
+                disabled={controlsDisabled}
                 type="button"
               >
                 <Plus size={17} />
@@ -2686,7 +2851,13 @@ export function AiComposer({
               </DropdownMenuItem>
               <DropdownMenuItem disabled>
                 <Blocks size={14} />
-                {mcpServerCount > 0
+                {mcpStatus === 'loading'
+                  ? '正在发现 MCP Server…'
+                  : mcpStatus === 'error'
+                    ? 'MCP 状态暂不可用'
+                    : mcpStatus === 'idle'
+                      ? '打开面板后发现 MCP Server'
+                      : mcpServerCount > 0
                   ? `${mcpServerCount} 个 MCP Server 可用`
                   : '暂无 MCP Server'}
               </DropdownMenuItem>
@@ -2711,7 +2882,7 @@ export function AiComposer({
                     ? 'text-orange-600 dark:text-orange-400'
                     : 'text-amber-600 dark:text-amber-400',
                 )}
-                disabled={disabled}
+                disabled={controlsDisabled}
                 type="button"
               >
                 {permissionMode === 'full' ? (
@@ -2817,15 +2988,27 @@ export function AiComposer({
           </DropdownMenu>
 
           <div className="ml-auto flex min-w-0 items-center gap-0.5">
+            {preparing ? (
+              <span
+                aria-live="polite"
+                className="mr-1 inline-flex items-center gap-1 text-[10px] text-muted-foreground"
+              >
+                <LoaderCircle className="animate-spin" size={12} />
+                正在准备
+              </span>
+            ) : null}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
                   className="flex h-7 max-w-32 items-center gap-1 truncate rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                  disabled={disabled || models.length === 0}
+                  disabled={controlsDisabled || models.length === 0}
                   type="button"
                 >
                   <span className="truncate">
-                    {selectedModelInfo?.displayName || 'Codex'}
+                    {selectedModelInfo?.displayName ||
+                      (modelCatalogStatus === 'loading'
+                        ? '正在加载模型'
+                        : 'Codex 默认模型')}
                   </span>
                   <ChevronDown size={12} />
                 </button>
@@ -2851,7 +3034,7 @@ export function AiComposer({
               <DropdownMenuTrigger asChild>
                 <button
                   className="flex h-7 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                  disabled={disabled || effortOptions.length === 0}
+                  disabled={controlsDisabled || effortOptions.length === 0}
                   type="button"
                 >
                   {formatEffort(effort)}
@@ -2893,7 +3076,7 @@ export function AiComposer({
               <button
                 aria-label="发送"
                 className="ml-1 flex size-8 items-center justify-center rounded-full bg-foreground text-background disabled:opacity-30"
-                disabled={disabled || submitting || !value.trim()}
+                disabled={runtimeUnavailable || submitting || !value.trim()}
                 type="button"
                 onClick={onSend}
               >
