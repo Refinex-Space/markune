@@ -3669,7 +3669,7 @@ mod tests {
     #[test]
     fn saving_document_removes_unreferenced_local_asset() {
         let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
-        let uploaded = crate::assets::upload_workspace_asset(
+        let uploaded = crate::assets::upload_workspace_asset_impl(
             temp_dir.path().to_string_lossy().to_string(),
             crate::assets::UploadWorkspaceAssetInput {
                 file_name: "cover.png".to_string(),
@@ -3717,7 +3717,7 @@ mod tests {
     #[test]
     fn deleting_one_of_two_documents_keeps_shared_asset() {
         let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
-        let uploaded = crate::assets::upload_workspace_asset(
+        let uploaded = crate::assets::upload_workspace_asset_impl(
             temp_dir.path().to_string_lossy().to_string(),
             crate::assets::UploadWorkspaceAssetInput {
                 file_name: "cover.png".to_string(),
@@ -3989,7 +3989,7 @@ mod tests {
     fn moves_document_into_directory_and_returns_sorted_snapshot() {
         let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
         fs::create_dir(temp_dir.path().join("docs")).expect("创建目录失败");
-        let uploaded = crate::assets::upload_workspace_asset(
+        let uploaded = crate::assets::upload_workspace_asset_impl(
             temp_dir.path().to_string_lossy().to_string(),
             crate::assets::UploadWorkspaceAssetInput {
                 file_name: "cover.png".to_string(),
@@ -4020,7 +4020,7 @@ mod tests {
             fs::read_to_string(temp_dir.path().join("docs/guide.md")).expect("读取移动后文档失败"),
             markdown
         );
-        let resolved = crate::assets::resolve_workspace_asset(
+        let resolved = crate::assets::resolve_workspace_asset_impl(
             temp_dir.path().to_string_lossy().to_string(),
             uploaded.id,
         )
