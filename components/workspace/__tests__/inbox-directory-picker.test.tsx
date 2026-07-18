@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -11,6 +14,8 @@ import {
 
 import { InboxDirectoryPicker } from '../inbox-directory-picker';
 import type { WorkspaceNode } from '../workspace-types';
+
+const globalsCssPath = join(process.cwd(), 'app/globals.css');
 
 const nodes: WorkspaceNode[] = [
   {
@@ -73,11 +78,16 @@ describe('InboxDirectoryPicker', () => {
       screen.getByRole('combobox', { name: '保存位置：工作区根目录' }),
     );
 
-    expect(screen.getByTestId('inbox-directory-tree').className).toContain(
-      'max-h-72',
-    );
+    const scrollArea = screen.getByTestId('inbox-directory-tree');
+    expect(scrollArea.className).toContain('max-h-72');
+    expect(scrollArea.className).toContain('inbox-directory-scrollarea');
+    expect(
+      screen.getByRole('tree', { name: '工作区目录' }).className,
+    ).toContain('space-y-0.5');
     expect(screen.queryByText('Spring AI')).toBeNull();
     await user.click(screen.getByRole('button', { name: '展开 技术随笔' }));
+    expect(screen.getByRole('group').className).toContain('mt-0.5');
+    expect(screen.getByRole('group').className).toContain('space-y-0.5');
     await user.click(
       screen.getByRole('button', { name: '选择目录 技术随笔/Spring AI' }),
     );
@@ -132,5 +142,30 @@ describe('InboxDirectoryPicker', () => {
     expect(
       dialogContent?.contains(screen.getByTestId('inbox-directory-tree')),
     ).toBe(true);
+  });
+
+  it('uses the same thin scrollbar treatment as the document editor', () => {
+    const globalsCss = readFileSync(globalsCssPath, 'utf8');
+    const scrollbarRuleStart = globalsCss.indexOf(
+      '.inbox-directory-scrollarea::-webkit-scrollbar {',
+    );
+    const thumbRuleStart = globalsCss.indexOf(
+      '.inbox-directory-scrollarea::-webkit-scrollbar-thumb {',
+    );
+
+    expect(scrollbarRuleStart).toBeGreaterThan(-1);
+    expect(
+      globalsCss.slice(
+        scrollbarRuleStart,
+        globalsCss.indexOf('}', scrollbarRuleStart),
+      ),
+    ).toContain('width: 4px;');
+    expect(thumbRuleStart).toBeGreaterThan(-1);
+    expect(
+      globalsCss.slice(
+        thumbRuleStart,
+        globalsCss.indexOf('}', thumbRuleStart),
+      ),
+    ).toContain('border-radius: 999px;');
   });
 });

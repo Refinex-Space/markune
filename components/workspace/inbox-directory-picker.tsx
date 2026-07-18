@@ -100,7 +100,7 @@ export function InboxDirectoryPicker({
           onChange={(event) => setQuery(event.currentTarget.value)}
         />
         <div
-          className="max-h-72 overflow-y-auto overscroll-contain pr-1"
+          className="inbox-directory-scrollarea max-h-72 overflow-y-auto overscroll-contain pr-1"
           data-testid="inbox-directory-tree"
         >
           {query.trim() ? (
@@ -122,7 +122,11 @@ export function InboxDirectoryPicker({
               </p>
             )
           ) : (
-            <div aria-label="工作区目录" role="tree">
+            <div
+              aria-label="工作区目录"
+              className="space-y-0.5"
+              role="tree"
+            >
               <button
                 aria-current={value === '' ? 'true' : undefined}
                 className={cn(
@@ -207,7 +211,7 @@ function DirectoryTreeItem({
         />
       </div>
       {hasChildren && isExpanded ? (
-        <div role="group">
+        <div className="mt-0.5 space-y-0.5" role="group">
           {children.map((child) => (
             <DirectoryTreeItem
               expanded={expanded}
