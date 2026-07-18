@@ -55,7 +55,15 @@ struct CodexSession {
     child: Child,
     pending_server_requests: Arc<Mutex<HashMap<String, PendingServerRequest>>>,
     pending_plugin_installed_requests: Arc<Mutex<HashSet<u64>>>,
+    pending_skill_list_requests: Arc<Mutex<HashSet<u64>>>,
     plugin_icon_paths: Arc<Mutex<HashSet<PathBuf>>>,
+    skill_authorizations: Arc<Mutex<HashSet<CodexSkillAuthorization>>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct CodexSkillAuthorization {
+    name: String,
+    path: PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -323,7 +331,9 @@ pub fn codex_runtime_start(
     let writer = Arc::new(Mutex::new(stdin));
     let pending_server_requests = Arc::new(Mutex::new(HashMap::new()));
     let pending_plugin_installed_requests = Arc::new(Mutex::new(HashSet::new()));
+    let pending_skill_list_requests = Arc::new(Mutex::new(HashSet::new()));
     let plugin_icon_paths = Arc::new(Mutex::new(HashSet::new()));
+    let skill_authorizations = Arc::new(Mutex::new(HashSet::new()));
 
     thread::spawn(move || {
         let mut reader = BufReader::new(stderr);
@@ -383,6 +393,8 @@ pub fn codex_runtime_start(
         Arc::clone(&pending_server_requests),
         Arc::clone(&pending_plugin_installed_requests),
         Arc::clone(&plugin_icon_paths),
+        Arc::clone(&pending_skill_list_requests),
+        Arc::clone(&skill_authorizations),
         Arc::clone(&writer),
     );
 
@@ -395,7 +407,9 @@ pub fn codex_runtime_start(
         child,
         pending_server_requests,
         pending_plugin_installed_requests,
+        pending_skill_list_requests,
         plugin_icon_paths,
+        skill_authorizations,
     };
     let info = runtime_info_for_session(&session);
     *session_guard = Some(session);
@@ -448,11 +462,17 @@ pub fn codex_app_server_request(
         &mut params,
         Some(&state.context_attachments),
     )?;
-    validate_request_params_with_authorized_images(
+    let authorized_skills = session
+        .skill_authorizations
+        .lock()
+        .map_err(|_| "Codex Skill 授权状态锁已损坏".to_string())?
+        .clone();
+    validate_request_params_with_authorized_context(
         &session.root,
         &method,
         &params,
         &security.authorized_local_images,
+        &authorized_skills,
     )?;
     let tracks_plugin_icons = method == "plugin/installed";
     if tracks_plugin_icons {
@@ -468,6 +488,20 @@ pub fn codex_app_server_request(
         pending.clear();
         pending.insert(request_id);
     }
+    let tracks_skills = method == "skills/list";
+    if tracks_skills {
+        session
+            .skill_authorizations
+            .lock()
+            .map_err(|_| "Codex Skill 授权状态锁已损坏".to_string())?
+            .clear();
+        let mut pending = session
+            .pending_skill_list_requests
+            .lock()
+            .map_err(|_| "Codex Skill 列表状态锁已损坏".to_string())?;
+        pending.clear();
+        pending.insert(request_id);
+    }
     let result = write_json_line(
         &session.writer,
         &json!({
@@ -478,6 +512,11 @@ pub fn codex_app_server_request(
     );
     if result.is_err() && tracks_plugin_icons {
         if let Ok(mut pending) = session.pending_plugin_installed_requests.lock() {
+            pending.remove(&request_id);
+        }
+    }
+    if result.is_err() && tracks_skills {
+        if let Ok(mut pending) = session.pending_skill_list_requests.lock() {
             pending.remove(&request_id);
         }
     }
@@ -550,6 +589,8 @@ fn spawn_stdout_reader(
     pending_server_requests: Arc<Mutex<HashMap<String, PendingServerRequest>>>,
     pending_plugin_installed_requests: Arc<Mutex<HashSet<u64>>>,
     plugin_icon_paths: Arc<Mutex<HashSet<PathBuf>>>,
+    pending_skill_list_requests: Arc<Mutex<HashSet<u64>>>,
+    skill_authorizations: Arc<Mutex<HashSet<CodexSkillAuthorization>>>,
     writer: Arc<Mutex<ChildStdin>>,
 ) {
     thread::spawn(move || {
@@ -575,6 +616,22 @@ fn spawn_stdout_reader(
                             *authorized = paths;
                         }
                     }
+                    let is_skill_response = pending_skill_list_requests
+                        .lock()
+                        .map(|mut pending| pending.remove(&response_id))
+                        .unwrap_or(false);
+                    if is_skill_response {
+                        let skills = collect_skill_authorizations(&payload);
+                        if let Ok(mut authorized) = skill_authorizations.lock() {
+                            *authorized = skills;
+                        }
+                    }
+                }
+            }
+
+            if payload.get("method").and_then(Value::as_str) == Some("skills/changed") {
+                if let Ok(mut authorized) = skill_authorizations.lock() {
+                    authorized.clear();
                 }
             }
 
@@ -672,6 +729,35 @@ fn collect_plugin_icon_paths(payload: &Value) -> HashSet<PathBuf> {
     }
 
     paths
+}
+
+fn collect_skill_authorizations(payload: &Value) -> HashSet<CodexSkillAuthorization> {
+    let Some(entries) = payload
+        .get("result")
+        .and_then(|result| result.get("data"))
+        .and_then(Value::as_array)
+    else {
+        return HashSet::new();
+    };
+
+    entries
+        .iter()
+        .filter_map(|entry| entry.get("skills").and_then(Value::as_array))
+        .flatten()
+        .filter(|skill| skill.get("enabled").and_then(Value::as_bool) == Some(true))
+        .filter_map(|skill| {
+            let name = skill.get("name").and_then(Value::as_str)?;
+            let path = skill.get("path").and_then(Value::as_str)?;
+            if name.is_empty() || name.len() > 256 || name.chars().any(char::is_control) {
+                return None;
+            }
+            let path = Path::new(path).canonicalize().ok()?;
+            path.is_file().then(|| CodexSkillAuthorization {
+                name: name.to_string(),
+                path,
+            })
+        })
+        .collect()
 }
 
 fn read_authorized_plugin_icon(
@@ -971,11 +1057,44 @@ fn validate_request_params(root: &Path, method: &str, params: &Value) -> Result<
     validate_request_params_with_authorized_images(root, method, params, &HashSet::new())
 }
 
+#[cfg(test)]
 fn validate_request_params_with_authorized_images(
     root: &Path,
     method: &str,
     params: &Value,
     authorized_local_images: &HashSet<PathBuf>,
+) -> Result<(), String> {
+    validate_request_params_with_authorized_context(
+        root,
+        method,
+        params,
+        authorized_local_images,
+        &HashSet::new(),
+    )
+}
+
+#[cfg(test)]
+fn validate_request_params_with_authorized_skills(
+    root: &Path,
+    method: &str,
+    params: &Value,
+    authorized_skills: &HashSet<CodexSkillAuthorization>,
+) -> Result<(), String> {
+    validate_request_params_with_authorized_context(
+        root,
+        method,
+        params,
+        &HashSet::new(),
+        authorized_skills,
+    )
+}
+
+fn validate_request_params_with_authorized_context(
+    root: &Path,
+    method: &str,
+    params: &Value,
+    authorized_local_images: &HashSet<PathBuf>,
+    authorized_skills: &HashSet<CodexSkillAuthorization>,
 ) -> Result<(), String> {
     if matches!(method, "thread/start" | "thread/resume" | "turn/start") {
         if let Some(cwd) = params.get("cwd").and_then(Value::as_str) {
@@ -1006,6 +1125,10 @@ fn validate_request_params_with_authorized_images(
 
     if method == "plugin/installed" {
         validate_plugin_installed_params(root, params)?;
+    }
+
+    if method == "skills/list" {
+        validate_skill_list_params(root, params)?;
     }
 
     match method {
@@ -1040,11 +1163,42 @@ fn validate_request_params_with_authorized_images(
                         .and_then(Value::as_str)
                         .ok_or_else(|| "Codex mention 缺少目标".to_string())?;
                     validate_native_mention_target(path)?;
+                } else if input_type == Some("skill") {
+                    validate_native_skill_input(input, authorized_skills)?;
                 }
             }
         }
     }
 
+    Ok(())
+}
+
+fn validate_skill_list_params(root: &Path, params: &Value) -> Result<(), String> {
+    let cwds = params
+        .get("cwds")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "skills/list 必须声明当前工作区 cwds".to_string())?;
+    if cwds.len() != 1 {
+        return Err("skills/list 只允许查询当前工作区".to_string());
+    }
+    let cwd = cwds[0]
+        .as_str()
+        .ok_or_else(|| "skills/list cwd 无效".to_string())?;
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|error| format!("工作区路径不可用: {error}"))?;
+    let canonical_cwd = Path::new(cwd)
+        .canonicalize()
+        .map_err(|error| format!("skills/list cwd 不可用: {error}"))?;
+    if canonical_cwd != canonical_root {
+        return Err("skills/list 只允许查询当前工作区根目录".to_string());
+    }
+    if params
+        .get("forceReload")
+        .is_some_and(|value| !value.is_boolean())
+    {
+        return Err("skills/list forceReload 必须是布尔值".to_string());
+    }
     Ok(())
 }
 
@@ -1513,6 +1667,34 @@ fn validate_native_mention_target(path: &str) -> Result<(), String> {
     Err("Codex mention 只允许 app:// 或 plugin:// 目标".to_string())
 }
 
+fn validate_native_skill_input(
+    input: &Value,
+    authorized_skills: &HashSet<CodexSkillAuthorization>,
+) -> Result<(), String> {
+    let name = input
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "Codex Skill 缺少名称".to_string())?;
+    let path = input
+        .get("path")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "Codex Skill 缺少路径".to_string())?;
+    if name.is_empty() || name.len() > 256 || name.chars().any(char::is_control) {
+        return Err("Codex Skill 名称无效".to_string());
+    }
+    let path = Path::new(path)
+        .canonicalize()
+        .map_err(|_| "Codex Skill 路径不可用".to_string())?;
+    let authorization = CodexSkillAuthorization {
+        name: name.to_string(),
+        path,
+    };
+    if !authorized_skills.contains(&authorization) {
+        return Err("Codex Skill 未获当前列表授权".to_string());
+    }
+    Ok(())
+}
+
 fn validate_path_within_root(root: &Path, path: &str) -> Result<(), String> {
     let root = root
         .canonicalize()
@@ -1878,6 +2060,7 @@ mod tests {
         assert!(is_allowed_client_method("permissionProfile/list"));
         assert!(is_allowed_client_method("configRequirements/read"));
         assert!(is_allowed_client_method("plugin/installed"));
+        assert!(is_allowed_client_method("skills/list"));
         assert!(!is_allowed_client_method("fs/remove"));
         assert!(!is_allowed_client_method("config/read"));
         assert!(!is_allowed_client_method("thread/shellCommand"));
@@ -1902,6 +2085,25 @@ mod tests {
             }),
         ] {
             assert!(validate_request_params(root.path(), "plugin/installed", &invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn skill_listing_is_limited_to_the_current_workspace() {
+        let root = tempdir().expect("create root");
+        let outside = tempdir().expect("create outside");
+        let valid = json!({
+            "cwds": [root.path()],
+            "forceReload": false,
+        });
+        assert!(validate_request_params(root.path(), "skills/list", &valid).is_ok());
+
+        for invalid in [
+            json!({ "cwds": [outside.path()] }),
+            json!({ "cwds": [root.path(), outside.path()] }),
+            json!({ "cwds": [] }),
+        ] {
+            assert!(validate_request_params(root.path(), "skills/list", &invalid).is_err());
         }
     }
 
@@ -2016,6 +2218,47 @@ mod tests {
         let grants = collect_plugin_icon_paths(&payload);
         assert_eq!(grants.len(), 2);
         assert!(!grants.contains(&undeclared.canonicalize().expect("canonicalize undeclared")));
+    }
+
+    #[test]
+    fn skill_response_authorizes_only_enabled_declared_skills() {
+        let root = tempdir().expect("create skill root");
+        let enabled = root.path().join("enabled-SKILL.md");
+        let disabled = root.path().join("disabled-SKILL.md");
+        fs::write(&enabled, "enabled").expect("write enabled skill");
+        fs::write(&disabled, "disabled").expect("write disabled skill");
+        let payload = json!({
+            "id": 43,
+            "result": {
+                "data": [{
+                    "cwd": root.path(),
+                    "errors": [],
+                    "skills": [
+                        {
+                            "description": "Enabled",
+                            "enabled": true,
+                            "name": "enabled",
+                            "path": enabled,
+                            "scope": "user"
+                        },
+                        {
+                            "description": "Disabled",
+                            "enabled": false,
+                            "name": "disabled",
+                            "path": disabled,
+                            "scope": "user"
+                        }
+                    ]
+                }]
+            }
+        });
+
+        let grants = collect_skill_authorizations(&payload);
+        assert_eq!(grants.len(), 1);
+        assert!(grants.contains(&CodexSkillAuthorization {
+            name: "enabled".to_string(),
+            path: enabled.canonicalize().expect("canonicalize enabled skill"),
+        }));
     }
 
     #[test]
@@ -2322,6 +2565,57 @@ mod tests {
         });
         assert!(validate_request_params(root.path(), "turn/start", &params).is_err());
         assert!(validate_path_within_root(root.path(), "/").is_err());
+    }
+
+    #[test]
+    fn native_skill_inputs_require_an_exact_app_server_authorization() {
+        let root = tempdir().expect("create root");
+        let skill_root = tempdir().expect("create skill root");
+        let skill_path = skill_root.path().join("SKILL.md");
+        fs::write(&skill_path, "# Design QA").expect("write skill");
+        let authorized = HashSet::from([CodexSkillAuthorization {
+            name: "design-qa".to_string(),
+            path: skill_path.canonicalize().expect("canonicalize skill"),
+        }]);
+        let valid = json!({
+            "input": [{
+                "type": "skill",
+                "name": "design-qa",
+                "path": skill_path,
+            }],
+        });
+        assert!(validate_request_params_with_authorized_skills(
+            root.path(),
+            "turn/start",
+            &valid,
+            &authorized,
+        )
+        .is_ok());
+
+        for invalid in [
+            json!({
+                "input": [{
+                    "type": "skill",
+                    "name": "other-skill",
+                    "path": skill_path,
+                }],
+            }),
+            json!({
+                "input": [{
+                    "type": "skill",
+                    "name": "design-qa",
+                    "path": root.path().join("forged-SKILL.md"),
+                }],
+            }),
+        ] {
+            assert!(validate_request_params_with_authorized_skills(
+                root.path(),
+                "turn/start",
+                &invalid,
+                &authorized,
+            )
+            .is_err());
+        }
     }
 
     #[test]

@@ -30,3 +30,4 @@ referenced_by: AGENTS.md#knowledge-map
 - Terminal panel: workspace UI backed by Tauri terminal commands.
 - Codex permission profile: a named App Server permission boundary such as `:workspace`, `:read-only`, `:danger-full-access`, or a user-defined `[permissions.<id>]` entry in shared `config.toml`; it controls what the agent can access, independently from who reviews approvals.
 - Codex approval reviewer: `user` or `auto_review`, deciding who evaluates an escalation without changing the active permission profile itself.
+- Codex Skill: an App Server-discovered capability identified by a canonical name and absolute `SKILL.md` path; Madora selects it from the `/` panel, sends `$skill-name` plus a native `skill` input, and never treats its path as a general renderer file grant.

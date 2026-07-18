@@ -182,6 +182,33 @@ export interface CodexPluginInstalledResponse {
   }>;
 }
 
+export type CodexSkillScope = 'admin' | 'repo' | 'system' | 'user';
+
+export interface CodexSkillMetadata {
+  description: string;
+  enabled: boolean;
+  interface: {
+    brandColor?: string | null;
+    defaultPrompt?: string | null;
+    displayName?: string | null;
+    iconLarge?: string | null;
+    iconSmall?: string | null;
+    shortDescription?: string | null;
+  } | null;
+  name: string;
+  path: string;
+  scope: CodexSkillScope;
+  shortDescription?: string | null;
+}
+
+export interface CodexSkillsListResponse {
+  data: Array<{
+    cwd: string;
+    errors: Array<{ message: string; path: string }>;
+    skills: CodexSkillMetadata[];
+  }>;
+}
+
 type PendingRequest = {
   reject: (reason?: unknown) => void;
   resolve: (value: unknown) => void;

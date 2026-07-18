@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   findMentionToken,
+  findSkillToken,
   rankMentionDocuments,
 } from '../ai-mention-search';
 
@@ -76,5 +77,25 @@ describe('AI document mention search', () => {
       start: '请阅读 '.length,
     });
     expect(findMentionToken('请阅读 @Spring 后续', '请阅读 @Spring '.length)).toBeNull();
+  });
+
+  it('根据光标定位空白边界上的 /Skill token', () => {
+    expect(findSkillToken('请使用 /Design 后续', '请使用 /Des'.length)).toEqual({
+      end: '请使用 /Design'.length,
+      query: 'Design',
+      start: '请使用 '.length,
+    });
+    expect(findSkillToken('/Design', 1)).toEqual({
+      end: '/Design'.length,
+      query: 'Design',
+      start: 0,
+    });
+    expect(findSkillToken('https://openai.com', 'https://openai'.length)).toBeNull();
+    expect(findSkillToken('路径 / Design', '路径 /'.length)).toEqual({
+      end: '路径 /'.length,
+      query: '',
+      start: '路径 '.length,
+    });
+    expect(findSkillToken('请使用 /Design 后续', '请使用 /Design '.length)).toBeNull();
   });
 });

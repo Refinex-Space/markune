@@ -11,6 +11,7 @@ import {
   ArrowUp,
   Blocks,
   Bot,
+  Box,
   Check,
   ChevronDown,
   ChevronRight,
@@ -85,6 +86,8 @@ import {
   type CodexPermissionProfileSummary,
   type CodexPluginInstalledResponse,
   type CodexReasoningEffort,
+  type CodexSkillScope,
+  type CodexSkillsListResponse,
   type CodexThread,
   type CodexThreadListResponse,
   type CodexThreadPermissionSettings,
@@ -109,12 +112,14 @@ import {
   type AiMessageAttachment,
   type AiMessageMention,
   type AiPluginInputMention,
+  type AiSkillInputMention,
   type AiTraceBlock,
   type AiTimelineItem,
   type AiWorkspaceChangeEvent,
 } from './ai-panel-state';
 import {
   findMentionToken,
+  findSkillToken,
   mentionMatchIndices,
   rankMentionDocuments,
 } from './ai-mention-search';
@@ -147,10 +152,18 @@ type AiComposerDocumentMention = AiDocumentReference &
 type AiComposerPluginMention = AiPluginInputMention & {
   description: string | null;
   id: string;
-  name: string;
 };
 
-type AiComposerMention = AiComposerDocumentMention | AiComposerPluginMention;
+type AiComposerSkillMention = AiSkillInputMention & {
+  description: string;
+  displayName: string;
+  scope: CodexSkillScope;
+};
+
+type AiComposerMention =
+  | AiComposerDocumentMention
+  | AiComposerPluginMention
+  | AiComposerSkillMention;
 
 interface AiPluginMentionOption {
   description: string | null;
@@ -161,18 +174,27 @@ interface AiPluginMentionOption {
   mentionPath: string;
 }
 
+interface AiSkillMentionOption {
+  description: string;
+  displayName: string;
+  name: string;
+  path: string;
+  scope: CodexSkillScope;
+}
+
 type CodexPluginInterface = NonNullable<
   CodexPluginInstalledResponse['marketplaces'][number]['plugins'][number]['interface']
 >;
 
 interface ComposerMentionTarget {
+  kind: 'document' | 'skill';
   key: string;
   query: string;
   range: Range;
 }
 
 const mentionLinkClassName =
-  'mx-0.5 inline cursor-pointer select-none rounded-sm border-0 bg-transparent p-0 align-baseline font-[inherit] text-[#3574f0] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3574f0]/35';
+  'mx-0.5 inline-flex cursor-pointer select-none items-center gap-1.5 rounded-sm border-0 bg-transparent p-0 align-middle font-sans text-[#3574f0] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3574f0]/35';
 
 type PanelView = 'chat' | 'history';
 type RuntimeStatus = 'error' | 'loading' | 'ready' | 'web';
@@ -374,6 +396,11 @@ export function AiPanel({
   const [pluginLoadWarning, setPluginLoadWarning] = React.useState<string | null>(
     null,
   );
+  const [skillStatus, setSkillStatus] =
+    React.useState<ControlLoadStatus>('idle');
+  const [skillOptions, setSkillOptions] = React.useState<
+    AiSkillMentionOption[]
+  >([]);
   const [mentionQuery, setMentionQuery] = React.useState<string | null>(null);
   const [historyQuery, setHistoryQuery] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
@@ -391,6 +418,7 @@ export function AiPanel({
   const submittingRef = React.useRef(false);
   const runtimeGenerationRef = React.useRef(0);
   const pluginLoadGenerationRef = React.useRef<number | null>(null);
+  const skillLoadRequestRef = React.useRef(0);
   const selectedAttachmentsRef = React.useRef<CodexContextAttachment[]>([]);
 
   React.useEffect(() => {
@@ -660,6 +688,63 @@ export function AiPanel({
     }
   }, [workspaceRootPath]);
 
+  const loadSkills = React.useCallback(async (
+    generation = runtimeGenerationRef.current,
+    forceReload = false,
+  ) => {
+    if (
+      !workspaceRootPath ||
+      runtimeStatusRef.current !== 'ready' ||
+      generation !== runtimeGenerationRef.current
+    ) {
+      return;
+    }
+    const requestId = skillLoadRequestRef.current + 1;
+    skillLoadRequestRef.current = requestId;
+    setSkillStatus('loading');
+    try {
+      const response = await codexAppServerClient.request<CodexSkillsListResponse>(
+        'skills/list',
+        { cwds: [workspaceRootPath], forceReload },
+      );
+      if (
+        generation !== runtimeGenerationRef.current ||
+        requestId !== skillLoadRequestRef.current
+      ) {
+        return;
+      }
+      setSkillOptions(
+        uniqueSkillOptions(
+          response.data.flatMap((entry) =>
+            entry.skills
+              .filter((skill) => skill.enabled)
+              .map((skill) => ({
+                description:
+                  skill.interface?.shortDescription?.trim() ||
+                  skill.shortDescription?.trim() ||
+                  skill.description,
+                displayName:
+                  skill.interface?.displayName?.trim() ||
+                  formatSkillDisplayName(skill.name),
+                name: skill.name,
+                path: skill.path,
+                scope: skill.scope,
+              })),
+          ),
+        ),
+      );
+      setSkillStatus('ready');
+    } catch {
+      if (
+        generation !== runtimeGenerationRef.current ||
+        requestId !== skillLoadRequestRef.current
+      ) {
+        return;
+      }
+      setSkillStatus('error');
+    }
+  }, [workspaceRootPath]);
+
   const selectContextAttachments = React.useCallback(
     async (kind: CodexContextAttachment['kind']) => {
       const remaining = 20 - selectedAttachments.length;
@@ -691,6 +776,7 @@ export function AiPanel({
     const generation = runtimeGenerationRef.current + 1;
     runtimeGenerationRef.current = generation;
     pluginLoadGenerationRef.current = null;
+    skillLoadRequestRef.current += 1;
     const nextRuntimeStatus: RuntimeStatus = !workspaceRootPath
       ? 'error'
       : !isTauriRuntime()
@@ -723,6 +809,8 @@ export function AiPanel({
       setPluginStatus('idle');
       setPluginOptions([]);
       setPluginLoadWarning(null);
+      setSkillStatus('idle');
+      setSkillOptions([]);
     });
     if (!workspaceRootPath) {
       return;
@@ -765,9 +853,14 @@ export function AiPanel({
               loadModelCatalog(generation),
               loadThreadHistory(generation),
               detectInstalledPlugins(generation),
+              loadSkills(generation),
             ]),
           )
           .catch(() => undefined);
+      }
+
+      if (message.method === 'skills/changed') {
+        void loadSkills(generation, true);
       }
 
       const workspaceChange = workspaceChangeEventFromProtocolMessage(
@@ -808,6 +901,7 @@ export function AiPanel({
       void loadModelCatalog(generation);
       void loadThreadHistory(generation);
       void detectInstalledPlugins(generation);
+      void loadSkills(generation);
     })();
     runtimeReadyPromiseRef.current = bootstrap;
 
@@ -836,6 +930,7 @@ export function AiPanel({
     detectInstalledPlugins,
     loadCoreControlData,
     loadModelCatalog,
+    loadSkills,
     loadThreadHistory,
     workspaceRootPath,
   ]);
@@ -954,6 +1049,9 @@ export function AiPanel({
         const pluginMentions = selectedMentions.filter(
           isPluginComposerMention,
         );
+        const skillMentions = selectedMentions.filter(
+          isSkillComposerMention,
+        );
         const explicitDocuments = uniqueDocuments(documentMentions).filter(
           (document) =>
             document.absolutePath !== currentDocument?.absolutePath,
@@ -962,6 +1060,7 @@ export function AiPanel({
           text,
           documentMentions,
           pluginMentions,
+          skillMentions,
         );
         const currentPermissionSettings = permissionSettingsRef.current;
         const currentModel = selectedModelRef.current;
@@ -1051,6 +1150,11 @@ export function AiPanel({
                 type: 'mention',
                 name: plugin.name,
                 path: plugin.path,
+              })),
+              ...skillMentions.map((skill) => ({
+                type: 'skill',
+                name: skill.name,
+                path: skill.path,
               })),
             ],
             madoraFileAttachments: attachments.map(
@@ -1261,6 +1365,8 @@ export function AiPanel({
             runtimeStatus={runtimeStatus}
             selectedModel={selectedModel}
             selectedModelInfo={selectedModelInfo}
+            skillOptions={skillOptions}
+            skillStatus={skillStatus}
             submitting={submitting}
             pluginLoadWarning={pluginLoadWarning}
             pluginOptions={pluginOptions}
@@ -1940,7 +2046,9 @@ export function UserMessageContent({
 
     const label = mention.label || text.slice(mention.start, mention.end);
     content.push(
-      mention.kind === 'plugin' || mention.path.startsWith('plugin://') ? (
+      mention.kind === 'plugin' ||
+      mention.kind === 'skill' ||
+      mention.path.startsWith('plugin://') ? (
         <span
           aria-label={label}
           className={cn(mentionLinkClassName, 'cursor-default no-underline')}
@@ -2889,6 +2997,8 @@ export function AiComposer({
   runtimeStatus,
   selectedModel,
   selectedModelInfo,
+  skillOptions = [],
+  skillStatus = 'idle',
   submitting,
   value,
   onAttachmentRemove = () => undefined,
@@ -2924,6 +3034,8 @@ export function AiComposer({
   runtimeStatus: RuntimeStatus;
   selectedModel: string;
   selectedModelInfo: CodexModel | null;
+  skillOptions?: AiSkillMentionOption[];
+  skillStatus?: ControlLoadStatus;
   submitting: boolean;
   value: string;
   onAttachmentRemove?: (attachmentId: string) => void;
@@ -2955,8 +3067,17 @@ export function AiComposer({
   const mentionTargetRef = React.useRef<ComposerMentionTarget | null>(null);
   const dismissedMentionKeyRef = React.useRef<string | null>(null);
   const mentionPathsRef = React.useRef<string[]>([]);
+  const [composerMentionPaths, setComposerMentionPaths] = React.useState<
+    string[]
+  >([]);
   const mentionListboxId = React.useId();
+  const skillListboxId = React.useId();
   const [mentionSelection, setMentionSelection] = React.useState<{
+    path: string | null;
+    query: string | null;
+  }>({ path: null, query: null });
+  const [skillQuery, setSkillQuery] = React.useState<string | null>(null);
+  const [skillSelection, setSkillSelection] = React.useState<{
     path: string | null;
     query: string | null;
   }>({ path: null, query: null });
@@ -2968,7 +3089,7 @@ export function AiComposer({
     ? '登录 ChatGPT 后可用'
     : runtimeUnavailable
     ? '桌面端连接 Codex 后可用'
-    : '要求后续变更，使用 @ 提及文档';
+    : '要求后续变更，使用 @ 提及文档，/ 选择 Skill';
 
   const saveSelection = React.useCallback(() => {
     const editor = editorRef.current;
@@ -2991,11 +3112,18 @@ export function AiComposer({
     if (!target || target.key === dismissedMentionKeyRef.current) {
       mentionTargetRef.current = null;
       onMentionQueryChange(null);
+      setSkillQuery(null);
       return;
     }
 
     mentionTargetRef.current = target;
-    onMentionQueryChange(target.query);
+    if (target.kind === 'document') {
+      onMentionQueryChange(target.query);
+      setSkillQuery(null);
+    } else {
+      onMentionQueryChange(null);
+      setSkillQuery(target.query);
+    }
   }, [onMentionQueryChange]);
 
   const syncEditorState = React.useCallback(() => {
@@ -3015,6 +3143,7 @@ export function AiComposer({
     const nextPaths = nextMentions.map((mention) => mention.path);
     if (!sameStringArray(mentionPathsRef.current, nextPaths)) {
       mentionPathsRef.current = nextPaths;
+      setComposerMentionPaths(nextPaths);
       onMentionsChange(nextMentions);
     }
   }, [onMentionsChange, onValueChange]);
@@ -3037,6 +3166,7 @@ export function AiComposer({
       editor.replaceChildren();
       savedRangeRef.current = null;
       mentionPathsRef.current = [];
+      setComposerMentionPaths([]);
     }
   }, [value]);
 
@@ -3071,6 +3201,7 @@ export function AiComposer({
       dismissedMentionKeyRef.current = null;
       setMentionSelection({ path: null, query: null });
       onMentionQueryChange(null);
+      setSkillQuery(null);
       syncEditorState();
     },
     [onMentionQueryChange, syncEditorState],
@@ -3100,11 +3231,47 @@ export function AiComposer({
     [syncEditorState],
   );
 
+  const insertSkillMention = React.useCallback(
+    (skill: AiSkillMentionOption) => {
+      const editor = editorRef.current;
+      if (!editor) return;
+
+      editor.focus();
+      const targetRange = mentionTargetRef.current?.range;
+      const range =
+        targetRange && editor.contains(targetRange.commonAncestorContainer)
+          ? targetRange.cloneRange()
+          : getComposerRange(editor, savedRangeRef.current);
+      const mention = createSkillMentionElement(skill);
+      const trailingSpace = window.document.createTextNode('\u00a0');
+      range.deleteContents();
+      range.insertNode(mention);
+      mention.after(trailingSpace);
+
+      const selection = window.getSelection();
+      range.setStart(trailingSpace, trailingSpace.data.length);
+      range.collapse(true);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      savedRangeRef.current = range.cloneRange();
+
+      mentionTargetRef.current = null;
+      dismissedMentionKeyRef.current = null;
+      setSkillSelection({ path: null, query: null });
+      setSkillQuery(null);
+      onMentionQueryChange(null);
+      syncEditorState();
+    },
+    [onMentionQueryChange, syncEditorState],
+  );
+
   const closeMentionMenu = React.useCallback(() => {
     dismissedMentionKeyRef.current = mentionTargetRef.current?.key ?? null;
     mentionTargetRef.current = null;
     setMentionSelection({ path: null, query: null });
+    setSkillSelection({ path: null, query: null });
     onMentionQueryChange(null);
+    setSkillQuery(null);
   }, [onMentionQueryChange]);
 
   const selectedMentionIndex =
@@ -3128,6 +3295,36 @@ export function AiComposer({
     },
     [mentionDocuments, mentionQuery],
   );
+  const visibleSkills = React.useMemo(
+    () =>
+      rankSkillOptions(
+        skillOptions,
+        skillQuery ?? '',
+        new Set(
+          composerMentionPaths.filter((path) =>
+            skillOptions.some((skill) => skill.path === path),
+          ),
+        ),
+      ),
+    [composerMentionPaths, skillOptions, skillQuery],
+  );
+  const selectedSkillIndex =
+    skillSelection.query === skillQuery
+      ? visibleSkills.findIndex((skill) => skill.path === skillSelection.path)
+      : -1;
+  const activeSkillIndex =
+    visibleSkills.length === 0 ? -1 : Math.max(0, selectedSkillIndex);
+  const activeSkill =
+    activeSkillIndex >= 0 ? (visibleSkills[activeSkillIndex] ?? null) : null;
+  const selectSkillIndex = React.useCallback(
+    (index: number) => {
+      setSkillSelection({
+        path: visibleSkills[index]?.path ?? null,
+        query: skillQuery,
+      });
+    },
+    [skillQuery, visibleSkills],
+  );
 
   return (
     <div className="shrink-0 px-3 pb-3 pt-2">
@@ -3135,7 +3332,17 @@ export function AiComposer({
         className="relative rounded-2xl border border-border/80 bg-background shadow-[0_1px_4px_rgba(15,23,42,0.06)] focus-within:border-foreground/20"
         ref={composerSurfaceRef}
       >
-        {mentionQuery !== null ? (
+        {skillQuery !== null ? (
+          <SkillMenu
+            activeIndex={activeSkillIndex}
+            listboxId={skillListboxId}
+            query={skillQuery}
+            skills={visibleSkills}
+            status={skillStatus}
+            onActiveIndexChange={selectSkillIndex}
+            onSelect={insertSkillMention}
+          />
+        ) : mentionQuery !== null ? (
           <MentionMenu
             activeIndex={activeMentionIndex}
             documents={mentionDocuments}
@@ -3175,12 +3382,20 @@ export function AiComposer({
         <div
           aria-label="向 Codex 提问"
           aria-activedescendant={
-            mentionQuery !== null && activeMention
+            skillQuery !== null && activeSkill
+              ? mentionOptionId(skillListboxId, activeSkillIndex)
+              : mentionQuery !== null && activeMention
               ? mentionOptionId(mentionListboxId, activeMentionIndex)
               : undefined
           }
           aria-autocomplete="list"
-          aria-controls={mentionQuery !== null ? mentionListboxId : undefined}
+          aria-controls={
+            skillQuery !== null
+              ? skillListboxId
+              : mentionQuery !== null
+                ? mentionListboxId
+                : undefined
+          }
           aria-multiline="true"
           className="scrollbar-thin block min-h-14 max-h-40 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent px-3 pb-2 pt-3 text-[13px] leading-5 outline-none data-[disabled=true]:cursor-not-allowed data-[empty=true]:before:pointer-events-none data-[empty=true]:before:text-muted-foreground/60 data-[empty=true]:before:content-[attr(data-placeholder)]"
           contentEditable={!editorDisabled}
@@ -3195,7 +3410,7 @@ export function AiComposer({
             const mention = findMentionElement(event.target);
             if (mention) {
               event.preventDefault();
-              if (mention.dataset.mentionKind !== 'plugin') {
+              if (mention.dataset.mentionKind === 'document') {
                 onOpenMention(mention.dataset.mentionPath ?? '');
               }
               return;
@@ -3213,17 +3428,25 @@ export function AiComposer({
             const mention = findMentionElement(event.target);
             if (mention && (event.key === 'Enter' || event.key === ' ')) {
               event.preventDefault();
-              if (mention.dataset.mentionKind !== 'plugin') {
+              if (mention.dataset.mentionKind === 'document') {
                 onOpenMention(mention.dataset.mentionPath ?? '');
               }
               return;
             }
 
-            if (mentionQuery !== null && !event.nativeEvent.isComposing) {
+            if (
+              (mentionQuery !== null || skillQuery !== null) &&
+              !event.nativeEvent.isComposing
+            ) {
               if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
                 event.preventDefault();
-                if (mentionDocuments.length > 0) {
-                  const direction = event.key === 'ArrowDown' ? 1 : -1;
+                const direction = event.key === 'ArrowDown' ? 1 : -1;
+                if (skillQuery !== null && visibleSkills.length > 0) {
+                  selectSkillIndex(
+                    (activeSkillIndex + direction + visibleSkills.length) %
+                      visibleSkills.length,
+                  );
+                } else if (mentionDocuments.length > 0) {
                   selectMentionIndex(
                     (activeMentionIndex +
                       direction +
@@ -3239,7 +3462,9 @@ export function AiComposer({
                 event.key === 'Tab'
               ) {
                 event.preventDefault();
-                if (activeMention) {
+                if (skillQuery !== null && activeSkill) {
+                  insertSkillMention(activeSkill);
+                } else if (activeMention) {
                   insertMention(activeMention);
                 } else {
                   closeMentionMenu();
@@ -3274,6 +3499,7 @@ export function AiComposer({
               event.key === 'Enter' &&
               !event.shiftKey &&
               mentionQuery === null &&
+              skillQuery === null &&
               !event.nativeEvent.isComposing
             ) {
               event.preventDefault();
@@ -3700,7 +3926,7 @@ function MentionMenu({
 
   return (
     <div
-      className="absolute bottom-[calc(100%+6px)] left-0 right-0 z-30 overflow-hidden rounded-xl border border-border/80 bg-popover p-1.5 shadow-none"
+      className="absolute bottom-[calc(100%+6px)] left-0 right-0 z-30 overflow-hidden rounded-xl border border-border/80 bg-popover p-1.5 font-sans shadow-none"
       data-mention-menu
     >
       <div className="flex items-center justify-between px-2 py-1.5 text-[11px] text-muted-foreground">
@@ -3770,6 +3996,109 @@ function MentionMenu({
   );
 }
 
+function SkillMenu({
+  activeIndex,
+  listboxId,
+  query,
+  skills,
+  status,
+  onActiveIndexChange,
+  onSelect,
+}: {
+  activeIndex: number;
+  listboxId: string;
+  query: string;
+  skills: AiSkillMentionOption[];
+  status: ControlLoadStatus;
+  onActiveIndexChange: (index: number) => void;
+  onSelect: (skill: AiSkillMentionOption) => void;
+}) {
+  const listRef = React.useRef<HTMLDivElement>(null);
+  const optionRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
+
+  React.useLayoutEffect(() => {
+    if (activeIndex < 0) return;
+    const list = listRef.current;
+    const option = optionRefs.current[activeIndex];
+    if (!list || !option) return;
+
+    const listRect = list.getBoundingClientRect();
+    const optionRect = option.getBoundingClientRect();
+    if (optionRect.top < listRect.top) {
+      list.scrollTop -= listRect.top - optionRect.top;
+    } else if (optionRect.bottom > listRect.bottom) {
+      list.scrollTop += optionRect.bottom - listRect.bottom;
+    }
+  }, [activeIndex]);
+
+  return (
+    <div
+      className="absolute bottom-[calc(100%+6px)] left-0 right-0 z-30 overflow-hidden rounded-xl border border-border/80 bg-popover p-1.5 shadow-none"
+      data-skill-menu
+    >
+      <div className="px-2 py-1.5 text-[11px] font-medium text-muted-foreground">
+        技能
+      </div>
+      <div
+        aria-label="选择 Skill"
+        className="scrollbar-thin max-h-72 overflow-y-auto"
+        id={listboxId}
+        ref={listRef}
+        role="listbox"
+      >
+        {status === 'loading' || status === 'idle' ? (
+          <div className="flex items-center justify-center gap-2 px-2 py-5 text-xs text-muted-foreground">
+            <LoaderCircle className="animate-spin" size={14} />
+            正在加载技能…
+          </div>
+        ) : status === 'error' ? (
+          <div className="px-2 py-5 text-center text-xs text-muted-foreground">
+            技能暂时无法读取
+          </div>
+        ) : skills.length === 0 ? (
+          <div className="px-2 py-5 text-center text-xs text-muted-foreground">
+            {query ? '没有匹配的技能' : '没有可用的技能'}
+          </div>
+        ) : (
+          skills.map((skill, index) => (
+            <button
+              aria-label={`选择 ${skill.displayName}`}
+              aria-selected={index === activeIndex}
+              className={cn(
+                'flex min-h-9 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left outline-none',
+                index === activeIndex
+                  ? 'bg-accent text-accent-foreground'
+                  : 'hover:bg-accent/60',
+              )}
+              id={mentionOptionId(listboxId, index)}
+              key={skill.path}
+              ref={(element) => {
+                optionRefs.current[index] = element;
+              }}
+              role="option"
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onMouseMove={() => onActiveIndexChange(index)}
+              onClick={() => onSelect(skill)}
+            >
+              <Box className="shrink-0 text-muted-foreground" size={15} />
+              <span className="shrink-0 truncate text-xs font-medium">
+                <MentionMatchedText query={query} text={skill.displayName} />
+              </span>
+              <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+                {skill.description}
+              </span>
+              <span className="shrink-0 text-[11px] text-muted-foreground/70">
+                {skillScopeLabel(skill.scope)}
+              </span>
+            </button>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MentionMatchedText({ query, text }: { query: string; text: string }) {
   const matchedIndices = new Set(mentionMatchIndices(text, query));
   if (matchedIndices.size === 0) {
@@ -3831,14 +4160,15 @@ function createDocumentMentionElement(document: AiDocumentReference) {
   mention.setAttribute('aria-label', label);
   mention.setAttribute('role', 'link');
   mention.tabIndex = 0;
-  mention.textContent = label;
+  appendMentionImage(mention, '/icons/mentions/file-text.svg');
+  mention.append(window.document.createTextNode(label));
 
   return mention;
 }
 
 function createPluginMentionElement(plugin: AiPluginMentionOption) {
   const mention = window.document.createElement('span');
-  const label = `@${plugin.displayName}`;
+  const label = plugin.displayName;
 
   mention.className = cn(mentionLinkClassName, 'cursor-default no-underline');
   mention.contentEditable = 'false';
@@ -3851,9 +4181,69 @@ function createPluginMentionElement(plugin: AiPluginMentionOption) {
   mention.setAttribute('aria-label', label);
   mention.setAttribute('role', 'note');
   mention.tabIndex = 0;
-  mention.textContent = label;
+  const lightIcon = plugin.iconUrl ?? '/icons/mentions/puzzle.svg';
+  const darkIcon = plugin.darkIconUrl ?? lightIcon;
+  const hasDistinctDarkIcon = darkIcon !== lightIcon;
+  appendMentionImage(
+    mention,
+    lightIcon,
+    hasDistinctDarkIcon ? 'dark:hidden' : '',
+    '/icons/mentions/puzzle.svg',
+  );
+  if (hasDistinctDarkIcon) {
+    appendMentionImage(
+      mention,
+      darkIcon,
+      'hidden dark:block',
+      '/icons/mentions/puzzle.svg',
+    );
+  }
+  mention.append(window.document.createTextNode(label));
 
   return mention;
+}
+
+function createSkillMentionElement(skill: AiSkillMentionOption) {
+  const mention = window.document.createElement('span');
+
+  mention.className = cn(mentionLinkClassName, 'cursor-default no-underline');
+  mention.contentEditable = 'false';
+  mention.dataset.mentionDescription = skill.description;
+  mention.dataset.mentionKind = 'skill';
+  mention.dataset.mentionLabel = skill.displayName;
+  mention.dataset.mentionName = skill.name;
+  mention.dataset.mentionPath = skill.path;
+  mention.dataset.mentionScope = skill.scope;
+  mention.setAttribute('aria-label', skill.displayName);
+  mention.setAttribute('role', 'note');
+  mention.tabIndex = 0;
+  appendMentionImage(mention, '/icons/mentions/box.svg');
+  mention.append(window.document.createTextNode(skill.displayName));
+
+  return mention;
+}
+
+function appendMentionImage(
+  parent: HTMLElement,
+  src: string,
+  extraClassName = '',
+  fallbackSrc?: string,
+) {
+  const image = window.document.createElement('img');
+  image.alt = '';
+  image.ariaHidden = 'true';
+  image.className = cn('size-4 shrink-0 object-contain', extraClassName);
+  image.draggable = false;
+  image.referrerPolicy = 'no-referrer';
+  image.src = src;
+  image.dataset.mentionIcon = '';
+  if (fallbackSrc && fallbackSrc !== src) {
+    image.addEventListener('error', () => {
+      image.dataset.mentionIconFallback = '';
+      image.src = fallbackSrc;
+    }, { once: true });
+  }
+  parent.append(image);
 }
 
 function findMentionElement(target: EventTarget | null) {
@@ -3914,7 +4304,9 @@ function getComposerMentionTarget(editor: HTMLElement | null) {
 
   const prefix = prefixRange.toString();
   const text = `${prefix}${suffixRange.toString()}`;
-  const token = findMentionToken(text, prefix.length);
+  const documentToken = findMentionToken(text, prefix.length);
+  const skillToken = findSkillToken(text, prefix.length);
+  const token = documentToken ?? skillToken;
   if (!token) {
     return null;
   }
@@ -3929,7 +4321,8 @@ function getComposerMentionTarget(editor: HTMLElement | null) {
   range.setStart(start.node, start.offset);
   range.setEnd(end.node, end.offset);
   return {
-    key: `${token.start}:${token.end}:${prefix.length}:${text}`,
+    kind: documentToken ? 'document' : 'skill',
+    key: `${documentToken ? 'document' : 'skill'}:${token.start}:${token.end}:${prefix.length}:${text}`,
     query: token.query,
     range,
   } satisfies ComposerMentionTarget;
@@ -3985,6 +4378,18 @@ function readComposerSnapshot(editor: HTMLElement) {
           label,
           name: node.dataset.mentionName ?? '',
           path: node.dataset.mentionPath,
+          start,
+        });
+      } else if (node.dataset.mentionKind === 'skill') {
+        mentions.push({
+          description: node.dataset.mentionDescription ?? '',
+          displayName: label,
+          end: value.length,
+          kind: 'skill',
+          label,
+          name: node.dataset.mentionName ?? '',
+          path: node.dataset.mentionPath,
+          scope: (node.dataset.mentionScope ?? 'user') as CodexSkillScope,
           start,
         });
       } else {
@@ -4172,6 +4577,12 @@ function isPluginComposerMention(
   return mention.kind === 'plugin';
 }
 
+function isSkillComposerMention(
+  mention: AiComposerMention,
+): mention is AiComposerSkillMention {
+  return mention.kind === 'skill';
+}
+
 function uniqueContextAttachments(attachments: CodexContextAttachment[]) {
   const seen = new Set<string>();
   return attachments.filter((attachment) => {
@@ -4188,6 +4599,62 @@ function uniquePluginOptions(options: AiPluginMentionOption[]) {
     seen.add(option.id);
     return true;
   });
+}
+
+function uniqueSkillOptions(options: AiSkillMentionOption[]) {
+  const seen = new Set<string>();
+  return options.filter((option) => {
+    if (seen.has(option.path)) return false;
+    seen.add(option.path);
+    return true;
+  });
+}
+
+function rankSkillOptions(
+  options: AiSkillMentionOption[],
+  query: string,
+  excludedPaths: ReadonlySet<string>,
+) {
+  const normalizedQuery = query.trim().normalize('NFKC').toLocaleLowerCase();
+  return options
+    .flatMap((skill, order) => {
+      if (excludedPaths.has(skill.path)) return [];
+      if (!normalizedQuery) return [{ order, score: 0, skill }];
+      const fields = [skill.displayName, skill.name, skill.description];
+      const score = fields.reduce((best, field, index) => {
+        const normalized = field.normalize('NFKC').toLocaleLowerCase();
+        const exactIndex = normalized.indexOf(normalizedQuery);
+        if (exactIndex >= 0) {
+          return Math.max(best, 10_000 - index * 1_000 - exactIndex);
+        }
+        return mentionMatchIndices(field, normalizedQuery).length > 0
+          ? Math.max(best, 1_000 - index * 100)
+          : best;
+      }, -1);
+      return score < 0 ? [] : [{ order, score, skill }];
+    })
+    .sort((left, right) => right.score - left.score || left.order - right.order)
+    .map(({ skill }) => skill);
+}
+
+function skillScopeLabel(scope: CodexSkillScope) {
+  if (scope === 'repo') return '工作区';
+  if (scope === 'system') return '系统';
+  if (scope === 'admin') return '管理员';
+  return '个人';
+}
+
+function formatSkillDisplayName(name: string) {
+  return name
+    .split(':')
+    .map((part) =>
+      part
+        .split('-')
+        .filter(Boolean)
+        .map((word) => word.charAt(0).toLocaleUpperCase() + word.slice(1))
+        .join(' '),
+    )
+    .join(': ');
 }
 
 async function resolvePluginIconUrl(

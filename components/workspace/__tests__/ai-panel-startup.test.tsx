@@ -58,6 +58,8 @@ const runtime = {
   message: null,
 };
 
+let protocolSubscriber: ((message: { method?: string }) => void) | null = null;
+
 function defaultResponse(method: string) {
   if (method === 'account/read') {
     return {
@@ -87,6 +89,17 @@ function defaultResponse(method: string) {
     return {
       marketplaces: [],
       marketplaceLoadErrors: [],
+    };
+  }
+  if (method === 'skills/list') {
+    return {
+      data: [
+        {
+          cwd: '/workspace',
+          errors: [],
+          skills: [],
+        },
+      ],
     };
   }
   if (method === 'thread/start') {
@@ -143,14 +156,18 @@ beforeEach(() => {
   bridge.readPluginIcon.mockReset();
   bridge.rejectPending.mockReset();
   bridge.start.mockReset().mockResolvedValue(runtime);
-  bridge.subscribe.mockReset().mockReturnValue(vi.fn());
+  protocolSubscriber = null;
+  bridge.subscribe.mockReset().mockImplementation((subscriber) => {
+    protocolSubscriber = subscriber;
+    return vi.fn();
+  });
   bridge.request.mockReset().mockImplementation((method: string) =>
     Promise.resolve(defaultResponse(method)),
   );
 });
 
 describe('AI panel startup lifecycle', () => {
-  it('后台完成核心握手、自动加载插件且不预取 MCP 状态', async () => {
+  it('后台完成核心握手、自动加载插件与 Skill 且不预取 MCP 状态', async () => {
     renderPanel();
 
     await waitFor(() => expect(bridge.start).toHaveBeenCalledWith('/workspace'));
@@ -168,12 +185,99 @@ describe('AI panel startup lifecycle', () => {
         ([method]) => method === 'plugin/installed',
       ),
     ).toHaveLength(1);
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith('skills/list', {
+        cwds: ['/workspace'],
+        forceReload: false,
+      }),
+    );
     expect(bridge.request).not.toHaveBeenCalledWith(
       'mcpServerStatus/list',
       expect.anything(),
     );
     expect(screen.queryByText('正在连接 Codex')).toBeNull();
     expect(screen.getByRole('textbox', { name: '向 Codex 提问' })).toBeTruthy();
+  });
+
+  it('收到 skills/changed 后强制刷新当前工作区技能', async () => {
+    renderPanel();
+
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith('skills/list', {
+        cwds: ['/workspace'],
+        forceReload: false,
+      }),
+    );
+    protocolSubscriber?.({ method: 'skills/changed' });
+
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith('skills/list', {
+        cwds: ['/workspace'],
+        forceReload: true,
+      }),
+    );
+  });
+
+  it('从斜杠面板选择 Skill 后发送协议要求的文本令牌和原生输入', async () => {
+    const user = userEvent.setup();
+    bridge.request.mockImplementation((method: string) =>
+      Promise.resolve(
+        method === 'skills/list'
+          ? {
+              data: [
+                {
+                  cwd: '/workspace',
+                  errors: [],
+                  skills: [
+                    {
+                      description: 'Internal prototype QA comparison',
+                      enabled: true,
+                      interface: {
+                        displayName: 'Design QA',
+                        shortDescription: 'Compare implementation against a visual source',
+                      },
+                      name: 'design-qa',
+                      path: '/Users/example/.codex/skills/design-qa/SKILL.md',
+                      scope: 'user',
+                      shortDescription: null,
+                    },
+                  ],
+                },
+              ],
+            }
+          : defaultResponse(method),
+      ),
+    );
+    renderPanel();
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '/Design');
+    await user.click(
+      await screen.findByRole('option', { name: /Design QA/ }),
+    );
+    await user.type(editor, '检查页面');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith(
+        'turn/start',
+        expect.objectContaining({
+          input: [
+            expect.objectContaining({
+              type: 'text',
+              text: '$design-qa 检查页面',
+            }),
+            {
+              type: 'skill',
+              name: 'design-qa',
+              path: '/Users/example/.codex/skills/design-qa/SKILL.md',
+            },
+          ],
+        }),
+      ),
+    );
   });
 
   it('读取 App Server 授权的本地图标并保留明暗主题资源', async () => {

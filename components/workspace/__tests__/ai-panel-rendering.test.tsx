@@ -188,7 +188,7 @@ describe('AI message rendering', () => {
     expect(onAttachmentSelect).toHaveBeenCalledWith('file');
   });
 
-  it('检测到的插件插入原生插件提及且不作为文档链接', async () => {
+  it('检测到的插件使用真实图标插入原生插件提及且不作为文档链接', async () => {
     const user = userEvent.setup();
     render(
       <ComposerHarness
@@ -222,9 +222,65 @@ describe('AI message rendering', () => {
     expect(pluginItem?.querySelectorAll('[data-plugin-icon-fallback]')).toHaveLength(2);
     await user.click(screen.getByText('OpenAI Docs'));
 
-    expect(editor.textContent).toContain('@OpenAI Docs');
-    expect(screen.getByRole('note', { name: '@OpenAI Docs' })).toBeTruthy();
-    expect(screen.queryByRole('link', { name: '@OpenAI Docs' })).toBeNull();
+    expect(editor.textContent).toContain('OpenAI Docs');
+    const mention = screen.getByRole('note', { name: 'OpenAI Docs' });
+    const mentionImages = mention.querySelectorAll('img');
+    expect(mentionImages).toHaveLength(2);
+    expect(mentionImages[0]?.getAttribute('src')).toBe(
+      'https://example.com/openai-docs.png',
+    );
+    expect(mentionImages[1]?.getAttribute('src')).toBe(
+      'https://example.com/openai-docs-dark.png',
+    );
+    expect(screen.queryByRole('link', { name: 'OpenAI Docs' })).toBeNull();
+    expect(screen.getByTestId('selected-mention-count').textContent).toBe('1');
+  });
+
+  it('输入 / 展示技能面板并插入统一图标的 Skill mention', async () => {
+    const user = userEvent.setup();
+    render(
+      <ComposerHarness
+        onOpenMention={vi.fn()}
+        skillOptions={[
+          {
+            description: 'Internal prototype QA comparison against a visual source',
+            displayName: 'Design QA',
+            name: 'design-qa',
+            path: '/Users/example/.codex/skills/design-qa/SKILL.md',
+            scope: 'user',
+          },
+          {
+            description: 'Create and edit Word and Google Docs files',
+            displayName: 'Documents',
+            name: 'documents',
+            path: '/Users/example/.codex/skills/documents/SKILL.md',
+            scope: 'user',
+          },
+        ]}
+        skillStatus="ready"
+      />,
+    );
+
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '/Design');
+
+    const listbox = screen.getByRole('listbox', { name: '选择 Skill' });
+    expect(
+      within(listbox).getByRole('option', { name: /Design QA/ }),
+    ).toBeTruthy();
+    expect(within(listbox).getByText(/Internal prototype QA/)).toBeTruthy();
+    expect(within(listbox).getByText('个人')).toBeTruthy();
+    expect(screen.getByText('技能')).toBeTruthy();
+
+    await user.click(within(listbox).getByRole('option', { name: /Design QA/ }));
+
+    expect(editor.textContent).toContain('Design QA');
+    const mention = screen.getByRole('note', { name: 'Design QA' });
+    expect(mention.querySelector('img')?.getAttribute('src')).toBe(
+      '/icons/mentions/box.svg',
+    );
+    expect(screen.queryByRole('listbox', { name: '选择 Skill' })).toBeNull();
     expect(screen.getByTestId('selected-mention-count').textContent).toBe('1');
   });
 
@@ -281,6 +337,9 @@ describe('AI message rendering', () => {
 
     const mention = screen.getByRole('link', { name: 'README' });
     expect(editor.contains(mention)).toBe(true);
+    expect(mention.querySelector('img')?.getAttribute('src')).toBe(
+      '/icons/mentions/file-text.svg',
+    );
     expect(screen.getByTestId('selected-mention-count').textContent).toBe('1');
 
     await user.click(mention);
@@ -1069,6 +1128,8 @@ function ComposerHarness({
   onSend = vi.fn(),
   pluginOptions = [],
   pluginStatus = 'idle',
+  skillOptions = [],
+  skillStatus = 'idle',
 }: {
   attachments?: Array<{
     attachmentId: string;
@@ -1091,6 +1152,14 @@ function ComposerHarness({
     mentionPath: string;
   }>;
   pluginStatus?: 'error' | 'idle' | 'loading' | 'ready';
+  skillOptions?: Array<{
+    description: string;
+    displayName: string;
+    name: string;
+    path: string;
+    scope: 'admin' | 'repo' | 'system' | 'user';
+  }>;
+  skillStatus?: 'error' | 'idle' | 'loading' | 'ready';
 }) {
   const [value, setValue] = React.useState('');
   const [mentionCount, setMentionCount] = React.useState(0);
@@ -1116,6 +1185,8 @@ function ComposerHarness({
         runtimeStatus="ready"
         selectedModel=""
         selectedModelInfo={null}
+        skillOptions={skillOptions}
+        skillStatus={skillStatus}
         submitting={false}
         value={value}
         onAttachmentRemove={onAttachmentRemove}

@@ -36,7 +36,7 @@ export interface AiChatMessage {
 
 export interface AiMessageMention {
   end: number;
-  kind?: 'document' | 'plugin';
+  kind?: 'document' | 'plugin' | 'skill';
   label: string;
   path: string;
   start: number;
@@ -53,6 +53,12 @@ export interface AiDocumentInputMention extends AiMessageMention {
 
 export interface AiPluginInputMention extends AiMessageMention {
   kind: 'plugin';
+  name: string;
+}
+
+export interface AiSkillInputMention extends AiMessageMention {
+  kind: 'skill';
+  name: string;
 }
 
 interface AiActivityBase {
@@ -1424,6 +1430,7 @@ export function createComposerAwareUserInput(
   text: string,
   documentMentions: AiDocumentInputMention[],
   pluginMentions: AiPluginInputMention[],
+  skillMentions: AiSkillInputMention[] = [],
 ) {
   const textElements: Array<{
     byteRange: { end: number; start: number };
@@ -1435,6 +1442,7 @@ export function createComposerAwareUserInput(
   const mentions = [
     ...documentMentions.map((mention) => ({ mention, type: 'document' as const })),
     ...pluginMentions.map((mention) => ({ mention, type: 'plugin' as const })),
+    ...skillMentions.map((mention) => ({ mention, type: 'skill' as const })),
   ].sort((left, right) => left.mention.start - right.mention.start);
 
   for (const { mention, type } of mentions) {
@@ -1447,6 +1455,7 @@ export function createComposerAwareUserInput(
     if (
       (type === 'document' && !relativePath) ||
       (type === 'plugin' && !mention.path.startsWith('plugin://')) ||
+      (type === 'skill' && !mention.path) ||
       mention.start < inputCursor ||
       mention.start < 0 ||
       mention.end <= mention.start ||
@@ -1459,7 +1468,9 @@ export function createComposerAwareUserInput(
     const reference =
       type === 'document'
         ? JSON.stringify(relativePath)
-        : text.slice(mention.start, mention.end);
+        : type === 'plugin'
+          ? `@${mention.name}`
+          : `$${mention.name}`;
     const start = utf8ByteLength(modelText);
     modelText += reference;
     textElements.push({
@@ -1506,11 +1517,15 @@ function messageFromUserMessage(
   const mentionInputs = inputs
     .filter(
       (input) =>
-        input.type === 'mention' &&
+        (input.type === 'mention' || input.type === 'skill') &&
         typeof input.name === 'string' &&
         typeof input.path === 'string',
     )
-    .map((input) => ({ name: input.name as string, path: input.path as string }));
+    .map((input) => ({
+      kind: input.type === 'skill' ? ('skill' as const) : ('mention' as const),
+      name: input.name as string,
+      path: input.path as string,
+    }));
   const usedMentionIndexes = new Set<number>();
   const attachments: AiMessageAttachment[] = inputs
     .filter(
@@ -1574,7 +1589,9 @@ function messageFromUserMessage(
           (mention.name === placeholder ||
             mention.name === referencedText ||
             `@${mention.name}` === placeholder ||
-            `@${mention.name}` === referencedText),
+            `@${mention.name}` === referencedText ||
+            `$${mention.name}` === placeholder ||
+            `$${mention.name}` === referencedText),
       );
 
       if (mentionIndex >= 0) {
@@ -1582,9 +1599,12 @@ function messageFromUserMessage(
         mentions.push({
           start: baseOffset + start,
           end: baseOffset + end,
-          kind: mentionInputs[mentionIndex].path.startsWith('plugin://')
-            ? 'plugin'
-            : 'document',
+          kind:
+            mentionInputs[mentionIndex].kind === 'skill'
+              ? 'skill'
+              : mentionInputs[mentionIndex].path.startsWith('plugin://')
+                ? 'plugin'
+                : 'document',
           label,
           path: mentionInputs[mentionIndex].path,
         });

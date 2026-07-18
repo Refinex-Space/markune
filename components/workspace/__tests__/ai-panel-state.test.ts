@@ -226,9 +226,9 @@ describe('AI panel event reducer', () => {
   });
 
   it('同时编码文档与插件提及并保留原生插件令牌', () => {
-    const text = '用 2026 计划 配合 @OpenAI Docs 检查';
+    const text = '用 2026 计划 配合 OpenAI Docs 检查';
     const documentStart = text.indexOf('2026 计划');
-    const pluginStart = text.indexOf('@OpenAI Docs');
+    const pluginStart = text.indexOf('OpenAI Docs');
     const result = createComposerAwareUserInput(
       text,
       [
@@ -243,8 +243,9 @@ describe('AI panel event reducer', () => {
       [
         {
           start: pluginStart,
-          end: pluginStart + '@OpenAI Docs'.length,
-          label: '@OpenAI Docs',
+          end: pluginStart + 'OpenAI Docs'.length,
+          label: 'OpenAI Docs',
+          name: 'OpenAI Docs',
           path: 'plugin://openai-docs',
         },
       ],
@@ -255,8 +256,41 @@ describe('AI panel event reducer', () => {
     );
     expect(result.textElements.map((element) => element.placeholder)).toEqual([
       '2026 计划',
-      '@OpenAI Docs',
+      'OpenAI Docs',
     ]);
+  });
+
+  it('把 Skill 展示标签编码为原生 $Skill 令牌', () => {
+    const text = '使用 Design QA 检查页面';
+    const skillStart = text.indexOf('Design QA');
+    const result = createComposerAwareUserInput(
+      text,
+      [],
+      [],
+      [
+        {
+          start: skillStart,
+          end: skillStart + 'Design QA'.length,
+          kind: 'skill',
+          label: 'Design QA',
+          name: 'design-qa',
+          path: '/Users/example/.codex/skills/design-qa/SKILL.md',
+        },
+      ],
+    );
+
+    expect(result).toEqual({
+      text: '使用 $design-qa 检查页面',
+      textElements: [
+        {
+          byteRange: {
+            start: new TextEncoder().encode('使用 ').length,
+            end: new TextEncoder().encode('使用 $design-qa').length,
+          },
+          placeholder: 'Design QA',
+        },
+      ],
+    });
   });
 
   it('从历史消息隐藏原生附件头并恢复附件和插件提及', () => {
@@ -335,6 +369,65 @@ describe('AI panel event reducer', () => {
           kind: 'plugin',
           label: '@OpenAI Docs',
           path: 'plugin://openai-docs',
+        },
+      ],
+    });
+  });
+
+  it('从历史用户消息恢复 Skill 展示标签和原生路径', () => {
+    const text = '使用 $design-qa 检查页面';
+    const skillStart = text.indexOf('$design-qa');
+    const state = conversationFromThread({
+      id: 'thread-skill',
+      name: 'Skill 测试',
+      preview: '',
+      createdAt: 0,
+      updatedAt: 0,
+      cwd: '/workspace',
+      status: {},
+      turns: [
+        {
+          id: 'turn-skill',
+          status: 'completed',
+          items: [
+            {
+              id: 'message-skill',
+              type: 'userMessage',
+              content: [
+                {
+                  type: 'text',
+                  text,
+                  text_elements: [
+                    {
+                      byteRange: {
+                        start: new TextEncoder().encode(text.slice(0, skillStart)).length,
+                        end: new TextEncoder().encode(
+                          text.slice(0, skillStart + '$design-qa'.length),
+                        ).length,
+                      },
+                      placeholder: 'Design QA',
+                    },
+                  ],
+                },
+                {
+                  type: 'skill',
+                  name: 'design-qa',
+                  path: '/Users/example/.codex/skills/design-qa/SKILL.md',
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(state.entries[0]).toMatchObject({
+      text,
+      mentions: [
+        {
+          kind: 'skill',
+          label: 'Design QA',
+          path: '/Users/example/.codex/skills/design-qa/SKILL.md',
         },
       ],
     });

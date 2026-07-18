@@ -92,6 +92,18 @@ export function mentionMatchIndices(text: string, query: string) {
 }
 
 export function findMentionToken(text: string, cursorOffset: number) {
+  return findTriggeredToken(text, cursorOffset, '@');
+}
+
+export function findSkillToken(text: string, cursorOffset: number) {
+  return findTriggeredToken(text, cursorOffset, '/');
+}
+
+function findTriggeredToken(
+  text: string,
+  cursorOffset: number,
+  trigger: '@' | '/',
+) {
   const cursor = Math.max(0, Math.min(cursorOffset, text.length));
   if (cursor > 0 && isTokenSeparator(text[cursor - 1])) {
     return null;
@@ -108,7 +120,7 @@ export function findMentionToken(text: string, cursorOffset: number) {
   }
 
   const token = text.slice(start, end);
-  if (!token.startsWith('@')) {
+  if (!token.startsWith(trigger)) {
     return null;
   }
   if (start > 0 && !isTokenSeparator(text[start - 1])) {
