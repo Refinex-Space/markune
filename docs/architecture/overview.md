@@ -76,7 +76,13 @@ AI 文件修改以 App Server 事件为刷新事实源。`item/fileChange/patchU
 
 插件入口在核心运行时就绪后使用固定 sidecar 的 `plugin/installed` 按当前工作区自动加载，每个运行时代际最多发起一次成功请求，只展示已安装、已启用且未被管理员禁用的插件；加载失败时只在菜单内提供重试。App Server 返回的 `composerIcon`、`logo` 与 `logoDark` 本地文件由 Rust 按响应请求 ID 建立精确路径授权，前端只能通过 `read_codex_plugin_icon` 读取当前插件清单声明的单个受支持图片；远程图标只接受 HTTPS。菜单按 composer、主题 logo、通用占位图标的顺序降级，单个资源失败不影响插件清单。授权在重新检测、运行时停止或工作区切换时失效，不扩大资源协议 scope。
 
-选择插件会在编辑器插入带真实图标、视觉上不显示触发符的原子节点；生成模型文本时恢复 `@Plugin`，并在 `turn/start` 同时发送 `plugin://{id}` 原生 mention。图标字节只存在于当前输入视图，不写入 mention、消息历史或工作区。历史恢复继续依赖该 mention 与对应 UTF-8 `text_elements` 区间。目标与计划模式当前只保留不可操作的菜单占位，不建立未完成的协议状态。
+选择插件会在编辑器插入带真实图标、视觉上不显示触发符的原子节点；生成模型文本时恢复 `@Plugin`，并在 `turn/start` 同时发送 `plugin://{id}` 原生 mention。图标字节只存在于当前输入视图，不写入 mention、消息历史或工作区。历史恢复继续依赖该 mention 与对应 UTF-8 `text_elements` 区间。目标当前仍为不可操作的菜单占位。
+
+计划模式通过实验接口 `collaborationMode/list` 发现固定 sidecar 的 `Plan` 与 `Default` 预设；不可用时只禁用入口，不阻塞普通对话。每个 `turn/start` 显式提交内置 collaboration mode，Plan 固定当前模型与 `medium` 推理强度，Default 使用恢复后的模型与强度，二者都不改变线程权限。Plan 是 Codex 的开发者指令约束，不是只读 sandbox；活跃 turn、审批或用户问题未完成时禁止切换。新建、恢复和重新打开线程均从 Default 开始，Madora 不为协作模式建立持久化镜像。
+
+Plan turn 的 `item/plan/delta` 只用于流式展示，`item/completed` 的完整 `plan` item 是权威正文；`turn/plan/updated` 仍只表示执行检查清单。正式计划作为独立 Markdown 结果块进入线程投影，并随 `thread/read` 恢复。仅实时完成且确实产出正式计划时显示客户端三选项：在原线程发送 `Implement the plan.`、把完整计划引导语作为新 Default 线程首条消息，或留在 Plan 继续补充；历史回放不自动弹出。计划正文仍由 App Server 写入共享 Codex Home，Madora 不创建计划文件或数据库副本。
+
+`item/tool/requestUserInput` 是独立的 server request。Rust 将 1–3 个问题、自由输入或 2–3 个选项以及可选超时投影为 opaque ID，前端在输入框上方逐题收集答案，Rust 再映射回 App Server 原始 question ID 与 option label，使同一 turn 继续。问题存在时普通发送被阻止但仍可中断 turn；resolved、interrupt 和运行时退出都会清理交互状态。
 
 输入空白边界上的 `/` 会打开独立 Skill 面板。Skill 通过当前工作区单元素 `cwds` 的 `skills/list` 自动加载，只展示 enabled 项；`skills/changed` 作为失效信号触发强制刷新。选择项在输入框插入统一立方体图标和 display name，模型文本编码为 `$skill-name`，并额外发送 `{ type: "skill", name, path }` 原生输入。Rust 只授权最近一次关联 `skills/list` 响应中的精确名称与 canonical path，列表刷新、变更通知、运行时停止或工作区切换都会撤销旧授权。
 

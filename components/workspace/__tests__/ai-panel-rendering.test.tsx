@@ -10,7 +10,10 @@ import {
   AiPanelHeader,
   ChangeSummaryCard,
   ConversationEntryRow,
+  PlanImplementationCard,
   ProcessingTrace,
+  ProposedPlanCard,
+  UserInputDecisionCard,
   UserMessageContent,
 } from '../ai-panel';
 import {
@@ -62,6 +65,168 @@ function change(
 }
 
 describe('AI message rendering', () => {
+  it('正式计划使用独立 Markdown 结果块展示', () => {
+    render(
+      <ProposedPlanCard
+        plan={{
+          historical: false,
+          id: 'plan-1',
+          status: 'completed',
+          text: '# 实施计划\n\n1. 完成协议桥接',
+          turnId: 'turn-1',
+        }}
+      />,
+    );
+
+    expect(screen.getByRole('heading', { name: '实施计划' })).toBeTruthy();
+    expect(screen.getByText('完成协议桥接')).toBeTruthy();
+  });
+
+  it('用户决策卡支持多问题、其他答案和秘密输入', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn(async () => undefined);
+    render(
+      <UserInputDecisionCard
+        request={{
+          autoResolutionMs: 120_000,
+          id: 'request-1',
+          itemId: 'item-1',
+          questions: [
+            {
+              header: '范围',
+              id: 'question-1',
+              isSecret: false,
+              options: [
+                {
+                  description: '仅修改当前模块',
+                  id: 'option-1',
+                  isOther: false,
+                  label: '最小改动',
+                },
+                {
+                  description: '覆盖所有相关模块',
+                  id: 'option-2',
+                  isOther: false,
+                  label: '完整实现',
+                },
+              ],
+              question: '选择实施范围',
+            },
+            {
+              header: '凭据',
+              id: 'question-2',
+              isSecret: true,
+              options: [
+                {
+                  description: '输入自定义值',
+                  id: 'option-other',
+                  isOther: true,
+                  label: '其他',
+                },
+              ],
+              question: '提供临时值',
+            },
+          ],
+          turnId: 'turn-1',
+        }}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    const minimalOption = screen.getByRole('button', { name: /最小改动/ });
+    minimalOption.focus();
+    await user.keyboard('{ArrowDown}');
+    expect(
+      screen.getByRole('button', { name: /完整实现/ }).getAttribute(
+        'aria-pressed',
+      ),
+    ).toBe('true');
+    await user.click(minimalOption);
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await user.click(screen.getByRole('button', { name: /其他/ }));
+    const secretInput = screen.getByLabelText('其他答案');
+    expect(secretInput.getAttribute('type')).toBe('password');
+    await user.type(secretInput, 'masked-value');
+    await user.click(screen.getByRole('button', { name: '提交回答' }));
+
+    expect(onSubmit).toHaveBeenCalledWith([
+      { note: null, optionId: 'option-1', questionId: 'question-1' },
+      {
+        note: 'masked-value',
+        optionId: 'option-other',
+        questionId: 'question-2',
+      },
+    ]);
+  });
+
+  it('用户决策卡支持无预设选项的自由输入', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn(async () => undefined);
+    render(
+      <UserInputDecisionCard
+        request={{
+          autoResolutionMs: null,
+          id: 'request-freeform',
+          itemId: 'item-freeform',
+          questions: [
+            {
+              header: '说明',
+              id: 'question-freeform',
+              isSecret: false,
+              options: [],
+              question: '请补充约束',
+            },
+          ],
+          turnId: 'turn-1',
+        }}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    await user.type(screen.getByRole('textbox', { name: '回答' }), '保持兼容');
+    await user.click(screen.getByRole('button', { name: '提交回答' }));
+
+    expect(onSubmit).toHaveBeenCalledWith([
+      {
+        note: '保持兼容',
+        optionId: null,
+        questionId: 'question-freeform',
+      },
+    ]);
+  });
+
+  it('计划完成卡提供三种实施选择', async () => {
+    const user = userEvent.setup();
+    const onFreshContext = vi.fn();
+    const onImplement = vi.fn();
+    const onStay = vi.fn();
+    render(
+      <PlanImplementationCard
+        plan={{
+          historical: false,
+          id: 'plan-1',
+          status: 'completed',
+          text: '实施计划正文',
+          turnId: 'turn-1',
+        }}
+        submitting={false}
+        onFreshContext={onFreshContext}
+        onImplement={onImplement}
+        onStay={onStay}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '实施此计划' }));
+    await user.click(
+      screen.getByRole('button', { name: '清空上下文后实施' }),
+    );
+    await user.click(screen.getByRole('button', { name: '留在计划模式' }));
+
+    expect(onImplement).toHaveBeenCalledTimes(1);
+    expect(onFreshContext).toHaveBeenCalledTimes(1);
+    expect(onStay).toHaveBeenCalledTimes(1);
+  });
+
   it('用户消息按内容宽度收缩并保留长消息最大宽度', () => {
     render(
       <ConversationEntryRow
@@ -161,7 +326,7 @@ describe('AI message rendering', () => {
     expect(screen.getByText('目标')).toBeTruthy();
     expect(screen.getByText('设置要持续追求的目标')).toBeTruthy();
     expect(screen.getByText('计划模式')).toBeTruthy();
-    expect(screen.getByText('开启计划模式')).toBeTruthy();
+    expect(screen.getByText('当前模型不可用')).toBeTruthy();
     expect(screen.getByText('插件')).toBeTruthy();
     expect(screen.getByText('正在加载插件…')).toBeTruthy();
     expect(screen.queryByText('检测安装的插件')).toBeNull();
@@ -170,6 +335,33 @@ describe('AI message rendering', () => {
     expect(screen.queryByText('提及工作区文档')).toBeNull();
     expect(screen.getByText('目标').closest('[role="menuitem"]')?.getAttribute('aria-disabled')).toBe('true');
     expect(screen.getByText('计划模式').closest('[role="menuitem"]')?.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('计划模式可用时允许切换并在输入框底栏显示状态', async () => {
+    const user = userEvent.setup();
+    const onCollaborationModeChange = vi.fn();
+    const { rerender } = render(
+      <ComposerHarness
+        collaborationMode="default"
+        onCollaborationModeChange={onCollaborationModeChange}
+        onOpenMention={vi.fn()}
+        planModeAvailable
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '添加上下文与工具' }));
+    await user.click(screen.getByText('计划模式'));
+    expect(onCollaborationModeChange).toHaveBeenCalledWith('plan');
+
+    rerender(
+      <ComposerHarness
+        collaborationMode="plan"
+        onCollaborationModeChange={onCollaborationModeChange}
+        onOpenMention={vi.fn()}
+        planModeAvailable
+      />,
+    );
+    expect(screen.getByRole('button', { name: '退出计划模式' })).toBeTruthy();
   });
 
   it('文件子菜单区分文件与文件夹选择', async () => {
@@ -1120,14 +1312,17 @@ function createTrace({
 
 function ComposerHarness({
   attachments = [],
+  collaborationMode = 'default',
   mentionDocuments = [mentionedDocument],
   onAttachmentRemove = vi.fn(),
   onAttachmentSelect = vi.fn(),
   onDetectPlugins = vi.fn(),
+  onCollaborationModeChange = vi.fn(),
   onOpenMention,
   onSend = vi.fn(),
   pluginOptions = [],
   pluginStatus = 'idle',
+  planModeAvailable = false,
   skillOptions = [],
   skillStatus = 'idle',
 }: {
@@ -1137,10 +1332,12 @@ function ComposerHarness({
     kind: 'file' | 'folder';
     name: string;
   }>;
+  collaborationMode?: 'default' | 'plan';
   mentionDocuments?: Array<typeof mentionedDocument>;
   onAttachmentRemove?: (attachmentId: string) => void;
   onAttachmentSelect?: (kind: 'file' | 'folder') => void;
   onDetectPlugins?: () => void;
+  onCollaborationModeChange?: (mode: 'default' | 'plan') => void;
   onOpenMention: (path: string) => void;
   onSend?: () => void;
   pluginOptions?: Array<{
@@ -1152,6 +1349,7 @@ function ComposerHarness({
     mentionPath: string;
   }>;
   pluginStatus?: 'error' | 'idle' | 'loading' | 'ready';
+  planModeAvailable?: boolean;
   skillOptions?: Array<{
     description: string;
     displayName: string;
@@ -1172,6 +1370,7 @@ function ComposerHarness({
         approvalPolicyAvailability={{ never: true, onRequest: true }}
         attachments={attachments}
         autoReviewAvailable
+        collaborationMode={collaborationMode}
         currentDocument={null}
         effort="medium"
         mentionDocuments={mentionDocuments}
@@ -1180,6 +1379,7 @@ function ComposerHarness({
         permissionMode="ask"
         permissionProfiles={[]}
         permissionSwitchDisabled={false}
+        planModeAvailable={planModeAvailable}
         pluginOptions={pluginOptions}
         pluginStatus={pluginStatus}
         runtimeStatus="ready"
@@ -1192,6 +1392,7 @@ function ComposerHarness({
         onAttachmentRemove={onAttachmentRemove}
         onAttachmentSelect={onAttachmentSelect}
         onDetectPlugins={onDetectPlugins}
+        onCollaborationModeChange={onCollaborationModeChange}
         onEffortChange={vi.fn()}
         onInterrupt={vi.fn()}
         onMentionQueryChange={setMentionQuery}

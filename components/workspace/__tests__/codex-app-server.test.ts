@@ -5,6 +5,7 @@ import {
   CodexAppServerClient,
   listenCodexEventsUntilDisposed,
   probeCodexRuntime,
+  respondToCodexUserInput,
   startCodexRuntime,
   type CodexProtocolMessage,
   type CodexRuntimeInfo,
@@ -48,6 +49,32 @@ describe('CodexAppServerClient', () => {
     client.handleMessage(message);
 
     expect(subscriber).toHaveBeenCalledWith(message);
+  });
+
+  it('通过独立 Tauri 命令提交 opaque 用户问题答案', async () => {
+    vi.mocked(invoke).mockResolvedValue(undefined);
+
+    await respondToCodexUserInput('request-1', [
+      {
+        note: '补充说明',
+        optionId: 'option:0:1',
+        questionId: 'question:0',
+      },
+    ]);
+
+    expect(invoke).toHaveBeenCalledWith(
+      'codex_app_server_respond_user_input',
+      {
+        requestId: 'request-1',
+        answers: [
+          {
+            note: '补充说明',
+            optionId: 'option:0:1',
+            questionId: 'question:0',
+          },
+        ],
+      },
+    );
   });
 
   it('运行时退出时拒绝尚未完成的请求', () => {

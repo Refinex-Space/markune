@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -38,6 +38,7 @@ vi.mock('../workspace-api', async (importOriginal) => {
 });
 
 import { AiPanel } from '../ai-panel';
+import type { CodexProtocolMessage } from '../codex-app-server';
 
 const activeDocument = {
   absolutePath: '/workspace/Guides/Spring Boot 介绍.md',
@@ -58,7 +59,28 @@ const runtime = {
   message: null,
 };
 
-let protocolSubscriber: ((message: { method?: string }) => void) | null = null;
+let protocolSubscriber: ((message: CodexProtocolMessage) => void) | null = null;
+
+function planCapableModelResponse() {
+  return {
+    data: [
+      {
+        defaultReasoningEffort: 'high',
+        description: '测试模型',
+        displayName: 'GPT Test',
+        hidden: false,
+        id: 'gpt-test',
+        isDefault: true,
+        model: 'gpt-test',
+        supportedReasoningEfforts: [
+          { description: '中等', reasoningEffort: 'medium' },
+          { description: '高', reasoningEffort: 'high' },
+        ],
+      },
+    ],
+    nextCursor: null,
+  };
+}
 
 function defaultResponse(method: string) {
   if (method === 'account/read') {
@@ -69,6 +91,14 @@ function defaultResponse(method: string) {
   }
   if (method === 'model/list') {
     return { data: [], nextCursor: null };
+  }
+  if (method === 'collaborationMode/list') {
+    return {
+      data: [
+        { name: 'Plan', mode: 'plan', model: null, reasoning_effort: 'medium' },
+        { name: 'Default', mode: 'default', model: null, reasoning_effort: null },
+      ],
+    };
   }
   if (method === 'thread/list') {
     return { data: [], nextCursor: null };
@@ -152,6 +182,10 @@ function renderPanel(
 }
 
 beforeEach(() => {
+  Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
+    configurable: true,
+    value: vi.fn(),
+  });
   bridge.listen.mockReset().mockResolvedValue(vi.fn());
   bridge.readPluginIcon.mockReset();
   bridge.rejectPending.mockReset();
@@ -457,6 +491,168 @@ describe('AI panel startup lifecycle', () => {
 
     models.resolve(defaultResponse('model/list'));
     history.resolve(defaultResponse('thread/list'));
+  });
+
+  it('计划模式通过 collaborationMode 固定 medium 且不发送竞争字段', async () => {
+    const user = userEvent.setup();
+    bridge.request.mockImplementation((method: string) =>
+      Promise.resolve(
+        method === 'model/list'
+          ? planCapableModelResponse()
+          : defaultResponse(method),
+      ),
+    );
+    renderPanel();
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    await user.click(screen.getByRole('button', { name: '添加上下文与工具' }));
+    await user.click(screen.getByText('计划模式'));
+    expect(screen.getByRole('button', { name: '退出计划模式' })).toBeTruthy();
+
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '设计实施方案');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith(
+        'turn/start',
+        expect.objectContaining({
+          collaborationMode: {
+            mode: 'plan',
+            settings: {
+              developer_instructions: null,
+              model: 'gpt-test',
+              reasoning_effort: 'medium',
+            },
+          },
+        }),
+      ),
+    );
+    const turnStartParams = bridge.request.mock.calls.find(
+      ([method]) => method === 'turn/start',
+    )?.[1];
+    expect(turnStartParams).not.toHaveProperty('model');
+    expect(turnStartParams).not.toHaveProperty('effort');
+  });
+
+  it('正式计划完成后可在原任务切回 Default 并发送固定实施消息', async () => {
+    const user = userEvent.setup();
+    let turnCount = 0;
+    bridge.request.mockImplementation((method: string) => {
+      if (method === 'model/list') {
+        return Promise.resolve(planCapableModelResponse());
+      }
+      if (method === 'turn/start') {
+        turnCount += 1;
+        return Promise.resolve({ turn: { id: `turn-${turnCount}` } });
+      }
+      return Promise.resolve(defaultResponse(method));
+    });
+    renderPanel();
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    await user.click(screen.getByRole('button', { name: '添加上下文与工具' }));
+    await user.click(screen.getByText('计划模式'));
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.type(editor, '设计实施方案');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+    await waitFor(() => expect(turnCount).toBe(1));
+
+    act(() => {
+      protocolSubscriber?.({
+        method: 'item/completed',
+        params: {
+          turnId: 'turn-1',
+          item: { id: 'plan-1', type: 'plan', text: '# 计划\n\n1. 实施' },
+        },
+      });
+      protocolSubscriber?.({
+        method: 'turn/completed',
+        params: { turn: { id: 'turn-1', status: 'completed', items: [] } },
+      });
+    });
+
+    await user.click(
+      await screen.findByRole('button', { name: '实施此计划' }),
+    );
+    await waitFor(() => expect(turnCount).toBe(2));
+    const implementationParams = bridge.request.mock.calls.filter(
+      ([method]) => method === 'turn/start',
+    )[1]?.[1];
+    expect(implementationParams).toMatchObject({
+      collaborationMode: {
+        mode: 'default',
+        settings: {
+          developer_instructions: null,
+          model: 'gpt-test',
+          reasoning_effort: 'high',
+        },
+      },
+      input: [expect.objectContaining({ text: 'Implement the plan.' })],
+      threadId: 'thread-1',
+    });
+  });
+
+  it('正式计划可作为完整首条消息在新 Default 任务实施', async () => {
+    const user = userEvent.setup();
+    let turnCount = 0;
+    bridge.request.mockImplementation((method: string) => {
+      if (method === 'model/list') {
+        return Promise.resolve(planCapableModelResponse());
+      }
+      if (method === 'turn/start') {
+        turnCount += 1;
+        return Promise.resolve({ turn: { id: `turn-${turnCount}` } });
+      }
+      return Promise.resolve(defaultResponse(method));
+    });
+    renderPanel();
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    await user.click(screen.getByRole('button', { name: '添加上下文与工具' }));
+    await user.click(screen.getByText('计划模式'));
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.type(editor, '设计实施方案');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+    await waitFor(() => expect(turnCount).toBe(1));
+
+    act(() => {
+      protocolSubscriber?.({
+        method: 'item/completed',
+        params: {
+          turnId: 'turn-1',
+          item: { id: 'plan-1', type: 'plan', text: '# 计划\n\n1. 新任务实施' },
+        },
+      });
+      protocolSubscriber?.({
+        method: 'turn/completed',
+        params: { turn: { id: 'turn-1', status: 'completed', items: [] } },
+      });
+    });
+
+    await user.click(
+      await screen.findByRole('button', { name: '清空上下文后实施' }),
+    );
+    await waitFor(() => expect(turnCount).toBe(2));
+    expect(
+      bridge.request.mock.calls.filter(([method]) => method === 'thread/start'),
+    ).toHaveLength(2);
+    const implementationParams = bridge.request.mock.calls.filter(
+      ([method]) => method === 'turn/start',
+    )[1]?.[1];
+    expect(implementationParams).toMatchObject({
+      collaborationMode: {
+        mode: 'default',
+        settings: { reasoning_effort: 'high' },
+      },
+      input: [
+        expect.objectContaining({
+          text: expect.stringContaining('# 计划\n\n1. 新任务实施'),
+        }),
+      ],
+      threadId: 'thread-1',
+    });
   });
 
   it('每个 turn 把编辑器活跃文档标记为独立上下文角色', async () => {

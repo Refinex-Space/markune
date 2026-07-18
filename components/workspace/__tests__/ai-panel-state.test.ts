@@ -79,6 +79,110 @@ describe('AI panel event reducer', () => {
     });
   });
 
+  it('将正式计划作为独立结果流式展示并以 completed 内容为准', () => {
+    let state = reduceCodexProtocolMessage(createEmptyConversation(), {
+      method: 'turn/started',
+      params: { turn: { id: 'turn-plan', status: 'inProgress' } },
+    });
+    state = reduceCodexProtocolMessage(state, {
+      method: 'item/started',
+      params: {
+        turnId: 'turn-plan',
+        item: { id: 'proposal-1', type: 'plan', text: '' },
+      },
+    });
+    state = reduceCodexProtocolMessage(state, {
+      method: 'item/plan/delta',
+      params: {
+        turnId: 'turn-plan',
+        itemId: 'proposal-1',
+        delta: '# 初稿',
+      },
+    });
+    state = reduceCodexProtocolMessage(state, {
+      method: 'item/completed',
+      params: {
+        turnId: 'turn-plan',
+        item: { id: 'proposal-1', type: 'plan', text: '# 权威计划\n\n1. 实施' },
+      },
+    });
+
+    expect(state.entries).toContainEqual({
+      type: 'proposedPlan',
+      historical: false,
+      id: 'proposal-1',
+      status: 'completed',
+      text: '# 权威计划\n\n1. 实施',
+      turnId: 'turn-plan',
+    });
+    expect(buildConversationBlocks(state)).toContainEqual(
+      expect.objectContaining({ type: 'proposedPlan', id: 'proposal-1' }),
+    );
+  });
+
+  it('恢复历史任务时保留正式计划但不把它混入执行清单', () => {
+    const state = conversationFromThread({
+      id: 'thread-plan',
+      name: '计划',
+      preview: '',
+      createdAt: 0,
+      updatedAt: 0,
+      cwd: '/workspace',
+      status: {},
+      turns: [{
+        id: 'turn-plan',
+        status: 'completed',
+        items: [{ id: 'proposal-1', type: 'plan', text: '历史计划' }],
+      }],
+    });
+
+    expect(state.entries).toEqual([{
+      type: 'proposedPlan',
+      historical: true,
+      id: 'proposal-1',
+      status: 'completed',
+      text: '历史计划',
+      turnId: 'turn-plan',
+    }]);
+  });
+
+  it('接收安全化用户问题并在服务端确认后清理', () => {
+    const pending = reduceCodexProtocolMessage(createEmptyConversation(), {
+      id: 'input-1',
+      method: 'item/tool/requestUserInput',
+      params: {
+        turnId: 'turn-plan',
+        itemId: 'call-1',
+        madoraUserInput: {
+          autoResolutionMs: 60000,
+          questions: [{
+            id: 'question:0',
+            header: '范围',
+            question: '请选择实现范围',
+            isSecret: false,
+            options: [
+              { id: 'option:0:0', label: '完整', description: '实现全部能力', isOther: false },
+              { id: 'option:0:1', label: '精简', description: '仅实现核心能力', isOther: false },
+            ],
+          }],
+        },
+      },
+    });
+    expect(pending.userInputRequests).toEqual([
+      expect.objectContaining({
+        id: 'input-1',
+        itemId: 'call-1',
+        turnId: 'turn-plan',
+      }),
+    ]);
+
+    const resolved = reduceCodexProtocolMessage(pending, {
+      method: 'serverRequest/resolved',
+      params: { requestId: 'input-1' },
+    });
+    expect(resolved.userInputRequests).toEqual([]);
+  });
+
   it('恢复历史任务时保留消息与工具的原始顺序', () => {
     const state = conversationFromThread({
       id: 'thread-1',
