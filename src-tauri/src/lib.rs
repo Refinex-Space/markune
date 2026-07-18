@@ -42,6 +42,8 @@ pub fn run() {
             codex::codex_runtime_stop,
             codex::codex_app_server_request,
             codex::codex_app_server_respond,
+            codex::select_codex_context_attachments,
+            codex::release_codex_context_attachments,
             export::select_document_export_directory,
             export::write_document_export_bundle,
             export::print_document_pdf,

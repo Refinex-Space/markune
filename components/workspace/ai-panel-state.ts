@@ -25,6 +25,7 @@ export type AiActivityStatus =
 export type AiMessagePhase = 'commentary' | 'final_answer' | null;
 
 export interface AiChatMessage {
+  attachments?: AiMessageAttachment[];
   id: string;
   mentions?: AiMessageMention[];
   phase?: AiMessagePhase;
@@ -35,13 +36,23 @@ export interface AiChatMessage {
 
 export interface AiMessageMention {
   end: number;
+  kind?: 'document' | 'plugin';
   label: string;
   path: string;
   start: number;
 }
 
+export interface AiMessageAttachment {
+  kind: 'file' | 'folder' | 'image';
+  name: string;
+}
+
 export interface AiDocumentInputMention extends AiMessageMention {
   relativePath: string;
+}
+
+export interface AiPluginInputMention extends AiMessageMention {
+  kind: 'plugin';
 }
 
 interface AiActivityBase {
@@ -572,8 +583,9 @@ function appendCompletedItem(
 
   if (type === 'userMessage') {
     const message = messageFromUserMessage(item, workspaceRootPath);
-    if (message.text) {
+    if (message.text || message.attachments.length > 0) {
       upsertMessage(state, {
+        attachments: message.attachments,
         id: typeof item.clientId === 'string' ? item.clientId : id,
         mentions: message.mentions,
         role: 'user',
@@ -756,6 +768,7 @@ function upsertMessage(state: AiConversationState, message: AiChatMessage) {
     state.entries[index] = {
       ...existing,
       ...message,
+      attachments: message.attachments ?? existing.attachments,
       mentions: message.mentions ?? existing.mentions,
       phase: message.phase ?? existing.phase,
       text: message.text || existing.text,
@@ -1404,6 +1417,14 @@ export function createDocumentAwareUserInput(
   text: string,
   mentions: AiDocumentInputMention[],
 ) {
+  return createComposerAwareUserInput(text, mentions, []);
+}
+
+export function createComposerAwareUserInput(
+  text: string,
+  documentMentions: AiDocumentInputMention[],
+  pluginMentions: AiPluginInputMention[],
+) {
   const textElements: Array<{
     byteRange: { end: number; start: number };
     placeholder: string;
@@ -1411,12 +1432,21 @@ export function createDocumentAwareUserInput(
   let inputCursor = 0;
   let modelText = '';
 
-  for (const mention of [...mentions].sort(
-    (left, right) => left.start - right.start,
-  )) {
-    const relativePath = normalizeWorkspaceRelativePath(mention.relativePath);
+  const mentions = [
+    ...documentMentions.map((mention) => ({ mention, type: 'document' as const })),
+    ...pluginMentions.map((mention) => ({ mention, type: 'plugin' as const })),
+  ].sort((left, right) => left.mention.start - right.mention.start);
+
+  for (const { mention, type } of mentions) {
+    const relativePath =
+      type === 'document'
+        ? normalizeWorkspaceRelativePath(
+            (mention as AiDocumentInputMention).relativePath,
+          )
+        : null;
     if (
-      !relativePath ||
+      (type === 'document' && !relativePath) ||
+      (type === 'plugin' && !mention.path.startsWith('plugin://')) ||
       mention.start < inputCursor ||
       mention.start < 0 ||
       mention.end <= mention.start ||
@@ -1426,7 +1456,10 @@ export function createDocumentAwareUserInput(
     }
 
     modelText += text.slice(inputCursor, mention.start);
-    const reference = JSON.stringify(relativePath);
+    const reference =
+      type === 'document'
+        ? JSON.stringify(relativePath)
+        : text.slice(mention.start, mention.end);
     const start = utf8ByteLength(modelText);
     modelText += reference;
     textElements.push({
@@ -1462,7 +1495,7 @@ function messageFromUserMessage(
   workspaceRootPath?: string | null,
 ) {
   if (!Array.isArray(item.content)) {
-    return { mentions: [], text: '' };
+    return { attachments: [], mentions: [], text: '' };
   }
 
   const inputs = item.content
@@ -1479,6 +1512,15 @@ function messageFromUserMessage(
     )
     .map((input) => ({ name: input.name as string, path: input.path as string }));
   const usedMentionIndexes = new Set<number>();
+  const attachments: AiMessageAttachment[] = inputs
+    .filter(
+      (input) =>
+        input.type === 'localImage' && typeof input.path === 'string',
+    )
+    .map((input) => ({
+      kind: 'image' as const,
+      name: localPathName(input.path as string),
+    }));
   const mentions: AiMessageMention[] = [];
   let text = '';
 
@@ -1487,15 +1529,20 @@ function messageFromUserMessage(
       continue;
     }
 
-    const inputText = input.text;
+    const restored = restoreMadoraAttachmentContext(
+      input.text,
+      input.text_elements,
+    );
+    attachments.push(...restored.attachments);
+    const inputText = restored.text;
     const baseOffset = text ? text.length + 1 : 0;
     text = text ? `${text}\n${inputText}` : inputText;
 
-    if (!Array.isArray(input.text_elements)) {
+    if (!Array.isArray(restored.textElements)) {
       continue;
     }
 
-    for (const element of input.text_elements) {
+    for (const element of restored.textElements) {
       if (!element || typeof element !== 'object') {
         continue;
       }
@@ -1524,7 +1571,10 @@ function messageFromUserMessage(
       const mentionIndex = mentionInputs.findIndex(
         (mention, index) =>
           !usedMentionIndexes.has(index) &&
-          (mention.name === placeholder || mention.name === referencedText),
+          (mention.name === placeholder ||
+            mention.name === referencedText ||
+            `@${mention.name}` === placeholder ||
+            `@${mention.name}` === referencedText),
       );
 
       if (mentionIndex >= 0) {
@@ -1532,6 +1582,9 @@ function messageFromUserMessage(
         mentions.push({
           start: baseOffset + start,
           end: baseOffset + end,
+          kind: mentionInputs[mentionIndex].path.startsWith('plugin://')
+            ? 'plugin'
+            : 'document',
           label,
           path: mentionInputs[mentionIndex].path,
         });
@@ -1557,9 +1610,94 @@ function messageFromUserMessage(
   }
 
   return {
+    attachments: uniqueMessageAttachments(attachments),
     text,
     mentions: mentions.sort((left, right) => left.start - right.start),
   };
+}
+
+const MADORA_ATTACHMENT_ELEMENT_PREFIX = 'madora:attachment:';
+const MADORA_FILE_CONTEXT_HEADING = '# Files mentioned by the user:\n\n';
+const MADORA_FILE_REQUEST_HEADING = '## My request for Codex:\n';
+
+function restoreMadoraAttachmentContext(
+  text: string,
+  rawTextElements: unknown,
+) {
+  if (!text.startsWith(MADORA_FILE_CONTEXT_HEADING)) {
+    return {
+      attachments: [] as AiMessageAttachment[],
+      text,
+      textElements: rawTextElements,
+    };
+  }
+  const requestHeadingStart = text.indexOf(MADORA_FILE_REQUEST_HEADING);
+  if (requestHeadingStart < 0) {
+    return {
+      attachments: [] as AiMessageAttachment[],
+      text,
+      textElements: rawTextElements,
+    };
+  }
+
+  const prefixEnd = requestHeadingStart + MADORA_FILE_REQUEST_HEADING.length;
+  const prefixBytes = utf8ByteLength(text.slice(0, prefixEnd));
+  const attachments: AiMessageAttachment[] = [];
+  const textElements: unknown[] = [];
+
+  if (Array.isArray(rawTextElements)) {
+    for (const element of rawTextElements) {
+      if (!element || typeof element !== 'object') continue;
+      const record = element as Record<string, unknown>;
+      const placeholder =
+        typeof record.placeholder === 'string' ? record.placeholder : '';
+      if (placeholder.startsWith(MADORA_ATTACHMENT_ELEMENT_PREFIX)) {
+        const metadata = placeholder.slice(MADORA_ATTACHMENT_ELEMENT_PREFIX.length);
+        const separator = metadata.indexOf(':');
+        const kind = metadata.slice(0, separator);
+        const name = metadata.slice(separator + 1);
+        if ((kind === 'file' || kind === 'folder') && name) {
+          attachments.push({ kind, name });
+        }
+        continue;
+      }
+
+      const byteRange = record.byteRange;
+      if (!byteRange || typeof byteRange !== 'object') continue;
+      const range = byteRange as Record<string, unknown>;
+      if (typeof range.start !== 'number' || typeof range.end !== 'number') {
+        continue;
+      }
+      if (range.start < prefixBytes || range.end < prefixBytes) continue;
+      textElements.push({
+        ...record,
+        byteRange: {
+          start: range.start - prefixBytes,
+          end: range.end - prefixBytes,
+        },
+      });
+    }
+  }
+
+  return {
+    attachments,
+    text: text.slice(prefixEnd),
+    textElements,
+  };
+}
+
+function localPathName(path: string) {
+  return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
+}
+
+function uniqueMessageAttachments(attachments: AiMessageAttachment[]) {
+  const seen = new Set<string>();
+  return attachments.filter((attachment) => {
+    const key = `${attachment.kind}:${attachment.name}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function parseHistoricalDocumentReference(value: string) {

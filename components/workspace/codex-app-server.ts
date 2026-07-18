@@ -140,6 +140,36 @@ export interface CodexExperimentalFeatureListResponse {
   nextCursor: string | null;
 }
 
+export interface CodexContextAttachment {
+  attachmentId: string;
+  isImage: boolean;
+  kind: 'file' | 'folder';
+  name: string;
+}
+
+export interface CodexPluginSummary {
+  availability: 'AVAILABLE' | 'DISABLED_BY_ADMIN';
+  enabled: boolean;
+  id: string;
+  installed: boolean;
+  interface: {
+    displayName: string | null;
+    shortDescription: string | null;
+  } | null;
+  name: string;
+}
+
+export interface CodexPluginInstalledResponse {
+  marketplaces: Array<{
+    name: string;
+    plugins: CodexPluginSummary[];
+  }>;
+  marketplaceLoadErrors: Array<{
+    marketplacePath: string;
+    message: string;
+  }>;
+}
+
 type PendingRequest = {
   reject: (reason?: unknown) => void;
   resolve: (value: unknown) => void;
@@ -226,6 +256,25 @@ export async function startCodexRuntime(rootPath: string) {
 export async function stopCodexRuntime() {
   const { invoke } = await import('@tauri-apps/api/core');
   return invoke<void>('codex_runtime_stop');
+}
+
+export async function selectCodexContextAttachments(
+  kind: CodexContextAttachment['kind'],
+  remaining: number,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<CodexContextAttachment[] | null>(
+    'select_codex_context_attachments',
+    { kind, remaining },
+  );
+}
+
+export async function releaseCodexContextAttachments(
+  attachmentIds: string[],
+) {
+  if (attachmentIds.length === 0) return;
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<void>('release_codex_context_attachments', { attachmentIds });
 }
 
 export async function respondToCodexApproval(

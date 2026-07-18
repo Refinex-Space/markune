@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-17
+updated: 2026-07-18
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -99,7 +99,7 @@ test ! -d .madora/ai-sessions
 
 首次启动桌面端并打开工作区后，不先打开 AI 面板，确认 App Server 已在后台启动；随后首次展开 AI 面板时应直接显示正常的新任务界面，不出现占满会话区的“正在连接 Codex”。在核心握手尚未完成时，输入区仍可编辑，点击发送后应显示轻量准备状态，核心成功后自动继续发送；启动失败时必须保留输入内容并显示可诊断错误。
 
-分别模拟慢速或失败的 `model/list`、`thread/list` 与 `mcpServerStatus/list`，确认：核心就绪后可以使用 App Server 默认模型发送；历史页显示独立加载、重试或空状态；MCP 只在面板首次可见后发现且不会阻塞输入。折叠 AI 面板、切换到元信息面板再返回时，正在运行的 turn、草稿与线程状态必须保留；切换工作区根目录时才允许重建对应的 Codex 运行时边界。
+分别模拟慢速或失败的 `model/list` 与 `thread/list`，确认：核心就绪后可以使用 App Server 默认模型发送，历史页显示独立加载、重试或空状态，启动过程不会预取 `mcpServerStatus/list` 或 `plugin/installed`。展开加号菜单应只显示“文件和文件夹”、不可操作的“目标/计划模式”占位和“检测安装的插件”；点击插件检测后才允许查询当前工作区，失败只在菜单内提示且不阻塞输入。折叠 AI 面板、切换到元信息面板再返回时，正在运行的 turn、草稿与线程状态必须保留；切换工作区根目录时才允许重建对应的 Codex 运行时边界。
 
 前端回归至少执行：
 

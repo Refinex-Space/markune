@@ -17,15 +17,21 @@ import {
   Circle,
   CircleX,
   Eye,
+  File,
+  FolderOpen,
   FilePenLine,
   FileText,
   Globe2,
+  Goal,
   Hand,
   History,
   LoaderCircle,
+  ListChecks,
   MessageSquareText,
   MoreHorizontal,
+  Paperclip,
   Plus,
+  Puzzle,
   Search,
   SearchCode,
   ShieldCheck,
@@ -47,6 +53,9 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -59,17 +68,21 @@ import { cn } from '@/lib/utils';
 import {
   codexAppServerClient,
   listenCodexEventsUntilDisposed,
+  releaseCodexContextAttachments,
   respondToCodexApproval,
+  selectCodexContextAttachments,
   startCodexRuntime,
   type CodexAccountResponse,
   type CodexApprovalPolicy,
   type CodexApprovalsReviewer,
   type CodexConfigRequirementsResponse,
+  type CodexContextAttachment,
   type CodexExperimentalFeatureListResponse,
   type CodexModel,
   type CodexModelListResponse,
   type CodexPermissionProfileListResponse,
   type CodexPermissionProfileSummary,
+  type CodexPluginInstalledResponse,
   type CodexReasoningEffort,
   type CodexThread,
   type CodexThreadListResponse,
@@ -78,7 +91,7 @@ import {
 import {
   conversationFromThread,
   buildConversationBlocks,
-  createDocumentAwareUserInput,
+  createComposerAwareUserInput,
   createThreadTitle,
   createEmptyConversation,
   getOutputPreviewLines,
@@ -92,7 +105,9 @@ import {
   type AiConversationEntry,
   type AiConversationState,
   type AiFileChange,
+  type AiMessageAttachment,
   type AiMessageMention,
+  type AiPluginInputMention,
   type AiTraceBlock,
   type AiTimelineItem,
   type AiWorkspaceChangeEvent,
@@ -111,13 +126,13 @@ import type { WorkspaceNode } from './workspace-types';
 interface AiPanelProps {
   currentDocument: WorkspaceNode | null;
   documents: AiDocumentReference[];
-  visible: boolean;
   workspaceRootPath: string | null;
   onBeforeTurnStart: () => Promise<boolean>;
   onOpenDocument: (documentPath: string) => void;
   onWorkspaceChanged: (
     event: AiWorkspaceChangeEvent,
   ) => void | Promise<void>;
+  visible?: boolean;
 }
 
 type AiDocumentReference = Pick<
@@ -125,7 +140,23 @@ type AiDocumentReference = Pick<
   'absolutePath' | 'id' | 'name' | 'relativePath' | 'title'
 >;
 
-type AiComposerMention = AiDocumentReference & AiMessageMention;
+type AiComposerDocumentMention = AiDocumentReference &
+  AiMessageMention & { kind: 'document' };
+
+type AiComposerPluginMention = AiPluginInputMention & {
+  description: string | null;
+  id: string;
+  name: string;
+};
+
+type AiComposerMention = AiComposerDocumentMention | AiComposerPluginMention;
+
+interface AiPluginMentionOption {
+  description: string | null;
+  displayName: string;
+  id: string;
+  mentionPath: string;
+}
 
 interface ComposerMentionTarget {
   key: string;
@@ -160,10 +191,6 @@ interface LoginResponse {
   type: string;
   authUrl?: string;
   verificationUrl?: string;
-}
-
-interface McpListResponse {
-  data: Array<{ name: string }>;
 }
 
 const STARTER_PROMPTS = [
@@ -290,7 +317,6 @@ function permissionModeLabel(mode: PermissionModeId) {
 export function AiPanel({
   currentDocument,
   documents,
-  visible,
   workspaceRootPath,
   onBeforeTurnStart,
   onOpenDocument,
@@ -300,7 +326,6 @@ export function AiPanel({
   const [runtimeStatus, setRuntimeStatus] =
     React.useState<RuntimeStatus>('loading');
   const [runtimeError, setRuntimeError] = React.useState<string | null>(null);
-  const [runtimeVersion, setRuntimeVersion] = React.useState<string | null>(null);
   const [account, setAccount] = React.useState<CodexAccountResponse['account']>(null);
   const [authRequired, setAuthRequired] = React.useState(false);
   const [models, setModels] = React.useState<CodexModel[]>([]);
@@ -315,9 +340,6 @@ export function AiPanel({
   const [conversation, setConversation] = React.useState<AiConversationState>(
     createEmptyConversation,
   );
-  const [mcpServerCount, setMcpServerCount] = React.useState(0);
-  const [mcpStatus, setMcpStatus] =
-    React.useState<ControlLoadStatus>('idle');
   const [permissionProfiles, setPermissionProfiles] = React.useState<
     CodexPermissionProfileSummary[]
   >([]);
@@ -334,6 +356,17 @@ export function AiPanel({
   const [selectedMentions, setSelectedMentions] = React.useState<
     AiComposerMention[]
   >([]);
+  const [selectedAttachments, setSelectedAttachments] = React.useState<
+    CodexContextAttachment[]
+  >([]);
+  const [pluginStatus, setPluginStatus] =
+    React.useState<ControlLoadStatus>('idle');
+  const [pluginOptions, setPluginOptions] = React.useState<
+    AiPluginMentionOption[]
+  >([]);
+  const [pluginLoadWarning, setPluginLoadWarning] = React.useState<string | null>(
+    null,
+  );
   const [mentionQuery, setMentionQuery] = React.useState<string | null>(null);
   const [historyQuery, setHistoryQuery] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
@@ -350,6 +383,7 @@ export function AiPanel({
   const permissionSettingsRef = React.useRef(DEFAULT_PERMISSION_SETTINGS);
   const submittingRef = React.useRef(false);
   const runtimeGenerationRef = React.useRef(0);
+  const selectedAttachmentsRef = React.useRef<CodexContextAttachment[]>([]);
 
   React.useEffect(() => {
     activeThreadIdRef.current = activeThread?.id ?? null;
@@ -375,6 +409,10 @@ export function AiPanel({
     permissionSettingsRef.current = permissionSettings;
   }, [permissionSettings]);
 
+  React.useEffect(() => {
+    selectedAttachmentsRef.current = selectedAttachments;
+  }, [selectedAttachments]);
+
   const applyThreadName = React.useCallback((threadId: string, name: string) => {
     setActiveThread((current) =>
       current?.id === threadId ? { ...current, name } : current,
@@ -388,7 +426,9 @@ export function AiPanel({
 
   const filteredMentionDocuments = React.useMemo(() => {
     const excludedPaths = new Set(
-      selectedMentions.map((document) => document.absolutePath),
+      selectedMentions
+        .filter(isDocumentComposerMention)
+        .map((document) => document.absolutePath),
     );
     if (currentDocument?.absolutePath) {
       excludedPaths.add(currentDocument.absolutePath);
@@ -545,23 +585,76 @@ export function AiPanel({
     }
   }, [workspaceRootPath]);
 
-  const loadMcpStatus = React.useCallback(async (
-    generation = runtimeGenerationRef.current,
-  ) => {
-    if (generation !== runtimeGenerationRef.current) return;
-    setMcpStatus('loading');
+  const detectInstalledPlugins = React.useCallback(async () => {
+    if (!workspaceRootPath || runtimeStatusRef.current !== 'ready') return;
+    const generation = runtimeGenerationRef.current;
+    setPluginStatus('loading');
+    setPluginLoadWarning(null);
     try {
-      const response = await codexAppServerClient.request<McpListResponse>(
-        'mcpServerStatus/list',
-        { detail: 'toolsAndAuthOnly', limit: 100 },
-      );
+      const response =
+        await codexAppServerClient.request<CodexPluginInstalledResponse>(
+          'plugin/installed',
+          {
+            cwds: [workspaceRootPath],
+            installSuggestionPluginNames: [],
+          },
+        );
       if (generation !== runtimeGenerationRef.current) return;
-      setMcpServerCount(response.data.length);
-      setMcpStatus('ready');
+      const options = response.marketplaces.flatMap((marketplace) =>
+        marketplace.plugins
+          .filter(
+            (plugin) =>
+              plugin.installed &&
+              plugin.enabled &&
+              plugin.availability !== 'DISABLED_BY_ADMIN',
+          )
+          .map((plugin) => ({
+            description:
+              plugin.interface?.shortDescription?.trim() || marketplace.name,
+            displayName:
+              plugin.interface?.displayName?.trim() || plugin.name,
+            id: plugin.id,
+            mentionPath: `plugin://${plugin.id}`,
+          })),
+      );
+      setPluginOptions(uniquePluginOptions(options));
+      setPluginLoadWarning(
+        response.marketplaceLoadErrors.length > 0
+          ? '部分插件来源暂时无法读取。'
+          : null,
+      );
+      setPluginStatus('ready');
     } catch {
       if (generation !== runtimeGenerationRef.current) return;
-      setMcpStatus('error');
+      setPluginStatus('error');
     }
+  }, [workspaceRootPath]);
+
+  const selectContextAttachments = React.useCallback(
+    async (kind: CodexContextAttachment['kind']) => {
+      const remaining = 20 - selectedAttachments.length;
+      if (remaining <= 0) {
+        setRuntimeError('最多附加 20 个文件或文件夹。');
+        return;
+      }
+      try {
+        const selected = await selectCodexContextAttachments(kind, remaining);
+        if (!selected) return;
+        setSelectedAttachments((current) =>
+          uniqueContextAttachments([...current, ...selected]).slice(0, 20),
+        );
+      } catch (error) {
+        setRuntimeError(getErrorMessage(error));
+      }
+    },
+    [selectedAttachments.length],
+  );
+
+  const removeContextAttachment = React.useCallback((attachmentId: string) => {
+    setSelectedAttachments((current) =>
+      current.filter((attachment) => attachment.attachmentId !== attachmentId),
+    );
+    void releaseCodexContextAttachments([attachmentId]).catch(() => undefined);
   }, []);
 
   React.useEffect(() => {
@@ -584,13 +677,21 @@ export function AiPanel({
       activeThreadIdRef.current = null;
       setConversation(createEmptyConversation());
       setSelectedMentions([]);
+      void releaseCodexContextAttachments(
+        selectedAttachmentsRef.current.map(
+          (attachment) => attachment.attachmentId,
+        ),
+      ).catch(() => undefined);
+      selectedAttachmentsRef.current = [];
+      setSelectedAttachments([]);
       setComposerValue('');
       permissionSettingsRef.current = DEFAULT_PERMISSION_SETTINGS;
       setPermissionSettings(DEFAULT_PERMISSION_SETTINGS);
       setModelCatalogStatus('idle');
       setThreadListStatus('idle');
-      setMcpStatus('idle');
-      setMcpServerCount(0);
+      setPluginStatus('idle');
+      setPluginOptions([]);
+      setPluginLoadWarning(null);
     });
     if (!workspaceRootPath) {
       return;
@@ -666,9 +767,8 @@ export function AiPanel({
       );
       if (!activeUnlisten) return;
       unlisten = activeUnlisten;
-      const runtime = await startCodexRuntime(workspaceRootPath);
+      await startCodexRuntime(workspaceRootPath);
       if (disposed) return;
-      setRuntimeVersion(runtime.version);
       await loadCoreControlData(generation);
       if (disposed) return;
       runtimeStatusRef.current = 'ready';
@@ -706,18 +806,14 @@ export function AiPanel({
     workspaceRootPath,
   ]);
 
-  React.useEffect(() => {
-    if (!visible || runtimeStatus !== 'ready' || mcpStatus !== 'idle') return;
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (!cancelled) void loadMcpStatus();
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [loadMcpStatus, mcpStatus, runtimeStatus, visible]);
-
   const startNewChat = React.useCallback(() => {
+    void releaseCodexContextAttachments(
+      selectedAttachmentsRef.current.map(
+        (attachment) => attachment.attachmentId,
+      ),
+    ).catch(() => undefined);
+    selectedAttachmentsRef.current = [];
+    setSelectedAttachments([]);
     setActiveThread(null);
     activeThreadIdRef.current = null;
     setConversation(createEmptyConversation());
@@ -729,6 +825,15 @@ export function AiPanel({
   }, []);
 
   const openThread = React.useCallback(async (thread: CodexThread) => {
+    void releaseCodexContextAttachments(
+      selectedAttachmentsRef.current.map(
+        (attachment) => attachment.attachmentId,
+      ),
+    ).catch(() => undefined);
+    selectedAttachmentsRef.current = [];
+    setSelectedAttachments([]);
+    setSelectedMentions([]);
+    setComposerValue('');
     setRuntimeError(null);
     setView('chat');
     try {
@@ -776,7 +881,15 @@ export function AiPanel({
   const sendMessage = React.useCallback(
     async (messageOverride?: string) => {
       const text = (messageOverride ?? composerValue).trim();
-      if (!text || !workspaceRootPath || submittingRef.current) return;
+      const attachments = selectedAttachmentsRef.current;
+      let attachmentGrantsDetached = false;
+      if (
+        (!text && attachments.length === 0) ||
+        !workspaceRootPath ||
+        submittingRef.current
+      ) {
+        return;
+      }
 
       submittingRef.current = true;
       setSubmitting(true);
@@ -801,16 +914,29 @@ export function AiPanel({
           throw new Error('当前文档保存失败，未发送消息。请先处理保存错误。');
         }
 
-        const explicitDocuments = uniqueDocuments(selectedMentions).filter(
+        const documentMentions = selectedMentions.filter(
+          isDocumentComposerMention,
+        );
+        const pluginMentions = selectedMentions.filter(
+          isPluginComposerMention,
+        );
+        const explicitDocuments = uniqueDocuments(documentMentions).filter(
           (document) =>
             document.absolutePath !== currentDocument?.absolutePath,
         );
-        const userInput = createDocumentAwareUserInput(text, selectedMentions);
+        const userInput = createComposerAwareUserInput(
+          text,
+          documentMentions,
+          pluginMentions,
+        );
         const currentPermissionSettings = permissionSettingsRef.current;
         const currentModel = selectedModelRef.current;
         const currentEffort = effortRef.current;
         setComposerValue('');
         setSelectedMentions([]);
+        selectedAttachmentsRef.current = [];
+        setSelectedAttachments([]);
+        attachmentGrantsDetached = true;
         setMentionQuery(null);
         setFollowLatestRequest((current) => current + 1);
         const clientMessageId = `madora-${Date.now()}`;
@@ -819,10 +945,15 @@ export function AiPanel({
           entries: [
             ...current.entries,
             {
+              attachments: attachments.map((attachment) => ({
+                kind: attachment.isImage ? 'image' : attachment.kind,
+                name: attachment.name,
+              })),
               type: 'message',
               id: clientMessageId,
-              mentions: selectedMentions.map(({ end, label, path, start }) => ({
+              mentions: selectedMentions.map(({ end, kind, label, path, start }) => ({
                 end,
+                kind,
                 label,
                 path,
                 start,
@@ -849,7 +980,9 @@ export function AiPanel({
                 runtimeWorkspaceRoots: [workspaceRootPath],
               },
             );
-          const threadTitle = createThreadTitle(text);
+          const threadTitle = createThreadTitle(
+            text || attachments.map((attachment) => attachment.name).join('、'),
+          );
           thread = { ...response.thread, name: threadTitle };
           setActiveThread(thread);
           activeThreadIdRef.current = thread.id;
@@ -871,12 +1004,24 @@ export function AiPanel({
             threadId: thread.id,
             clientUserMessageId: clientMessageId,
             input: [
-              {
-                type: 'text',
-                text: userInput.text,
-                text_elements: userInput.textElements,
-              },
+              ...(userInput.text || userInput.textElements.length > 0
+                ? [
+                    {
+                      type: 'text',
+                      text: userInput.text,
+                      text_elements: userInput.textElements,
+                    },
+                  ]
+                : []),
+              ...pluginMentions.map((plugin) => ({
+                type: 'mention',
+                name: plugin.name,
+                path: plugin.path,
+              })),
             ],
+            madoraFileAttachments: attachments.map(
+              (attachment) => attachment.attachmentId,
+            ),
             madoraDocumentReferences: [
               ...(currentDocument
                 ? [
@@ -905,6 +1050,11 @@ export function AiPanel({
       } catch (error) {
         setRuntimeError(getErrorMessage(error));
       } finally {
+        if (attachmentGrantsDetached) {
+          void releaseCodexContextAttachments(
+            attachments.map((attachment) => attachment.attachmentId),
+          ).catch(() => undefined);
+        }
         submittingRef.current = false;
         setSubmitting(false);
       }
@@ -1068,10 +1218,9 @@ export function AiPanel({
             active={Boolean(conversation.activeTurnId)}
             currentDocument={currentDocument}
             effort={effort}
+            attachments={selectedAttachments}
             mentionDocuments={filteredMentionDocuments}
             mentionQuery={mentionQuery}
-            mcpStatus={mcpStatus}
-            mcpServerCount={mcpServerCount}
             modelCatalogStatus={modelCatalogStatus}
             models={models}
             authRequired={authRequired}
@@ -1079,6 +1228,9 @@ export function AiPanel({
             selectedModel={selectedModel}
             selectedModelInfo={selectedModelInfo}
             submitting={submitting}
+            pluginLoadWarning={pluginLoadWarning}
+            pluginOptions={pluginOptions}
+            pluginStatus={pluginStatus}
             autoReviewAvailable={autoReviewAvailable}
             approvalPolicyAvailability={approvalPolicyAvailability}
             permissionMode={permissionModeFromSettings(permissionSettings)}
@@ -1089,7 +1241,9 @@ export function AiPanel({
               permissionUpdating
             }
             value={composerValue}
-            version={runtimeVersion}
+            onAttachmentRemove={removeContextAttachment}
+            onAttachmentSelect={(kind) => void selectContextAttachments(kind)}
+            onDetectPlugins={() => void detectInstalledPlugins()}
             onEffortChange={setEffort}
             onInterrupt={() => void interruptTurn()}
             onMentionQueryChange={setMentionQuery}
@@ -1709,6 +1863,7 @@ export function ConversationEntryRow({
       ) : (
         <div className="w-max max-w-[88%] break-words rounded-xl bg-muted/70 px-3 py-2">
           <UserMessageContent
+            attachments={entry.attachments ?? []}
             mentions={entry.mentions ?? []}
             text={entry.text}
             onOpenMention={onOpenDocument}
@@ -1720,10 +1875,12 @@ export function ConversationEntryRow({
 }
 
 export function UserMessageContent({
+  attachments = [],
   mentions,
   text,
   onOpenMention,
 }: {
+  attachments?: AiMessageAttachment[];
   mentions: AiMessageMention[];
   text: string;
   onOpenMention: (path: string) => void;
@@ -1749,16 +1906,27 @@ export function UserMessageContent({
 
     const label = mention.label || text.slice(mention.start, mention.end);
     content.push(
-      <button
-        aria-label={label}
-        className={mentionLinkClassName}
-        key={`${mention.path}-${mention.start}-${mention.end}`}
-        role="link"
-        type="button"
-        onClick={() => onOpenMention(mention.path)}
-      >
-        {label}
-      </button>,
+      mention.kind === 'plugin' || mention.path.startsWith('plugin://') ? (
+        <span
+          aria-label={label}
+          className={cn(mentionLinkClassName, 'cursor-default no-underline')}
+          key={`${mention.path}-${mention.start}-${mention.end}`}
+          role="note"
+        >
+          {label}
+        </span>
+      ) : (
+        <button
+          aria-label={label}
+          className={mentionLinkClassName}
+          key={`${mention.path}-${mention.start}-${mention.end}`}
+          role="link"
+          type="button"
+          onClick={() => onOpenMention(mention.path)}
+        >
+          {label}
+        </button>
+      ),
     );
     cursor = mention.end;
   }
@@ -1768,8 +1936,29 @@ export function UserMessageContent({
   }
 
   return (
-    <div className="whitespace-pre-wrap break-words">
-      {content.length > 0 ? content : text}
+    <div>
+      {attachments.length > 0 ? (
+        <div className={cn('flex flex-wrap gap-1.5', text && 'mb-1.5')}>
+          {attachments.map((attachment, index) => (
+            <span
+              className="inline-flex max-w-52 items-center gap-1 rounded-md border border-border/70 bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+              key={`${attachment.kind}:${attachment.name}:${index}`}
+            >
+              {attachment.kind === 'folder' ? (
+                <FolderOpen size={11} />
+              ) : (
+                <Paperclip size={11} />
+              )}
+              <span className="truncate">{attachment.name}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {text ? (
+        <div className="whitespace-pre-wrap break-words">
+          {content.length > 0 ? content : text}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -2587,25 +2776,29 @@ function PermissionModeItem({
 export function AiComposer({
   active,
   approvalPolicyAvailability,
+  attachments = [],
   authRequired = false,
   autoReviewAvailable,
   currentDocument,
   effort,
   mentionDocuments,
   mentionQuery,
-  mcpStatus = 'ready',
-  mcpServerCount,
   modelCatalogStatus = 'ready',
   models,
   permissionMode,
   permissionProfiles,
   permissionSwitchDisabled,
+  pluginLoadWarning = null,
+  pluginOptions = [],
+  pluginStatus = 'idle',
   runtimeStatus,
   selectedModel,
   selectedModelInfo,
   submitting,
   value,
-  version,
+  onAttachmentRemove = () => undefined,
+  onAttachmentSelect = () => undefined,
+  onDetectPlugins = () => undefined,
   onEffortChange,
   onInterrupt,
   onMentionQueryChange,
@@ -2618,25 +2811,29 @@ export function AiComposer({
 }: {
   active: boolean;
   approvalPolicyAvailability: { never: boolean; onRequest: boolean };
+  attachments?: CodexContextAttachment[];
   authRequired?: boolean;
   autoReviewAvailable: boolean;
   currentDocument: WorkspaceNode | null;
   effort: CodexReasoningEffort;
   mentionDocuments: AiDocumentReference[];
   mentionQuery: string | null;
-  mcpStatus?: ControlLoadStatus;
-  mcpServerCount: number;
   modelCatalogStatus?: ControlLoadStatus;
   models: CodexModel[];
   permissionMode: PermissionModeId;
   permissionProfiles: CodexPermissionProfileSummary[];
   permissionSwitchDisabled: boolean;
+  pluginLoadWarning?: string | null;
+  pluginOptions?: AiPluginMentionOption[];
+  pluginStatus?: ControlLoadStatus;
   runtimeStatus: RuntimeStatus;
   selectedModel: string;
   selectedModelInfo: CodexModel | null;
   submitting: boolean;
   value: string;
-  version: string | null;
+  onAttachmentRemove?: (attachmentId: string) => void;
+  onAttachmentSelect?: (kind: CodexContextAttachment['kind']) => void;
+  onDetectPlugins?: () => void;
   onEffortChange: (effort: CodexReasoningEffort) => void;
   onInterrupt: () => void;
   onMentionQueryChange: (query: string | null) => void;
@@ -2656,6 +2853,7 @@ export function AiComposer({
   const profileAllowed = (profileId: string) =>
     permissionProfiles.find((profile) => profile.id === profileId)?.allowed ?? true;
   const editorRef = React.useRef<HTMLDivElement>(null);
+  const composerSurfaceRef = React.useRef<HTMLDivElement>(null);
   const initializedRef = React.useRef(false);
   const savedRangeRef = React.useRef<Range | null>(null);
   const mentionTargetRef = React.useRef<ComposerMentionTarget | null>(null);
@@ -2666,6 +2864,7 @@ export function AiComposer({
     path: string | null;
     query: string | null;
   }>({ path: null, query: null });
+  const [addMenuWidth, setAddMenuWidth] = React.useState<number | null>(null);
   const placeholder = authRequired
     ? '登录 ChatGPT 后可用'
     : runtimeUnavailable
@@ -2714,7 +2913,7 @@ export function AiComposer({
     onValueChange(nextValue);
 
     const nextMentions = snapshot.mentions;
-    const nextPaths = nextMentions.map((document) => document.absolutePath);
+    const nextPaths = nextMentions.map((mention) => mention.path);
     if (!sameStringArray(mentionPathsRef.current, nextPaths)) {
       mentionPathsRef.current = nextPaths;
       onMentionsChange(nextMentions);
@@ -2757,7 +2956,7 @@ export function AiComposer({
           : getComposerRange(editor, savedRangeRef.current);
       range.deleteContents();
 
-      const mention = createMentionElement(document);
+      const mention = createDocumentMentionElement(document);
       const trailingSpace = window.document.createTextNode('\u00a0');
       range.insertNode(mention);
       mention.after(trailingSpace);
@@ -2776,6 +2975,30 @@ export function AiComposer({
       syncEditorState();
     },
     [onMentionQueryChange, syncEditorState],
+  );
+
+  const insertPluginMention = React.useCallback(
+    (plugin: AiPluginMentionOption) => {
+      const editor = editorRef.current;
+      if (!editor) return;
+
+      editor.focus();
+      const range = getComposerRange(editor, savedRangeRef.current);
+      const mention = createPluginMentionElement(plugin);
+      const trailingSpace = window.document.createTextNode('\u00a0');
+      range.deleteContents();
+      range.insertNode(mention);
+      mention.after(trailingSpace);
+
+      const selection = window.getSelection();
+      range.setStart(trailingSpace, trailingSpace.data.length);
+      range.collapse(true);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      savedRangeRef.current = range.cloneRange();
+      syncEditorState();
+    },
+    [syncEditorState],
   );
 
   const closeMentionMenu = React.useCallback(() => {
@@ -2809,7 +3032,10 @@ export function AiComposer({
 
   return (
     <div className="shrink-0 px-3 pb-3 pt-2">
-      <div className="relative rounded-2xl border border-border/80 bg-background shadow-[0_1px_4px_rgba(15,23,42,0.06)] focus-within:border-foreground/20">
+      <div
+        className="relative rounded-2xl border border-border/80 bg-background shadow-[0_1px_4px_rgba(15,23,42,0.06)] focus-within:border-foreground/20"
+        ref={composerSurfaceRef}
+      >
         {mentionQuery !== null ? (
           <MentionMenu
             activeIndex={activeMentionIndex}
@@ -2822,9 +3048,28 @@ export function AiComposer({
           />
         ) : null}
 
-        {currentDocument ? (
+        {currentDocument || attachments.length > 0 ? (
           <div className="flex flex-wrap gap-1 px-3 pt-2.5">
-            <ContextChip label={currentDocument.title || currentDocument.name} />
+            {currentDocument ? (
+              <ContextChip
+                label={currentDocument.title || currentDocument.name}
+              />
+            ) : null}
+            {attachments.map((attachment) => (
+              <ContextChip
+                dismissible
+                icon={
+                  attachment.kind === 'folder' ? (
+                    <FolderOpen size={11} />
+                  ) : (
+                    <Paperclip size={11} />
+                  )
+                }
+                key={attachment.attachmentId}
+                label={attachment.name}
+                onDismiss={() => onAttachmentRemove(attachment.attachmentId)}
+              />
+            ))}
           </div>
         ) : null}
 
@@ -2851,7 +3096,9 @@ export function AiComposer({
             const mention = findMentionElement(event.target);
             if (mention) {
               event.preventDefault();
-              onOpenMention(mention.dataset.mentionPath ?? '');
+              if (mention.dataset.mentionKind !== 'plugin') {
+                onOpenMention(mention.dataset.mentionPath ?? '');
+              }
               return;
             }
             saveSelection();
@@ -2867,7 +3114,9 @@ export function AiComposer({
             const mention = findMentionElement(event.target);
             if (mention && (event.key === 'Enter' || event.key === ' ')) {
               event.preventDefault();
-              onOpenMention(mention.dataset.mentionPath ?? '');
+              if (mention.dataset.mentionKind !== 'plugin') {
+                onOpenMention(mention.dataset.mentionPath ?? '');
+              }
               return;
             }
 
@@ -2954,7 +3203,15 @@ export function AiComposer({
         />
 
         <div className="flex h-10 items-center gap-1 px-2 pb-1.5">
-          <DropdownMenu>
+          <DropdownMenu
+            onOpenChange={(open) => {
+              if (open) {
+                setAddMenuWidth(
+                  composerSurfaceRef.current?.getBoundingClientRect().width ?? null,
+                );
+              }
+            }}
+          >
             <DropdownMenuTrigger asChild>
               <button
                 aria-label="添加上下文与工具"
@@ -2965,35 +3222,117 @@ export function AiComposer({
                 <Plus size={17} />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56" side="top">
-              <DropdownMenuItem onSelect={() => onMentionQueryChange('')}>
-                <FileText size={14} />
-                提及工作区文档
+            <DropdownMenuContent
+              align="start"
+              alignOffset={-8}
+              className="max-h-[min(32rem,70vh)] overflow-y-auto rounded-xl p-1.5"
+              side="top"
+              sideOffset={8}
+              style={addMenuWidth ? { width: addMenuWidth } : undefined}
+            >
+              <DropdownMenuLabel className="px-2 py-1 text-xs font-medium text-muted-foreground">
+                添加
+              </DropdownMenuLabel>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="min-h-11 gap-2 rounded-lg px-2 py-2 text-[13px]">
+                  <Paperclip size={17} />
+                  <span>文件和文件夹</span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-40 rounded-xl p-1.5">
+                  <DropdownMenuItem
+                    className="min-h-9 gap-2 rounded-lg px-2 text-xs"
+                    onSelect={() => onAttachmentSelect('file')}
+                  >
+                    <File size={15} />
+                    选择文件
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="min-h-9 gap-2 rounded-lg px-2 text-xs"
+                    onSelect={() => onAttachmentSelect('folder')}
+                  >
+                    <FolderOpen size={15} />
+                    选择文件夹
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuItem
+                disabled
+                className="min-h-11 gap-2 rounded-lg px-2 py-2 data-[disabled]:opacity-60"
+              >
+                <Goal className="text-muted-foreground" size={17} />
+                <span className="flex min-w-0 items-baseline gap-2">
+                  <span className="shrink-0 text-[13px] font-medium">目标</span>
+                  <span className="truncate text-[11px] text-muted-foreground">
+                    设置要持续追求的目标
+                  </span>
+                </span>
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem disabled>
-                <Globe2 size={14} />
-                联网搜索已启用
+              <DropdownMenuItem
+                disabled
+                className="min-h-11 gap-2 rounded-lg px-2 py-2 data-[disabled]:opacity-60"
+              >
+                <ListChecks className="text-muted-foreground" size={17} />
+                <span className="flex min-w-0 items-baseline gap-2">
+                  <span className="shrink-0 text-[13px] font-medium">计划模式</span>
+                  <span className="truncate text-[11px] text-muted-foreground">
+                    开启计划模式
+                  </span>
+                </span>
               </DropdownMenuItem>
-              <DropdownMenuItem disabled>
-                <Blocks size={14} />
-                {mcpStatus === 'loading'
-                  ? '正在发现 MCP Server…'
-                  : mcpStatus === 'error'
-                    ? 'MCP 状态暂不可用'
-                    : mcpStatus === 'idle'
-                      ? '打开面板后发现 MCP Server'
-                      : mcpServerCount > 0
-                  ? `${mcpServerCount} 个 MCP Server 可用`
-                  : '暂无 MCP Server'}
+              <DropdownMenuSeparator className="my-1" />
+              <DropdownMenuLabel className="px-2 py-1 text-xs font-medium text-muted-foreground">
+                插件
+              </DropdownMenuLabel>
+              {pluginOptions.map((plugin) => (
+                <DropdownMenuItem
+                  className="min-h-11 gap-2 rounded-lg px-2 py-2"
+                  key={plugin.id}
+                  onSelect={() => insertPluginMention(plugin)}
+                >
+                  <Puzzle className="text-muted-foreground" size={17} />
+                  <span className="flex min-w-0 items-baseline gap-2">
+                    <span className="shrink-0 text-[13px] font-medium">
+                      {plugin.displayName}
+                    </span>
+                    {plugin.description ? (
+                      <span className="truncate text-[11px] text-muted-foreground">
+                        {plugin.description}
+                      </span>
+                    ) : null}
+                  </span>
+                </DropdownMenuItem>
+              ))}
+              {pluginStatus === 'ready' && pluginOptions.length === 0 ? (
+                <DropdownMenuItem disabled className="min-h-9 gap-2 rounded-lg px-2 text-xs">
+                  <Puzzle size={15} />
+                  未检测到已安装插件
+                </DropdownMenuItem>
+              ) : null}
+              <DropdownMenuItem
+                className="min-h-10 gap-2 rounded-lg px-2 text-[13px]"
+                disabled={pluginStatus === 'loading'}
+                onSelect={(event) => {
+                  event.preventDefault();
+                  onDetectPlugins();
+                }}
+              >
+                {pluginStatus === 'loading' ? (
+                  <LoaderCircle className="animate-spin" size={17} />
+                ) : (
+                  <Puzzle size={17} />
+                )}
+                {pluginStatus === 'loading'
+                  ? '正在检测安装的插件…'
+                  : pluginStatus === 'error'
+                    ? '检测失败，重试'
+                    : pluginStatus === 'ready'
+                      ? '重新检测安装的插件'
+                      : '检测安装的插件'}
               </DropdownMenuItem>
-              {version ? (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel className="font-normal text-[10px] text-muted-foreground">
-                    {version}
-                  </DropdownMenuLabel>
-                </>
+              {pluginLoadWarning ? (
+                <DropdownMenuLabel className="px-2 py-1 text-[10px] font-normal text-amber-600 dark:text-amber-400">
+                  {pluginLoadWarning}
+                </DropdownMenuLabel>
               ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
@@ -3341,16 +3680,18 @@ function mentionOptionId(listboxId: string, index: number) {
 
 function ContextChip({
   dismissible = false,
+  icon,
   label,
   onDismiss,
 }: {
   dismissible?: boolean;
+  icon?: React.ReactNode;
   label: string;
   onDismiss?: () => void;
 }) {
   return (
     <span className="inline-flex h-6 max-w-52 items-center gap-1 rounded-md border border-border/70 bg-muted/35 px-1.5 text-[10px] text-muted-foreground">
-      <FileText size={11} />
+      {icon ?? <FileText size={11} />}
       <span className="truncate">{label}</span>
       {dismissible ? (
         <button aria-label={`移除 ${label}`} type="button" onClick={onDismiss}>
@@ -3361,13 +3702,14 @@ function ContextChip({
   );
 }
 
-function createMentionElement(document: AiDocumentReference) {
+function createDocumentMentionElement(document: AiDocumentReference) {
   const mention = window.document.createElement('span');
   const label = document.title || document.name;
 
   mention.className = mentionLinkClassName;
   mention.contentEditable = 'false';
   mention.dataset.mentionId = document.id;
+  mention.dataset.mentionKind = 'document';
   mention.dataset.mentionName = document.name;
   mention.dataset.mentionPath = document.absolutePath;
   mention.dataset.mentionRelativePath = document.relativePath;
@@ -3375,6 +3717,26 @@ function createMentionElement(document: AiDocumentReference) {
   mention.dataset.mentionLabel = label;
   mention.setAttribute('aria-label', label);
   mention.setAttribute('role', 'link');
+  mention.tabIndex = 0;
+  mention.textContent = label;
+
+  return mention;
+}
+
+function createPluginMentionElement(plugin: AiPluginMentionOption) {
+  const mention = window.document.createElement('span');
+  const label = `@${plugin.displayName}`;
+
+  mention.className = cn(mentionLinkClassName, 'cursor-default no-underline');
+  mention.contentEditable = 'false';
+  mention.dataset.mentionDescription = plugin.description ?? '';
+  mention.dataset.mentionId = plugin.id;
+  mention.dataset.mentionKind = 'plugin';
+  mention.dataset.mentionLabel = label;
+  mention.dataset.mentionName = plugin.displayName;
+  mention.dataset.mentionPath = plugin.mentionPath;
+  mention.setAttribute('aria-label', label);
+  mention.setAttribute('role', 'note');
   mention.tabIndex = 0;
   mention.textContent = label;
 
@@ -3501,17 +3863,31 @@ function readComposerSnapshot(editor: HTMLElement) {
       const label = node.dataset.mentionLabel ?? node.textContent ?? '';
       const start = value.length;
       value += label;
-      mentions.push({
-        absolutePath: node.dataset.mentionPath,
-        end: value.length,
-        id: node.dataset.mentionId ?? '',
-        label,
-        name: node.dataset.mentionName ?? '',
-        path: node.dataset.mentionPath,
-        relativePath: node.dataset.mentionRelativePath ?? '',
-        start,
-        title: node.dataset.mentionTitle || undefined,
-      });
+      if (node.dataset.mentionKind === 'plugin') {
+        mentions.push({
+          description: node.dataset.mentionDescription || null,
+          end: value.length,
+          id: node.dataset.mentionId ?? '',
+          kind: 'plugin',
+          label,
+          name: node.dataset.mentionName ?? '',
+          path: node.dataset.mentionPath,
+          start,
+        });
+      } else {
+        mentions.push({
+          absolutePath: node.dataset.mentionPath,
+          end: value.length,
+          id: node.dataset.mentionId ?? '',
+          kind: 'document',
+          label,
+          name: node.dataset.mentionName ?? '',
+          path: node.dataset.mentionPath,
+          relativePath: node.dataset.mentionRelativePath ?? '',
+          start,
+          title: node.dataset.mentionTitle || undefined,
+        });
+      }
       return;
     }
 
@@ -3667,6 +4043,36 @@ function uniqueDocuments(documents: AiDocumentReference[]) {
       return false;
     }
     seen.add(document.absolutePath);
+    return true;
+  });
+}
+
+function isDocumentComposerMention(
+  mention: AiComposerMention,
+): mention is AiComposerDocumentMention {
+  return mention.kind === 'document';
+}
+
+function isPluginComposerMention(
+  mention: AiComposerMention,
+): mention is AiComposerPluginMention {
+  return mention.kind === 'plugin';
+}
+
+function uniqueContextAttachments(attachments: CodexContextAttachment[]) {
+  const seen = new Set<string>();
+  return attachments.filter((attachment) => {
+    if (seen.has(attachment.attachmentId)) return false;
+    seen.add(attachment.attachmentId);
+    return true;
+  });
+}
+
+function uniquePluginOptions(options: AiPluginMentionOption[]) {
+  const seen = new Set<string>();
+  return options.filter((option) => {
+    if (seen.has(option.id)) return false;
+    seen.add(option.id);
     return true;
   });
 }

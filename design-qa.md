@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-17
+updated: 2026-07-18
 status: active
 referenced_by: docs/README.md#validation-artifacts
 ---
@@ -98,7 +98,6 @@ The prior implementation restored the full-width settings shell, resizable sideb
 previous final result: passed
 
 final result: passed
-
 ## 2026-07-17 Collapsed Tool Activity And Conversation Navigation
 
 ### Evidence
@@ -247,3 +246,44 @@ Blocked. The implementation capture does not contain a file-change summary row, 
 2. The available restored thread did not contain historical tool or diff items, so the target state remained unavailable.
 
 final result: blocked
+
+## 2026-07-18 Composer Add Menu
+
+### Evidence
+
+- source visual truth path: `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-02873a54-c8fa-4122-bf1a-6cb0805d04d5.png`
+- initial menu screenshot path: `/Users/refinex/.codex/visualizations/2026/07/18/019f736a-151b-73d1-a98c-074251bcdc73/madora-add-menu-initial.png`
+- detected-plugin screenshot path: `/Users/refinex/.codex/visualizations/2026/07/18/019f736a-151b-73d1-a98c-074251bcdc73/madora-add-menu-detected.png`
+- viewport: `1280 × 720`, light theme, `556px` Codex composer
+- state: initial add menu open; secondary evidence shows one detected plugin
+
+### Full-view And Focused Comparison
+
+The menu follows the composer width, opens directly above it, keeps the footer controls visible, and uses the reference's two-section hierarchy. Goal, plan and plugin descriptions stay inline. The requested Codex copy intentionally replaces ChatGPT's app and skill rows with file/folder selection, disabled goal and plan placeholders, and explicit plugin detection.
+
+- Fonts and typography: existing Madora UI fonts and compact label/description hierarchy remain clear at the side-panel scale.
+- Spacing and layout rhythm: full-width placement, edge alignment, row height, section spacing, radius, border and elevation match the reference composition.
+- Colors and tokens: neutral foreground, muted placeholder text and disabled-state opacity use existing Madora tokens with sufficient contrast.
+- Image quality and assets: this system menu requires no raster assets; icons come from the project's existing Lucide set.
+- Copy and content: web-search, MCP-count, document-mention and runtime-version rows are absent; the approved capability labels are present.
+
+### Interactions Tested
+
+- Add menu opened from the composer.
+- File/folder submenu exposed separate file and folder choices.
+- Goal and plan rows remained disabled.
+- Initial plugin action remained available without startup prefetch.
+- Detected-plugin state preserved inline name and description.
+- Browser console contained no errors.
+
+### Findings And Comparison History
+
+1. First pass found a P2 mismatch: the menu retained a narrow fixed width and stacked descriptions.
+2. Fix: derive the popup width from the composer surface, align it to the surface edge, and render goal, plan and plugin descriptions inline.
+3. Post-fix comparison found no actionable P0/P1/P2 differences.
+
+### Residual Test Gaps
+
+- The browser preview verifies the real composer component and menu interaction, while the native picker and live App Server plugin response remain covered by frontend and Rust contract tests rather than this visual state.
+
+final result: passed

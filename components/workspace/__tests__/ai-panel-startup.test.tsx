@@ -115,7 +115,6 @@ function deferred<T>() {
 }
 
 function renderPanel(
-  visible: boolean,
   onBeforeTurnStart = vi.fn().mockResolvedValue(true),
   currentDocument = null as typeof activeDocument | null,
 ) {
@@ -123,7 +122,6 @@ function renderPanel(
     <AiPanel
       currentDocument={currentDocument}
       documents={[]}
-      visible={visible}
       workspaceRootPath="/workspace"
       onBeforeTurnStart={onBeforeTurnStart}
       onOpenDocument={vi.fn()}
@@ -143,14 +141,8 @@ beforeEach(() => {
 });
 
 describe('AI panel startup lifecycle', () => {
-  it('后台完成核心握手且只在面板可见后发现 MCP', async () => {
-    const mcp = deferred<{ data: [] }>();
-    bridge.request.mockImplementation((method: string) =>
-      method === 'mcpServerStatus/list'
-        ? mcp.promise
-        : Promise.resolve(defaultResponse(method)),
-    );
-    const view = renderPanel(false);
+  it('后台完成核心握手且不再预取 MCP 状态', async () => {
+    renderPanel();
 
     await waitFor(() => expect(bridge.start).toHaveBeenCalledWith('/workspace'));
     await waitFor(() =>
@@ -161,27 +153,7 @@ describe('AI panel startup lifecycle', () => {
       expect.anything(),
     );
     expect(screen.queryByText('正在连接 Codex')).toBeNull();
-
-    view.rerender(
-      <AiPanel
-        currentDocument={null}
-        documents={[]}
-        visible
-        workspaceRootPath="/workspace"
-        onBeforeTurnStart={vi.fn().mockResolvedValue(true)}
-        onOpenDocument={vi.fn()}
-        onWorkspaceChanged={vi.fn()}
-      />,
-    );
-
-    await waitFor(() =>
-      expect(bridge.request).toHaveBeenCalledWith('mcpServerStatus/list', {
-        detail: 'toolsAndAuthOnly',
-        limit: 100,
-      }),
-    );
     expect(screen.getByRole('textbox', { name: '向 Codex 提问' })).toBeTruthy();
-    mcp.resolve({ data: [] });
   });
 
   it('用户在核心初始化完成前发送时等待就绪并继续提交', async () => {
@@ -193,7 +165,7 @@ describe('AI panel startup lifecycle', () => {
         ? account.promise
         : Promise.resolve(defaultResponse(method)),
     );
-    renderPanel(true, onBeforeTurnStart);
+    renderPanel(onBeforeTurnStart);
 
     const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
     await user.click(editor);
@@ -221,7 +193,7 @@ describe('AI panel startup lifecycle', () => {
       if (method === 'thread/list') return history.promise;
       return Promise.resolve(defaultResponse(method));
     });
-    renderPanel(true);
+    renderPanel();
 
     await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
     const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
@@ -251,7 +223,7 @@ describe('AI panel startup lifecycle', () => {
 
   it('每个 turn 把编辑器活跃文档标记为独立上下文角色', async () => {
     const user = userEvent.setup();
-    renderPanel(true, vi.fn().mockResolvedValue(true), activeDocument);
+    renderPanel(vi.fn().mockResolvedValue(true), activeDocument);
 
     await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
     const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
@@ -305,7 +277,7 @@ describe('AI panel startup lifecycle', () => {
         return Promise.resolve(defaultResponse(method));
       },
     );
-    const view = renderPanel(false);
+    const view = renderPanel();
 
     await waitFor(() =>
       expect(bridge.request).toHaveBeenCalledWith(
@@ -317,7 +289,6 @@ describe('AI panel startup lifecycle', () => {
       <AiPanel
         currentDocument={null}
         documents={[]}
-        visible={false}
         workspaceRootPath="/workspace-2"
         onBeforeTurnStart={vi.fn().mockResolvedValue(true)}
         onOpenDocument={vi.fn()}

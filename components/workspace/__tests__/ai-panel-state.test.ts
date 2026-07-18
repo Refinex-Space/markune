@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildConversationBlocks,
   conversationFromThread,
+  createComposerAwareUserInput,
   createOutputPreview,
   createDocumentAwareUserInput,
   createMentionTextElements,
@@ -219,6 +220,121 @@ describe('AI panel event reducer', () => {
             ).length,
           },
           placeholder: '2026 半年度计划',
+        },
+      ],
+    });
+  });
+
+  it('同时编码文档与插件提及并保留原生插件令牌', () => {
+    const text = '用 2026 计划 配合 @OpenAI Docs 检查';
+    const documentStart = text.indexOf('2026 计划');
+    const pluginStart = text.indexOf('@OpenAI Docs');
+    const result = createComposerAwareUserInput(
+      text,
+      [
+        {
+          start: documentStart,
+          end: documentStart + '2026 计划'.length,
+          label: '2026 计划',
+          path: '/workspace/Planning/2026.md',
+          relativePath: 'Planning/2026.md',
+        },
+      ],
+      [
+        {
+          start: pluginStart,
+          end: pluginStart + '@OpenAI Docs'.length,
+          label: '@OpenAI Docs',
+          path: 'plugin://openai-docs',
+        },
+      ],
+    );
+
+    expect(result.text).toBe(
+      '用 "Planning/2026.md" 配合 @OpenAI Docs 检查',
+    );
+    expect(result.textElements.map((element) => element.placeholder)).toEqual([
+      '2026 计划',
+      '@OpenAI Docs',
+    ]);
+  });
+
+  it('从历史消息隐藏原生附件头并恢复附件和插件提及', () => {
+    const prefix =
+      '# Files mentioned by the user:\n\n' +
+      '## notes.txt: /outside/notes.txt\n\n' +
+      '## My request for Codex:\n';
+    const request = '请用 @OpenAI Docs 总结';
+    const pluginStart = request.indexOf('@OpenAI Docs');
+    const state = conversationFromThread({
+      id: 'thread-attachments',
+      name: '附件测试',
+      preview: '',
+      createdAt: 0,
+      updatedAt: 0,
+      cwd: '/workspace',
+      status: {},
+      turns: [
+        {
+          id: 'turn-attachments',
+          status: 'completed',
+          items: [
+            {
+              id: 'message-attachments',
+              type: 'userMessage',
+              content: [
+                {
+                  type: 'text',
+                  text: `${prefix}${request}`,
+                  text_elements: [
+                    {
+                      byteRange: { start: 0, end: 1 },
+                      placeholder: 'madora:attachment:file:notes.txt',
+                    },
+                    {
+                      byteRange: {
+                        start:
+                          new TextEncoder().encode(prefix).length +
+                          new TextEncoder().encode(
+                            request.slice(0, pluginStart),
+                          ).length,
+                        end:
+                          new TextEncoder().encode(prefix).length +
+                          new TextEncoder().encode(
+                            request.slice(
+                              0,
+                              pluginStart + '@OpenAI Docs'.length,
+                            ),
+                          ).length,
+                      },
+                      placeholder: '@OpenAI Docs',
+                    },
+                  ],
+                },
+                {
+                  type: 'mention',
+                  name: 'OpenAI Docs',
+                  path: 'plugin://openai-docs',
+                },
+                { type: 'localImage', path: '/outside/diagram.png' },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(state.entries[0]).toMatchObject({
+      attachments: [
+        { kind: 'image', name: 'diagram.png' },
+        { kind: 'file', name: 'notes.txt' },
+      ],
+      text: request,
+      mentions: [
+        {
+          kind: 'plugin',
+          label: '@OpenAI Docs',
+          path: 'plugin://openai-docs',
         },
       ],
     });

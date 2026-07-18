@@ -611,6 +611,9 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       if (!draftDocument) {
         return;
       }
+      if (nextMarkdown === draftDocument.markdown) {
+        return;
+      }
 
       const nextDraft = options?.preserveSource
         ? createSourceMarkdownDraft(
