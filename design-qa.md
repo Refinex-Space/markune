@@ -98,6 +98,7 @@ The prior implementation restored the full-width settings shell, resizable sideb
 previous final result: passed
 
 final result: passed
+
 ## 2026-07-17 Collapsed Tool Activity And Conversation Navigation
 
 ### Evidence
@@ -287,3 +288,44 @@ The menu follows the composer width, opens directly above it, keeps the footer c
 - The browser preview verifies the real composer component and menu interaction, while the native picker and live App Server plugin response remain covered by frontend and Rust contract tests rather than this visual state.
 
 final result: passed
+
+## 2026-07-18 Composer Add Menu Density And Placement Follow-up
+
+### Evidence
+
+- source visual truth path: `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-cc52fee1-83a3-479d-adfa-26c41cc34260.png`
+- implementation screenshot path: unavailable; the native menu accessibility surface did not return a screenshot while open
+- viewport: `1456 × 774`, light theme, packaged `Madora QA.app`
+- state: add menu open after the Codex runtime automatically loaded installed plugins
+
+### Full-view Comparison Evidence
+
+The packaged QA build opened the real workspace and Codex panel. Its accessibility tree confirmed that the add menu directly contained the compact add section and 16 installed plugin rows, without a detection or reload row. The native menu surface did not expose a screenshot while open, and the in-app browser blocked the local development host, so the required same-state visual comparison could not be completed.
+
+### Focused Region Comparison
+
+Blocked. Automated layout coverage verifies that the menu width follows the composer, its side offset clears the entire composer surface, and add rows use the compact 32–36px sizing contract. These checks do not replace a focused implementation screenshot.
+
+### Required Fidelity Surfaces
+
+- Fonts and typography: existing Madora UI fonts and the 13px/11px menu hierarchy are retained; screenshot comparison blocked.
+- Spacing and layout rhythm: content padding is reduced to 4px, rows to 32–36px, and the popup clearance is derived from the composer top edge; screenshot comparison blocked.
+- Colors and visual tokens: existing popover, muted, disabled and focus tokens are unchanged; screenshot comparison blocked.
+- Image quality and asset fidelity: no raster assets or custom icons were added; the existing Lucide icon set is retained.
+- Copy and content: the runtime-loaded plugin list appears directly; loading, empty and failure/retry copy remain state-specific.
+
+### Findings
+
+- [P1] Same-state implementation screenshot unavailable.
+  - Location: Codex composer add menu.
+  - Evidence: the QA build exposes the correct menu structure and plugin rows through accessibility, but the open native menu returns no screenshot.
+  - Impact: final pixel-level placement, spacing and typography cannot be approved from visual evidence.
+  - Fix: capture the packaged QA menu with a native screen-capture surface that can include transient WebView menus.
+
+### Comparison History
+
+1. The user screenshot showed oversized rows, the popup overlapping the composer, and a click-gated plugin query.
+2. The implementation now uses composer-top clearance, compact row spacing and automatic per-workspace plugin loading.
+3. The packaged QA build confirmed the interaction and content state, but post-fix visual evidence remains unavailable.
+
+final result: blocked

@@ -81,6 +81,12 @@ function defaultResponse(method: string) {
   if (method === 'experimentalFeature/list') {
     return { data: [], nextCursor: null };
   }
+  if (method === 'plugin/installed') {
+    return {
+      marketplaces: [],
+      marketplaceLoadErrors: [],
+    };
+  }
   if (method === 'thread/start') {
     return {
       activePermissionProfile: { extends: null, id: ':workspace' },
@@ -141,13 +147,24 @@ beforeEach(() => {
 });
 
 describe('AI panel startup lifecycle', () => {
-  it('后台完成核心握手且不再预取 MCP 状态', async () => {
+  it('后台完成核心握手、自动加载插件且不预取 MCP 状态', async () => {
     renderPanel();
 
     await waitFor(() => expect(bridge.start).toHaveBeenCalledWith('/workspace'));
     await waitFor(() =>
       expect(screen.queryByText('正在准备')).toBeNull(),
     );
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith('plugin/installed', {
+        cwds: ['/workspace'],
+        installSuggestionPluginNames: [],
+      }),
+    );
+    expect(
+      bridge.request.mock.calls.filter(
+        ([method]) => method === 'plugin/installed',
+      ),
+    ).toHaveLength(1);
     expect(bridge.request).not.toHaveBeenCalledWith(
       'mcpServerStatus/list',
       expect.anything(),

@@ -135,22 +135,36 @@ describe('AI message rendering', () => {
       y: 120,
       toJSON: () => ({}),
     });
+    const trigger = screen.getByRole('button', { name: '添加上下文与工具' });
+    vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue({
+      bottom: 290,
+      height: 28,
+      left: 8,
+      right: 36,
+      top: 262,
+      width: 28,
+      x: 8,
+      y: 262,
+      toJSON: () => ({}),
+    });
 
-    await user.click(screen.getByRole('button', { name: '添加上下文与工具' }));
+    await user.click(trigger);
 
-    expect(
-      screen
-        .getByRole('menu', { name: '添加上下文与工具' })
-        .getAttribute('style'),
-    ).toContain('width: 520px');
+    const menu = screen.getByRole('menu', { name: '添加上下文与工具' });
+    expect(menu.getAttribute('style')).toContain('width: 520px');
+    expect(menu.getAttribute('data-composer-clearance')).toBe('150');
+    expect(menu.className).toContain('p-1');
     expect(screen.getByText('添加')).toBeTruthy();
-    expect(screen.getByText('文件和文件夹')).toBeTruthy();
+    expect(
+      screen.getByText('文件和文件夹').closest('[role="menuitem"]')?.className,
+    ).toContain('min-h-9');
     expect(screen.getByText('目标')).toBeTruthy();
     expect(screen.getByText('设置要持续追求的目标')).toBeTruthy();
     expect(screen.getByText('计划模式')).toBeTruthy();
     expect(screen.getByText('开启计划模式')).toBeTruthy();
     expect(screen.getByText('插件')).toBeTruthy();
-    expect(screen.getByText('检测安装的插件')).toBeTruthy();
+    expect(screen.getByText('正在加载插件…')).toBeTruthy();
+    expect(screen.queryByText('检测安装的插件')).toBeNull();
     expect(screen.queryByText('联网搜索已启用')).toBeNull();
     expect(screen.queryByText(/MCP Server/)).toBeNull();
     expect(screen.queryByText('提及工作区文档')).toBeNull();
@@ -194,12 +208,30 @@ describe('AI message rendering', () => {
     const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
     await user.click(editor);
     await user.click(screen.getByRole('button', { name: '添加上下文与工具' }));
+    expect(screen.queryByText('重新检测安装的插件')).toBeNull();
     await user.click(screen.getByText('OpenAI Docs'));
 
     expect(editor.textContent).toContain('@OpenAI Docs');
     expect(screen.getByRole('note', { name: '@OpenAI Docs' })).toBeTruthy();
     expect(screen.queryByRole('link', { name: '@OpenAI Docs' })).toBeNull();
     expect(screen.getByTestId('selected-mention-count').textContent).toBe('1');
+  });
+
+  it('插件自动加载失败时才提供重试入口', async () => {
+    const user = userEvent.setup();
+    const onDetectPlugins = vi.fn();
+    render(
+      <ComposerHarness
+        onDetectPlugins={onDetectPlugins}
+        onOpenMention={vi.fn()}
+        pluginStatus="error"
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '添加上下文与工具' }));
+    await user.click(screen.getByText('插件加载失败，重试'));
+
+    expect(onDetectPlugins).toHaveBeenCalledOnce();
   });
 
   it('展示已选附件并支持移除', async () => {
@@ -1021,6 +1053,7 @@ function ComposerHarness({
   mentionDocuments = [mentionedDocument],
   onAttachmentRemove = vi.fn(),
   onAttachmentSelect = vi.fn(),
+  onDetectPlugins = vi.fn(),
   onOpenMention,
   onSend = vi.fn(),
   pluginOptions = [],
@@ -1035,6 +1068,7 @@ function ComposerHarness({
   mentionDocuments?: Array<typeof mentionedDocument>;
   onAttachmentRemove?: (attachmentId: string) => void;
   onAttachmentSelect?: (kind: 'file' | 'folder') => void;
+  onDetectPlugins?: () => void;
   onOpenMention: (path: string) => void;
   onSend?: () => void;
   pluginOptions?: Array<{
@@ -1073,6 +1107,7 @@ function ComposerHarness({
         value={value}
         onAttachmentRemove={onAttachmentRemove}
         onAttachmentSelect={onAttachmentSelect}
+        onDetectPlugins={onDetectPlugins}
         onEffortChange={vi.fn()}
         onInterrupt={vi.fn()}
         onMentionQueryChange={setMentionQuery}

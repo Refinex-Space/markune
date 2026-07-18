@@ -383,6 +383,7 @@ export function AiPanel({
   const permissionSettingsRef = React.useRef(DEFAULT_PERMISSION_SETTINGS);
   const submittingRef = React.useRef(false);
   const runtimeGenerationRef = React.useRef(0);
+  const pluginLoadGenerationRef = React.useRef<number | null>(null);
   const selectedAttachmentsRef = React.useRef<CodexContextAttachment[]>([]);
 
   React.useEffect(() => {
@@ -585,9 +586,18 @@ export function AiPanel({
     }
   }, [workspaceRootPath]);
 
-  const detectInstalledPlugins = React.useCallback(async () => {
-    if (!workspaceRootPath || runtimeStatusRef.current !== 'ready') return;
-    const generation = runtimeGenerationRef.current;
+  const detectInstalledPlugins = React.useCallback(async (
+    generation = runtimeGenerationRef.current,
+  ) => {
+    if (
+      !workspaceRootPath ||
+      runtimeStatusRef.current !== 'ready' ||
+      generation !== runtimeGenerationRef.current ||
+      pluginLoadGenerationRef.current === generation
+    ) {
+      return;
+    }
+    pluginLoadGenerationRef.current = generation;
     setPluginStatus('loading');
     setPluginLoadWarning(null);
     try {
@@ -626,6 +636,7 @@ export function AiPanel({
       setPluginStatus('ready');
     } catch {
       if (generation !== runtimeGenerationRef.current) return;
+      pluginLoadGenerationRef.current = null;
       setPluginStatus('error');
     }
   }, [workspaceRootPath]);
@@ -660,6 +671,7 @@ export function AiPanel({
   React.useEffect(() => {
     const generation = runtimeGenerationRef.current + 1;
     runtimeGenerationRef.current = generation;
+    pluginLoadGenerationRef.current = null;
     const nextRuntimeStatus: RuntimeStatus = !workspaceRootPath
       ? 'error'
       : !isTauriRuntime()
@@ -733,6 +745,7 @@ export function AiPanel({
             Promise.allSettled([
               loadModelCatalog(generation),
               loadThreadHistory(generation),
+              detectInstalledPlugins(generation),
             ]),
           )
           .catch(() => undefined);
@@ -775,6 +788,7 @@ export function AiPanel({
       setRuntimeStatus('ready');
       void loadModelCatalog(generation);
       void loadThreadHistory(generation);
+      void detectInstalledPlugins(generation);
     })();
     runtimeReadyPromiseRef.current = bootstrap;
 
@@ -800,6 +814,7 @@ export function AiPanel({
     };
   }, [
     applyThreadName,
+    detectInstalledPlugins,
     loadCoreControlData,
     loadModelCatalog,
     loadThreadHistory,
@@ -2854,6 +2869,7 @@ export function AiComposer({
     permissionProfiles.find((profile) => profile.id === profileId)?.allowed ?? true;
   const editorRef = React.useRef<HTMLDivElement>(null);
   const composerSurfaceRef = React.useRef<HTMLDivElement>(null);
+  const addMenuTriggerRef = React.useRef<HTMLButtonElement>(null);
   const initializedRef = React.useRef(false);
   const savedRangeRef = React.useRef<Range | null>(null);
   const mentionTargetRef = React.useRef<ComposerMentionTarget | null>(null);
@@ -2864,7 +2880,10 @@ export function AiComposer({
     path: string | null;
     query: string | null;
   }>({ path: null, query: null });
-  const [addMenuWidth, setAddMenuWidth] = React.useState<number | null>(null);
+  const [addMenuLayout, setAddMenuLayout] = React.useState<{
+    sideOffset: number;
+    width: number;
+  } | null>(null);
   const placeholder = authRequired
     ? '登录 ChatGPT 后可用'
     : runtimeUnavailable
@@ -3206,8 +3225,20 @@ export function AiComposer({
           <DropdownMenu
             onOpenChange={(open) => {
               if (open) {
-                setAddMenuWidth(
-                  composerSurfaceRef.current?.getBoundingClientRect().width ?? null,
+                const surfaceRect =
+                  composerSurfaceRef.current?.getBoundingClientRect();
+                const triggerRect =
+                  addMenuTriggerRef.current?.getBoundingClientRect();
+                setAddMenuLayout(
+                  surfaceRect && triggerRect
+                    ? {
+                        sideOffset: Math.max(
+                          8,
+                          triggerRect.top - surfaceRect.top + 8,
+                        ),
+                        width: surfaceRect.width,
+                      }
+                    : null,
                 );
               }
             }}
@@ -3217,6 +3248,7 @@ export function AiComposer({
                 aria-label="添加上下文与工具"
                 className="flex size-7 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
                 disabled={controlsDisabled}
+                ref={addMenuTriggerRef}
                 type="button"
               >
                 <Plus size={17} />
@@ -3225,29 +3257,30 @@ export function AiComposer({
             <DropdownMenuContent
               align="start"
               alignOffset={-8}
-              className="max-h-[min(32rem,70vh)] overflow-y-auto rounded-xl p-1.5"
+              className="max-h-[min(32rem,70vh)] overflow-y-auto rounded-xl p-1"
+              data-composer-clearance={addMenuLayout?.sideOffset ?? 8}
               side="top"
-              sideOffset={8}
-              style={addMenuWidth ? { width: addMenuWidth } : undefined}
+              sideOffset={addMenuLayout?.sideOffset ?? 8}
+              style={addMenuLayout ? { width: addMenuLayout.width } : undefined}
             >
-              <DropdownMenuLabel className="px-2 py-1 text-xs font-medium text-muted-foreground">
+              <DropdownMenuLabel className="px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                 添加
               </DropdownMenuLabel>
               <DropdownMenuSub>
-                <DropdownMenuSubTrigger className="min-h-11 gap-2 rounded-lg px-2 py-2 text-[13px]">
-                  <Paperclip size={17} />
+                <DropdownMenuSubTrigger className="min-h-9 gap-2 rounded-lg px-2 py-1.5 text-[13px]">
+                  <Paperclip size={16} />
                   <span>文件和文件夹</span>
                 </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="w-40 rounded-xl p-1.5">
+                <DropdownMenuSubContent className="w-40 rounded-xl p-1">
                   <DropdownMenuItem
-                    className="min-h-9 gap-2 rounded-lg px-2 text-xs"
+                    className="min-h-8 gap-2 rounded-lg px-2 text-xs"
                     onSelect={() => onAttachmentSelect('file')}
                   >
                     <File size={15} />
                     选择文件
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    className="min-h-9 gap-2 rounded-lg px-2 text-xs"
+                    className="min-h-8 gap-2 rounded-lg px-2 text-xs"
                     onSelect={() => onAttachmentSelect('folder')}
                   >
                     <FolderOpen size={15} />
@@ -3257,9 +3290,9 @@ export function AiComposer({
               </DropdownMenuSub>
               <DropdownMenuItem
                 disabled
-                className="min-h-11 gap-2 rounded-lg px-2 py-2 data-[disabled]:opacity-60"
+                className="min-h-9 gap-2 rounded-lg px-2 py-1.5 data-[disabled]:opacity-60"
               >
-                <Goal className="text-muted-foreground" size={17} />
+                <Goal className="text-muted-foreground" size={16} />
                 <span className="flex min-w-0 items-baseline gap-2">
                   <span className="shrink-0 text-[13px] font-medium">目标</span>
                   <span className="truncate text-[11px] text-muted-foreground">
@@ -3269,9 +3302,9 @@ export function AiComposer({
               </DropdownMenuItem>
               <DropdownMenuItem
                 disabled
-                className="min-h-11 gap-2 rounded-lg px-2 py-2 data-[disabled]:opacity-60"
+                className="min-h-9 gap-2 rounded-lg px-2 py-1.5 data-[disabled]:opacity-60"
               >
-                <ListChecks className="text-muted-foreground" size={17} />
+                <ListChecks className="text-muted-foreground" size={16} />
                 <span className="flex min-w-0 items-baseline gap-2">
                   <span className="shrink-0 text-[13px] font-medium">计划模式</span>
                   <span className="truncate text-[11px] text-muted-foreground">
@@ -3279,17 +3312,17 @@ export function AiComposer({
                   </span>
                 </span>
               </DropdownMenuItem>
-              <DropdownMenuSeparator className="my-1" />
-              <DropdownMenuLabel className="px-2 py-1 text-xs font-medium text-muted-foreground">
+              <DropdownMenuSeparator className="my-0.5" />
+              <DropdownMenuLabel className="px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                 插件
               </DropdownMenuLabel>
               {pluginOptions.map((plugin) => (
                 <DropdownMenuItem
-                  className="min-h-11 gap-2 rounded-lg px-2 py-2"
+                  className="min-h-9 gap-2 rounded-lg px-2 py-1.5"
                   key={plugin.id}
                   onSelect={() => insertPluginMention(plugin)}
                 >
-                  <Puzzle className="text-muted-foreground" size={17} />
+                  <Puzzle className="text-muted-foreground" size={16} />
                   <span className="flex min-w-0 items-baseline gap-2">
                     <span className="shrink-0 text-[13px] font-medium">
                       {plugin.displayName}
@@ -3303,34 +3336,34 @@ export function AiComposer({
                 </DropdownMenuItem>
               ))}
               {pluginStatus === 'ready' && pluginOptions.length === 0 ? (
-                <DropdownMenuItem disabled className="min-h-9 gap-2 rounded-lg px-2 text-xs">
+                <DropdownMenuItem disabled className="min-h-8 gap-2 rounded-lg px-2 text-xs">
                   <Puzzle size={15} />
                   未检测到已安装插件
                 </DropdownMenuItem>
               ) : null}
-              <DropdownMenuItem
-                className="min-h-10 gap-2 rounded-lg px-2 text-[13px]"
-                disabled={pluginStatus === 'loading'}
-                onSelect={(event) => {
-                  event.preventDefault();
-                  onDetectPlugins();
-                }}
-              >
-                {pluginStatus === 'loading' ? (
-                  <LoaderCircle className="animate-spin" size={17} />
-                ) : (
-                  <Puzzle size={17} />
-                )}
-                {pluginStatus === 'loading'
-                  ? '正在检测安装的插件…'
-                  : pluginStatus === 'error'
-                    ? '检测失败，重试'
-                    : pluginStatus === 'ready'
-                      ? '重新检测安装的插件'
-                      : '检测安装的插件'}
-              </DropdownMenuItem>
+              {pluginStatus === 'idle' || pluginStatus === 'loading' ? (
+                <DropdownMenuItem
+                  disabled
+                  className="min-h-8 gap-2 rounded-lg px-2 text-xs"
+                >
+                  <LoaderCircle className="animate-spin" size={15} />
+                  正在加载插件…
+                </DropdownMenuItem>
+              ) : null}
+              {pluginStatus === 'error' ? (
+                <DropdownMenuItem
+                  className="min-h-8 gap-2 rounded-lg px-2 text-xs"
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    onDetectPlugins();
+                  }}
+                >
+                  <Puzzle size={15} />
+                  插件加载失败，重试
+                </DropdownMenuItem>
+              ) : null}
               {pluginLoadWarning ? (
-                <DropdownMenuLabel className="px-2 py-1 text-[10px] font-normal text-amber-600 dark:text-amber-400">
+                <DropdownMenuLabel className="px-2 py-0.5 text-[10px] font-normal text-amber-600 dark:text-amber-400">
                   {pluginLoadWarning}
                 </DropdownMenuLabel>
               ) : null}

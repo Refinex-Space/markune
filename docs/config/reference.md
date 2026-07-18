@@ -9,7 +9,7 @@ referenced_by: AGENTS.md#knowledge-map
 
 ## Package Scripts
 
-- `pnpm dev`：先执行 `pnpm import:stage`，再启动 Next.js 开发服务。
+- `pnpm dev`：先执行 `pnpm import:stage`，再在固定的 `3000` 端口启动 Next.js 开发服务；端口已被占用时直接失败，不回退到其他端口。
 - `pnpm desktop:dev`：先在 Tauri 文件监听启动前准备 Codex sidecar，再启动 Tauri 开发模式。
 - `pnpm codex:stage`：从固定版本 `@openai/codex` 平台包复制当前目标的原生 Codex sidecar，并执行版本探测。
 - `pnpm test:run`：运行一次 Vitest。
@@ -30,6 +30,7 @@ referenced_by: AGENTS.md#knowledge-map
 ## Tauri Config
 
 - `src-tauri/tauri.conf.json` 的 `devUrl` 为 `http://localhost:3000`。
+- Next.js 开发产物写入 `.next-dev`，生产构建与桌面静态导出仍写入 `.next`；两者必须保持隔离，避免运行中的开发服务因并行构建清理产物而失效。
 - `frontendDist` 为 `../out`，桌面构建依赖静态导出产物。
 - 资源协议的静态范围仅允许 `$HOME/**/.madora/assets/files/**/*`。对于用户目录外、Windows 非系统盘或 macOS 外置卷上的工作区，Rust 仅在资产已经通过当前工作区索引、canonicalize 和 `.madora/assets/files` 边界校验后，向当前进程动态授权解析出的单个文件；不得授权整个工作区、磁盘或卷。
 - opener 插件关闭了自动接管 `target="_blank"` 链接的全局点击脚本；桌面外链必须显式调用 `openUrl`，避免覆盖编辑器自身的链接交互规则。
