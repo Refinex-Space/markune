@@ -196,8 +196,10 @@ describe('AI message rendering', () => {
         pluginOptions={[
           {
             description: '查阅 OpenAI 官方文档',
+            darkIconUrl: 'https://example.com/openai-docs-dark.png',
             displayName: 'OpenAI Docs',
             id: 'openai-docs',
+            iconUrl: 'https://example.com/openai-docs.png',
             mentionPath: 'plugin://openai-docs',
           },
         ]}
@@ -209,6 +211,15 @@ describe('AI message rendering', () => {
     await user.click(editor);
     await user.click(screen.getByRole('button', { name: '添加上下文与工具' }));
     expect(screen.queryByText('重新检测安装的插件')).toBeNull();
+    const pluginItem = screen.getByText('OpenAI Docs').closest('[role="menuitem"]');
+    const pluginImages = pluginItem?.querySelectorAll('img');
+    expect(pluginImages).toHaveLength(2);
+    expect(pluginImages?.[0]?.getAttribute('referrerpolicy')).toBe('no-referrer');
+    expect(pluginImages?.[0]?.className).toContain('dark:hidden');
+    expect(pluginImages?.[1]?.className).toContain('dark:block');
+    fireEvent.error(pluginImages?.[0] as HTMLImageElement);
+    fireEvent.error(pluginImages?.[1] as HTMLImageElement);
+    expect(pluginItem?.querySelectorAll('[data-plugin-icon-fallback]')).toHaveLength(2);
     await user.click(screen.getByText('OpenAI Docs'));
 
     expect(editor.textContent).toContain('@OpenAI Docs');
@@ -1073,8 +1084,10 @@ function ComposerHarness({
   onSend?: () => void;
   pluginOptions?: Array<{
     description: string | null;
+    darkIconUrl?: string | null;
     displayName: string;
     id: string;
+    iconUrl?: string | null;
     mentionPath: string;
   }>;
   pluginStatus?: 'error' | 'idle' | 'loading' | 'ready';

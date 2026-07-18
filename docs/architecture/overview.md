@@ -74,7 +74,9 @@ AI 文件修改以 App Server 事件为刷新事实源。`item/fileChange/patchU
 
 任意本地文件与文件夹上下文必须经过 Tauri 原生选择器。渲染器只取得 15 分钟有效的 opaque attachment ID、名称、类型和图片标记，单次最多保留 20 个，不取得所选绝对路径。发送 turn 时 Rust 重新校验授权与真实路径：受支持图片转换为 App Server `localImage`，其他文件和目录按官方 `# Files mentioned by the user` 文本头编码，并用私有 `text_elements.placeholder` 保存历史展示元数据。附件授权只允许把所选路径传入当前 turn，不扩大 Codex permission profile；工作区外文件或目录的实际读取仍由 App Server 工具权限和审批决定。
 
-插件入口在核心运行时就绪后使用固定 sidecar 的 `plugin/installed` 按当前工作区自动加载，每个运行时代际最多发起一次成功请求，只展示已安装、已启用且未被管理员禁用的插件；加载失败时只在菜单内提供重试。选择插件会在编辑器插入原子 `@Plugin` 节点，并在 `turn/start` 同时发送 `plugin://{id}` 原生 mention；历史恢复继续依赖该 mention 与对应 UTF-8 `text_elements` 区间。目标与计划模式当前只保留不可操作的菜单占位，不建立未完成的协议状态。
+插件入口在核心运行时就绪后使用固定 sidecar 的 `plugin/installed` 按当前工作区自动加载，每个运行时代际最多发起一次成功请求，只展示已安装、已启用且未被管理员禁用的插件；加载失败时只在菜单内提供重试。App Server 返回的 `composerIcon`、`logo` 与 `logoDark` 本地文件由 Rust 按响应请求 ID 建立精确路径授权，前端只能通过 `read_codex_plugin_icon` 读取当前插件清单声明的单个受支持图片；远程图标只接受 HTTPS。菜单按 composer、主题 logo、通用占位图标的顺序降级，单个资源失败不影响插件清单。授权在重新检测、运行时停止或工作区切换时失效，不扩大资源协议 scope。
+
+选择插件会在编辑器插入原子 `@Plugin` 节点，并在 `turn/start` 同时发送 `plugin://{id}` 原生 mention；图标字节只存在于当前 React 视图，不写入 mention、消息历史或工作区。历史恢复继续依赖该 mention 与对应 UTF-8 `text_elements` 区间。目标与计划模式当前只保留不可操作的菜单占位，不建立未完成的协议状态。
 
 提及候选只来自当前已加载的 Markdown 文档索引，并在前端按标题、文件名和工作区相对路径进行确定性的 Unicode 模糊排序；当前文档和已附加文档从候选中排除。编辑器基于真实光标位置识别空白分隔的 `@token`，候选列表支持方向键循环选择、选中项就近滚动、Enter/Tab 确认和 Escape 关闭。固定 sidecar 虽提供通用 `fuzzyFileSearch`，但 Madora 不向渲染器开放该文件系统枚举接口，避免绕过文档索引和工作区路径边界。
 

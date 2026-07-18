@@ -153,10 +153,22 @@ export interface CodexPluginSummary {
   id: string;
   installed: boolean;
   interface: {
+    brandColor?: string | null;
+    composerIcon?: string | null;
+    composerIconUrl?: string | null;
     displayName: string | null;
+    logo?: string | null;
+    logoDark?: string | null;
+    logoUrl?: string | null;
+    logoUrlDark?: string | null;
     shortDescription: string | null;
   } | null;
   name: string;
+}
+
+export interface CodexPluginIconData {
+  base64Data: string;
+  mediaType: 'image/gif' | 'image/jpeg' | 'image/png' | 'image/svg+xml' | 'image/webp';
 }
 
 export interface CodexPluginInstalledResponse {
@@ -256,6 +268,11 @@ export async function startCodexRuntime(rootPath: string) {
 export async function stopCodexRuntime() {
   const { invoke } = await import('@tauri-apps/api/core');
   return invoke<void>('codex_runtime_stop');
+}
+
+export async function readCodexPluginIcon(path: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<CodexPluginIconData>('read_codex_plugin_icon', { path });
 }
 
 export async function selectCodexContextAttachments(

@@ -26,6 +26,8 @@ referenced_by: AGENTS.md#knowledge-map
 - 自定义 permission profile 只能来自 App Server `permissionProfile/list`，并遵循其 `allowed` 标记与 `configRequirements/read` 的企业要求；Madora 不得开放通用 `config/read`、配置写入或实验功能写入。渲染器直接提交的 `localImage` 路径必须在工作区内；工作区外图片只允许由 Rust 从有效原生附件授权注入。Codex 原生 `mention` 只允许非空的 `app://` 或 `plugin://` 目标。
 - Codex 文件与文件夹附件必须由 Tauri 原生选择器创建不可猜测、最多 15 分钟有效的授权，渲染器只可取得 ID、显示名称、类型与图片标记。Rust 在每次 `turn/start` 重新 canonicalize 并校验真实类型、去重且限制最多 20 个；未知、过期、伪造或已变化的授权必须失败关闭。发送完成、移除附件、切换线程或工作区时应幂等释放授权。
 - 原生附件授权不等于扩大 Codex 文件系统权限。非图片附件只把所选路径作为不可信用户上下文交给 App Server，工作区外读取仍必须服从当前 permission profile 和审批；不得为附件修改 Tauri capability、资源协议 scope 或 runtime workspace roots。
+- 插件本地图标不是通用文件读取入口。Rust 只能授权当前运行时最近一次 `plugin/installed` 响应中声明的 `composerIcon`、`logo`、`logoDark` 精确 canonical path，并在读取时重新 canonicalize、拒绝目录、符号链接改指、超过 1 MiB 或签名不属于 PNG/JPEG/GIF/WebP/SVG 的内容。重新检测、运行时停止或工作区切换必须撤销授权；不得为图标扩大 Tauri capability、文件系统插件权限或 asset protocol scope。
+- 插件远程图标只允许 HTTPS，必须禁用 Referer。SVG 仅作为经 Rust 大小与类型检查后的 `<img>` 数据源使用，不得以内联 HTML、`dangerouslySetInnerHTML` 或脚本可执行 DOM 注入；图标数据不得写入 mention、消息历史、local storage 或工作区。
 - Madora 文档引用必须由 Rust canonicalize，并验证为当前工作区内真实存在的 Markdown 文件；必须拒绝相对路径、目录、非 Markdown 文件、工作区外路径、符号链接逃逸、未知角色、多个活跃文档和超过 32 个引用。传给 Codex 的只是不可信工作区相对路径，不得由前端预读、上传或复制文档正文。
 - 渲染器不得直接构造 `additionalContext` 或 developer 级上下文。固定读取策略只能由 Tauri 生成，活跃文档和显式引用路径必须分别使用 `untrusted` 信任级别；文件名、路径和文档内容均不得解释为指令。空活跃文档必须编码为 `null`，防止跨 turn 沿用旧文档。
 - `on-request` 审批是默认策略。命令、文件修改和 `item/permissions/requestApproval` 在用户或 auto-reviewer 决定前不得继续；“拒绝并继续”与“拒绝并停止”必须保持不同语义，“本次任务允许”只作用于当前 App Server 会话。

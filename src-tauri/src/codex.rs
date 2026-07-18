@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -22,6 +23,7 @@ const CODEX_EVENT_NAME: &str = "codex:event";
 const CODEX_STORAGE_MODE: &str = "sharedCodexHome";
 const MAX_DOCUMENT_REFERENCES: usize = 32;
 const MAX_CONTEXT_ATTACHMENTS: usize = 20;
+const MAX_PLUGIN_ICON_BYTES: usize = 1024 * 1024;
 const CONTEXT_ATTACHMENT_TTL: Duration = Duration::from_secs(15 * 60);
 const MADORA_ATTACHMENT_ELEMENT_PREFIX: &str = "madora:attachment:";
 #[cfg(target_os = "windows")]
@@ -52,6 +54,8 @@ struct CodexSession {
     writer: Arc<Mutex<ChildStdin>>,
     child: Child,
     pending_server_requests: Arc<Mutex<HashMap<String, PendingServerRequest>>>,
+    pending_plugin_installed_requests: Arc<Mutex<HashSet<u64>>>,
+    plugin_icon_paths: Arc<Mutex<HashSet<PathBuf>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -70,6 +74,13 @@ pub struct CodexRuntimeInfo {
     storage_mode: String,
     storage_root: Option<String>,
     message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexPluginIconData {
+    media_type: String,
+    base64_data: String,
 }
 
 #[derive(Debug, Clone)]
@@ -311,6 +322,8 @@ pub fn codex_runtime_start(
         .ok_or_else(|| "Codex App Server 标准错误不可用".to_string())?;
     let writer = Arc::new(Mutex::new(stdin));
     let pending_server_requests = Arc::new(Mutex::new(HashMap::new()));
+    let pending_plugin_installed_requests = Arc::new(Mutex::new(HashSet::new()));
+    let plugin_icon_paths = Arc::new(Mutex::new(HashSet::new()));
 
     thread::spawn(move || {
         let mut reader = BufReader::new(stderr);
@@ -368,6 +381,8 @@ pub fn codex_runtime_start(
         app.clone(),
         stdout_reader,
         Arc::clone(&pending_server_requests),
+        Arc::clone(&pending_plugin_installed_requests),
+        Arc::clone(&plugin_icon_paths),
         Arc::clone(&writer),
     );
 
@@ -379,6 +394,8 @@ pub fn codex_runtime_start(
         writer,
         child,
         pending_server_requests,
+        pending_plugin_installed_requests,
+        plugin_icon_paths,
     };
     let info = runtime_info_for_session(&session);
     *session_guard = Some(session);
@@ -437,14 +454,56 @@ pub fn codex_app_server_request(
         &params,
         &security.authorized_local_images,
     )?;
-    write_json_line(
+    let tracks_plugin_icons = method == "plugin/installed";
+    if tracks_plugin_icons {
+        session
+            .plugin_icon_paths
+            .lock()
+            .map_err(|_| "Codex 插件图标授权状态锁已损坏".to_string())?
+            .clear();
+        let mut pending = session
+            .pending_plugin_installed_requests
+            .lock()
+            .map_err(|_| "Codex 插件检测状态锁已损坏".to_string())?;
+        pending.clear();
+        pending.insert(request_id);
+    }
+    let result = write_json_line(
         &session.writer,
         &json!({
             "id": request_id,
             "method": method,
             "params": params,
         }),
-    )
+    );
+    if result.is_err() && tracks_plugin_icons {
+        if let Ok(mut pending) = session.pending_plugin_installed_requests.lock() {
+            pending.remove(&request_id);
+        }
+    }
+    result
+}
+
+#[tauri::command]
+pub fn read_codex_plugin_icon(
+    state: State<'_, CodexState>,
+    path: String,
+) -> Result<CodexPluginIconData, String> {
+    let session_guard = state
+        .session
+        .lock()
+        .map_err(|_| "Codex 运行时状态锁已损坏".to_string())?;
+    let session = session_guard
+        .as_ref()
+        .ok_or_else(|| "Codex App Server 尚未启动".to_string())?;
+    let authorized_paths = session
+        .plugin_icon_paths
+        .lock()
+        .map_err(|_| "Codex 插件图标授权状态锁已损坏".to_string())?
+        .clone();
+    drop(session_guard);
+
+    read_authorized_plugin_icon(Path::new(&path), &authorized_paths)
 }
 
 #[tauri::command]
@@ -489,6 +548,8 @@ fn spawn_stdout_reader(
     app: AppHandle,
     stdout: impl BufRead + Send + 'static,
     pending_server_requests: Arc<Mutex<HashMap<String, PendingServerRequest>>>,
+    pending_plugin_installed_requests: Arc<Mutex<HashSet<u64>>>,
+    plugin_icon_paths: Arc<Mutex<HashSet<PathBuf>>>,
     writer: Arc<Mutex<ChildStdin>>,
 ) {
     thread::spawn(move || {
@@ -501,6 +562,21 @@ fn spawn_stdout_reader(
                 emit_runtime_event(&app, "madora/runtime/protocolError", "Codex 返回了无效消息");
                 continue;
             };
+
+            if payload.get("method").is_none() {
+                if let Some(response_id) = payload.get("id").and_then(Value::as_u64) {
+                    let is_plugin_response = pending_plugin_installed_requests
+                        .lock()
+                        .map(|mut pending| pending.remove(&response_id))
+                        .unwrap_or(false);
+                    if is_plugin_response {
+                        let paths = collect_plugin_icon_paths(&payload);
+                        if let Ok(mut authorized) = plugin_icon_paths.lock() {
+                            *authorized = paths;
+                        }
+                    }
+                }
+            }
 
             if let (Some(request_id), Some(method)) = (
                 payload.get("id"),
@@ -559,6 +635,112 @@ fn spawn_stdout_reader(
 
         emit_runtime_event(&app, "madora/runtime/exited", "Codex App Server 已停止");
     });
+}
+
+fn collect_plugin_icon_paths(payload: &Value) -> HashSet<PathBuf> {
+    let mut paths = HashSet::new();
+    let Some(marketplaces) = payload
+        .get("result")
+        .and_then(|result| result.get("marketplaces"))
+        .and_then(Value::as_array)
+    else {
+        return paths;
+    };
+
+    for plugin_interface in marketplaces
+        .iter()
+        .filter_map(|marketplace| marketplace.get("plugins").and_then(Value::as_array))
+        .flatten()
+        .filter(|plugin| {
+            plugin.get("installed").and_then(Value::as_bool) == Some(true)
+                && plugin.get("enabled").and_then(Value::as_bool) == Some(true)
+                && plugin.get("availability").and_then(Value::as_str) != Some("DISABLED_BY_ADMIN")
+        })
+        .filter_map(|plugin| plugin.get("interface"))
+    {
+        for field in ["composerIcon", "logo", "logoDark"] {
+            let Some(path) = plugin_interface.get(field).and_then(Value::as_str) else {
+                continue;
+            };
+            let Ok(canonical) = Path::new(path).canonicalize() else {
+                continue;
+            };
+            if canonical.is_file() {
+                paths.insert(canonical);
+            }
+        }
+    }
+
+    paths
+}
+
+fn read_authorized_plugin_icon(
+    path: &Path,
+    authorized_paths: &HashSet<PathBuf>,
+) -> Result<CodexPluginIconData, String> {
+    let canonical = path
+        .canonicalize()
+        .map_err(|_| "插件图标文件不存在".to_string())?;
+    if !authorized_paths.contains(&canonical) {
+        return Err("插件图标路径未获授权".to_string());
+    }
+
+    let metadata = fs::metadata(&canonical).map_err(|_| "无法读取插件图标信息".to_string())?;
+    if !metadata.is_file() {
+        return Err("插件图标必须是普通文件".to_string());
+    }
+    if metadata.len() > MAX_PLUGIN_ICON_BYTES as u64 {
+        return Err("插件图标超过 1 MiB 限制".to_string());
+    }
+
+    let bytes = fs::read(&canonical).map_err(|_| "无法读取插件图标文件".to_string())?;
+    if bytes.len() > MAX_PLUGIN_ICON_BYTES {
+        return Err("插件图标超过 1 MiB 限制".to_string());
+    }
+    let media_type =
+        detect_plugin_icon_media_type(&bytes).ok_or_else(|| "插件图标格式不受支持".to_string())?;
+
+    Ok(CodexPluginIconData {
+        media_type: media_type.to_string(),
+        base64_data: STANDARD.encode(bytes),
+    })
+}
+
+fn detect_plugin_icon_media_type(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Some("image/png");
+    }
+    if bytes.starts_with(b"\xff\xd8\xff") {
+        return Some("image/jpeg");
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Some("image/gif");
+    }
+    if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        return Some("image/webp");
+    }
+    if looks_like_svg(bytes) {
+        return Some("image/svg+xml");
+    }
+    None
+}
+
+fn looks_like_svg(bytes: &[u8]) -> bool {
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return false;
+    };
+    let mut text = text.trim_start_matches('\u{feff}').trim_start();
+    if text.starts_with("<?xml") {
+        let Some(end) = text.find("?>") else {
+            return false;
+        };
+        text = text[end + 2..].trim_start();
+    }
+    text.starts_with("<svg")
+        && text
+            .as_bytes()
+            .get(4)
+            .is_some_and(|byte| byte.is_ascii_whitespace() || *byte == b'>')
 }
 
 fn prepare_pending_server_request(payload: &mut Value) -> Result<PendingServerRequest, String> {
@@ -1721,6 +1903,119 @@ mod tests {
         ] {
             assert!(validate_request_params(root.path(), "plugin/installed", &invalid).is_err());
         }
+    }
+
+    #[test]
+    fn plugin_icon_reader_rejects_paths_that_were_not_authorized() {
+        let root = tempdir().expect("create icon root");
+        let authorized = root.path().join("authorized.png");
+        let unauthorized = root.path().join("unauthorized.png");
+        fs::write(&authorized, b"\x89PNG\r\n\x1a\nicon").expect("write authorized icon");
+        fs::write(&unauthorized, b"\x89PNG\r\n\x1a\nicon").expect("write unauthorized icon");
+        let grants = HashSet::from([authorized
+            .canonicalize()
+            .expect("canonicalize authorized icon")]);
+
+        assert!(read_authorized_plugin_icon(&unauthorized, &grants).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn plugin_icon_reader_rejects_a_symlink_retargeted_after_authorization() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempdir().expect("create icon root");
+        let original = root.path().join("original.png");
+        let replacement = root.path().join("replacement.png");
+        let link = root.path().join("icon.png");
+        fs::write(&original, b"\x89PNG\r\n\x1a\noriginal").expect("write original icon");
+        fs::write(&replacement, b"\x89PNG\r\n\x1a\nreplacement").expect("write replacement icon");
+        symlink(&original, &link).expect("create icon symlink");
+        let grants = HashSet::from([link
+            .canonicalize()
+            .expect("canonicalize original icon target")]);
+        fs::remove_file(&link).expect("remove original icon symlink");
+        symlink(&replacement, &link).expect("retarget icon symlink");
+
+        assert!(read_authorized_plugin_icon(&link, &grants).is_err());
+    }
+
+    #[test]
+    fn plugin_icon_reader_rejects_directories_oversized_files_and_unknown_formats() {
+        let root = tempdir().expect("create icon root");
+        let directory = root.path().join("directory");
+        let oversized = root.path().join("oversized.png");
+        let unknown = root.path().join("unknown.bin");
+        fs::create_dir(&directory).expect("create icon directory");
+        fs::write(&oversized, vec![0_u8; MAX_PLUGIN_ICON_BYTES + 1]).expect("write oversized icon");
+        fs::write(&unknown, b"not an image").expect("write unknown icon");
+        let grants = [directory.as_path(), oversized.as_path(), unknown.as_path()]
+            .into_iter()
+            .map(|path| path.canonicalize().expect("canonicalize icon path"))
+            .collect();
+
+        assert!(read_authorized_plugin_icon(&directory, &grants).is_err());
+        assert!(read_authorized_plugin_icon(&oversized, &grants).is_err());
+        assert!(read_authorized_plugin_icon(&unknown, &grants).is_err());
+    }
+
+    #[test]
+    fn plugin_icon_reader_accepts_png_and_svg_images() {
+        use base64::Engine as _;
+
+        let root = tempdir().expect("create icon root");
+        let png = root.path().join("icon.png");
+        let svg = root.path().join("icon.svg");
+        let png_bytes = b"\x89PNG\r\n\x1a\nicon";
+        let svg_bytes = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"></svg>"#;
+        fs::write(&png, png_bytes).expect("write png icon");
+        fs::write(&svg, svg_bytes).expect("write svg icon");
+        let grants = [png.as_path(), svg.as_path()]
+            .into_iter()
+            .map(|path| path.canonicalize().expect("canonicalize icon path"))
+            .collect();
+
+        let png_data = read_authorized_plugin_icon(&png, &grants).expect("read png icon");
+        let svg_data = read_authorized_plugin_icon(&svg, &grants).expect("read svg icon");
+        assert_eq!(png_data.media_type, "image/png");
+        assert_eq!(
+            png_data.base64_data,
+            base64::engine::general_purpose::STANDARD.encode(png_bytes),
+        );
+        assert_eq!(svg_data.media_type, "image/svg+xml");
+    }
+
+    #[test]
+    fn plugin_response_authorizes_only_declared_local_icon_fields() {
+        let root = tempdir().expect("create icon root");
+        let composer = root.path().join("composer.png");
+        let logo = root.path().join("logo.svg");
+        let undeclared = root.path().join("undeclared.png");
+        fs::write(&composer, b"\x89PNG\r\n\x1a\nicon").expect("write composer icon");
+        fs::write(&logo, b"<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>").expect("write logo");
+        fs::write(&undeclared, b"\x89PNG\r\n\x1a\nicon").expect("write undeclared icon");
+        let payload = json!({
+            "id": 42,
+            "result": {
+                "marketplaces": [{
+                    "plugins": [{
+                        "availability": "AVAILABLE",
+                        "enabled": true,
+                        "installed": true,
+                        "interface": {
+                            "composerIcon": composer,
+                            "composerIconUrl": "https://example.com/icon.png",
+                            "logo": logo,
+                            "logoDark": null
+                        }
+                    }]
+                }]
+            }
+        });
+
+        let grants = collect_plugin_icon_paths(&payload);
+        assert_eq!(grants.len(), 2);
+        assert!(!grants.contains(&undeclared.canonicalize().expect("canonicalize undeclared")));
     }
 
     #[test]

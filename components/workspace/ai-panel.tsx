@@ -68,6 +68,7 @@ import { cn } from '@/lib/utils';
 import {
   codexAppServerClient,
   listenCodexEventsUntilDisposed,
+  readCodexPluginIcon,
   releaseCodexContextAttachments,
   respondToCodexApproval,
   selectCodexContextAttachments,
@@ -153,10 +154,16 @@ type AiComposerMention = AiComposerDocumentMention | AiComposerPluginMention;
 
 interface AiPluginMentionOption {
   description: string | null;
+  darkIconUrl?: string | null;
   displayName: string;
   id: string;
+  iconUrl?: string | null;
   mentionPath: string;
 }
+
+type CodexPluginInterface = NonNullable<
+  CodexPluginInstalledResponse['marketplaces'][number]['plugins'][number]['interface']
+>;
 
 interface ComposerMentionTarget {
   key: string;
@@ -610,23 +617,35 @@ export function AiPanel({
           },
         );
       if (generation !== runtimeGenerationRef.current) return;
-      const options = response.marketplaces.flatMap((marketplace) =>
-        marketplace.plugins
-          .filter(
-            (plugin) =>
-              plugin.installed &&
-              plugin.enabled &&
-              plugin.availability !== 'DISABLED_BY_ADMIN',
-          )
-          .map((plugin) => ({
-            description:
-              plugin.interface?.shortDescription?.trim() || marketplace.name,
-            displayName:
-              plugin.interface?.displayName?.trim() || plugin.name,
-            id: plugin.id,
-            mentionPath: `plugin://${plugin.id}`,
-          })),
+      const localIconCache = new Map<string, Promise<string | null>>();
+      const options = await Promise.all(
+        response.marketplaces.flatMap((marketplace) =>
+          marketplace.plugins
+            .filter(
+              (plugin) =>
+                plugin.installed &&
+                plugin.enabled &&
+                plugin.availability !== 'DISABLED_BY_ADMIN',
+            )
+            .map(async (plugin) => {
+              const [iconUrl, darkIconUrl] = await Promise.all([
+                resolvePluginIconUrl(plugin.interface, 'light', localIconCache),
+                resolvePluginIconUrl(plugin.interface, 'dark', localIconCache),
+              ]);
+              return {
+                darkIconUrl,
+                description:
+                  plugin.interface?.shortDescription?.trim() || marketplace.name,
+                displayName:
+                  plugin.interface?.displayName?.trim() || plugin.name,
+                iconUrl,
+                id: plugin.id,
+                mentionPath: `plugin://${plugin.id}`,
+              };
+            }),
+        ),
       );
+      if (generation !== runtimeGenerationRef.current) return;
       setPluginOptions(uniquePluginOptions(options));
       setPluginLoadWarning(
         response.marketplaceLoadErrors.length > 0
@@ -2788,6 +2807,67 @@ function PermissionModeItem({
   );
 }
 
+function PluginIcon({ plugin }: { plugin: AiPluginMentionOption }) {
+  const [failedIconUrls, setFailedIconUrls] = React.useState<Set<string>>(
+    () => new Set(),
+  );
+  const lightIcon = plugin.iconUrl ?? null;
+  const darkIcon = plugin.darkIconUrl ?? lightIcon;
+  const hasDistinctDarkIcon = Boolean(darkIcon && darkIcon !== lightIcon);
+  const lightFailed = lightIcon ? failedIconUrls.has(lightIcon) : false;
+  const darkFailed = darkIcon ? failedIconUrls.has(darkIcon) : false;
+  const markFailed = (url: string) => {
+    setFailedIconUrls((current) => new Set(current).add(url));
+  };
+
+  return (
+    <span aria-hidden="true" className="relative size-4 shrink-0">
+      {lightIcon && !lightFailed ? (
+        // 插件图标来自受限本地数据或运行时 URL，不能交给 Next 图片优化器重写。
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          alt=""
+          className={cn(
+            'size-4 shrink-0 object-contain',
+            hasDistinctDarkIcon && 'dark:hidden',
+          )}
+          draggable={false}
+          referrerPolicy="no-referrer"
+          src={lightIcon}
+          onError={() => markFailed(lightIcon)}
+        />
+      ) : (
+        <Puzzle
+          className={cn(
+            'size-4 text-muted-foreground',
+            hasDistinctDarkIcon && 'dark:hidden',
+          )}
+          data-plugin-icon-fallback="light"
+        />
+      )}
+      {hasDistinctDarkIcon ? (
+        darkIcon && !darkFailed ? (
+          // 插件图标来自受限本地数据或运行时 URL，不能交给 Next 图片优化器重写。
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            alt=""
+            className="hidden size-4 shrink-0 object-contain dark:block"
+            draggable={false}
+            referrerPolicy="no-referrer"
+            src={darkIcon}
+            onError={() => markFailed(darkIcon)}
+          />
+        ) : (
+          <Puzzle
+            className="hidden size-4 text-muted-foreground dark:block"
+            data-plugin-icon-fallback="dark"
+          />
+        )
+      ) : null}
+    </span>
+  );
+}
+
 export function AiComposer({
   active,
   approvalPolicyAvailability,
@@ -3322,7 +3402,7 @@ export function AiComposer({
                   key={plugin.id}
                   onSelect={() => insertPluginMention(plugin)}
                 >
-                  <Puzzle className="text-muted-foreground" size={16} />
+                  <PluginIcon plugin={plugin} />
                   <span className="flex min-w-0 items-baseline gap-2">
                     <span className="shrink-0 text-[13px] font-medium">
                       {plugin.displayName}
@@ -4108,6 +4188,62 @@ function uniquePluginOptions(options: AiPluginMentionOption[]) {
     seen.add(option.id);
     return true;
   });
+}
+
+async function resolvePluginIconUrl(
+  pluginInterface: CodexPluginInterface | null,
+  theme: 'dark' | 'light',
+  localIconCache: Map<string, Promise<string | null>>,
+) {
+  if (!pluginInterface) return null;
+
+  const candidates: Array<{ kind: 'local' | 'remote'; value?: string | null }> = [
+    { kind: 'local', value: pluginInterface.composerIcon },
+    { kind: 'remote', value: pluginInterface.composerIconUrl },
+    ...(theme === 'dark'
+      ? [
+          { kind: 'local' as const, value: pluginInterface.logoDark },
+          { kind: 'local' as const, value: pluginInterface.logo },
+          { kind: 'remote' as const, value: pluginInterface.logoUrlDark },
+          { kind: 'remote' as const, value: pluginInterface.logoUrl },
+        ]
+      : [
+          { kind: 'local' as const, value: pluginInterface.logo },
+          { kind: 'remote' as const, value: pluginInterface.logoUrl },
+        ]),
+  ];
+
+  for (const candidate of candidates) {
+    const value = candidate.value?.trim();
+    if (!value) continue;
+    if (candidate.kind === 'remote') {
+      const remoteUrl = safeHttpsPluginIconUrl(value);
+      if (remoteUrl) return remoteUrl;
+      continue;
+    }
+
+    let pending = localIconCache.get(value);
+    if (!pending) {
+      pending = readCodexPluginIcon(value)
+        .then(({ base64Data, mediaType }) =>
+          `data:${mediaType};base64,${base64Data}`,
+        )
+        .catch(() => null);
+      localIconCache.set(value, pending);
+    }
+    const localUrl = await pending;
+    if (localUrl) return localUrl;
+  }
+
+  return null;
+}
+
+function safeHttpsPluginIconUrl(value: string) {
+  try {
+    return new URL(value).protocol === 'https:' ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 function groupThreadsByDate(threads: CodexThread[]) {

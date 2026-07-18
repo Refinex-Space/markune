@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const bridge = vi.hoisted(() => ({
   listen: vi.fn(),
+  readPluginIcon: vi.fn(),
   rejectPending: vi.fn(),
   request: vi.fn(),
   start: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock('../codex-app-server', async (importOriginal) => {
       subscribe: bridge.subscribe,
     },
     listenCodexEventsUntilDisposed: bridge.listen,
+    readCodexPluginIcon: bridge.readPluginIcon,
     startCodexRuntime: bridge.start,
   };
 });
@@ -138,6 +140,7 @@ function renderPanel(
 
 beforeEach(() => {
   bridge.listen.mockReset().mockResolvedValue(vi.fn());
+  bridge.readPluginIcon.mockReset();
   bridge.rejectPending.mockReset();
   bridge.start.mockReset().mockResolvedValue(runtime);
   bridge.subscribe.mockReset().mockReturnValue(vi.fn());
@@ -171,6 +174,120 @@ describe('AI panel startup lifecycle', () => {
     );
     expect(screen.queryByText('正在连接 Codex')).toBeNull();
     expect(screen.getByRole('textbox', { name: '向 Codex 提问' })).toBeTruthy();
+  });
+
+  it('读取 App Server 授权的本地图标并保留明暗主题资源', async () => {
+    const user = userEvent.setup();
+    bridge.readPluginIcon.mockImplementation((path: string) =>
+      Promise.resolve({
+        base64Data: path.endsWith('dark.png') ? 'ZGFyaw==' : 'bGlnaHQ=',
+        mediaType: 'image/png',
+      }),
+    );
+    bridge.request.mockImplementation((method: string) =>
+      Promise.resolve(
+        method === 'plugin/installed'
+          ? {
+              marketplaces: [
+                {
+                  name: 'OpenAI',
+                  plugins: [
+                    {
+                      availability: 'AVAILABLE',
+                      enabled: true,
+                      id: 'documents',
+                      installed: true,
+                      interface: {
+                        brandColor: '#3574f0',
+                        composerIcon: null,
+                        composerIconUrl: null,
+                        displayName: 'Documents',
+                        logo: '/icons/documents.png',
+                        logoDark: '/icons/documents-dark.png',
+                        logoUrl: null,
+                        logoUrlDark: null,
+                        shortDescription: 'Create and edit documents',
+                      },
+                      name: 'documents',
+                    },
+                  ],
+                },
+              ],
+              marketplaceLoadErrors: [],
+            }
+          : defaultResponse(method),
+      ),
+    );
+    renderPanel();
+
+    await waitFor(() => expect(bridge.readPluginIcon).toHaveBeenCalledTimes(2));
+    await user.click(screen.getByRole('button', { name: '添加上下文与工具' }));
+
+    const item = screen.getByText('Documents').closest('[role="menuitem"]');
+    const images = item?.querySelectorAll('img');
+    expect(images).toHaveLength(2);
+    expect(images?.[0]?.getAttribute('src')).toBe('data:image/png;base64,bGlnaHQ=');
+    expect(images?.[1]?.getAttribute('src')).toBe('data:image/png;base64,ZGFyaw==');
+  });
+
+  it('单个本地图标读取失败时继续展示插件并降级到安全的 HTTPS 图标', async () => {
+    const user = userEvent.setup();
+    bridge.readPluginIcon.mockRejectedValue(new Error('icon unavailable'));
+    bridge.request.mockImplementation((method: string) =>
+      Promise.resolve(
+        method === 'plugin/installed'
+          ? {
+              marketplaces: [
+                {
+                  name: 'OpenAI',
+                  plugins: [
+                    {
+                      availability: 'AVAILABLE',
+                      enabled: true,
+                      id: 'browser',
+                      installed: true,
+                      interface: {
+                        composerIcon: '/icons/browser.png',
+                        composerIconUrl: 'https://example.com/browser.png',
+                        displayName: 'Browser',
+                        shortDescription: 'Control the browser',
+                      },
+                      name: 'browser',
+                    },
+                    {
+                      availability: 'AVAILABLE',
+                      enabled: true,
+                      id: 'unsafe-icon',
+                      installed: true,
+                      interface: {
+                        composerIcon: null,
+                        composerIconUrl: 'http://example.com/unsafe.png',
+                        displayName: 'Unsafe Icon',
+                        shortDescription: null,
+                      },
+                      name: 'unsafe-icon',
+                    },
+                  ],
+                },
+              ],
+              marketplaceLoadErrors: [],
+            }
+          : defaultResponse(method),
+      ),
+    );
+    renderPanel();
+
+    await waitFor(() => expect(bridge.readPluginIcon).toHaveBeenCalledOnce());
+    await user.click(screen.getByRole('button', { name: '添加上下文与工具' }));
+
+    const browserItem = screen.getByText('Browser').closest('[role="menuitem"]');
+    expect(browserItem?.querySelector('img')?.getAttribute('src')).toBe(
+      'https://example.com/browser.png',
+    );
+    expect(screen.getByText('Unsafe Icon')).toBeTruthy();
+    expect(
+      screen.getByText('Unsafe Icon').closest('[role="menuitem"]')?.querySelector('img'),
+    ).toBeNull();
   });
 
   it('用户在核心初始化完成前发送时等待就绪并继续提交', async () => {
