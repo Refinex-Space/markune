@@ -3,6 +3,7 @@ mod codex;
 mod export;
 mod git;
 mod import;
+mod inbox;
 mod link_preview;
 mod settings;
 mod system_fonts;
@@ -55,6 +56,13 @@ pub fn run() {
             import::commit_document_import,
             import::cancel_document_import,
             import::release_document_import_grant,
+            inbox::list_inbox_captures,
+            inbox::read_inbox_capture,
+            inbox::create_inbox_capture,
+            inbox::update_inbox_capture,
+            inbox::delete_inbox_capture,
+            inbox::promote_inbox_capture,
+            inbox::append_inbox_capture_to_daily,
             git::git_probe,
             git::git_init,
             git::git_status,

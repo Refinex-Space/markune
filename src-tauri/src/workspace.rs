@@ -521,7 +521,7 @@ pub async fn save_markdown_document(
     .map_err(|_| "Markdown 文档保存任务失败".to_string())?
 }
 
-fn save_markdown_document_sync(
+pub(crate) fn save_markdown_document_sync(
     root_path: String,
     document_path: String,
     content: String,
@@ -659,7 +659,13 @@ pub(crate) fn create_imported_markdown_document(
             return Err(format!("无法创建导入文档节点：{error}"));
         }
     };
-    let content = read_markdown_document_sync(root_path, node.absolute_path.clone())?;
+    let content = match read_markdown_document_sync(root_path, node.absolute_path.clone()) {
+        Ok(content) => content,
+        Err(error) => {
+            let _ = fs::remove_file(&document_path);
+            return Err(error);
+        }
+    };
 
     Ok(CreatedMarkdownDocument { node, content })
 }
@@ -1719,7 +1725,7 @@ fn write_json_pretty<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
     fs::write(path, format!("{json}\n"))
 }
 
-fn write_text_atomic(path: &Path, content: &str) -> io::Result<()> {
+pub(crate) fn write_text_atomic(path: &Path, content: &str) -> io::Result<()> {
     let parent = path
         .parent()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "missing parent"))?;

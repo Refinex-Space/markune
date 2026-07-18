@@ -72,6 +72,28 @@ python3 ~/.codex/skills/harness-init/scripts/harness_audit.py /Users/refinex/dev
 wc -l AGENTS.md
 ```
 
+## Inbox Acceptance
+
+先运行 Inbox 聚焦检查，再执行前端和 Rust 全量验证：
+
+```bash
+pnpm exec vitest run components/workspace/__tests__/inbox-utils.test.ts components/workspace/__tests__/inbox-shell.test.ts components/workspace/__tests__/inbox-sidebar.test.tsx components/workspace/__tests__/use-inbox-controller.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml inbox::tests
+cargo test --manifest-path src-tauri/Cargo.toml assets::tests::includes_inbox_markdown_but_skips_other_private_markdown
+pnpm exec tsc --noEmit
+pnpm lint
+```
+
+桌面验收至少覆盖以下流程：
+
+- 在工作区按 `Cmd/Ctrl+Shift+I` 或点击“已归档”右侧的 `+`，确认自动切换到 Inbox、展开左侧栏并聚焦右侧主编辑区；空白草稿不会创建文件，输入非空正文后自动保存，重启后 `.madora/inbox` 中的 Capture 仍可读取。
+- 确认 Inbox 激活后左侧目录树与 Daily 日历被紧凑 Capture 列表替换；左上角搜索切换为 Inbox 全状态搜索，退出 Inbox 后原文档树搜索词仍保留。
+- 确认主编辑区不显示 Inbox/Capture 标题栏和标签入口，保存状态固定显示在右下角。通过 Capture 右键菜单和行尾 `…` 完成状态、优先级、流转、归档、取消归档、重新打开和二次确认删除；切换状态后条目应立即重新分组，优先级圆点按高红、普通蓝、低灰显示。历史 `snoozedUntil` 尚未到期的 Capture 继续显示在“稍后”，右键可“恢复待处理”；当前 UI 不再提供新增 snooze。侧栏徽标始终统计所有 `open/processing`，包括历史 snoozed Capture。
+- Promote 的保存位置应以限高、内部滚动的目录树展示，支持逐级展开与按完整相对路径搜索，并排除 `Daily` 和隐藏目录。分别提升到根目录和普通子目录，确认唯一命名、创建时间、标签与 H1；Append 两次同一 Capture，Daily 的 `## Inbox` 下只能存在一个 `madora-capture:<id>` 标记。
+- 在 Daily 已打开且有未保存草稿时执行 Append，确认本地草稿不会被静默覆盖，并通过现有外部文档冲突入口显式选择版本。
+- Capture 引用本地资源后保存、删除和提升，确认资源只有在正式笔记、Daily 与其他 Capture 都不再引用时才被清理。
+- 在用户工作区执行 `git status --short -- .madora/inbox`，确认 Git 是否发现 Capture 完全遵循该工作区自身 ignore 规则；Madora 不改写 `.gitignore`。
+
 ## Codex Session Storage
 
 Madora 默认复用 `~/.codex`。检查当前 Codex 解析出的用户级目录时，使用经过脱敏的 doctor 输出，不要打印认证文件或完整报告：

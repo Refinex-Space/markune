@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-17
+updated: 2026-07-18
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -20,6 +20,11 @@ referenced_by: AGENTS.md#knowledge-map
 - Prepared import document: the normalized Markdown, title, asset manifest, warnings and PDF/OCR metadata produced before a document import commit.
 - Import commit session: a per-document staging transaction that validates and de-duplicates assets, replaces `madora-import://asset/{token}` placeholders with `madora-asset://{hash}`, and writes one uniquely named Markdown document.
 - Global search: client-side full-text Markdown search over workspace documents.
+- Inbox: the workspace capture and triage center for Markdown fragments that are not yet formal notes, Daily entries, or tasks. Inbox search is separate from global document search.
+- Capture: one lightweight Markdown fragment stored under `.madora/inbox`, identified by its file name and carrying triage metadata in camelCase frontmatter.
+- Triage: deciding whether a Capture should remain open, be processed, be promoted to a Note, be appended to Daily, be completed, archived, or deleted. Legacy snoozed Captures remain recoverable as open items.
+- Promote: creating a normal uniquely named Markdown Note from a Capture while retaining the Capture as a resolved record linked through `promotedTo`.
+- Append to Daily: adding a Capture under the current Daily note's `## Inbox` section with an idempotency marker, then linking the resolved Capture through `appendedTo`.
 - Git panel: workspace UI for Git status, diff, staging, commit, branches, log, push, revert, and delete flows.
 - Git Sync: workspace-level Git automation for committing local changes, pulling remote updates, pushing to the configured remote, and recording sync preferences in `.madora/workspace.json`.
 - Terminal panel: workspace UI backed by Tauri terminal commands.

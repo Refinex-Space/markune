@@ -51,6 +51,16 @@ referenced_by: AGENTS.md#knowledge-map
 
 工作区文档 API 必须保留 Markdown 源文件。`upload_workspace_asset` 返回的 `madora-asset://{assetId}` 是新资源唯一的 Markdown 持久化引用；`.madora/assets/files/...` 只描述索引中的平台无关物理文件相对位置。`upload_workspace_asset` 与 `resolve_workspace_asset` 只能在索引、canonicalize 和资源目录边界校验成功后，将最终解析出的单个文件加入当前进程的资源协议范围，以支持用户目录外、Windows 非系统盘和 macOS 外置卷上的工作区。预览、引用扫描和清理必须兼容旧相对路径引用，成功解析后可在下一次文档保存时规范化为协议引用，解析失败时不得改写原文。
 
+## Inbox Commands
+
+Inbox bridge 固定由 `workspace-api.ts` 调用以下命令：`list_inbox_captures`、`read_inbox_capture`、`create_inbox_capture`、`update_inbox_capture`、`delete_inbox_capture`、`promote_inbox_capture` 和 `append_inbox_capture_to_daily`。
+
+- 列表和搜索返回 `InboxCaptureSummary`、`activeCount` 与逐文件读取问题；非空搜索必须覆盖所有状态，普通列表才按 `active | done | archived | all` 过滤。
+- 创建和更新必须校验 256 KiB 正文上限、最多 5 个标签、单标签 32 字符、状态与 snooze 约束。`snoozedUntil` 继续保留在接口中以兼容已有 Capture，但当前 UI 只允许清除历史值，不再创建新的 snooze。读取和写入都返回可无损传给 JavaScript 的磁盘版本令牌 `modifiedAt`；Rust 侧固定使用不超过 JavaScript 安全整数范围的 `u64`，更新、删除、Promote 和 Append 必须带期望值并拒绝陈旧写入。
+- Capture ID 是文件名身份；命令不得接受任意 Capture 路径。缺失的已知 frontmatter 字段按默认值恢复，未知字段在重写时保留。
+- Promote 只接受普通工作区相对目录，不得写入隐藏目录或 Daily；新笔记唯一命名，复制正文、创建时间和标签，无 H1 时补标题。Append 只接受 `YYYY-MM-DD` 与 `HH:mm`，复用或创建 `## Inbox` 并写入 Capture 幂等标记。
+- Promote/Append 的正式文档写入和 Capture 留痕属于同一组合操作；后半段失败时必须回滚本次新建笔记或 Daily 内容追加。删除只作用于 Capture 文件，不级联删除已生成内容。
+
 ## Document Export Commands
 
 单文档导出固定使用以下桥接类型：

@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-17
+updated: 2026-07-18
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -58,6 +58,8 @@ Madora 不在自身设置或 `.madora` 中复制 Codex 权限配置。权限目�
 ## Workspace Metadata
 
 每个工作区根目录下的 `.madora/workspace.json` 保存最近文档、目录展开状态、排序、每日笔记索引和 Git Sync 偏好。文档正文仍保存在工作区可见的 Markdown 文件中。
+
+Inbox Capture 独立保存在 `.madora/inbox/cap_YYYYMMDD_HHMMSS_SSS_<uuid8>.md`，不写入 `workspace.json`，也不需要配置项或 schema 迁移。是否被 Git 跟踪完全遵循用户工作区自己的 ignore 规则，Madora 不改写 `.gitignore`。
 
 `.madora` 不保存 AI 消息或 Codex 线程副本。旧 `.madora/ai-sessions` 路径已经停用，应在知识库中忽略；AI 会话的新建、恢复、命名、归档和删除完全由用户级 Codex Home 与 App Server 管理。
 

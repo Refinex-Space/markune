@@ -40,6 +40,13 @@ referenced_by: AGENTS.md#knowledge-map
 - 上传资源必须保留在工作区资源目录内，Markdown 新写入只存储 `madora-asset://{assetId}`，不得把绝对路径、Windows 盘符或文档层级相关路径作为资产身份。协议解析必须经当前工作区资产索引，并继续对物理路径执行 canonicalize 与资源目录边界校验；只有校验成功的单个物理文件可以动态加入当前进程的资源协议范围，不得授权整个工作区、磁盘或卷。旧 `.madora/assets/files/...` 引用只读兼容。
 - 链接卡片只能使用既有的受限预览 route 或 Tauri 命令；不得在渲染器直接请求任意 URL。
 
+## Inbox Storage
+
+- 通用工作区 Markdown API 必须继续拒绝整个 `.madora`。Inbox 是受限例外，只能由 `src-tauri/src/inbox.rs` 在 canonicalize 后访问当前工作区的 `.madora/inbox/<capture-id>.md`；Capture ID 只能包含受控 ASCII 字符，任何绝对路径、父目录段、其他扩展名和符号链接逃逸都必须拒绝。
+- Promote 的目标目录必须是工作区内已存在的普通目录，禁止隐藏目录和 `Daily`；Append 只能通过受校验的日期映射到现有 `Daily/YYYY/MM/YYYY-MM-DD.md` 规则。
+- Capture 更新、删除和流转必须做 `modifiedAt` 乐观并发校验。硬删除不得级联 Note 或 Daily；组合操作失败不得留下重复 Daily 块或无留痕的新笔记。
+- 资产清理的引用扫描只额外包含 `.madora/inbox/*.md`，不得借此扫描 `.madora` 其他私有内容或扩大 Tauri capability、asset protocol scope 和通用文件权限。
+
 ## Document Export
 
 - 原生文件夹选择器只返回一次性、限时的目录授权 ID；后续导出命令不得接受目标目录绝对路径。
