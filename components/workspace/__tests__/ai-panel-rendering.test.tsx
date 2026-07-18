@@ -78,7 +78,7 @@ describe('AI message rendering', () => {
 
     const content = screen.getByText('你好啊');
     const row = content.closest('article');
-    const bubble = content.parentElement;
+    const bubble = content.closest('div.w-max');
 
     expect(row?.className).toContain('flex');
     expect(row?.className).toContain('justify-end');
@@ -118,6 +118,212 @@ describe('AI message rendering', () => {
     ).toBeNull();
   });
 
+  it('加号菜单只展示附件、占位能力和插件入口', async () => {
+    const user = userEvent.setup();
+    render(<ComposerHarness onOpenMention={vi.fn()} />);
+
+    const surface = screen.getByRole('textbox', { name: '向 Codex 提问' })
+      .parentElement;
+    vi.spyOn(surface!, 'getBoundingClientRect').mockReturnValue({
+      bottom: 300,
+      height: 180,
+      left: 0,
+      right: 520,
+      top: 120,
+      width: 520,
+      x: 0,
+      y: 120,
+      toJSON: () => ({}),
+    });
+    const trigger = screen.getByRole('button', { name: '添加上下文与工具' });
+    vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue({
+      bottom: 290,
+      height: 28,
+      left: 8,
+      right: 36,
+      top: 262,
+      width: 28,
+      x: 8,
+      y: 262,
+      toJSON: () => ({}),
+    });
+
+    await user.click(trigger);
+
+    const menu = screen.getByRole('menu', { name: '添加上下文与工具' });
+    expect(menu.getAttribute('style')).toContain('width: 520px');
+    expect(menu.getAttribute('data-composer-clearance')).toBe('150');
+    expect(menu.className).toContain('p-1');
+    expect(screen.getByText('添加')).toBeTruthy();
+    expect(
+      screen.getByText('文件和文件夹').closest('[role="menuitem"]')?.className,
+    ).toContain('min-h-9');
+    expect(screen.getByText('目标')).toBeTruthy();
+    expect(screen.getByText('设置要持续追求的目标')).toBeTruthy();
+    expect(screen.getByText('计划模式')).toBeTruthy();
+    expect(screen.getByText('开启计划模式')).toBeTruthy();
+    expect(screen.getByText('插件')).toBeTruthy();
+    expect(screen.getByText('正在加载插件…')).toBeTruthy();
+    expect(screen.queryByText('检测安装的插件')).toBeNull();
+    expect(screen.queryByText('联网搜索已启用')).toBeNull();
+    expect(screen.queryByText(/MCP Server/)).toBeNull();
+    expect(screen.queryByText('提及工作区文档')).toBeNull();
+    expect(screen.getByText('目标').closest('[role="menuitem"]')?.getAttribute('aria-disabled')).toBe('true');
+    expect(screen.getByText('计划模式').closest('[role="menuitem"]')?.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('文件子菜单区分文件与文件夹选择', async () => {
+    const user = userEvent.setup();
+    const onAttachmentSelect = vi.fn();
+    render(
+      <ComposerHarness
+        onAttachmentSelect={onAttachmentSelect}
+        onOpenMention={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '添加上下文与工具' }));
+    await user.hover(screen.getByText('文件和文件夹'));
+    fireEvent.click(await screen.findByText('选择文件'));
+    expect(onAttachmentSelect).toHaveBeenCalledWith('file');
+  });
+
+  it('检测到的插件使用真实图标插入原生插件提及且不作为文档链接', async () => {
+    const user = userEvent.setup();
+    render(
+      <ComposerHarness
+        onOpenMention={vi.fn()}
+        pluginOptions={[
+          {
+            description: '查阅 OpenAI 官方文档',
+            darkIconUrl: 'https://example.com/openai-docs-dark.png',
+            displayName: 'OpenAI Docs',
+            id: 'openai-docs',
+            iconUrl: 'https://example.com/openai-docs.png',
+            mentionPath: 'plugin://openai-docs',
+          },
+        ]}
+        pluginStatus="ready"
+      />,
+    );
+
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.click(screen.getByRole('button', { name: '添加上下文与工具' }));
+    expect(screen.queryByText('重新检测安装的插件')).toBeNull();
+    const pluginItem = screen.getByText('OpenAI Docs').closest('[role="menuitem"]');
+    const pluginImages = pluginItem?.querySelectorAll('img');
+    expect(pluginImages).toHaveLength(2);
+    expect(pluginImages?.[0]?.getAttribute('referrerpolicy')).toBe('no-referrer');
+    expect(pluginImages?.[0]?.className).toContain('dark:hidden');
+    expect(pluginImages?.[1]?.className).toContain('dark:block');
+    fireEvent.error(pluginImages?.[0] as HTMLImageElement);
+    fireEvent.error(pluginImages?.[1] as HTMLImageElement);
+    expect(pluginItem?.querySelectorAll('[data-plugin-icon-fallback]')).toHaveLength(2);
+    await user.click(screen.getByText('OpenAI Docs'));
+
+    expect(editor.textContent).toContain('OpenAI Docs');
+    const mention = screen.getByRole('note', { name: 'OpenAI Docs' });
+    const mentionImages = mention.querySelectorAll('img');
+    expect(mentionImages).toHaveLength(2);
+    expect(mentionImages[0]?.getAttribute('src')).toBe(
+      'https://example.com/openai-docs.png',
+    );
+    expect(mentionImages[1]?.getAttribute('src')).toBe(
+      'https://example.com/openai-docs-dark.png',
+    );
+    expect(screen.queryByRole('link', { name: 'OpenAI Docs' })).toBeNull();
+    expect(screen.getByTestId('selected-mention-count').textContent).toBe('1');
+  });
+
+  it('输入 / 展示技能面板并插入统一图标的 Skill mention', async () => {
+    const user = userEvent.setup();
+    render(
+      <ComposerHarness
+        onOpenMention={vi.fn()}
+        skillOptions={[
+          {
+            description: 'Internal prototype QA comparison against a visual source',
+            displayName: 'Design QA',
+            name: 'design-qa',
+            path: '/Users/example/.codex/skills/design-qa/SKILL.md',
+            scope: 'user',
+          },
+          {
+            description: 'Create and edit Word and Google Docs files',
+            displayName: 'Documents',
+            name: 'documents',
+            path: '/Users/example/.codex/skills/documents/SKILL.md',
+            scope: 'user',
+          },
+        ]}
+        skillStatus="ready"
+      />,
+    );
+
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '/Design');
+
+    const listbox = screen.getByRole('listbox', { name: '选择 Skill' });
+    expect(
+      within(listbox).getByRole('option', { name: /Design QA/ }),
+    ).toBeTruthy();
+    expect(within(listbox).getByText(/Internal prototype QA/)).toBeTruthy();
+    expect(within(listbox).getByText('个人')).toBeTruthy();
+    expect(screen.getByText('技能')).toBeTruthy();
+
+    await user.click(within(listbox).getByRole('option', { name: /Design QA/ }));
+
+    expect(editor.textContent).toContain('Design QA');
+    const mention = screen.getByRole('note', { name: 'Design QA' });
+    expect(mention.querySelector('img')?.getAttribute('src')).toBe(
+      '/icons/mentions/box.svg',
+    );
+    expect(screen.queryByRole('listbox', { name: '选择 Skill' })).toBeNull();
+    expect(screen.getByTestId('selected-mention-count').textContent).toBe('1');
+  });
+
+  it('插件自动加载失败时才提供重试入口', async () => {
+    const user = userEvent.setup();
+    const onDetectPlugins = vi.fn();
+    render(
+      <ComposerHarness
+        onDetectPlugins={onDetectPlugins}
+        onOpenMention={vi.fn()}
+        pluginStatus="error"
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '添加上下文与工具' }));
+    await user.click(screen.getByText('插件加载失败，重试'));
+
+    expect(onDetectPlugins).toHaveBeenCalledOnce();
+  });
+
+  it('展示已选附件并支持移除', async () => {
+    const user = userEvent.setup();
+    const onAttachmentRemove = vi.fn();
+    render(
+      <ComposerHarness
+        attachments={[
+          {
+            attachmentId: 'attachment-1',
+            isImage: false,
+            kind: 'folder',
+            name: '资料',
+          },
+        ]}
+        onAttachmentRemove={onAttachmentRemove}
+        onOpenMention={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('资料')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '移除 资料' }));
+    expect(onAttachmentRemove).toHaveBeenCalledWith('attachment-1');
+  });
+
   it('把文档提及插入光标位置并允许点击打开文档', async () => {
     const user = userEvent.setup();
     const onOpenMention = vi.fn();
@@ -131,6 +337,9 @@ describe('AI message rendering', () => {
 
     const mention = screen.getByRole('link', { name: 'README' });
     expect(editor.contains(mention)).toBe(true);
+    expect(mention.querySelector('img')?.getAttribute('src')).toBe(
+      '/icons/mentions/file-text.svg',
+    );
     expect(screen.getByTestId('selected-mention-count').textContent).toBe('1');
 
     await user.click(mention);
@@ -349,7 +558,6 @@ describe('AI message rendering', () => {
         effort="medium"
         mentionDocuments={[]}
         mentionQuery={null}
-        mcpServerCount={0}
         models={[]}
         permissionMode="ask"
         permissionProfiles={[]}
@@ -359,7 +567,6 @@ describe('AI message rendering', () => {
         selectedModelInfo={null}
         submitting={false}
         value="总结当前文档"
-        version={null}
         onEffortChange={vi.fn()}
         onInterrupt={vi.fn()}
         onMentionQueryChange={vi.fn()}
@@ -767,7 +974,6 @@ describe('AI message rendering', () => {
         effort="medium"
         mentionDocuments={[]}
         mentionQuery={null}
-        mcpServerCount={0}
         models={[]}
         permissionMode="ask"
         permissionProfiles={[
@@ -788,7 +994,6 @@ describe('AI message rendering', () => {
         selectedModelInfo={null}
         submitting={false}
         value=""
-        version={null}
         onEffortChange={vi.fn()}
         onInterrupt={vi.fn()}
         onMentionQueryChange={vi.fn()}
@@ -914,16 +1119,50 @@ function createTrace({
 }
 
 function ComposerHarness({
+  attachments = [],
   mentionDocuments = [mentionedDocument],
+  onAttachmentRemove = vi.fn(),
+  onAttachmentSelect = vi.fn(),
+  onDetectPlugins = vi.fn(),
   onOpenMention,
   onSend = vi.fn(),
+  pluginOptions = [],
+  pluginStatus = 'idle',
+  skillOptions = [],
+  skillStatus = 'idle',
 }: {
+  attachments?: Array<{
+    attachmentId: string;
+    isImage: boolean;
+    kind: 'file' | 'folder';
+    name: string;
+  }>;
   mentionDocuments?: Array<typeof mentionedDocument>;
+  onAttachmentRemove?: (attachmentId: string) => void;
+  onAttachmentSelect?: (kind: 'file' | 'folder') => void;
+  onDetectPlugins?: () => void;
   onOpenMention: (path: string) => void;
   onSend?: () => void;
+  pluginOptions?: Array<{
+    description: string | null;
+    darkIconUrl?: string | null;
+    displayName: string;
+    id: string;
+    iconUrl?: string | null;
+    mentionPath: string;
+  }>;
+  pluginStatus?: 'error' | 'idle' | 'loading' | 'ready';
+  skillOptions?: Array<{
+    description: string;
+    displayName: string;
+    name: string;
+    path: string;
+    scope: 'admin' | 'repo' | 'system' | 'user';
+  }>;
+  skillStatus?: 'error' | 'idle' | 'loading' | 'ready';
 }) {
   const [value, setValue] = React.useState('');
-  const [mentions, setMentions] = React.useState<typeof mentionedDocument[]>([]);
+  const [mentionCount, setMentionCount] = React.useState(0);
   const [mentionQuery, setMentionQuery] = React.useState<string | null>(null);
 
   return (
@@ -931,33 +1170,39 @@ function ComposerHarness({
       <AiComposer
         active={false}
         approvalPolicyAvailability={{ never: true, onRequest: true }}
+        attachments={attachments}
         autoReviewAvailable
         currentDocument={null}
         effort="medium"
         mentionDocuments={mentionDocuments}
         mentionQuery={mentionQuery}
-        mcpServerCount={0}
         models={[]}
         permissionMode="ask"
         permissionProfiles={[]}
         permissionSwitchDisabled={false}
+        pluginOptions={pluginOptions}
+        pluginStatus={pluginStatus}
         runtimeStatus="ready"
         selectedModel=""
         selectedModelInfo={null}
+        skillOptions={skillOptions}
+        skillStatus={skillStatus}
         submitting={false}
         value={value}
-        version={null}
+        onAttachmentRemove={onAttachmentRemove}
+        onAttachmentSelect={onAttachmentSelect}
+        onDetectPlugins={onDetectPlugins}
         onEffortChange={vi.fn()}
         onInterrupt={vi.fn()}
         onMentionQueryChange={setMentionQuery}
-        onMentionsChange={setMentions}
+        onMentionsChange={(mentions) => setMentionCount(mentions.length)}
         onModelChange={vi.fn()}
         onPermissionModeChange={vi.fn()}
         onOpenMention={onOpenMention}
         onSend={onSend}
         onValueChange={setValue}
       />
-      <output data-testid="selected-mention-count">{mentions.length}</output>
+      <output data-testid="selected-mention-count">{mentionCount}</output>
     </>
   );
 }

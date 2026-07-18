@@ -140,6 +140,75 @@ export interface CodexExperimentalFeatureListResponse {
   nextCursor: string | null;
 }
 
+export interface CodexContextAttachment {
+  attachmentId: string;
+  isImage: boolean;
+  kind: 'file' | 'folder';
+  name: string;
+}
+
+export interface CodexPluginSummary {
+  availability: 'AVAILABLE' | 'DISABLED_BY_ADMIN';
+  enabled: boolean;
+  id: string;
+  installed: boolean;
+  interface: {
+    brandColor?: string | null;
+    composerIcon?: string | null;
+    composerIconUrl?: string | null;
+    displayName: string | null;
+    logo?: string | null;
+    logoDark?: string | null;
+    logoUrl?: string | null;
+    logoUrlDark?: string | null;
+    shortDescription: string | null;
+  } | null;
+  name: string;
+}
+
+export interface CodexPluginIconData {
+  base64Data: string;
+  mediaType: 'image/gif' | 'image/jpeg' | 'image/png' | 'image/svg+xml' | 'image/webp';
+}
+
+export interface CodexPluginInstalledResponse {
+  marketplaces: Array<{
+    name: string;
+    plugins: CodexPluginSummary[];
+  }>;
+  marketplaceLoadErrors: Array<{
+    marketplacePath: string;
+    message: string;
+  }>;
+}
+
+export type CodexSkillScope = 'admin' | 'repo' | 'system' | 'user';
+
+export interface CodexSkillMetadata {
+  description: string;
+  enabled: boolean;
+  interface: {
+    brandColor?: string | null;
+    defaultPrompt?: string | null;
+    displayName?: string | null;
+    iconLarge?: string | null;
+    iconSmall?: string | null;
+    shortDescription?: string | null;
+  } | null;
+  name: string;
+  path: string;
+  scope: CodexSkillScope;
+  shortDescription?: string | null;
+}
+
+export interface CodexSkillsListResponse {
+  data: Array<{
+    cwd: string;
+    errors: Array<{ message: string; path: string }>;
+    skills: CodexSkillMetadata[];
+  }>;
+}
+
 type PendingRequest = {
   reject: (reason?: unknown) => void;
   resolve: (value: unknown) => void;
@@ -226,6 +295,30 @@ export async function startCodexRuntime(rootPath: string) {
 export async function stopCodexRuntime() {
   const { invoke } = await import('@tauri-apps/api/core');
   return invoke<void>('codex_runtime_stop');
+}
+
+export async function readCodexPluginIcon(path: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<CodexPluginIconData>('read_codex_plugin_icon', { path });
+}
+
+export async function selectCodexContextAttachments(
+  kind: CodexContextAttachment['kind'],
+  remaining: number,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<CodexContextAttachment[] | null>(
+    'select_codex_context_attachments',
+    { kind, remaining },
+  );
+}
+
+export async function releaseCodexContextAttachments(
+  attachmentIds: string[],
+) {
+  if (attachmentIds.length === 0) return;
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<void>('release_codex_context_attachments', { attachmentIds });
 }
 
 export async function respondToCodexApproval(

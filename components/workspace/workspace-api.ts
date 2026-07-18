@@ -23,6 +23,13 @@ import type {
   MarkdownDocumentContent,
   ImportCommitSession,
   ImportedDocumentResult,
+  InboxCapture,
+  InboxCaptureListResult,
+  InboxCaptureListView,
+  InboxCaptureSource,
+  InboxCaptureUpdate,
+  InboxDailyAppendResult,
+  InboxPromotionResult,
   ResolvedWorkspaceAsset,
   TerminalDataEvent,
   TerminalErrorEvent,
@@ -247,6 +254,108 @@ export async function listDailyNotesForMonth(rootPath: string, month: string) {
   return invoke<DailyNoteMonth>('list_daily_notes_for_month', {
     rootPath,
     month,
+  });
+}
+
+export async function listInboxCaptures(
+  rootPath: string,
+  view: InboxCaptureListView,
+  query = '',
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<InboxCaptureListResult>('list_inbox_captures', {
+    rootPath,
+    view,
+    query,
+  });
+}
+
+export async function readInboxCapture(rootPath: string, captureId: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<InboxCapture>('read_inbox_capture', { rootPath, captureId });
+}
+
+export async function createInboxCapture(
+  rootPath: string,
+  body: string,
+  tags: string[],
+  source: InboxCaptureSource,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<InboxCapture>('create_inbox_capture', {
+    rootPath,
+    body,
+    tags,
+    source,
+  });
+}
+
+export async function updateInboxCapture(
+  rootPath: string,
+  captureId: string,
+  update: InboxCaptureUpdate,
+  expectedModifiedAt: number,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<InboxCapture>('update_inbox_capture', {
+    rootPath,
+    captureId,
+    update,
+    expectedModifiedAt,
+  });
+}
+
+export async function deleteInboxCapture(
+  rootPath: string,
+  captureId: string,
+  expectedModifiedAt: number,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<string>('delete_inbox_capture', {
+    rootPath,
+    captureId,
+    expectedModifiedAt,
+  });
+}
+
+export async function promoteInboxCapture(
+  rootPath: string,
+  captureId: string,
+  targetDir: string,
+  title: string,
+  expectedModifiedAt: number,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<InboxPromotionResult>('promote_inbox_capture', {
+    rootPath,
+    captureId,
+    targetDir,
+    title,
+    expectedModifiedAt,
+  });
+}
+
+export async function appendInboxCaptureToDaily(
+  rootPath: string,
+  captureId: string,
+  date: string,
+  localTime: string,
+  expectedModifiedAt: number,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<InboxDailyAppendResult>('append_inbox_capture_to_daily', {
+    rootPath,
+    captureId,
+    date,
+    localTime,
+    expectedModifiedAt,
   });
 }
 

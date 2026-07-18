@@ -69,6 +69,8 @@ import { EditorPane, type RecentWorkspaceDocument } from './editor-pane';
 import { GitDiffView } from './git-diff-view';
 import { GitLogDrawer } from './git-log-drawer';
 import { GitPanel } from './git-panel';
+import { InboxPage } from './inbox-page';
+import { InboxSidebar } from './inbox-sidebar';
 import { PinnedChromeMenu } from './pinned-chrome-menu';
 import { TerminalPanel, type TerminalTab } from './terminal-panel';
 import type {
@@ -76,6 +78,7 @@ import type {
   AiWorkspaceChangeEvent,
 } from './ai-panel-state';
 import { useWorkspace } from './use-workspace';
+import { useInboxController } from './use-inbox-controller';
 import { WorkspaceGlobalSearchDialog } from './workspace-global-search-dialog';
 import { useDocumentExport } from './use-document-export';
 import { useDocumentImport } from './use-document-import';
@@ -149,6 +152,7 @@ import type {
   AppearanceFontSettings,
   DocumentLoadState,
   DocumentSaveState,
+  DailyNoteDocument,
   DailyNoteEntry,
   GitBranchItem,
   GitCommitEntry,
@@ -173,7 +177,7 @@ type LeftPanelMode = 'workspace' | 'git';
 type BottomPanelMode = 'git-log' | 'terminal' | null;
 type GlobalSearchIndexStatus = 'error' | 'idle' | 'indexing' | 'ready';
 type ThemeMode = 'dark' | 'light' | 'system';
-type WorkspaceSystemPage = 'settings' | 'views' | null;
+type WorkspaceSystemPage = 'inbox' | 'settings' | 'views' | null;
 
 interface GlobalSearchState {
   index: WorkspaceSearchIndex | null;
@@ -365,6 +369,11 @@ export function WorkspaceLayout({
   const pageTitle = documentTitle ?? workspace.currentDirectory?.name;
   const currentDocumentPath = workspace.currentDocument?.absolutePath ?? null;
   const workspaceRootPath = workspace.snapshot?.rootPath ?? null;
+  const inbox = useInboxController({ rootPath: workspaceRootPath });
+  const loadInbox = inbox.loadList;
+  const startInboxCapture = inbox.startNewCapture;
+  const clearCurrentDocument = workspace.clearCurrentDocument;
+  const showWorkspaceSidebar = workspace.setSidebarCollapsed;
   const currentDocumentPathRef = React.useRef(currentDocumentPath);
   const documentEditorLayoutRef = React.useRef(documentEditorLayout);
   const syncExternalMarkdownDocumentRef = React.useRef(
@@ -810,6 +819,21 @@ export function WorkspaceLayout({
         return;
       }
 
+      if (
+        workspaceRootPath &&
+        (event.metaKey || event.ctrlKey) &&
+        event.shiftKey &&
+        event.key.toLowerCase() === 'i'
+      ) {
+        event.preventDefault();
+        setLeftPanelMode('workspace');
+        setSystemPage('inbox');
+        showWorkspaceSidebar(false);
+        clearCurrentDocument();
+        void startInboxCapture();
+        return;
+      }
+
       if (event.key !== 'Shift' || event.repeat) {
         return;
       }
@@ -827,7 +851,14 @@ export function WorkspaceLayout({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [globalSearchOpen, openGlobalSearch]);
+  }, [
+    globalSearchOpen,
+    clearCurrentDocument,
+    openGlobalSearch,
+    showWorkspaceSidebar,
+    startInboxCapture,
+    workspaceRootPath,
+  ]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -1792,6 +1823,64 @@ export function WorkspaceLayout({
     workspace.clearCurrentDocument();
   }, [workspace]);
 
+  const handleOpenInboxPage = React.useCallback(() => {
+    setLeftPanelMode('workspace');
+    setSystemPage('inbox');
+    showWorkspaceSidebar(false);
+    clearCurrentDocument();
+    void loadInbox();
+  }, [clearCurrentDocument, loadInbox, showWorkspaceSidebar]);
+
+  const handleInboxPromoted = React.useCallback(
+    async (node: WorkspaceNode) => {
+      await workspace.refreshWorkspaceTree();
+      await openDocumentNode(node);
+    },
+    [openDocumentNode, workspace],
+  );
+
+  const handleInboxDailyUpdated = React.useCallback(
+    (daily: DailyNoteDocument) => {
+      const today = new Date();
+      setSelectedDailyDate(formatDailyDate(today));
+      setDailyCalendarMonth(
+        new Date(today.getFullYear(), today.getMonth(), 1),
+      );
+      const syncResult = workspace.syncExternalMarkdownDocument(daily.content);
+      setEditorSessions((current) => {
+        if (!(daily.content.path in current)) return current;
+        if (
+          daily.content.path === currentDocumentPath &&
+          syncResult !== 'reloaded'
+        ) {
+          return current;
+        }
+        return {
+          ...current,
+          [daily.content.path]: {
+            documentVersion: daily.content.modifiedAt,
+            markdown: daily.content.content,
+          },
+        };
+      });
+      void workspace.refreshWorkspaceTree();
+      void loadDailyNotesForMonth(today);
+    },
+    [
+      currentDocumentPath,
+      loadDailyNotesForMonth,
+      workspace,
+    ],
+  );
+
+  const handleOpenInboxDaily = React.useCallback(
+    async (daily: DailyNoteDocument) => {
+      await workspace.refreshWorkspaceTree();
+      await openDocumentNode(daily.node);
+    },
+    [openDocumentNode, workspace],
+  );
+
   const handleToggleNodePinned = React.useCallback(
     (node: WorkspaceNode) => {
       void workspace.updateNodeState(node, { pinned: !node.pinned });
@@ -2412,6 +2501,17 @@ export function WorkspaceLayout({
                     />
                   ) : null
                 }
+                inboxContent={
+                  workspace.snapshot ? (
+                    <InboxSidebar
+                      controller={inbox}
+                      nodes={workspace.snapshot.nodes}
+                      onDailyUpdated={handleInboxDailyUpdated}
+                      onOpenDaily={(daily) => void handleOpenInboxDaily(daily)}
+                      onPromoted={(node) => void handleInboxPromoted(node)}
+                    />
+                  ) : null
+                }
                 width={leftSidebarWidth}
                 workspace={workspace}
                 onCreateDocument={handleCreateDocument}
@@ -2426,6 +2526,7 @@ export function WorkspaceLayout({
                 onOpenDailyNote={() =>
                   void handleOpenDailyNote(formatDailyDate(new Date()))
                 }
+                onOpenInbox={handleOpenInboxPage}
                 onOpenViews={handleOpenViewsPage}
                 onOpenInFileManager={handleOpenNodeInFileManager}
                 onOpenSettings={() => openSettingsPage('appearance')}
@@ -2437,7 +2538,25 @@ export function WorkspaceLayout({
                 onSelectDirectory={handleSelectWorkspaceDirectory}
                 onSelectDocument={openDocumentNode}
                 onTogglePinned={handleToggleNodePinned}
-                systemPage={systemPage === 'views' ? 'views' : null}
+                inboxActiveCount={inbox.activeCount}
+                searchPlaceholder={
+                  systemPage === 'inbox' ? '搜索 Inbox' : '搜索'
+                }
+                searchQuery={
+                  systemPage === 'inbox'
+                    ? inbox.query
+                    : workspace.searchQuery
+                }
+                onSearchQueryChange={
+                  systemPage === 'inbox'
+                    ? inbox.setQuery
+                    : workspace.setSearchQuery
+                }
+                systemPage={
+                  systemPage === 'inbox' || systemPage === 'views'
+                    ? systemPage
+                    : null
+                }
               />
             ) : workspace.isSidebarCollapsed ? null : (
               <div className="h-full shrink-0" style={{ width: leftSidebarWidth }}>
@@ -2512,7 +2631,13 @@ export function WorkspaceLayout({
 
                 <div className="flex min-h-0 flex-1 overflow-hidden">
                   <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-                    {systemPage === 'views' && workspace.snapshot ? (
+                    {systemPage === 'inbox' && workspace.snapshot ? (
+                      <InboxPage
+                        controller={inbox}
+                        pageWidthMode={pageWidthMode}
+                        rootPath={workspace.snapshot.rootPath}
+                      />
+                    ) : systemPage === 'views' && workspace.snapshot ? (
                       <WorkspaceViewsPage
                         nodes={filterRegularWorkspaceNodes(
                           workspace.snapshot.nodes,

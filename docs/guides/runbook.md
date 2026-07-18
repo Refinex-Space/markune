@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-17
+updated: 2026-07-18
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -19,6 +19,8 @@ For desktop development:
 ```bash
 pnpm desktop:dev
 ```
+
+`pnpm dev` 和 `pnpm desktop:dev` 都固定使用 `3000` 端口。不要在同一仓库同时启动二者；重复启动会直接报告端口占用。开发产物位于 `.next-dev`，因此运行开发服务时可以执行使用 `.next` 的生产构建验证，二者不会互相清理产物。
 
 ## Verification
 
@@ -72,6 +74,28 @@ python3 ~/.codex/skills/harness-init/scripts/harness_audit.py /Users/refinex/dev
 wc -l AGENTS.md
 ```
 
+## Inbox Acceptance
+
+先运行 Inbox 聚焦检查，再执行前端和 Rust 全量验证：
+
+```bash
+pnpm exec vitest run components/workspace/__tests__/inbox-utils.test.ts components/workspace/__tests__/inbox-shell.test.ts components/workspace/__tests__/inbox-sidebar.test.tsx components/workspace/__tests__/use-inbox-controller.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml inbox::tests
+cargo test --manifest-path src-tauri/Cargo.toml assets::tests::includes_inbox_markdown_but_skips_other_private_markdown
+pnpm exec tsc --noEmit
+pnpm lint
+```
+
+桌面验收至少覆盖以下流程：
+
+- 在工作区按 `Cmd/Ctrl+Shift+I` 或点击“已归档”右侧的 `+`，确认自动切换到 Inbox、展开左侧栏并聚焦右侧主编辑区；空白草稿不会创建文件，输入非空正文后自动保存，重启后 `.madora/inbox` 中的 Capture 仍可读取。
+- 确认 Inbox 激活后左侧目录树与 Daily 日历被紧凑 Capture 列表替换；左上角搜索切换为 Inbox 全状态搜索，退出 Inbox 后原文档树搜索词仍保留。
+- 确认主编辑区不显示 Inbox/Capture 标题栏和标签入口，保存状态固定显示在右下角。通过 Capture 右键菜单和行尾 `…` 完成状态、优先级、流转、归档、取消归档、重新打开和二次确认删除；切换状态后条目应立即重新分组，优先级圆点按高红、普通蓝、低灰显示。历史 `snoozedUntil` 尚未到期的 Capture 继续显示在“稍后”，右键可“恢复待处理”；当前 UI 不再提供新增 snooze。侧栏徽标始终统计所有 `open/processing`，包括历史 snoozed Capture。
+- Promote 的保存位置应以限高、内部滚动的目录树展示，支持逐级展开与按完整相对路径搜索，并排除 `Daily` 和隐藏目录。分别提升到根目录和普通子目录，确认唯一命名、创建时间、标签与 H1；Append 两次同一 Capture，Daily 的 `## Inbox` 下只能存在一个 `madora-capture:<id>` 标记。
+- 在 Daily 已打开且有未保存草稿时执行 Append，确认本地草稿不会被静默覆盖，并通过现有外部文档冲突入口显式选择版本。
+- Capture 引用本地资源后保存、删除和提升，确认资源只有在正式笔记、Daily 与其他 Capture 都不再引用时才被清理。
+- 在用户工作区执行 `git status --short -- .madora/inbox`，确认 Git 是否发现 Capture 完全遵循该工作区自身 ignore 规则；Madora 不改写 `.gitignore`。
+
 ## Codex Session Storage
 
 Madora 默认复用 `~/.codex`。检查当前 Codex 解析出的用户级目录时，使用经过脱敏的 doctor 输出，不要打印认证文件或完整报告：
@@ -99,7 +123,11 @@ test ! -d .madora/ai-sessions
 
 首次启动桌面端并打开工作区后，不先打开 AI 面板，确认 App Server 已在后台启动；随后首次展开 AI 面板时应直接显示正常的新任务界面，不出现占满会话区的“正在连接 Codex”。在核心握手尚未完成时，输入区仍可编辑，点击发送后应显示轻量准备状态，核心成功后自动继续发送；启动失败时必须保留输入内容并显示可诊断错误。
 
-分别模拟慢速或失败的 `model/list`、`thread/list` 与 `mcpServerStatus/list`，确认：核心就绪后可以使用 App Server 默认模型发送；历史页显示独立加载、重试或空状态；MCP 只在面板首次可见后发现且不会阻塞输入。折叠 AI 面板、切换到元信息面板再返回时，正在运行的 turn、草稿与线程状态必须保留；切换工作区根目录时才允许重建对应的 Codex 运行时边界。
+分别模拟慢速或失败的 `model/list`、`thread/list`、`plugin/installed` 与 `skills/list`，确认：核心就绪后可以使用 App Server 默认模型发送，历史页显示独立加载、重试或空状态，启动过程不会预取 `mcpServerStatus/list`，但会按当前工作区自动加载已安装插件和 enabled Skill。展开加号菜单应显示“文件和文件夹”、不可操作的“目标/计划模式”占位和已加载插件；插件仍在加载时显示轻量状态，失败时才提供重试且不阻塞输入。菜单必须完整位于输入框上方并与输入框保持间距。输入空白边界上的 `/` 应打开独立“技能”面板，显示统一立方体图标、名称、描述与来源，加载或失败状态只留在该面板。折叠 AI 面板、切换到元信息面板再返回时，正在运行的 turn、草稿与线程状态必须保留；切换工作区根目录时才允许重建对应的 Codex 运行时边界。
+
+使用真实安装的 Documents、PDF、Spreadsheets、Presentations 等插件检查加号菜单：本地 `composerIcon` 优先，其次使用当前明暗主题 logo，远程资源只允许 HTTPS；图标保持 `16 × 16`、完整缩放且不挤压名称和描述。切换浅色/深色主题后应使用相应资源。临时移除一个图标文件、提供错误格式或让远程图片加载失败时，只有该项降级为通用插件图标，其他插件仍可见且可插入 `plugin://{id}` mention。重新检测插件、切换工作区或重启 App Server 后，旧本地图标路径必须不可再读取。
+
+在输入框分别插入文档、插件与 Skill：三者都应显示 `16 × 16` 图标并与文字基线对齐，文档使用文件图标，插件沿用菜单中的真实明暗主题图标，Skill 使用统一立方体图标；视觉标签不显示 `@` 或 `$`。发送后检查 App Server 请求：文档仍编码为带引号相对路径，插件模型文本恢复 `@Plugin` 并带 `plugin://` mention，Skill 模型文本恢复 `$skill-name` 并带精确的原生 `skill` 输入。伪造名称、未列出的路径或收到 `skills/changed` 后沿用旧授权都必须被 Rust 拒绝。
 
 前端回归至少执行：
 

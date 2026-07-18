@@ -7,7 +7,7 @@
     "desktop:dev": "pnpm codex:stage && tauri dev",
     "codex:stage": "node scripts/stage-codex-sidecar.mjs",
     "build:desktop:web": "node scripts/build-tauri-web.mjs",
-    "dev": "pnpm import:stage && next dev",
+    "dev": "pnpm import:stage && next dev --port 3000",
     "build": "pnpm import:stage && next build",
     "import:stage": "node scripts/stage-document-import-runtime.mjs",
     "start": "next start",

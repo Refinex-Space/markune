@@ -1,4 +1,11 @@
-import { CalendarDays, RefreshCw, Search, Settings, Sheet } from 'lucide-react';
+import {
+  CalendarDays,
+  Inbox,
+  RefreshCw,
+  Search,
+  Settings,
+  Sheet,
+} from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -16,6 +23,7 @@ import type {
 
 interface WorkspaceSidebarProps {
   dailyCalendar?: ReactNode;
+  inboxContent?: ReactNode;
   width: number;
   workspace: ReturnType<typeof useWorkspace>;
   onCreateDocument?: (parentPath: string) => Promise<WorkspaceNode | null> | void;
@@ -29,6 +37,7 @@ interface WorkspaceSidebarProps {
     format: WorkspaceImportFormat,
   ) => Promise<void> | void;
   onOpenDailyNote?: () => void;
+  onOpenInbox?: () => void;
   onOpenInFileManager?: (node: WorkspaceNode) => void;
   onOpenInPreferredEditor?: (node: WorkspaceNode) => void;
   onOpenViews?: () => void;
@@ -44,11 +53,16 @@ interface WorkspaceSidebarProps {
   onSelectDirectory?: (node: WorkspaceNode) => Promise<void> | void;
   onSelectDocument?: (node: WorkspaceNode) => void;
   onTogglePinned?: (node: WorkspaceNode) => void;
-  systemPage?: 'views' | null;
+  inboxActiveCount?: number;
+  searchPlaceholder?: string;
+  searchQuery?: string;
+  onSearchQueryChange?: (query: string) => void;
+  systemPage?: 'inbox' | 'views' | null;
 }
 
 export function WorkspaceSidebar({
   dailyCalendar,
+  inboxContent,
   width,
   workspace,
   onCreateDocument,
@@ -56,6 +70,7 @@ export function WorkspaceSidebar({
   onExportNode,
   onImportDocuments,
   onOpenDailyNote,
+  onOpenInbox,
   onOpenInFileManager,
   onOpenInPreferredEditor,
   onOpenViews,
@@ -68,6 +83,10 @@ export function WorkspaceSidebar({
   onSelectDirectory,
   onSelectDocument,
   onTogglePinned,
+  inboxActiveCount = 0,
+  searchPlaceholder,
+  searchQuery,
+  onSearchQueryChange,
   systemPage = null,
 }: WorkspaceSidebarProps) {
   const createDocument = onCreateDocument ?? workspace.createDocument;
@@ -108,9 +127,12 @@ export function WorkspaceSidebar({
 
         <WorkspaceSidebarHeader
           workspace={workspace}
+          searchPlaceholder={searchPlaceholder}
+          searchQuery={searchQuery}
           onCreateDirectory={() => void workspace.createDirectory('')}
           onCreateDocument={() => void createDocument('')}
           onRemoveWorkspace={onRemoveWorkspace}
+          onSearchQueryChange={onSearchQueryChange}
         />
 
         {workspace.snapshot ? (
@@ -131,6 +153,26 @@ export function WorkspaceSidebar({
               <span className="truncate">日程</span>
             </button>
             <button
+              aria-current={systemPage === 'inbox' ? 'page' : undefined}
+              className={cn(
+                'mt-1 flex h-8 w-[calc(100%-0.75rem)] items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors',
+                systemPage === 'inbox'
+                  ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                  : 'text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-accent-foreground',
+              )}
+              data-testid="inbox-entry"
+              type="button"
+              onClick={onOpenInbox}
+            >
+              <Inbox size={15} strokeWidth={1.75} />
+              <span className="truncate">Inbox</span>
+              {inboxActiveCount > 0 ? (
+                <span className="ml-auto min-w-5 px-1.5 text-center text-[10px] font-medium leading-5 text-sidebar-foreground/55 tabular-nums">
+                  {inboxActiveCount > 99 ? '99+' : inboxActiveCount}
+                </span>
+              ) : null}
+            </button>
+            <button
               aria-current={systemPage === 'views' ? 'page' : undefined}
               className={cn(
                 'mt-1 flex h-8 w-[calc(100%-0.75rem)] items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors',
@@ -149,10 +191,17 @@ export function WorkspaceSidebar({
         ) : null}
 
         <div
-          className="workspace-tree-scrollarea min-h-0 flex-1 overflow-y-auto px-2 pb-3"
+          className={cn(
+            'workspace-tree-scrollarea min-h-0 flex-1',
+            systemPage === 'inbox'
+              ? 'overflow-hidden'
+              : 'overflow-y-auto px-2 pb-3',
+          )}
           data-workspace-tree-scroll-container="true"
         >
-          {workspace.snapshot ? (
+          {workspace.snapshot && systemPage === 'inbox' ? (
+            inboxContent
+          ) : workspace.snapshot ? (
             <DocumentTree
               currentDirectoryPath={
                 workspace.currentDirectory?.absolutePath ?? null
@@ -199,7 +248,7 @@ export function WorkspaceSidebar({
           </footer>
         ) : null}
 
-        {dailyCalendar}
+        {systemPage === 'inbox' ? null : dailyCalendar}
 
         {onOpenSettings ? (
           <footer className="shrink-0 px-2 py-2">
@@ -221,18 +270,27 @@ export function WorkspaceSidebar({
 
 function WorkspaceSidebarHeader({
   workspace,
+  searchPlaceholder,
+  searchQuery,
   onCreateDirectory,
   onCreateDocument,
   onRemoveWorkspace,
+  onSearchQueryChange,
 }: {
   workspace: ReturnType<typeof useWorkspace>;
+  searchPlaceholder?: string;
+  searchQuery?: string;
   onCreateDirectory: () => void;
   onCreateDocument: () => void;
   onRemoveWorkspace?: (rootPath: string) => void;
+  onSearchQueryChange?: (query: string) => void;
 }) {
   const [searchExpanded, setSearchExpanded] = useState(false);
   const searchRootRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const activeSearchQuery = searchQuery ?? workspace.searchQuery;
+  const setActiveSearchQuery =
+    onSearchQueryChange ?? workspace.setSearchQuery;
 
   useEffect(() => {
     if (!searchExpanded) {
@@ -284,7 +342,7 @@ function WorkspaceSidebarHeader({
           aria-label="展开侧边栏搜索"
           className={cn(
             'flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-            workspace.searchQuery.trim().length > 0 &&
+            activeSearchQuery.trim().length > 0 &&
               'bg-sidebar-accent/80 text-sidebar-accent-foreground',
             searchExpanded && 'opacity-0',
           )}
@@ -313,12 +371,12 @@ function WorkspaceSidebarHeader({
             />
             <input
               ref={searchInputRef}
-              aria-label="搜索"
+              aria-label={searchPlaceholder ?? '搜索'}
               className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-              placeholder="搜索"
+              placeholder={searchPlaceholder ?? '搜索'}
               role="searchbox"
-              value={workspace.searchQuery}
-              onChange={(event) => workspace.setSearchQuery(event.target.value)}
+              value={activeSearchQuery}
+              onChange={(event) => setActiveSearchQuery(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Escape') {
                   event.preventDefault();

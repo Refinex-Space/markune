@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const bridge = vi.hoisted(() => ({
   listen: vi.fn(),
+  readPluginIcon: vi.fn(),
   rejectPending: vi.fn(),
   request: vi.fn(),
   start: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock('../codex-app-server', async (importOriginal) => {
       subscribe: bridge.subscribe,
     },
     listenCodexEventsUntilDisposed: bridge.listen,
+    readCodexPluginIcon: bridge.readPluginIcon,
     startCodexRuntime: bridge.start,
   };
 });
@@ -56,6 +58,8 @@ const runtime = {
   message: null,
 };
 
+let protocolSubscriber: ((message: { method?: string }) => void) | null = null;
+
 function defaultResponse(method: string) {
   if (method === 'account/read') {
     return {
@@ -80,6 +84,23 @@ function defaultResponse(method: string) {
   }
   if (method === 'experimentalFeature/list') {
     return { data: [], nextCursor: null };
+  }
+  if (method === 'plugin/installed') {
+    return {
+      marketplaces: [],
+      marketplaceLoadErrors: [],
+    };
+  }
+  if (method === 'skills/list') {
+    return {
+      data: [
+        {
+          cwd: '/workspace',
+          errors: [],
+          skills: [],
+        },
+      ],
+    };
   }
   if (method === 'thread/start') {
     return {
@@ -115,7 +136,6 @@ function deferred<T>() {
 }
 
 function renderPanel(
-  visible: boolean,
   onBeforeTurnStart = vi.fn().mockResolvedValue(true),
   currentDocument = null as typeof activeDocument | null,
 ) {
@@ -123,7 +143,6 @@ function renderPanel(
     <AiPanel
       currentDocument={currentDocument}
       documents={[]}
-      visible={visible}
       workspaceRootPath="/workspace"
       onBeforeTurnStart={onBeforeTurnStart}
       onOpenDocument={vi.fn()}
@@ -134,54 +153,245 @@ function renderPanel(
 
 beforeEach(() => {
   bridge.listen.mockReset().mockResolvedValue(vi.fn());
+  bridge.readPluginIcon.mockReset();
   bridge.rejectPending.mockReset();
   bridge.start.mockReset().mockResolvedValue(runtime);
-  bridge.subscribe.mockReset().mockReturnValue(vi.fn());
+  protocolSubscriber = null;
+  bridge.subscribe.mockReset().mockImplementation((subscriber) => {
+    protocolSubscriber = subscriber;
+    return vi.fn();
+  });
   bridge.request.mockReset().mockImplementation((method: string) =>
     Promise.resolve(defaultResponse(method)),
   );
 });
 
 describe('AI panel startup lifecycle', () => {
-  it('后台完成核心握手且只在面板可见后发现 MCP', async () => {
-    const mcp = deferred<{ data: [] }>();
-    bridge.request.mockImplementation((method: string) =>
-      method === 'mcpServerStatus/list'
-        ? mcp.promise
-        : Promise.resolve(defaultResponse(method)),
-    );
-    const view = renderPanel(false);
+  it('后台完成核心握手、自动加载插件与 Skill 且不预取 MCP 状态', async () => {
+    renderPanel();
 
     await waitFor(() => expect(bridge.start).toHaveBeenCalledWith('/workspace'));
     await waitFor(() =>
       expect(screen.queryByText('正在准备')).toBeNull(),
+    );
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith('plugin/installed', {
+        cwds: ['/workspace'],
+        installSuggestionPluginNames: [],
+      }),
+    );
+    expect(
+      bridge.request.mock.calls.filter(
+        ([method]) => method === 'plugin/installed',
+      ),
+    ).toHaveLength(1);
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith('skills/list', {
+        cwds: ['/workspace'],
+        forceReload: false,
+      }),
     );
     expect(bridge.request).not.toHaveBeenCalledWith(
       'mcpServerStatus/list',
       expect.anything(),
     );
     expect(screen.queryByText('正在连接 Codex')).toBeNull();
+    expect(screen.getByRole('textbox', { name: '向 Codex 提问' })).toBeTruthy();
+  });
 
-    view.rerender(
-      <AiPanel
-        currentDocument={null}
-        documents={[]}
-        visible
-        workspaceRootPath="/workspace"
-        onBeforeTurnStart={vi.fn().mockResolvedValue(true)}
-        onOpenDocument={vi.fn()}
-        onWorkspaceChanged={vi.fn()}
-      />,
-    );
+  it('收到 skills/changed 后强制刷新当前工作区技能', async () => {
+    renderPanel();
 
     await waitFor(() =>
-      expect(bridge.request).toHaveBeenCalledWith('mcpServerStatus/list', {
-        detail: 'toolsAndAuthOnly',
-        limit: 100,
+      expect(bridge.request).toHaveBeenCalledWith('skills/list', {
+        cwds: ['/workspace'],
+        forceReload: false,
       }),
     );
-    expect(screen.getByRole('textbox', { name: '向 Codex 提问' })).toBeTruthy();
-    mcp.resolve({ data: [] });
+    protocolSubscriber?.({ method: 'skills/changed' });
+
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith('skills/list', {
+        cwds: ['/workspace'],
+        forceReload: true,
+      }),
+    );
+  });
+
+  it('从斜杠面板选择 Skill 后发送协议要求的文本令牌和原生输入', async () => {
+    const user = userEvent.setup();
+    bridge.request.mockImplementation((method: string) =>
+      Promise.resolve(
+        method === 'skills/list'
+          ? {
+              data: [
+                {
+                  cwd: '/workspace',
+                  errors: [],
+                  skills: [
+                    {
+                      description: 'Internal prototype QA comparison',
+                      enabled: true,
+                      interface: {
+                        displayName: 'Design QA',
+                        shortDescription: 'Compare implementation against a visual source',
+                      },
+                      name: 'design-qa',
+                      path: '/Users/example/.codex/skills/design-qa/SKILL.md',
+                      scope: 'user',
+                      shortDescription: null,
+                    },
+                  ],
+                },
+              ],
+            }
+          : defaultResponse(method),
+      ),
+    );
+    renderPanel();
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '/Design');
+    await user.click(
+      await screen.findByRole('option', { name: /Design QA/ }),
+    );
+    await user.type(editor, '检查页面');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith(
+        'turn/start',
+        expect.objectContaining({
+          input: [
+            expect.objectContaining({
+              type: 'text',
+              text: '$design-qa 检查页面',
+            }),
+            {
+              type: 'skill',
+              name: 'design-qa',
+              path: '/Users/example/.codex/skills/design-qa/SKILL.md',
+            },
+          ],
+        }),
+      ),
+    );
+  });
+
+  it('读取 App Server 授权的本地图标并保留明暗主题资源', async () => {
+    const user = userEvent.setup();
+    bridge.readPluginIcon.mockImplementation((path: string) =>
+      Promise.resolve({
+        base64Data: path.endsWith('dark.png') ? 'ZGFyaw==' : 'bGlnaHQ=',
+        mediaType: 'image/png',
+      }),
+    );
+    bridge.request.mockImplementation((method: string) =>
+      Promise.resolve(
+        method === 'plugin/installed'
+          ? {
+              marketplaces: [
+                {
+                  name: 'OpenAI',
+                  plugins: [
+                    {
+                      availability: 'AVAILABLE',
+                      enabled: true,
+                      id: 'documents',
+                      installed: true,
+                      interface: {
+                        brandColor: '#3574f0',
+                        composerIcon: null,
+                        composerIconUrl: null,
+                        displayName: 'Documents',
+                        logo: '/icons/documents.png',
+                        logoDark: '/icons/documents-dark.png',
+                        logoUrl: null,
+                        logoUrlDark: null,
+                        shortDescription: 'Create and edit documents',
+                      },
+                      name: 'documents',
+                    },
+                  ],
+                },
+              ],
+              marketplaceLoadErrors: [],
+            }
+          : defaultResponse(method),
+      ),
+    );
+    renderPanel();
+
+    await waitFor(() => expect(bridge.readPluginIcon).toHaveBeenCalledTimes(2));
+    await user.click(screen.getByRole('button', { name: '添加上下文与工具' }));
+
+    const item = screen.getByText('Documents').closest('[role="menuitem"]');
+    const images = item?.querySelectorAll('img');
+    expect(images).toHaveLength(2);
+    expect(images?.[0]?.getAttribute('src')).toBe('data:image/png;base64,bGlnaHQ=');
+    expect(images?.[1]?.getAttribute('src')).toBe('data:image/png;base64,ZGFyaw==');
+  });
+
+  it('单个本地图标读取失败时继续展示插件并降级到安全的 HTTPS 图标', async () => {
+    const user = userEvent.setup();
+    bridge.readPluginIcon.mockRejectedValue(new Error('icon unavailable'));
+    bridge.request.mockImplementation((method: string) =>
+      Promise.resolve(
+        method === 'plugin/installed'
+          ? {
+              marketplaces: [
+                {
+                  name: 'OpenAI',
+                  plugins: [
+                    {
+                      availability: 'AVAILABLE',
+                      enabled: true,
+                      id: 'browser',
+                      installed: true,
+                      interface: {
+                        composerIcon: '/icons/browser.png',
+                        composerIconUrl: 'https://example.com/browser.png',
+                        displayName: 'Browser',
+                        shortDescription: 'Control the browser',
+                      },
+                      name: 'browser',
+                    },
+                    {
+                      availability: 'AVAILABLE',
+                      enabled: true,
+                      id: 'unsafe-icon',
+                      installed: true,
+                      interface: {
+                        composerIcon: null,
+                        composerIconUrl: 'http://example.com/unsafe.png',
+                        displayName: 'Unsafe Icon',
+                        shortDescription: null,
+                      },
+                      name: 'unsafe-icon',
+                    },
+                  ],
+                },
+              ],
+              marketplaceLoadErrors: [],
+            }
+          : defaultResponse(method),
+      ),
+    );
+    renderPanel();
+
+    await waitFor(() => expect(bridge.readPluginIcon).toHaveBeenCalledOnce());
+    await user.click(screen.getByRole('button', { name: '添加上下文与工具' }));
+
+    const browserItem = screen.getByText('Browser').closest('[role="menuitem"]');
+    expect(browserItem?.querySelector('img')?.getAttribute('src')).toBe(
+      'https://example.com/browser.png',
+    );
+    expect(screen.getByText('Unsafe Icon')).toBeTruthy();
+    expect(
+      screen.getByText('Unsafe Icon').closest('[role="menuitem"]')?.querySelector('img'),
+    ).toBeNull();
   });
 
   it('用户在核心初始化完成前发送时等待就绪并继续提交', async () => {
@@ -193,7 +403,7 @@ describe('AI panel startup lifecycle', () => {
         ? account.promise
         : Promise.resolve(defaultResponse(method)),
     );
-    renderPanel(true, onBeforeTurnStart);
+    renderPanel(onBeforeTurnStart);
 
     const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
     await user.click(editor);
@@ -221,7 +431,7 @@ describe('AI panel startup lifecycle', () => {
       if (method === 'thread/list') return history.promise;
       return Promise.resolve(defaultResponse(method));
     });
-    renderPanel(true);
+    renderPanel();
 
     await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
     const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
@@ -251,7 +461,7 @@ describe('AI panel startup lifecycle', () => {
 
   it('每个 turn 把编辑器活跃文档标记为独立上下文角色', async () => {
     const user = userEvent.setup();
-    renderPanel(true, vi.fn().mockResolvedValue(true), activeDocument);
+    renderPanel(vi.fn().mockResolvedValue(true), activeDocument);
 
     await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
     const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
@@ -305,7 +515,7 @@ describe('AI panel startup lifecycle', () => {
         return Promise.resolve(defaultResponse(method));
       },
     );
-    const view = renderPanel(false);
+    const view = renderPanel();
 
     await waitFor(() =>
       expect(bridge.request).toHaveBeenCalledWith(
@@ -317,7 +527,6 @@ describe('AI panel startup lifecycle', () => {
       <AiPanel
         currentDocument={null}
         documents={[]}
-        visible={false}
         workspaceRootPath="/workspace-2"
         onBeforeTurnStart={vi.fn().mockResolvedValue(true)}
         onOpenDocument={vi.fn()}

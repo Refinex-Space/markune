@@ -11,21 +11,28 @@ import {
   ArrowUp,
   Blocks,
   Bot,
+  Box,
   Check,
   ChevronDown,
   ChevronRight,
   Circle,
   CircleX,
   Eye,
+  File,
+  FolderOpen,
   FilePenLine,
   FileText,
   Globe2,
+  Goal,
   Hand,
   History,
   LoaderCircle,
+  ListChecks,
   MessageSquareText,
   MoreHorizontal,
+  Paperclip,
   Plus,
+  Puzzle,
   Search,
   SearchCode,
   ShieldCheck,
@@ -47,6 +54,9 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -59,18 +69,25 @@ import { cn } from '@/lib/utils';
 import {
   codexAppServerClient,
   listenCodexEventsUntilDisposed,
+  readCodexPluginIcon,
+  releaseCodexContextAttachments,
   respondToCodexApproval,
+  selectCodexContextAttachments,
   startCodexRuntime,
   type CodexAccountResponse,
   type CodexApprovalPolicy,
   type CodexApprovalsReviewer,
   type CodexConfigRequirementsResponse,
+  type CodexContextAttachment,
   type CodexExperimentalFeatureListResponse,
   type CodexModel,
   type CodexModelListResponse,
   type CodexPermissionProfileListResponse,
   type CodexPermissionProfileSummary,
+  type CodexPluginInstalledResponse,
   type CodexReasoningEffort,
+  type CodexSkillScope,
+  type CodexSkillsListResponse,
   type CodexThread,
   type CodexThreadListResponse,
   type CodexThreadPermissionSettings,
@@ -78,7 +95,7 @@ import {
 import {
   conversationFromThread,
   buildConversationBlocks,
-  createDocumentAwareUserInput,
+  createComposerAwareUserInput,
   createThreadTitle,
   createEmptyConversation,
   getOutputPreviewLines,
@@ -92,13 +109,17 @@ import {
   type AiConversationEntry,
   type AiConversationState,
   type AiFileChange,
+  type AiMessageAttachment,
   type AiMessageMention,
+  type AiPluginInputMention,
+  type AiSkillInputMention,
   type AiTraceBlock,
   type AiTimelineItem,
   type AiWorkspaceChangeEvent,
 } from './ai-panel-state';
 import {
   findMentionToken,
+  findSkillToken,
   mentionMatchIndices,
   rankMentionDocuments,
 } from './ai-mention-search';
@@ -111,13 +132,13 @@ import type { WorkspaceNode } from './workspace-types';
 interface AiPanelProps {
   currentDocument: WorkspaceNode | null;
   documents: AiDocumentReference[];
-  visible: boolean;
   workspaceRootPath: string | null;
   onBeforeTurnStart: () => Promise<boolean>;
   onOpenDocument: (documentPath: string) => void;
   onWorkspaceChanged: (
     event: AiWorkspaceChangeEvent,
   ) => void | Promise<void>;
+  visible?: boolean;
 }
 
 type AiDocumentReference = Pick<
@@ -125,16 +146,55 @@ type AiDocumentReference = Pick<
   'absolutePath' | 'id' | 'name' | 'relativePath' | 'title'
 >;
 
-type AiComposerMention = AiDocumentReference & AiMessageMention;
+type AiComposerDocumentMention = AiDocumentReference &
+  AiMessageMention & { kind: 'document' };
+
+type AiComposerPluginMention = AiPluginInputMention & {
+  description: string | null;
+  id: string;
+};
+
+type AiComposerSkillMention = AiSkillInputMention & {
+  description: string;
+  displayName: string;
+  scope: CodexSkillScope;
+};
+
+type AiComposerMention =
+  | AiComposerDocumentMention
+  | AiComposerPluginMention
+  | AiComposerSkillMention;
+
+interface AiPluginMentionOption {
+  description: string | null;
+  darkIconUrl?: string | null;
+  displayName: string;
+  id: string;
+  iconUrl?: string | null;
+  mentionPath: string;
+}
+
+interface AiSkillMentionOption {
+  description: string;
+  displayName: string;
+  name: string;
+  path: string;
+  scope: CodexSkillScope;
+}
+
+type CodexPluginInterface = NonNullable<
+  CodexPluginInstalledResponse['marketplaces'][number]['plugins'][number]['interface']
+>;
 
 interface ComposerMentionTarget {
+  kind: 'document' | 'skill';
   key: string;
   query: string;
   range: Range;
 }
 
 const mentionLinkClassName =
-  'mx-0.5 inline cursor-pointer select-none rounded-sm border-0 bg-transparent p-0 align-baseline font-[inherit] text-[#3574f0] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3574f0]/35';
+  'mx-0.5 inline-flex cursor-pointer select-none items-center gap-1.5 rounded-sm border-0 bg-transparent p-0 align-middle font-sans text-[#3574f0] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3574f0]/35';
 
 type PanelView = 'chat' | 'history';
 type RuntimeStatus = 'error' | 'loading' | 'ready' | 'web';
@@ -160,10 +220,6 @@ interface LoginResponse {
   type: string;
   authUrl?: string;
   verificationUrl?: string;
-}
-
-interface McpListResponse {
-  data: Array<{ name: string }>;
 }
 
 const STARTER_PROMPTS = [
@@ -290,7 +346,6 @@ function permissionModeLabel(mode: PermissionModeId) {
 export function AiPanel({
   currentDocument,
   documents,
-  visible,
   workspaceRootPath,
   onBeforeTurnStart,
   onOpenDocument,
@@ -300,7 +355,6 @@ export function AiPanel({
   const [runtimeStatus, setRuntimeStatus] =
     React.useState<RuntimeStatus>('loading');
   const [runtimeError, setRuntimeError] = React.useState<string | null>(null);
-  const [runtimeVersion, setRuntimeVersion] = React.useState<string | null>(null);
   const [account, setAccount] = React.useState<CodexAccountResponse['account']>(null);
   const [authRequired, setAuthRequired] = React.useState(false);
   const [models, setModels] = React.useState<CodexModel[]>([]);
@@ -315,9 +369,6 @@ export function AiPanel({
   const [conversation, setConversation] = React.useState<AiConversationState>(
     createEmptyConversation,
   );
-  const [mcpServerCount, setMcpServerCount] = React.useState(0);
-  const [mcpStatus, setMcpStatus] =
-    React.useState<ControlLoadStatus>('idle');
   const [permissionProfiles, setPermissionProfiles] = React.useState<
     CodexPermissionProfileSummary[]
   >([]);
@@ -333,6 +384,22 @@ export function AiPanel({
   const [composerValue, setComposerValue] = React.useState('');
   const [selectedMentions, setSelectedMentions] = React.useState<
     AiComposerMention[]
+  >([]);
+  const [selectedAttachments, setSelectedAttachments] = React.useState<
+    CodexContextAttachment[]
+  >([]);
+  const [pluginStatus, setPluginStatus] =
+    React.useState<ControlLoadStatus>('idle');
+  const [pluginOptions, setPluginOptions] = React.useState<
+    AiPluginMentionOption[]
+  >([]);
+  const [pluginLoadWarning, setPluginLoadWarning] = React.useState<string | null>(
+    null,
+  );
+  const [skillStatus, setSkillStatus] =
+    React.useState<ControlLoadStatus>('idle');
+  const [skillOptions, setSkillOptions] = React.useState<
+    AiSkillMentionOption[]
   >([]);
   const [mentionQuery, setMentionQuery] = React.useState<string | null>(null);
   const [historyQuery, setHistoryQuery] = React.useState('');
@@ -350,6 +417,9 @@ export function AiPanel({
   const permissionSettingsRef = React.useRef(DEFAULT_PERMISSION_SETTINGS);
   const submittingRef = React.useRef(false);
   const runtimeGenerationRef = React.useRef(0);
+  const pluginLoadGenerationRef = React.useRef<number | null>(null);
+  const skillLoadRequestRef = React.useRef(0);
+  const selectedAttachmentsRef = React.useRef<CodexContextAttachment[]>([]);
 
   React.useEffect(() => {
     activeThreadIdRef.current = activeThread?.id ?? null;
@@ -375,6 +445,10 @@ export function AiPanel({
     permissionSettingsRef.current = permissionSettings;
   }, [permissionSettings]);
 
+  React.useEffect(() => {
+    selectedAttachmentsRef.current = selectedAttachments;
+  }, [selectedAttachments]);
+
   const applyThreadName = React.useCallback((threadId: string, name: string) => {
     setActiveThread((current) =>
       current?.id === threadId ? { ...current, name } : current,
@@ -388,7 +462,9 @@ export function AiPanel({
 
   const filteredMentionDocuments = React.useMemo(() => {
     const excludedPaths = new Set(
-      selectedMentions.map((document) => document.absolutePath),
+      selectedMentions
+        .filter(isDocumentComposerMention)
+        .map((document) => document.absolutePath),
     );
     if (currentDocument?.absolutePath) {
       excludedPaths.add(currentDocument.absolutePath);
@@ -545,28 +621,162 @@ export function AiPanel({
     }
   }, [workspaceRootPath]);
 
-  const loadMcpStatus = React.useCallback(async (
+  const detectInstalledPlugins = React.useCallback(async (
     generation = runtimeGenerationRef.current,
   ) => {
-    if (generation !== runtimeGenerationRef.current) return;
-    setMcpStatus('loading');
+    if (
+      !workspaceRootPath ||
+      runtimeStatusRef.current !== 'ready' ||
+      generation !== runtimeGenerationRef.current ||
+      pluginLoadGenerationRef.current === generation
+    ) {
+      return;
+    }
+    pluginLoadGenerationRef.current = generation;
+    setPluginStatus('loading');
+    setPluginLoadWarning(null);
     try {
-      const response = await codexAppServerClient.request<McpListResponse>(
-        'mcpServerStatus/list',
-        { detail: 'toolsAndAuthOnly', limit: 100 },
+      const response =
+        await codexAppServerClient.request<CodexPluginInstalledResponse>(
+          'plugin/installed',
+          {
+            cwds: [workspaceRootPath],
+            installSuggestionPluginNames: [],
+          },
+        );
+      if (generation !== runtimeGenerationRef.current) return;
+      const localIconCache = new Map<string, Promise<string | null>>();
+      const options = await Promise.all(
+        response.marketplaces.flatMap((marketplace) =>
+          marketplace.plugins
+            .filter(
+              (plugin) =>
+                plugin.installed &&
+                plugin.enabled &&
+                plugin.availability !== 'DISABLED_BY_ADMIN',
+            )
+            .map(async (plugin) => {
+              const [iconUrl, darkIconUrl] = await Promise.all([
+                resolvePluginIconUrl(plugin.interface, 'light', localIconCache),
+                resolvePluginIconUrl(plugin.interface, 'dark', localIconCache),
+              ]);
+              return {
+                darkIconUrl,
+                description:
+                  plugin.interface?.shortDescription?.trim() || marketplace.name,
+                displayName:
+                  plugin.interface?.displayName?.trim() || plugin.name,
+                iconUrl,
+                id: plugin.id,
+                mentionPath: `plugin://${plugin.id}`,
+              };
+            }),
+        ),
       );
       if (generation !== runtimeGenerationRef.current) return;
-      setMcpServerCount(response.data.length);
-      setMcpStatus('ready');
+      setPluginOptions(uniquePluginOptions(options));
+      setPluginLoadWarning(
+        response.marketplaceLoadErrors.length > 0
+          ? '部分插件来源暂时无法读取。'
+          : null,
+      );
+      setPluginStatus('ready');
     } catch {
       if (generation !== runtimeGenerationRef.current) return;
-      setMcpStatus('error');
+      pluginLoadGenerationRef.current = null;
+      setPluginStatus('error');
     }
+  }, [workspaceRootPath]);
+
+  const loadSkills = React.useCallback(async (
+    generation = runtimeGenerationRef.current,
+    forceReload = false,
+  ) => {
+    if (
+      !workspaceRootPath ||
+      runtimeStatusRef.current !== 'ready' ||
+      generation !== runtimeGenerationRef.current
+    ) {
+      return;
+    }
+    const requestId = skillLoadRequestRef.current + 1;
+    skillLoadRequestRef.current = requestId;
+    setSkillStatus('loading');
+    try {
+      const response = await codexAppServerClient.request<CodexSkillsListResponse>(
+        'skills/list',
+        { cwds: [workspaceRootPath], forceReload },
+      );
+      if (
+        generation !== runtimeGenerationRef.current ||
+        requestId !== skillLoadRequestRef.current
+      ) {
+        return;
+      }
+      setSkillOptions(
+        uniqueSkillOptions(
+          response.data.flatMap((entry) =>
+            entry.skills
+              .filter((skill) => skill.enabled)
+              .map((skill) => ({
+                description:
+                  skill.interface?.shortDescription?.trim() ||
+                  skill.shortDescription?.trim() ||
+                  skill.description,
+                displayName:
+                  skill.interface?.displayName?.trim() ||
+                  formatSkillDisplayName(skill.name),
+                name: skill.name,
+                path: skill.path,
+                scope: skill.scope,
+              })),
+          ),
+        ),
+      );
+      setSkillStatus('ready');
+    } catch {
+      if (
+        generation !== runtimeGenerationRef.current ||
+        requestId !== skillLoadRequestRef.current
+      ) {
+        return;
+      }
+      setSkillStatus('error');
+    }
+  }, [workspaceRootPath]);
+
+  const selectContextAttachments = React.useCallback(
+    async (kind: CodexContextAttachment['kind']) => {
+      const remaining = 20 - selectedAttachments.length;
+      if (remaining <= 0) {
+        setRuntimeError('最多附加 20 个文件或文件夹。');
+        return;
+      }
+      try {
+        const selected = await selectCodexContextAttachments(kind, remaining);
+        if (!selected) return;
+        setSelectedAttachments((current) =>
+          uniqueContextAttachments([...current, ...selected]).slice(0, 20),
+        );
+      } catch (error) {
+        setRuntimeError(getErrorMessage(error));
+      }
+    },
+    [selectedAttachments.length],
+  );
+
+  const removeContextAttachment = React.useCallback((attachmentId: string) => {
+    setSelectedAttachments((current) =>
+      current.filter((attachment) => attachment.attachmentId !== attachmentId),
+    );
+    void releaseCodexContextAttachments([attachmentId]).catch(() => undefined);
   }, []);
 
   React.useEffect(() => {
     const generation = runtimeGenerationRef.current + 1;
     runtimeGenerationRef.current = generation;
+    pluginLoadGenerationRef.current = null;
+    skillLoadRequestRef.current += 1;
     const nextRuntimeStatus: RuntimeStatus = !workspaceRootPath
       ? 'error'
       : !isTauriRuntime()
@@ -584,13 +794,23 @@ export function AiPanel({
       activeThreadIdRef.current = null;
       setConversation(createEmptyConversation());
       setSelectedMentions([]);
+      void releaseCodexContextAttachments(
+        selectedAttachmentsRef.current.map(
+          (attachment) => attachment.attachmentId,
+        ),
+      ).catch(() => undefined);
+      selectedAttachmentsRef.current = [];
+      setSelectedAttachments([]);
       setComposerValue('');
       permissionSettingsRef.current = DEFAULT_PERMISSION_SETTINGS;
       setPermissionSettings(DEFAULT_PERMISSION_SETTINGS);
       setModelCatalogStatus('idle');
       setThreadListStatus('idle');
-      setMcpStatus('idle');
-      setMcpServerCount(0);
+      setPluginStatus('idle');
+      setPluginOptions([]);
+      setPluginLoadWarning(null);
+      setSkillStatus('idle');
+      setSkillOptions([]);
     });
     if (!workspaceRootPath) {
       return;
@@ -632,9 +852,15 @@ export function AiPanel({
             Promise.allSettled([
               loadModelCatalog(generation),
               loadThreadHistory(generation),
+              detectInstalledPlugins(generation),
+              loadSkills(generation),
             ]),
           )
           .catch(() => undefined);
+      }
+
+      if (message.method === 'skills/changed') {
+        void loadSkills(generation, true);
       }
 
       const workspaceChange = workspaceChangeEventFromProtocolMessage(
@@ -666,15 +892,16 @@ export function AiPanel({
       );
       if (!activeUnlisten) return;
       unlisten = activeUnlisten;
-      const runtime = await startCodexRuntime(workspaceRootPath);
+      await startCodexRuntime(workspaceRootPath);
       if (disposed) return;
-      setRuntimeVersion(runtime.version);
       await loadCoreControlData(generation);
       if (disposed) return;
       runtimeStatusRef.current = 'ready';
       setRuntimeStatus('ready');
       void loadModelCatalog(generation);
       void loadThreadHistory(generation);
+      void detectInstalledPlugins(generation);
+      void loadSkills(generation);
     })();
     runtimeReadyPromiseRef.current = bootstrap;
 
@@ -700,24 +927,22 @@ export function AiPanel({
     };
   }, [
     applyThreadName,
+    detectInstalledPlugins,
     loadCoreControlData,
     loadModelCatalog,
+    loadSkills,
     loadThreadHistory,
     workspaceRootPath,
   ]);
 
-  React.useEffect(() => {
-    if (!visible || runtimeStatus !== 'ready' || mcpStatus !== 'idle') return;
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (!cancelled) void loadMcpStatus();
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [loadMcpStatus, mcpStatus, runtimeStatus, visible]);
-
   const startNewChat = React.useCallback(() => {
+    void releaseCodexContextAttachments(
+      selectedAttachmentsRef.current.map(
+        (attachment) => attachment.attachmentId,
+      ),
+    ).catch(() => undefined);
+    selectedAttachmentsRef.current = [];
+    setSelectedAttachments([]);
     setActiveThread(null);
     activeThreadIdRef.current = null;
     setConversation(createEmptyConversation());
@@ -729,6 +954,15 @@ export function AiPanel({
   }, []);
 
   const openThread = React.useCallback(async (thread: CodexThread) => {
+    void releaseCodexContextAttachments(
+      selectedAttachmentsRef.current.map(
+        (attachment) => attachment.attachmentId,
+      ),
+    ).catch(() => undefined);
+    selectedAttachmentsRef.current = [];
+    setSelectedAttachments([]);
+    setSelectedMentions([]);
+    setComposerValue('');
     setRuntimeError(null);
     setView('chat');
     try {
@@ -776,7 +1010,15 @@ export function AiPanel({
   const sendMessage = React.useCallback(
     async (messageOverride?: string) => {
       const text = (messageOverride ?? composerValue).trim();
-      if (!text || !workspaceRootPath || submittingRef.current) return;
+      const attachments = selectedAttachmentsRef.current;
+      let attachmentGrantsDetached = false;
+      if (
+        (!text && attachments.length === 0) ||
+        !workspaceRootPath ||
+        submittingRef.current
+      ) {
+        return;
+      }
 
       submittingRef.current = true;
       setSubmitting(true);
@@ -801,16 +1043,33 @@ export function AiPanel({
           throw new Error('当前文档保存失败，未发送消息。请先处理保存错误。');
         }
 
-        const explicitDocuments = uniqueDocuments(selectedMentions).filter(
+        const documentMentions = selectedMentions.filter(
+          isDocumentComposerMention,
+        );
+        const pluginMentions = selectedMentions.filter(
+          isPluginComposerMention,
+        );
+        const skillMentions = selectedMentions.filter(
+          isSkillComposerMention,
+        );
+        const explicitDocuments = uniqueDocuments(documentMentions).filter(
           (document) =>
             document.absolutePath !== currentDocument?.absolutePath,
         );
-        const userInput = createDocumentAwareUserInput(text, selectedMentions);
+        const userInput = createComposerAwareUserInput(
+          text,
+          documentMentions,
+          pluginMentions,
+          skillMentions,
+        );
         const currentPermissionSettings = permissionSettingsRef.current;
         const currentModel = selectedModelRef.current;
         const currentEffort = effortRef.current;
         setComposerValue('');
         setSelectedMentions([]);
+        selectedAttachmentsRef.current = [];
+        setSelectedAttachments([]);
+        attachmentGrantsDetached = true;
         setMentionQuery(null);
         setFollowLatestRequest((current) => current + 1);
         const clientMessageId = `madora-${Date.now()}`;
@@ -819,10 +1078,15 @@ export function AiPanel({
           entries: [
             ...current.entries,
             {
+              attachments: attachments.map((attachment) => ({
+                kind: attachment.isImage ? 'image' : attachment.kind,
+                name: attachment.name,
+              })),
               type: 'message',
               id: clientMessageId,
-              mentions: selectedMentions.map(({ end, label, path, start }) => ({
+              mentions: selectedMentions.map(({ end, kind, label, path, start }) => ({
                 end,
+                kind,
                 label,
                 path,
                 start,
@@ -849,7 +1113,9 @@ export function AiPanel({
                 runtimeWorkspaceRoots: [workspaceRootPath],
               },
             );
-          const threadTitle = createThreadTitle(text);
+          const threadTitle = createThreadTitle(
+            text || attachments.map((attachment) => attachment.name).join('、'),
+          );
           thread = { ...response.thread, name: threadTitle };
           setActiveThread(thread);
           activeThreadIdRef.current = thread.id;
@@ -871,12 +1137,29 @@ export function AiPanel({
             threadId: thread.id,
             clientUserMessageId: clientMessageId,
             input: [
-              {
-                type: 'text',
-                text: userInput.text,
-                text_elements: userInput.textElements,
-              },
+              ...(userInput.text || userInput.textElements.length > 0
+                ? [
+                    {
+                      type: 'text',
+                      text: userInput.text,
+                      text_elements: userInput.textElements,
+                    },
+                  ]
+                : []),
+              ...pluginMentions.map((plugin) => ({
+                type: 'mention',
+                name: plugin.name,
+                path: plugin.path,
+              })),
+              ...skillMentions.map((skill) => ({
+                type: 'skill',
+                name: skill.name,
+                path: skill.path,
+              })),
             ],
+            madoraFileAttachments: attachments.map(
+              (attachment) => attachment.attachmentId,
+            ),
             madoraDocumentReferences: [
               ...(currentDocument
                 ? [
@@ -905,6 +1188,11 @@ export function AiPanel({
       } catch (error) {
         setRuntimeError(getErrorMessage(error));
       } finally {
+        if (attachmentGrantsDetached) {
+          void releaseCodexContextAttachments(
+            attachments.map((attachment) => attachment.attachmentId),
+          ).catch(() => undefined);
+        }
         submittingRef.current = false;
         setSubmitting(false);
       }
@@ -1068,17 +1356,21 @@ export function AiPanel({
             active={Boolean(conversation.activeTurnId)}
             currentDocument={currentDocument}
             effort={effort}
+            attachments={selectedAttachments}
             mentionDocuments={filteredMentionDocuments}
             mentionQuery={mentionQuery}
-            mcpStatus={mcpStatus}
-            mcpServerCount={mcpServerCount}
             modelCatalogStatus={modelCatalogStatus}
             models={models}
             authRequired={authRequired}
             runtimeStatus={runtimeStatus}
             selectedModel={selectedModel}
             selectedModelInfo={selectedModelInfo}
+            skillOptions={skillOptions}
+            skillStatus={skillStatus}
             submitting={submitting}
+            pluginLoadWarning={pluginLoadWarning}
+            pluginOptions={pluginOptions}
+            pluginStatus={pluginStatus}
             autoReviewAvailable={autoReviewAvailable}
             approvalPolicyAvailability={approvalPolicyAvailability}
             permissionMode={permissionModeFromSettings(permissionSettings)}
@@ -1089,7 +1381,9 @@ export function AiPanel({
               permissionUpdating
             }
             value={composerValue}
-            version={runtimeVersion}
+            onAttachmentRemove={removeContextAttachment}
+            onAttachmentSelect={(kind) => void selectContextAttachments(kind)}
+            onDetectPlugins={() => void detectInstalledPlugins()}
             onEffortChange={setEffort}
             onInterrupt={() => void interruptTurn()}
             onMentionQueryChange={setMentionQuery}
@@ -1709,6 +2003,7 @@ export function ConversationEntryRow({
       ) : (
         <div className="w-max max-w-[88%] break-words rounded-xl bg-muted/70 px-3 py-2">
           <UserMessageContent
+            attachments={entry.attachments ?? []}
             mentions={entry.mentions ?? []}
             text={entry.text}
             onOpenMention={onOpenDocument}
@@ -1720,10 +2015,12 @@ export function ConversationEntryRow({
 }
 
 export function UserMessageContent({
+  attachments = [],
   mentions,
   text,
   onOpenMention,
 }: {
+  attachments?: AiMessageAttachment[];
   mentions: AiMessageMention[];
   text: string;
   onOpenMention: (path: string) => void;
@@ -1749,16 +2046,29 @@ export function UserMessageContent({
 
     const label = mention.label || text.slice(mention.start, mention.end);
     content.push(
-      <button
-        aria-label={label}
-        className={mentionLinkClassName}
-        key={`${mention.path}-${mention.start}-${mention.end}`}
-        role="link"
-        type="button"
-        onClick={() => onOpenMention(mention.path)}
-      >
-        {label}
-      </button>,
+      mention.kind === 'plugin' ||
+      mention.kind === 'skill' ||
+      mention.path.startsWith('plugin://') ? (
+        <span
+          aria-label={label}
+          className={cn(mentionLinkClassName, 'cursor-default no-underline')}
+          key={`${mention.path}-${mention.start}-${mention.end}`}
+          role="note"
+        >
+          {label}
+        </span>
+      ) : (
+        <button
+          aria-label={label}
+          className={mentionLinkClassName}
+          key={`${mention.path}-${mention.start}-${mention.end}`}
+          role="link"
+          type="button"
+          onClick={() => onOpenMention(mention.path)}
+        >
+          {label}
+        </button>
+      ),
     );
     cursor = mention.end;
   }
@@ -1768,8 +2078,29 @@ export function UserMessageContent({
   }
 
   return (
-    <div className="whitespace-pre-wrap break-words">
-      {content.length > 0 ? content : text}
+    <div>
+      {attachments.length > 0 ? (
+        <div className={cn('flex flex-wrap gap-1.5', text && 'mb-1.5')}>
+          {attachments.map((attachment, index) => (
+            <span
+              className="inline-flex max-w-52 items-center gap-1 rounded-md border border-border/70 bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+              key={`${attachment.kind}:${attachment.name}:${index}`}
+            >
+              {attachment.kind === 'folder' ? (
+                <FolderOpen size={11} />
+              ) : (
+                <Paperclip size={11} />
+              )}
+              <span className="truncate">{attachment.name}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {text ? (
+        <div className="whitespace-pre-wrap break-words">
+          {content.length > 0 ? content : text}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -2584,28 +2915,95 @@ function PermissionModeItem({
   );
 }
 
+function PluginIcon({ plugin }: { plugin: AiPluginMentionOption }) {
+  const [failedIconUrls, setFailedIconUrls] = React.useState<Set<string>>(
+    () => new Set(),
+  );
+  const lightIcon = plugin.iconUrl ?? null;
+  const darkIcon = plugin.darkIconUrl ?? lightIcon;
+  const hasDistinctDarkIcon = Boolean(darkIcon && darkIcon !== lightIcon);
+  const lightFailed = lightIcon ? failedIconUrls.has(lightIcon) : false;
+  const darkFailed = darkIcon ? failedIconUrls.has(darkIcon) : false;
+  const markFailed = (url: string) => {
+    setFailedIconUrls((current) => new Set(current).add(url));
+  };
+
+  return (
+    <span aria-hidden="true" className="relative size-4 shrink-0">
+      {lightIcon && !lightFailed ? (
+        // 插件图标来自受限本地数据或运行时 URL，不能交给 Next 图片优化器重写。
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          alt=""
+          className={cn(
+            'size-4 shrink-0 object-contain',
+            hasDistinctDarkIcon && 'dark:hidden',
+          )}
+          draggable={false}
+          referrerPolicy="no-referrer"
+          src={lightIcon}
+          onError={() => markFailed(lightIcon)}
+        />
+      ) : (
+        <Puzzle
+          className={cn(
+            'size-4 text-muted-foreground',
+            hasDistinctDarkIcon && 'dark:hidden',
+          )}
+          data-plugin-icon-fallback="light"
+        />
+      )}
+      {hasDistinctDarkIcon ? (
+        darkIcon && !darkFailed ? (
+          // 插件图标来自受限本地数据或运行时 URL，不能交给 Next 图片优化器重写。
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            alt=""
+            className="hidden size-4 shrink-0 object-contain dark:block"
+            draggable={false}
+            referrerPolicy="no-referrer"
+            src={darkIcon}
+            onError={() => markFailed(darkIcon)}
+          />
+        ) : (
+          <Puzzle
+            className="hidden size-4 text-muted-foreground dark:block"
+            data-plugin-icon-fallback="dark"
+          />
+        )
+      ) : null}
+    </span>
+  );
+}
+
 export function AiComposer({
   active,
   approvalPolicyAvailability,
+  attachments = [],
   authRequired = false,
   autoReviewAvailable,
   currentDocument,
   effort,
   mentionDocuments,
   mentionQuery,
-  mcpStatus = 'ready',
-  mcpServerCount,
   modelCatalogStatus = 'ready',
   models,
   permissionMode,
   permissionProfiles,
   permissionSwitchDisabled,
+  pluginLoadWarning = null,
+  pluginOptions = [],
+  pluginStatus = 'idle',
   runtimeStatus,
   selectedModel,
   selectedModelInfo,
+  skillOptions = [],
+  skillStatus = 'idle',
   submitting,
   value,
-  version,
+  onAttachmentRemove = () => undefined,
+  onAttachmentSelect = () => undefined,
+  onDetectPlugins = () => undefined,
   onEffortChange,
   onInterrupt,
   onMentionQueryChange,
@@ -2618,25 +3016,31 @@ export function AiComposer({
 }: {
   active: boolean;
   approvalPolicyAvailability: { never: boolean; onRequest: boolean };
+  attachments?: CodexContextAttachment[];
   authRequired?: boolean;
   autoReviewAvailable: boolean;
   currentDocument: WorkspaceNode | null;
   effort: CodexReasoningEffort;
   mentionDocuments: AiDocumentReference[];
   mentionQuery: string | null;
-  mcpStatus?: ControlLoadStatus;
-  mcpServerCount: number;
   modelCatalogStatus?: ControlLoadStatus;
   models: CodexModel[];
   permissionMode: PermissionModeId;
   permissionProfiles: CodexPermissionProfileSummary[];
   permissionSwitchDisabled: boolean;
+  pluginLoadWarning?: string | null;
+  pluginOptions?: AiPluginMentionOption[];
+  pluginStatus?: ControlLoadStatus;
   runtimeStatus: RuntimeStatus;
   selectedModel: string;
   selectedModelInfo: CodexModel | null;
+  skillOptions?: AiSkillMentionOption[];
+  skillStatus?: ControlLoadStatus;
   submitting: boolean;
   value: string;
-  version: string | null;
+  onAttachmentRemove?: (attachmentId: string) => void;
+  onAttachmentSelect?: (kind: CodexContextAttachment['kind']) => void;
+  onDetectPlugins?: () => void;
   onEffortChange: (effort: CodexReasoningEffort) => void;
   onInterrupt: () => void;
   onMentionQueryChange: (query: string | null) => void;
@@ -2656,21 +3060,36 @@ export function AiComposer({
   const profileAllowed = (profileId: string) =>
     permissionProfiles.find((profile) => profile.id === profileId)?.allowed ?? true;
   const editorRef = React.useRef<HTMLDivElement>(null);
+  const composerSurfaceRef = React.useRef<HTMLDivElement>(null);
+  const addMenuTriggerRef = React.useRef<HTMLButtonElement>(null);
   const initializedRef = React.useRef(false);
   const savedRangeRef = React.useRef<Range | null>(null);
   const mentionTargetRef = React.useRef<ComposerMentionTarget | null>(null);
   const dismissedMentionKeyRef = React.useRef<string | null>(null);
   const mentionPathsRef = React.useRef<string[]>([]);
+  const [composerMentionPaths, setComposerMentionPaths] = React.useState<
+    string[]
+  >([]);
   const mentionListboxId = React.useId();
+  const skillListboxId = React.useId();
   const [mentionSelection, setMentionSelection] = React.useState<{
     path: string | null;
     query: string | null;
   }>({ path: null, query: null });
+  const [skillQuery, setSkillQuery] = React.useState<string | null>(null);
+  const [skillSelection, setSkillSelection] = React.useState<{
+    path: string | null;
+    query: string | null;
+  }>({ path: null, query: null });
+  const [addMenuLayout, setAddMenuLayout] = React.useState<{
+    sideOffset: number;
+    width: number;
+  } | null>(null);
   const placeholder = authRequired
     ? '登录 ChatGPT 后可用'
     : runtimeUnavailable
     ? '桌面端连接 Codex 后可用'
-    : '要求后续变更，使用 @ 提及文档';
+    : '要求后续变更，使用 @ 提及文档，/ 选择 Skill';
 
   const saveSelection = React.useCallback(() => {
     const editor = editorRef.current;
@@ -2693,11 +3112,18 @@ export function AiComposer({
     if (!target || target.key === dismissedMentionKeyRef.current) {
       mentionTargetRef.current = null;
       onMentionQueryChange(null);
+      setSkillQuery(null);
       return;
     }
 
     mentionTargetRef.current = target;
-    onMentionQueryChange(target.query);
+    if (target.kind === 'document') {
+      onMentionQueryChange(target.query);
+      setSkillQuery(null);
+    } else {
+      onMentionQueryChange(null);
+      setSkillQuery(target.query);
+    }
   }, [onMentionQueryChange]);
 
   const syncEditorState = React.useCallback(() => {
@@ -2714,9 +3140,10 @@ export function AiComposer({
     onValueChange(nextValue);
 
     const nextMentions = snapshot.mentions;
-    const nextPaths = nextMentions.map((document) => document.absolutePath);
+    const nextPaths = nextMentions.map((mention) => mention.path);
     if (!sameStringArray(mentionPathsRef.current, nextPaths)) {
       mentionPathsRef.current = nextPaths;
+      setComposerMentionPaths(nextPaths);
       onMentionsChange(nextMentions);
     }
   }, [onMentionsChange, onValueChange]);
@@ -2739,6 +3166,7 @@ export function AiComposer({
       editor.replaceChildren();
       savedRangeRef.current = null;
       mentionPathsRef.current = [];
+      setComposerMentionPaths([]);
     }
   }, [value]);
 
@@ -2757,7 +3185,7 @@ export function AiComposer({
           : getComposerRange(editor, savedRangeRef.current);
       range.deleteContents();
 
-      const mention = createMentionElement(document);
+      const mention = createDocumentMentionElement(document);
       const trailingSpace = window.document.createTextNode('\u00a0');
       range.insertNode(mention);
       mention.after(trailingSpace);
@@ -2773,6 +3201,65 @@ export function AiComposer({
       dismissedMentionKeyRef.current = null;
       setMentionSelection({ path: null, query: null });
       onMentionQueryChange(null);
+      setSkillQuery(null);
+      syncEditorState();
+    },
+    [onMentionQueryChange, syncEditorState],
+  );
+
+  const insertPluginMention = React.useCallback(
+    (plugin: AiPluginMentionOption) => {
+      const editor = editorRef.current;
+      if (!editor) return;
+
+      editor.focus();
+      const range = getComposerRange(editor, savedRangeRef.current);
+      const mention = createPluginMentionElement(plugin);
+      const trailingSpace = window.document.createTextNode('\u00a0');
+      range.deleteContents();
+      range.insertNode(mention);
+      mention.after(trailingSpace);
+
+      const selection = window.getSelection();
+      range.setStart(trailingSpace, trailingSpace.data.length);
+      range.collapse(true);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      savedRangeRef.current = range.cloneRange();
+      syncEditorState();
+    },
+    [syncEditorState],
+  );
+
+  const insertSkillMention = React.useCallback(
+    (skill: AiSkillMentionOption) => {
+      const editor = editorRef.current;
+      if (!editor) return;
+
+      editor.focus();
+      const targetRange = mentionTargetRef.current?.range;
+      const range =
+        targetRange && editor.contains(targetRange.commonAncestorContainer)
+          ? targetRange.cloneRange()
+          : getComposerRange(editor, savedRangeRef.current);
+      const mention = createSkillMentionElement(skill);
+      const trailingSpace = window.document.createTextNode('\u00a0');
+      range.deleteContents();
+      range.insertNode(mention);
+      mention.after(trailingSpace);
+
+      const selection = window.getSelection();
+      range.setStart(trailingSpace, trailingSpace.data.length);
+      range.collapse(true);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      savedRangeRef.current = range.cloneRange();
+
+      mentionTargetRef.current = null;
+      dismissedMentionKeyRef.current = null;
+      setSkillSelection({ path: null, query: null });
+      setSkillQuery(null);
+      onMentionQueryChange(null);
       syncEditorState();
     },
     [onMentionQueryChange, syncEditorState],
@@ -2782,7 +3269,9 @@ export function AiComposer({
     dismissedMentionKeyRef.current = mentionTargetRef.current?.key ?? null;
     mentionTargetRef.current = null;
     setMentionSelection({ path: null, query: null });
+    setSkillSelection({ path: null, query: null });
     onMentionQueryChange(null);
+    setSkillQuery(null);
   }, [onMentionQueryChange]);
 
   const selectedMentionIndex =
@@ -2806,11 +3295,54 @@ export function AiComposer({
     },
     [mentionDocuments, mentionQuery],
   );
+  const visibleSkills = React.useMemo(
+    () =>
+      rankSkillOptions(
+        skillOptions,
+        skillQuery ?? '',
+        new Set(
+          composerMentionPaths.filter((path) =>
+            skillOptions.some((skill) => skill.path === path),
+          ),
+        ),
+      ),
+    [composerMentionPaths, skillOptions, skillQuery],
+  );
+  const selectedSkillIndex =
+    skillSelection.query === skillQuery
+      ? visibleSkills.findIndex((skill) => skill.path === skillSelection.path)
+      : -1;
+  const activeSkillIndex =
+    visibleSkills.length === 0 ? -1 : Math.max(0, selectedSkillIndex);
+  const activeSkill =
+    activeSkillIndex >= 0 ? (visibleSkills[activeSkillIndex] ?? null) : null;
+  const selectSkillIndex = React.useCallback(
+    (index: number) => {
+      setSkillSelection({
+        path: visibleSkills[index]?.path ?? null,
+        query: skillQuery,
+      });
+    },
+    [skillQuery, visibleSkills],
+  );
 
   return (
     <div className="shrink-0 px-3 pb-3 pt-2">
-      <div className="relative rounded-2xl border border-border/80 bg-background shadow-[0_1px_4px_rgba(15,23,42,0.06)] focus-within:border-foreground/20">
-        {mentionQuery !== null ? (
+      <div
+        className="relative rounded-2xl border border-border/80 bg-background shadow-[0_1px_4px_rgba(15,23,42,0.06)] focus-within:border-foreground/20"
+        ref={composerSurfaceRef}
+      >
+        {skillQuery !== null ? (
+          <SkillMenu
+            activeIndex={activeSkillIndex}
+            listboxId={skillListboxId}
+            query={skillQuery}
+            skills={visibleSkills}
+            status={skillStatus}
+            onActiveIndexChange={selectSkillIndex}
+            onSelect={insertSkillMention}
+          />
+        ) : mentionQuery !== null ? (
           <MentionMenu
             activeIndex={activeMentionIndex}
             documents={mentionDocuments}
@@ -2822,21 +3354,48 @@ export function AiComposer({
           />
         ) : null}
 
-        {currentDocument ? (
+        {currentDocument || attachments.length > 0 ? (
           <div className="flex flex-wrap gap-1 px-3 pt-2.5">
-            <ContextChip label={currentDocument.title || currentDocument.name} />
+            {currentDocument ? (
+              <ContextChip
+                label={currentDocument.title || currentDocument.name}
+              />
+            ) : null}
+            {attachments.map((attachment) => (
+              <ContextChip
+                dismissible
+                icon={
+                  attachment.kind === 'folder' ? (
+                    <FolderOpen size={11} />
+                  ) : (
+                    <Paperclip size={11} />
+                  )
+                }
+                key={attachment.attachmentId}
+                label={attachment.name}
+                onDismiss={() => onAttachmentRemove(attachment.attachmentId)}
+              />
+            ))}
           </div>
         ) : null}
 
         <div
           aria-label="向 Codex 提问"
           aria-activedescendant={
-            mentionQuery !== null && activeMention
+            skillQuery !== null && activeSkill
+              ? mentionOptionId(skillListboxId, activeSkillIndex)
+              : mentionQuery !== null && activeMention
               ? mentionOptionId(mentionListboxId, activeMentionIndex)
               : undefined
           }
           aria-autocomplete="list"
-          aria-controls={mentionQuery !== null ? mentionListboxId : undefined}
+          aria-controls={
+            skillQuery !== null
+              ? skillListboxId
+              : mentionQuery !== null
+                ? mentionListboxId
+                : undefined
+          }
           aria-multiline="true"
           className="scrollbar-thin block min-h-14 max-h-40 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent px-3 pb-2 pt-3 text-[13px] leading-5 outline-none data-[disabled=true]:cursor-not-allowed data-[empty=true]:before:pointer-events-none data-[empty=true]:before:text-muted-foreground/60 data-[empty=true]:before:content-[attr(data-placeholder)]"
           contentEditable={!editorDisabled}
@@ -2851,7 +3410,9 @@ export function AiComposer({
             const mention = findMentionElement(event.target);
             if (mention) {
               event.preventDefault();
-              onOpenMention(mention.dataset.mentionPath ?? '');
+              if (mention.dataset.mentionKind === 'document') {
+                onOpenMention(mention.dataset.mentionPath ?? '');
+              }
               return;
             }
             saveSelection();
@@ -2867,15 +3428,25 @@ export function AiComposer({
             const mention = findMentionElement(event.target);
             if (mention && (event.key === 'Enter' || event.key === ' ')) {
               event.preventDefault();
-              onOpenMention(mention.dataset.mentionPath ?? '');
+              if (mention.dataset.mentionKind === 'document') {
+                onOpenMention(mention.dataset.mentionPath ?? '');
+              }
               return;
             }
 
-            if (mentionQuery !== null && !event.nativeEvent.isComposing) {
+            if (
+              (mentionQuery !== null || skillQuery !== null) &&
+              !event.nativeEvent.isComposing
+            ) {
               if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
                 event.preventDefault();
-                if (mentionDocuments.length > 0) {
-                  const direction = event.key === 'ArrowDown' ? 1 : -1;
+                const direction = event.key === 'ArrowDown' ? 1 : -1;
+                if (skillQuery !== null && visibleSkills.length > 0) {
+                  selectSkillIndex(
+                    (activeSkillIndex + direction + visibleSkills.length) %
+                      visibleSkills.length,
+                  );
+                } else if (mentionDocuments.length > 0) {
                   selectMentionIndex(
                     (activeMentionIndex +
                       direction +
@@ -2891,7 +3462,9 @@ export function AiComposer({
                 event.key === 'Tab'
               ) {
                 event.preventDefault();
-                if (activeMention) {
+                if (skillQuery !== null && activeSkill) {
+                  insertSkillMention(activeSkill);
+                } else if (activeMention) {
                   insertMention(activeMention);
                 } else {
                   closeMentionMenu();
@@ -2926,6 +3499,7 @@ export function AiComposer({
               event.key === 'Enter' &&
               !event.shiftKey &&
               mentionQuery === null &&
+              skillQuery === null &&
               !event.nativeEvent.isComposing
             ) {
               event.preventDefault();
@@ -2954,46 +3528,150 @@ export function AiComposer({
         />
 
         <div className="flex h-10 items-center gap-1 px-2 pb-1.5">
-          <DropdownMenu>
+          <DropdownMenu
+            onOpenChange={(open) => {
+              if (open) {
+                const surfaceRect =
+                  composerSurfaceRef.current?.getBoundingClientRect();
+                const triggerRect =
+                  addMenuTriggerRef.current?.getBoundingClientRect();
+                setAddMenuLayout(
+                  surfaceRect && triggerRect
+                    ? {
+                        sideOffset: Math.max(
+                          8,
+                          triggerRect.top - surfaceRect.top + 8,
+                        ),
+                        width: surfaceRect.width,
+                      }
+                    : null,
+                );
+              }
+            }}
+          >
             <DropdownMenuTrigger asChild>
               <button
                 aria-label="添加上下文与工具"
                 className="flex size-7 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
                 disabled={controlsDisabled}
+                ref={addMenuTriggerRef}
                 type="button"
               >
                 <Plus size={17} />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56" side="top">
-              <DropdownMenuItem onSelect={() => onMentionQueryChange('')}>
-                <FileText size={14} />
-                提及工作区文档
+            <DropdownMenuContent
+              align="start"
+              alignOffset={-8}
+              className="max-h-[min(32rem,70vh)] overflow-y-auto rounded-xl p-1"
+              data-composer-clearance={addMenuLayout?.sideOffset ?? 8}
+              side="top"
+              sideOffset={addMenuLayout?.sideOffset ?? 8}
+              style={addMenuLayout ? { width: addMenuLayout.width } : undefined}
+            >
+              <DropdownMenuLabel className="px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                添加
+              </DropdownMenuLabel>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="min-h-9 gap-2 rounded-lg px-2 py-1.5 text-[13px]">
+                  <Paperclip size={16} />
+                  <span>文件和文件夹</span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-40 rounded-xl p-1">
+                  <DropdownMenuItem
+                    className="min-h-8 gap-2 rounded-lg px-2 text-xs"
+                    onSelect={() => onAttachmentSelect('file')}
+                  >
+                    <File size={15} />
+                    选择文件
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="min-h-8 gap-2 rounded-lg px-2 text-xs"
+                    onSelect={() => onAttachmentSelect('folder')}
+                  >
+                    <FolderOpen size={15} />
+                    选择文件夹
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuItem
+                disabled
+                className="min-h-9 gap-2 rounded-lg px-2 py-1.5 data-[disabled]:opacity-60"
+              >
+                <Goal className="text-muted-foreground" size={16} />
+                <span className="flex min-w-0 items-baseline gap-2">
+                  <span className="shrink-0 text-[13px] font-medium">目标</span>
+                  <span className="truncate text-[11px] text-muted-foreground">
+                    设置要持续追求的目标
+                  </span>
+                </span>
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem disabled>
-                <Globe2 size={14} />
-                联网搜索已启用
+              <DropdownMenuItem
+                disabled
+                className="min-h-9 gap-2 rounded-lg px-2 py-1.5 data-[disabled]:opacity-60"
+              >
+                <ListChecks className="text-muted-foreground" size={16} />
+                <span className="flex min-w-0 items-baseline gap-2">
+                  <span className="shrink-0 text-[13px] font-medium">计划模式</span>
+                  <span className="truncate text-[11px] text-muted-foreground">
+                    开启计划模式
+                  </span>
+                </span>
               </DropdownMenuItem>
-              <DropdownMenuItem disabled>
-                <Blocks size={14} />
-                {mcpStatus === 'loading'
-                  ? '正在发现 MCP Server…'
-                  : mcpStatus === 'error'
-                    ? 'MCP 状态暂不可用'
-                    : mcpStatus === 'idle'
-                      ? '打开面板后发现 MCP Server'
-                      : mcpServerCount > 0
-                  ? `${mcpServerCount} 个 MCP Server 可用`
-                  : '暂无 MCP Server'}
-              </DropdownMenuItem>
-              {version ? (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel className="font-normal text-[10px] text-muted-foreground">
-                    {version}
-                  </DropdownMenuLabel>
-                </>
+              <DropdownMenuSeparator className="my-0.5" />
+              <DropdownMenuLabel className="px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                插件
+              </DropdownMenuLabel>
+              {pluginOptions.map((plugin) => (
+                <DropdownMenuItem
+                  className="min-h-9 gap-2 rounded-lg px-2 py-1.5"
+                  key={plugin.id}
+                  onSelect={() => insertPluginMention(plugin)}
+                >
+                  <PluginIcon plugin={plugin} />
+                  <span className="flex min-w-0 items-baseline gap-2">
+                    <span className="shrink-0 text-[13px] font-medium">
+                      {plugin.displayName}
+                    </span>
+                    {plugin.description ? (
+                      <span className="truncate text-[11px] text-muted-foreground">
+                        {plugin.description}
+                      </span>
+                    ) : null}
+                  </span>
+                </DropdownMenuItem>
+              ))}
+              {pluginStatus === 'ready' && pluginOptions.length === 0 ? (
+                <DropdownMenuItem disabled className="min-h-8 gap-2 rounded-lg px-2 text-xs">
+                  <Puzzle size={15} />
+                  未检测到已安装插件
+                </DropdownMenuItem>
+              ) : null}
+              {pluginStatus === 'idle' || pluginStatus === 'loading' ? (
+                <DropdownMenuItem
+                  disabled
+                  className="min-h-8 gap-2 rounded-lg px-2 text-xs"
+                >
+                  <LoaderCircle className="animate-spin" size={15} />
+                  正在加载插件…
+                </DropdownMenuItem>
+              ) : null}
+              {pluginStatus === 'error' ? (
+                <DropdownMenuItem
+                  className="min-h-8 gap-2 rounded-lg px-2 text-xs"
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    onDetectPlugins();
+                  }}
+                >
+                  <Puzzle size={15} />
+                  插件加载失败，重试
+                </DropdownMenuItem>
+              ) : null}
+              {pluginLoadWarning ? (
+                <DropdownMenuLabel className="px-2 py-0.5 text-[10px] font-normal text-amber-600 dark:text-amber-400">
+                  {pluginLoadWarning}
+                </DropdownMenuLabel>
               ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
@@ -3248,7 +3926,7 @@ function MentionMenu({
 
   return (
     <div
-      className="absolute bottom-[calc(100%+6px)] left-0 right-0 z-30 overflow-hidden rounded-xl border border-border/80 bg-popover p-1.5 shadow-none"
+      className="absolute bottom-[calc(100%+6px)] left-0 right-0 z-30 overflow-hidden rounded-xl border border-border/80 bg-popover p-1.5 font-sans shadow-none"
       data-mention-menu
     >
       <div className="flex items-center justify-between px-2 py-1.5 text-[11px] text-muted-foreground">
@@ -3318,6 +3996,109 @@ function MentionMenu({
   );
 }
 
+function SkillMenu({
+  activeIndex,
+  listboxId,
+  query,
+  skills,
+  status,
+  onActiveIndexChange,
+  onSelect,
+}: {
+  activeIndex: number;
+  listboxId: string;
+  query: string;
+  skills: AiSkillMentionOption[];
+  status: ControlLoadStatus;
+  onActiveIndexChange: (index: number) => void;
+  onSelect: (skill: AiSkillMentionOption) => void;
+}) {
+  const listRef = React.useRef<HTMLDivElement>(null);
+  const optionRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
+
+  React.useLayoutEffect(() => {
+    if (activeIndex < 0) return;
+    const list = listRef.current;
+    const option = optionRefs.current[activeIndex];
+    if (!list || !option) return;
+
+    const listRect = list.getBoundingClientRect();
+    const optionRect = option.getBoundingClientRect();
+    if (optionRect.top < listRect.top) {
+      list.scrollTop -= listRect.top - optionRect.top;
+    } else if (optionRect.bottom > listRect.bottom) {
+      list.scrollTop += optionRect.bottom - listRect.bottom;
+    }
+  }, [activeIndex]);
+
+  return (
+    <div
+      className="absolute bottom-[calc(100%+6px)] left-0 right-0 z-30 overflow-hidden rounded-xl border border-border/80 bg-popover p-1.5 shadow-none"
+      data-skill-menu
+    >
+      <div className="px-2 py-1.5 text-[11px] font-medium text-muted-foreground">
+        技能
+      </div>
+      <div
+        aria-label="选择 Skill"
+        className="scrollbar-thin max-h-72 overflow-y-auto"
+        id={listboxId}
+        ref={listRef}
+        role="listbox"
+      >
+        {status === 'loading' || status === 'idle' ? (
+          <div className="flex items-center justify-center gap-2 px-2 py-5 text-xs text-muted-foreground">
+            <LoaderCircle className="animate-spin" size={14} />
+            正在加载技能…
+          </div>
+        ) : status === 'error' ? (
+          <div className="px-2 py-5 text-center text-xs text-muted-foreground">
+            技能暂时无法读取
+          </div>
+        ) : skills.length === 0 ? (
+          <div className="px-2 py-5 text-center text-xs text-muted-foreground">
+            {query ? '没有匹配的技能' : '没有可用的技能'}
+          </div>
+        ) : (
+          skills.map((skill, index) => (
+            <button
+              aria-label={`选择 ${skill.displayName}`}
+              aria-selected={index === activeIndex}
+              className={cn(
+                'flex min-h-9 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left outline-none',
+                index === activeIndex
+                  ? 'bg-accent text-accent-foreground'
+                  : 'hover:bg-accent/60',
+              )}
+              id={mentionOptionId(listboxId, index)}
+              key={skill.path}
+              ref={(element) => {
+                optionRefs.current[index] = element;
+              }}
+              role="option"
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onMouseMove={() => onActiveIndexChange(index)}
+              onClick={() => onSelect(skill)}
+            >
+              <Box className="shrink-0 text-muted-foreground" size={15} />
+              <span className="shrink-0 truncate text-xs font-medium">
+                <MentionMatchedText query={query} text={skill.displayName} />
+              </span>
+              <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+                {skill.description}
+              </span>
+              <span className="shrink-0 text-[11px] text-muted-foreground/70">
+                {skillScopeLabel(skill.scope)}
+              </span>
+            </button>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MentionMatchedText({ query, text }: { query: string; text: string }) {
   const matchedIndices = new Set(mentionMatchIndices(text, query));
   if (matchedIndices.size === 0) {
@@ -3341,16 +4122,18 @@ function mentionOptionId(listboxId: string, index: number) {
 
 function ContextChip({
   dismissible = false,
+  icon,
   label,
   onDismiss,
 }: {
   dismissible?: boolean;
+  icon?: React.ReactNode;
   label: string;
   onDismiss?: () => void;
 }) {
   return (
     <span className="inline-flex h-6 max-w-52 items-center gap-1 rounded-md border border-border/70 bg-muted/35 px-1.5 text-[10px] text-muted-foreground">
-      <FileText size={11} />
+      {icon ?? <FileText size={11} />}
       <span className="truncate">{label}</span>
       {dismissible ? (
         <button aria-label={`移除 ${label}`} type="button" onClick={onDismiss}>
@@ -3361,13 +4144,14 @@ function ContextChip({
   );
 }
 
-function createMentionElement(document: AiDocumentReference) {
+function createDocumentMentionElement(document: AiDocumentReference) {
   const mention = window.document.createElement('span');
   const label = document.title || document.name;
 
   mention.className = mentionLinkClassName;
   mention.contentEditable = 'false';
   mention.dataset.mentionId = document.id;
+  mention.dataset.mentionKind = 'document';
   mention.dataset.mentionName = document.name;
   mention.dataset.mentionPath = document.absolutePath;
   mention.dataset.mentionRelativePath = document.relativePath;
@@ -3376,9 +4160,90 @@ function createMentionElement(document: AiDocumentReference) {
   mention.setAttribute('aria-label', label);
   mention.setAttribute('role', 'link');
   mention.tabIndex = 0;
-  mention.textContent = label;
+  appendMentionImage(mention, '/icons/mentions/file-text.svg');
+  mention.append(window.document.createTextNode(label));
 
   return mention;
+}
+
+function createPluginMentionElement(plugin: AiPluginMentionOption) {
+  const mention = window.document.createElement('span');
+  const label = plugin.displayName;
+
+  mention.className = cn(mentionLinkClassName, 'cursor-default no-underline');
+  mention.contentEditable = 'false';
+  mention.dataset.mentionDescription = plugin.description ?? '';
+  mention.dataset.mentionId = plugin.id;
+  mention.dataset.mentionKind = 'plugin';
+  mention.dataset.mentionLabel = label;
+  mention.dataset.mentionName = plugin.displayName;
+  mention.dataset.mentionPath = plugin.mentionPath;
+  mention.setAttribute('aria-label', label);
+  mention.setAttribute('role', 'note');
+  mention.tabIndex = 0;
+  const lightIcon = plugin.iconUrl ?? '/icons/mentions/puzzle.svg';
+  const darkIcon = plugin.darkIconUrl ?? lightIcon;
+  const hasDistinctDarkIcon = darkIcon !== lightIcon;
+  appendMentionImage(
+    mention,
+    lightIcon,
+    hasDistinctDarkIcon ? 'dark:hidden' : '',
+    '/icons/mentions/puzzle.svg',
+  );
+  if (hasDistinctDarkIcon) {
+    appendMentionImage(
+      mention,
+      darkIcon,
+      'hidden dark:block',
+      '/icons/mentions/puzzle.svg',
+    );
+  }
+  mention.append(window.document.createTextNode(label));
+
+  return mention;
+}
+
+function createSkillMentionElement(skill: AiSkillMentionOption) {
+  const mention = window.document.createElement('span');
+
+  mention.className = cn(mentionLinkClassName, 'cursor-default no-underline');
+  mention.contentEditable = 'false';
+  mention.dataset.mentionDescription = skill.description;
+  mention.dataset.mentionKind = 'skill';
+  mention.dataset.mentionLabel = skill.displayName;
+  mention.dataset.mentionName = skill.name;
+  mention.dataset.mentionPath = skill.path;
+  mention.dataset.mentionScope = skill.scope;
+  mention.setAttribute('aria-label', skill.displayName);
+  mention.setAttribute('role', 'note');
+  mention.tabIndex = 0;
+  appendMentionImage(mention, '/icons/mentions/box.svg');
+  mention.append(window.document.createTextNode(skill.displayName));
+
+  return mention;
+}
+
+function appendMentionImage(
+  parent: HTMLElement,
+  src: string,
+  extraClassName = '',
+  fallbackSrc?: string,
+) {
+  const image = window.document.createElement('img');
+  image.alt = '';
+  image.ariaHidden = 'true';
+  image.className = cn('size-4 shrink-0 object-contain', extraClassName);
+  image.draggable = false;
+  image.referrerPolicy = 'no-referrer';
+  image.src = src;
+  image.dataset.mentionIcon = '';
+  if (fallbackSrc && fallbackSrc !== src) {
+    image.addEventListener('error', () => {
+      image.dataset.mentionIconFallback = '';
+      image.src = fallbackSrc;
+    }, { once: true });
+  }
+  parent.append(image);
 }
 
 function findMentionElement(target: EventTarget | null) {
@@ -3439,7 +4304,9 @@ function getComposerMentionTarget(editor: HTMLElement | null) {
 
   const prefix = prefixRange.toString();
   const text = `${prefix}${suffixRange.toString()}`;
-  const token = findMentionToken(text, prefix.length);
+  const documentToken = findMentionToken(text, prefix.length);
+  const skillToken = findSkillToken(text, prefix.length);
+  const token = documentToken ?? skillToken;
   if (!token) {
     return null;
   }
@@ -3454,7 +4321,8 @@ function getComposerMentionTarget(editor: HTMLElement | null) {
   range.setStart(start.node, start.offset);
   range.setEnd(end.node, end.offset);
   return {
-    key: `${token.start}:${token.end}:${prefix.length}:${text}`,
+    kind: documentToken ? 'document' : 'skill',
+    key: `${documentToken ? 'document' : 'skill'}:${token.start}:${token.end}:${prefix.length}:${text}`,
     query: token.query,
     range,
   } satisfies ComposerMentionTarget;
@@ -3501,17 +4369,43 @@ function readComposerSnapshot(editor: HTMLElement) {
       const label = node.dataset.mentionLabel ?? node.textContent ?? '';
       const start = value.length;
       value += label;
-      mentions.push({
-        absolutePath: node.dataset.mentionPath,
-        end: value.length,
-        id: node.dataset.mentionId ?? '',
-        label,
-        name: node.dataset.mentionName ?? '',
-        path: node.dataset.mentionPath,
-        relativePath: node.dataset.mentionRelativePath ?? '',
-        start,
-        title: node.dataset.mentionTitle || undefined,
-      });
+      if (node.dataset.mentionKind === 'plugin') {
+        mentions.push({
+          description: node.dataset.mentionDescription || null,
+          end: value.length,
+          id: node.dataset.mentionId ?? '',
+          kind: 'plugin',
+          label,
+          name: node.dataset.mentionName ?? '',
+          path: node.dataset.mentionPath,
+          start,
+        });
+      } else if (node.dataset.mentionKind === 'skill') {
+        mentions.push({
+          description: node.dataset.mentionDescription ?? '',
+          displayName: label,
+          end: value.length,
+          kind: 'skill',
+          label,
+          name: node.dataset.mentionName ?? '',
+          path: node.dataset.mentionPath,
+          scope: (node.dataset.mentionScope ?? 'user') as CodexSkillScope,
+          start,
+        });
+      } else {
+        mentions.push({
+          absolutePath: node.dataset.mentionPath,
+          end: value.length,
+          id: node.dataset.mentionId ?? '',
+          kind: 'document',
+          label,
+          name: node.dataset.mentionName ?? '',
+          path: node.dataset.mentionPath,
+          relativePath: node.dataset.mentionRelativePath ?? '',
+          start,
+          title: node.dataset.mentionTitle || undefined,
+        });
+      }
       return;
     }
 
@@ -3669,6 +4563,154 @@ function uniqueDocuments(documents: AiDocumentReference[]) {
     seen.add(document.absolutePath);
     return true;
   });
+}
+
+function isDocumentComposerMention(
+  mention: AiComposerMention,
+): mention is AiComposerDocumentMention {
+  return mention.kind === 'document';
+}
+
+function isPluginComposerMention(
+  mention: AiComposerMention,
+): mention is AiComposerPluginMention {
+  return mention.kind === 'plugin';
+}
+
+function isSkillComposerMention(
+  mention: AiComposerMention,
+): mention is AiComposerSkillMention {
+  return mention.kind === 'skill';
+}
+
+function uniqueContextAttachments(attachments: CodexContextAttachment[]) {
+  const seen = new Set<string>();
+  return attachments.filter((attachment) => {
+    if (seen.has(attachment.attachmentId)) return false;
+    seen.add(attachment.attachmentId);
+    return true;
+  });
+}
+
+function uniquePluginOptions(options: AiPluginMentionOption[]) {
+  const seen = new Set<string>();
+  return options.filter((option) => {
+    if (seen.has(option.id)) return false;
+    seen.add(option.id);
+    return true;
+  });
+}
+
+function uniqueSkillOptions(options: AiSkillMentionOption[]) {
+  const seen = new Set<string>();
+  return options.filter((option) => {
+    if (seen.has(option.path)) return false;
+    seen.add(option.path);
+    return true;
+  });
+}
+
+function rankSkillOptions(
+  options: AiSkillMentionOption[],
+  query: string,
+  excludedPaths: ReadonlySet<string>,
+) {
+  const normalizedQuery = query.trim().normalize('NFKC').toLocaleLowerCase();
+  return options
+    .flatMap((skill, order) => {
+      if (excludedPaths.has(skill.path)) return [];
+      if (!normalizedQuery) return [{ order, score: 0, skill }];
+      const fields = [skill.displayName, skill.name, skill.description];
+      const score = fields.reduce((best, field, index) => {
+        const normalized = field.normalize('NFKC').toLocaleLowerCase();
+        const exactIndex = normalized.indexOf(normalizedQuery);
+        if (exactIndex >= 0) {
+          return Math.max(best, 10_000 - index * 1_000 - exactIndex);
+        }
+        return mentionMatchIndices(field, normalizedQuery).length > 0
+          ? Math.max(best, 1_000 - index * 100)
+          : best;
+      }, -1);
+      return score < 0 ? [] : [{ order, score, skill }];
+    })
+    .sort((left, right) => right.score - left.score || left.order - right.order)
+    .map(({ skill }) => skill);
+}
+
+function skillScopeLabel(scope: CodexSkillScope) {
+  if (scope === 'repo') return '工作区';
+  if (scope === 'system') return '系统';
+  if (scope === 'admin') return '管理员';
+  return '个人';
+}
+
+function formatSkillDisplayName(name: string) {
+  return name
+    .split(':')
+    .map((part) =>
+      part
+        .split('-')
+        .filter(Boolean)
+        .map((word) => word.charAt(0).toLocaleUpperCase() + word.slice(1))
+        .join(' '),
+    )
+    .join(': ');
+}
+
+async function resolvePluginIconUrl(
+  pluginInterface: CodexPluginInterface | null,
+  theme: 'dark' | 'light',
+  localIconCache: Map<string, Promise<string | null>>,
+) {
+  if (!pluginInterface) return null;
+
+  const candidates: Array<{ kind: 'local' | 'remote'; value?: string | null }> = [
+    { kind: 'local', value: pluginInterface.composerIcon },
+    { kind: 'remote', value: pluginInterface.composerIconUrl },
+    ...(theme === 'dark'
+      ? [
+          { kind: 'local' as const, value: pluginInterface.logoDark },
+          { kind: 'local' as const, value: pluginInterface.logo },
+          { kind: 'remote' as const, value: pluginInterface.logoUrlDark },
+          { kind: 'remote' as const, value: pluginInterface.logoUrl },
+        ]
+      : [
+          { kind: 'local' as const, value: pluginInterface.logo },
+          { kind: 'remote' as const, value: pluginInterface.logoUrl },
+        ]),
+  ];
+
+  for (const candidate of candidates) {
+    const value = candidate.value?.trim();
+    if (!value) continue;
+    if (candidate.kind === 'remote') {
+      const remoteUrl = safeHttpsPluginIconUrl(value);
+      if (remoteUrl) return remoteUrl;
+      continue;
+    }
+
+    let pending = localIconCache.get(value);
+    if (!pending) {
+      pending = readCodexPluginIcon(value)
+        .then(({ base64Data, mediaType }) =>
+          `data:${mediaType};base64,${base64Data}`,
+        )
+        .catch(() => null);
+      localIconCache.set(value, pending);
+    }
+    const localUrl = await pending;
+    if (localUrl) return localUrl;
+  }
+
+  return null;
+}
+
+function safeHttpsPluginIconUrl(value: string) {
+  try {
+    return new URL(value).protocol === 'https:' ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 function groupThreadsByDate(threads: CodexThread[]) {

@@ -257,6 +257,64 @@ export interface DailyNoteDocument {
   content: MarkdownDocumentContent;
 }
 
+export type InboxCaptureStatus = 'open' | 'processing' | 'done' | 'archived';
+
+export type InboxCapturePriority = 'low' | 'normal' | 'high';
+
+export type InboxCaptureSource = 'quick-capture' | 'inbox';
+
+export type InboxCaptureListView = 'active' | 'done' | 'archived' | 'all';
+
+export interface InboxCapture {
+  id: string;
+  body: string;
+  status: InboxCaptureStatus;
+  priority: InboxCapturePriority;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+  source: InboxCaptureSource;
+  snoozedUntil: string | null;
+  resolvedAt: string | null;
+  promotedTo: string | null;
+  appendedTo: string | null;
+  modifiedAt: number;
+}
+
+export interface InboxCaptureSummary extends Omit<InboxCapture, 'body'> {
+  title: string;
+  summary: string;
+}
+
+export interface InboxCaptureIssue {
+  fileName: string;
+  message: string;
+}
+
+export interface InboxCaptureListResult {
+  captures: InboxCaptureSummary[];
+  activeCount: number;
+  issues: InboxCaptureIssue[];
+}
+
+export interface InboxCaptureUpdate {
+  body: string;
+  status: InboxCaptureStatus;
+  priority: InboxCapturePriority;
+  tags: string[];
+  snoozedUntil: string | null;
+}
+
+export interface InboxPromotionResult {
+  capture: InboxCapture;
+  document: CreatedMarkdownDocument;
+}
+
+export interface InboxDailyAppendResult {
+  capture: InboxCapture;
+  dailyNote: DailyNoteDocument;
+}
+
 export type DocumentLoadState = 'idle' | 'loading' | 'loaded' | 'error';
 
 export type DocumentSaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';

@@ -386,9 +386,17 @@ fn collect_markdown_documents(dir: &Path, paths: &mut Vec<PathBuf>) -> io::Resul
             .and_then(|value| value.to_str())
             .unwrap_or("");
 
+        if file_name == ".madora" {
+            let inbox = path.join("inbox");
+            if inbox.is_dir() {
+                collect_markdown_documents(&inbox, paths)?;
+            }
+            continue;
+        }
+
         if matches!(
             file_name,
-            ".madora" | ".git" | "node_modules" | "target" | "dist" | "build"
+            ".git" | "node_modules" | "target" | "dist" | "build"
         ) {
             continue;
         }
@@ -731,6 +739,30 @@ mod tests {
                 "asset-c".to_string(),
                 "asset-d".to_string()
             ])
+        );
+    }
+
+    #[test]
+    fn includes_inbox_markdown_but_skips_other_private_markdown() {
+        let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
+        let root = temp_dir.path();
+        fs::write(root.join("note.md"), "![note](madora-asset://note-asset)")
+            .expect("写入普通笔记失败");
+        fs::create_dir_all(root.join(".madora/inbox")).expect("创建 Inbox 失败");
+        fs::write(
+            root.join(".madora/inbox/cap_20260718_143205_123_a1b2c3d4.md"),
+            "![capture](madora-asset://capture-asset)",
+        )
+        .expect("写入 Capture 失败");
+        fs::write(
+            root.join(".madora/private.md"),
+            "![private](madora-asset://private-asset)",
+        )
+        .expect("写入私有 Markdown 失败");
+
+        assert_eq!(
+            collect_workspace_asset_references(root).expect("扫描资产引用失败"),
+            BTreeSet::from(["capture-asset".to_string(), "note-asset".to_string()])
         );
     }
 }

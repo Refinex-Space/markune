@@ -112,6 +112,36 @@ describe('useWorkspace AI 文件同步', () => {
       'AI 运行期间的用户编辑',
     );
   });
+
+  it('AI 重载后的同内容编辑器回声不会被误判为本地并发编辑', async () => {
+    const { result } = renderHook(() => useWorkspace(snapshot));
+    await act(() => result.current.openDocument(node));
+    await act(() => result.current.prepareCurrentDocumentForAi());
+
+    act(() => {
+      result.current.syncExternalMarkdownDocument({
+        content: external,
+        modifiedAt: 3,
+        path: node.absolutePath,
+      });
+    });
+    expect(result.current.saveState).toBe('saved');
+
+    act(() => result.current.updateMarkdown(external));
+    expect(result.current.saveState).toBe('saved');
+    expect(result.current.draftDocument?.markdown).toBe(external);
+
+    act(() => {
+      result.current.syncExternalMarkdownDocument({
+        content: external,
+        modifiedAt: 3,
+        path: node.absolutePath,
+      });
+    });
+
+    expect(result.current.externalDocumentConflict).toBeNull();
+    expect(api.saveMarkdownDocument).not.toHaveBeenCalled();
+  });
 });
 
 function markdown(body: string) {
