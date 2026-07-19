@@ -44,7 +44,7 @@ Capture 的持久状态仅为 `open`、`processing`、`done`、`archived`。Inbo
 
 保存使用 800 ms debounce、最长 5 秒等待的串行事务：渲染器先取得 opaque save session，再通过 Raw IPC 暂存场景和可选 WebP/PNG 预览，Rust 在提交前重新校验 revision、场景结构和 SHA-256，并以原子替换保留上一份有效备份。预览失败不阻塞场景提交；冲突会暂停自动保存，只允许重新加载磁盘版本或显式覆盖。损坏 bundle 以独立异常卡展示，元数据仍可读时允许加载备份，不阻塞其余图稿。
 
-全局搜索把图稿作为独立结果类型，索引标题、图集路径和 `meta.searchText`，不暴露绝对 bundle 路径。历史 `meta.tags` 字段只为存储兼容保留，不再提供编辑、展示或搜索入口。Markdown 引用使用内容寻址的静态 `madora-asset://<snapshot-id>` 预览与 `madora-drawing://<drawing-id>` 回链；编辑器只拦截经过 UUID 校验的后者，保留 Markweave 既有 HTTP(S) 与 Ctrl/Cmd-click 语义。永久删除原图稿不删除已写入文档的静态快照。
+全局搜索把图稿作为独立结果类型，索引标题、图集路径和 `meta.searchText`，不暴露绝对 bundle 路径。历史 `meta.tags` 字段只为存储兼容保留，不再提供编辑、展示或搜索入口。Markdown 引用使用内容寻址的静态 `madora-asset://<snapshot-id>` 预览与 `madora-drawing://<drawing-id>` 回链；复制时同时写入规范纯文本和只含受控资产图片的富文本。Markweave 编辑态把链接图片可逆投影为带回链 title 的图片节点，保存时恢复规范 Markdown，并兼容修复旧版 Live 粘贴产生的精确转义形式。编辑器只拦截经过 UUID 校验的图稿回链，保留 Markweave 既有 HTTP(S) 与 Ctrl/Cmd-click 语义。永久删除原图稿不删除已写入文档的静态快照。
 
 ## Multi-format Import Boundary
 

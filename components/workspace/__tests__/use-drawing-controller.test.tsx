@@ -11,6 +11,7 @@ const apiMocks = vi.hoisted(() => ({
   beginDrawingSave: vi.fn(),
   cancelDrawingSave: vi.fn(),
   commitDrawingSave: vi.fn(),
+  createDrawingMarkdownSnapshot: vi.fn(),
   loadDrawingLibrary: vi.fn(),
   readDrawingLibrary: vi.fn(),
   readDrawingMeta: vi.fn(),
@@ -177,6 +178,46 @@ describe('useDrawingController', () => {
     expect(expectedRevisions).toEqual([1, 2]);
     expect(apiMocks.commitDrawingSave).toHaveBeenCalledTimes(2);
     expect(apiMocks.stageDrawingScene).toHaveBeenCalledTimes(2);
+    unmount();
+  });
+
+  it('creates Markdown references from stable snapshot and drawing IDs', async () => {
+    const assetId = 'd0f45cd65e487641a2bed39aaf81f718b7bc6969ac49520911230b69fe219156';
+    apiMocks.readDrawingMeta.mockResolvedValue(descriptor(1));
+    apiMocks.readDrawingScene.mockResolvedValue(
+      new TextEncoder().encode('{"type":"excalidraw","version":2,"elements":[]}'),
+    );
+    apiMocks.readDrawingLibrary.mockResolvedValue(new Uint8Array());
+    apiMocks.createDrawingMarkdownSnapshot.mockResolvedValue({
+      id: assetId,
+      mediaType: 'image/png',
+      name: '串行保存.png',
+      size: 100,
+      url: 'asset://localhost/encoded-absolute-path.png',
+    });
+
+    const { result, unmount } = renderHook(() =>
+      useDrawingController({ active: false, rootPath: '/workspace' }),
+    );
+
+    await settleRootReset();
+    await act(async () => {
+      await result.current.openDrawing(
+        '11111111-1111-4111-8111-111111111111',
+      );
+    });
+
+    let reference: string | null = null;
+    await act(async () => {
+      reference = await result.current.createMarkdownReference(
+        Uint8Array.from([1, 2, 3]),
+      );
+    });
+
+    expect(reference).toBe(
+      `[![串行保存](madora-asset://${assetId})](madora-drawing://11111111-1111-4111-8111-111111111111)`,
+    );
+    expect(reference).not.toContain('asset://localhost');
     unmount();
   });
 });

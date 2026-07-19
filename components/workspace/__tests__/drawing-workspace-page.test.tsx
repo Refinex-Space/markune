@@ -21,6 +21,20 @@ const apiMocks = vi.hoisted(() => ({
   writeDrawingExport: vi.fn(),
 }));
 
+const clipboardMocks = vi.hoisted(() => ({
+  writeDrawingMarkdownReferenceToClipboard: vi.fn(),
+}));
+
+vi.mock('@/components/editor/drawing-markdown-reference', async (importOriginal) => {
+  const original = await importOriginal<
+    typeof import('@/components/editor/drawing-markdown-reference')
+  >();
+  return {
+    ...original,
+    ...clipboardMocks,
+  };
+});
+
 vi.mock('../drawing-editor-dynamic', () => ({
   DrawingEditorDynamic: ({ onReady }: { onReady: (actions: unknown) => void }) => {
     const onReadyRef = React.useRef(onReady);
@@ -171,6 +185,54 @@ describe('DrawingWorkspacePage', () => {
       ),
     );
     expect(completeDrawingAction).toHaveBeenCalledWith(7);
+  });
+
+  it('copies the canonical Markdown reference after creating a preview', async () => {
+    const markdown =
+      `[![登录流程](madora-asset://${'b'.repeat(64)})](madora-drawing://${drawing.id})`;
+    editorMocks.actions.createPreview.mockResolvedValue(
+      Uint8Array.from([1, 2, 3]),
+    );
+    clipboardMocks.writeDrawingMarkdownReferenceToClipboard.mockResolvedValue(
+      undefined,
+    );
+    const completeDrawingAction = vi.fn();
+    const createMarkdownReference = vi.fn().mockResolvedValue(markdown);
+    const value = controller({
+      completeDrawingAction,
+      createMarkdownReference,
+      descriptor: {
+        albumPath: drawing.albumPath,
+        hasBackup: drawing.hasBackup,
+        hasPreview: drawing.hasPreview,
+        meta: drawing,
+      },
+      requestedAction: {
+        drawingId: drawing.id,
+        kind: 'copy-markdown',
+        requestId: 8,
+      },
+      scene: '{"type":"excalidraw","version":2,"elements":[]}',
+      selection: { id: drawing.id, kind: 'drawing' },
+    });
+
+    render(
+      <DrawingWorkspacePage
+        controller={value}
+        rootPath="/repo"
+        theme="light"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        clipboardMocks.writeDrawingMarkdownReferenceToClipboard,
+      ).toHaveBeenCalledWith(markdown),
+    );
+    expect(createMarkdownReference).toHaveBeenCalledWith(
+      Uint8Array.from([1, 2, 3]),
+    );
+    expect(completeDrawingAction).toHaveBeenCalledWith(8);
   });
 
   it('does not render legacy tags and opens drawing actions by right click', () => {

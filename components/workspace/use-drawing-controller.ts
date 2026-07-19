@@ -2,6 +2,8 @@
 
 import * as React from 'react';
 
+import { createDrawingMarkdownReference } from '@/components/editor/drawing-markdown-reference';
+
 import {
   beginDrawingSave,
   cancelDrawingSave,
@@ -558,8 +560,11 @@ export function useDrawingController({
         descriptor.meta.title,
         preview,
       );
-      const escapedTitle = descriptor.meta.title.replace(/[[\]]/g, '\\$&');
-      return `[![${escapedTitle}](${asset.url})](madora-drawing://${descriptor.meta.id})`;
+      return createDrawingMarkdownReference({
+        assetId: asset.id,
+        drawingId: descriptor.meta.id,
+        title: descriptor.meta.title,
+      });
     },
     [descriptor, rootPath],
   );

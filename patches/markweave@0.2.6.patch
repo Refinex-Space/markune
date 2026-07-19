@@ -1,0 +1,55 @@
+diff --git a/dist/plugins/media/image-clipboard.js b/dist/plugins/media/image-clipboard.js
+index 774ebca21dfa1a3969d807ce5c601b17bb3dd9ee..99567081028379fa972c13c59298cbba6276398f 100644
+--- a/dist/plugins/media/image-clipboard.js
++++ b/dist/plugins/media/image-clipboard.js
+@@ -5,6 +5,7 @@ import { attrsFromMarkweaveImageUploadResult, createMarkweaveImageUploadRequest
+ import { resolveMarkweaveUploadResult } from "../slash-command/upload";
+ const remoteImageExtensions = new Set(["avif", "bmp", "gif", "ico", "jpeg", "jpg", "png", "svg", "webp"]);
+ const imageOnlyWrapperTags = new Set(["A", "DIV", "P", "SPAN", "FIGURE"]);
++const madoraDrawingReferencePattern = /^\[!\[((?:\\.|[^\]])*)\]\((madora-asset:\/\/[0-9a-f]{64})\)\]\((madora-drawing:\/\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\)$/i;
+ const imageClipboardPluginKey = new PluginKey("markweaveImageClipboard");
+ let clipboardImageSequence = 0;
+ function nextClipboardImageId() {
+@@ -16,6 +17,9 @@ function normalizeRemoteImageUrl(input, requireImageExtension) {
+     if (!trimmed || /[\r\n]/.test(trimmed)) {
+         return null;
+     }
++    if (!requireImageExtension && /^madora-asset:\/\/[0-9a-f]{64}$/i.test(trimmed)) {
++        return trimmed;
++    }
+     try {
+         const url = new URL(trimmed.startsWith("//") ? `https:${trimmed}` : trimmed);
+         if (url.protocol !== "http:" && url.protocol !== "https:") {
+@@ -69,6 +73,18 @@ function parseImageOnlyHtml(html) {
+         ? candidates.filter((candidate) => candidate !== null)
+         : null;
+ }
++function parseMadoraDrawingReference(input) {
++    const match = madoraDrawingReferencePattern.exec(input.trim());
++    if (!match) {
++        return null;
++    }
++    return {
++        type: "remote",
++        src: match[2],
++        alt: match[1].replace(/\\([\\[\]])/g, "$1"),
++        title: match[3],
++    };
++}
+ export function sanitizeMarkweavePastedImageHtml(html) {
+     if (!html.trim()) {
+         return html;
+@@ -93,7 +109,12 @@ export function parseMarkweaveClipboardImages(clipboardData) {
+     if (html.trim()) {
+         return parseImageOnlyHtml(html) ?? [];
+     }
+-    const src = normalizeRemoteImageUrl(clipboardData.getData("text/plain"), true);
++    const text = clipboardData.getData("text/plain");
++    const drawingReference = parseMadoraDrawingReference(text);
++    if (drawingReference) {
++        return [drawingReference];
++    }
++    const src = normalizeRemoteImageUrl(text, true);
+     return src ? [{ type: "remote", src }] : [];
+ }
+ function removePendingClipboardImage(view, id) {

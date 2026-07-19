@@ -14,6 +14,12 @@ import {
   type DocumentFindRequest,
 } from '@/components/editor/document-find-bar';
 import {
+  normalizeDrawingMarkdownReferences,
+  parseDrawingMarkdownUrl,
+  projectDrawingMarkdownReferencesForEditor,
+  restoreDrawingMarkdownReferencesFromEditor,
+} from '@/components/editor/drawing-markdown-reference';
+import {
   parseFrontmatter,
   serializeFrontmatter,
 } from '@/components/editor/markdown-frontmatter';
@@ -69,13 +75,17 @@ export function MarkdownEditor({
     React.useState<MarkweaveSearchController | null>(null);
   const [sourceMode, setSourceMode] = React.useState(false);
 
+  const normalizedMarkdown = React.useMemo(
+    () => normalizeDrawingMarkdownReferences(markdown),
+    [markdown],
+  );
   const frontmatterView = React.useMemo(() => {
-    const parsed = parseFrontmatter(markdown);
+    const parsed = parseFrontmatter(normalizedMarkdown);
     const hasFrontmatter = Object.keys(parsed.metadata).length > 0;
 
     if (!hasFrontmatter) {
       return {
-        body: markdown,
+        body: normalizedMarkdown,
         hasFrontmatter: false,
         metadata: parsed.metadata,
       };
@@ -86,14 +96,18 @@ export function MarkdownEditor({
       hasFrontmatter: true,
       metadata: parsed.metadata,
     };
-  }, [markdown]);
+  }, [normalizedMarkdown]);
+  const projectedEditorBody = React.useMemo(
+    () => projectDrawingMarkdownReferencesForEditor(frontmatterView.body),
+    [frontmatterView.body],
+  );
   const {
     editorMarkdown,
     onSlashCommandUpload,
     toStorageMarkdown,
   } = useWorkspaceAssetUploader(
     workspaceRootPath ?? null,
-    frontmatterView.body,
+    projectedEditorBody,
   );
 
   const serializeBody = React.useCallback(
@@ -116,7 +130,13 @@ export function MarkdownEditor({
         return;
       }
 
-      onMarkdownChange(serializeBody(toStorageMarkdown(payload.markdown)));
+      onMarkdownChange(
+        serializeBody(
+          restoreDrawingMarkdownReferencesFromEditor(
+            toStorageMarkdown(payload.markdown),
+          ),
+        ),
+      );
     },
     [onMarkdownChange, readOnly, serializeBody, toStorageMarkdown],
   );
@@ -263,14 +283,18 @@ export function MarkdownEditor({
         const target = event.target;
         if (!(target instanceof Element)) return;
         const link = target.closest<HTMLAnchorElement>('a[href]');
-        const href = link?.getAttribute('href') ?? '';
-        const match = /^madora-drawing:\/\/([0-9a-f-]{36})$/i.exec(href);
-        if (!match) return;
+        const drawingImage = target.closest<HTMLImageElement>(
+          'img[title^="madora-drawing://"]',
+        );
+        const href =
+          link?.getAttribute('href') || drawingImage?.getAttribute('title') || '';
+        const drawingId = parseDrawingMarkdownUrl(href);
+        if (!drawingId) return;
         event.preventDefault();
         event.stopPropagation();
         window.dispatchEvent(
           new CustomEvent('madora:open-drawing', {
-            detail: { drawingId: match[1].toLowerCase() },
+            detail: { drawingId },
           }),
         );
       }}
@@ -370,7 +394,7 @@ export function MarkdownEditor({
               readOnly={readOnly}
               ref={sourceTextareaRef}
               spellCheck={false}
-              value={markdown}
+              value={normalizedMarkdown}
               wrap="off"
               onChange={
                 readOnly || !onMarkdownChange
@@ -396,7 +420,7 @@ export function MarkdownEditor({
           readOnly={readOnly}
           request={findRequest}
           sourceMode={sourceMode}
-          sourceText={markdown}
+          sourceText={normalizedMarkdown}
           sourceTextareaRef={sourceTextareaRef}
         />
       ) : null}

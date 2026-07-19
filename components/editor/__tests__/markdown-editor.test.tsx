@@ -349,6 +349,33 @@ describe('MarkdownEditor', () => {
     );
   });
 
+  it('在 Markweave 内投影图稿回链并在保存时恢复标准 Markdown', () => {
+    const onMarkdownChange = vi.fn();
+    const assetId = 'a'.repeat(64);
+    const drawingId = '11111111-1111-4111-8111-111111111111';
+    const canonical =
+      `[![架构图](madora-asset://${assetId})](madora-drawing://${drawingId})`;
+    const projected =
+      `![架构图](madora-asset://${assetId} "madora-drawing://${drawingId}")`;
+
+    render(
+      <MarkdownEditor
+        markdown={canonical}
+        onMarkdownChange={onMarkdownChange}
+      />,
+    );
+
+    expect(
+      (screen.getByLabelText('Markdown 正文') as HTMLTextAreaElement).value,
+    ).toBe(projected);
+
+    fireEvent.change(screen.getByLabelText('Markdown 正文'), {
+      target: { value: `${projected}\n` },
+    });
+
+    expect(onMarkdownChange).toHaveBeenLastCalledWith(`${canonical}\n`);
+  });
+
   it('保存时只读取 Markweave 延迟序列化的 Markdown 字段', () => {
     render(<MarkdownEditor markdown="# 原文" onMarkdownChange={() => {}} />);
 
@@ -670,12 +697,29 @@ describe('MarkdownEditor', () => {
       drawingId: '11111111-1111-4111-8111-111111111111',
     });
 
+    const drawingImage = document.createElement('img');
+    drawingImage.title =
+      'madora-drawing://22222222-2222-4222-8222-222222222222';
+    root.append(drawingImage);
+    fireEvent.click(drawingImage);
+    expect(onOpenDrawing).toHaveBeenCalledTimes(2);
+    expect((onOpenDrawing.mock.calls[1][0] as CustomEvent).detail).toEqual({
+      drawingId: '22222222-2222-4222-8222-222222222222',
+    });
+
     const httpLink = document.createElement('a');
     httpLink.href = 'https://example.com';
     httpLink.addEventListener('click', (event) => event.preventDefault());
     root.append(httpLink);
     fireEvent.click(httpLink);
-    expect(onOpenDrawing).toHaveBeenCalledTimes(1);
+    expect(onOpenDrawing).toHaveBeenCalledTimes(2);
+
+    const invalidDrawingLink = document.createElement('img');
+    invalidDrawingLink.title =
+      'madora-drawing://33333333-3333-0333-8333-333333333333';
+    root.append(invalidDrawingLink);
+    fireEvent.click(invalidDrawingLink);
+    expect(onOpenDrawing).toHaveBeenCalledTimes(2);
     window.removeEventListener('madora:open-drawing', onOpenDrawing);
   });
 

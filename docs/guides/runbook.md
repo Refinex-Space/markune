@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-18
+updated: 2026-07-19
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -81,7 +81,7 @@ pnpm build:desktop:web
 - 连续编辑显示未保存/保存中/已保存；`Cmd/Ctrl+S` 强制提交。外部修改 scene 或 meta 后自动保存进入冲突，只有“加载磁盘版本”或“用当前版本覆盖”能继续。
 - 导入 `.excalidraw` 与 `.excalidrawlib`，导出 JSON/PNG/SVG；导出同名时不得覆盖已有文件。回收站恢复遇到路径冲突时创建唯一名称。
 - 破坏单个 scene 或 meta 后，其余图稿仍能展示；元数据可读且存在 backup 时可进入恢复页加载上一有效场景。损坏预览只降级为占位图，不能阻塞保存。
-- 复制 Markdown 引用后，预览是稳定静态快照，点击回链能打开原图稿；移动/重命名不影响回链，永久删除原图稿后文档快照仍可显示。
+- 复制 Markdown 引用后，纯文本必须是 `[![标题](madora-asset://<snapshot-id>)](madora-drawing://<drawing-id>)`，不得包含 `asset://localhost` 或绝对路径；分别用富文本和纯文本剪贴板粘贴到 Live 模式，预览都应显示且点击能打开原图稿。旧版产生的精确 `\[!\[...\]\(...\)\]\(...\)` 转义形式打开后应自动恢复显示，并在下一次编辑保存时规范化。移动/重命名不影响回链，永久删除原图稿后文档快照仍可显示。
 - 验证 500 幅图稿的图集滚动只按可见区域读取预览，并用包含多张图片的大场景检查 100 MiB 场景边界、保存等待和内存占用。
 
 macOS WKWebView 与 Windows WebView2 都必须分别进行真实桌面验收；当前平台通过不能替代另一平台。损坏恢复时优先复制整个 `.madora/drawings` 作为工作区级备份，再通过 UI 加载 bundle 内的单份有效备份；不要手工编辑 revision 或 SHA 字段。

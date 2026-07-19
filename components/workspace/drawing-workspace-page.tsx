@@ -16,6 +16,7 @@ import {
   Trash2,
 } from 'lucide-react';
 
+import { writeDrawingMarkdownReferenceToClipboard } from '@/components/editor/drawing-markdown-reference';
 import { Button } from '@/components/ui/button';
 import {
   ContextMenu,
@@ -640,7 +641,7 @@ function DrawingEditorSurface({
         return;
       }
       const markdown = await controller.createMarkdownReference(preview);
-      if (markdown) await navigator.clipboard.writeText(markdown);
+      if (markdown) await writeDrawingMarkdownReferenceToClipboard(markdown);
     } catch (error) {
       controller.setError(error instanceof Error ? error.message : String(error));
     }

@@ -112,12 +112,22 @@ describe('drawing integration', () => {
       join(workspaceRoot, 'components/editor/markdown-editor.tsx'),
       'utf8',
     );
+    const drawingReference = readFileSync(
+      join(
+        workspaceRoot,
+        'components/editor/drawing-markdown-reference.ts',
+      ),
+      'utf8',
+    );
 
     expect(layout).toContain('<DrawingSidebar');
     expect(layout).toContain('<DrawingWorkspacePage');
     expect(api).toContain("invoke<void>('stage_drawing_scene', bytes");
     expect(api).toContain("'x-madora-drawing-session'");
-    expect(editor).toContain("/^madora-drawing:\\/\\/([0-9a-f-]{36})$/i");
+    expect(editor).toContain('parseDrawingMarkdownUrl(href)');
+    expect(drawingReference).toContain(
+      "'[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'",
+    );
   });
 
   it('keeps move dialogs but creates and renames albums inline', () => {

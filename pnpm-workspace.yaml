@@ -8,3 +8,5 @@ overrides:
 minimumReleaseAgeExclude:
   - '@markweave/react@0.1.6 || 0.1.8 || 0.1.9 || 0.2.0'
   - markweave@0.1.6 || 0.1.8 || 0.1.9 || 0.2.0
+patchedDependencies:
+  markweave@0.2.6: patches/markweave@0.2.6.patch
