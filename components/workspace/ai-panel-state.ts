@@ -27,6 +27,7 @@ export type AiMessagePhase = 'commentary' | 'final_answer' | null;
 
 export interface AiChatMessage {
   attachments?: AiMessageAttachment[];
+  createdAtMs?: number | null;
   id: string;
   mentions?: AiMessageMention[];
   phase?: AiMessagePhase;
@@ -636,6 +637,7 @@ function appendStartedItem(
   const id = typeof item.id === 'string' ? item.id : `item-${state.entries.length}`;
   if (item.type === 'agentMessage') {
     upsertMessage(state, {
+      createdAtMs: startedAtMs ?? null,
       id,
       phase: parseMessagePhase(item.phase),
       role: 'assistant',
@@ -684,6 +686,7 @@ function appendCompletedItem(
     if (message.text || message.attachments.length > 0) {
       upsertMessage(state, {
         attachments: message.attachments,
+        createdAtMs: completedAtMs ?? null,
         id: typeof item.clientId === 'string' ? item.clientId : id,
         mentions: message.mentions,
         role: 'user',
@@ -697,6 +700,7 @@ function appendCompletedItem(
   if (type === 'agentMessage') {
     const text = typeof item.text === 'string' ? item.text : '';
     upsertMessage(state, {
+      createdAtMs: completedAtMs ?? null,
       id,
       phase: parseMessagePhase(item.phase),
       role: 'assistant',
@@ -871,6 +875,7 @@ function upsertMessage(state: AiConversationState, message: AiChatMessage) {
       ...existing,
       ...message,
       attachments: message.attachments ?? existing.attachments,
+      createdAtMs: message.createdAtMs ?? existing.createdAtMs,
       mentions: message.mentions ?? existing.mentions,
       phase: message.phase ?? existing.phase,
       text: message.text || existing.text,

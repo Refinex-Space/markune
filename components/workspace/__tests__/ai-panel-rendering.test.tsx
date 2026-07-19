@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import {
   AiComposer,
@@ -28,6 +28,17 @@ import type {
   CodexThreadGoal,
   CodexThreadTokenUsage,
 } from '../codex-app-server';
+
+beforeAll(() => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class ResizeObserverMock {
+      disconnect() {}
+      observe() {}
+      unobserve() {}
+    },
+  );
+});
 
 const mentionedDocument = {
   absolutePath: '/workspace/README.md',
@@ -360,12 +371,18 @@ describe('AI message rendering', () => {
     expect(onStay).toHaveBeenCalledTimes(1);
   });
 
-  it('用户消息按内容宽度收缩，并可把既有消息设为目标', async () => {
+  it('用户消息按内容宽度收缩，并在悬浮区右侧展示时间与复制操作', async () => {
     const user = userEvent.setup();
-    const onSetGoal = vi.fn();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const createdAtMs = new Date(2026, 6, 19, 18, 12).getTime();
     render(
       <ConversationEntryRow
         entry={{
+          createdAtMs,
           id: 'user-message',
           role: 'user',
           text: '你好啊',
@@ -373,7 +390,6 @@ describe('AI message rendering', () => {
         }}
         previous={null}
         onOpenDocument={vi.fn()}
-        onSetGoal={onSetGoal}
       />,
     );
 
@@ -384,12 +400,59 @@ describe('AI message rendering', () => {
 
     expect(row?.className).toContain('flex');
     expect(row?.className).toContain('justify-end');
+    expect(row?.getAttribute('tabindex')).toBe('0');
     expect(bubble?.className).toContain('w-max');
     expect(bubble?.className).toContain('max-w-full');
     expect(wrapper?.className).toContain('max-w-[88%]');
     expect(bubble?.className).toContain('break-words');
-    await user.click(screen.getByRole('button', { name: '设为目标' }));
-    expect(onSetGoal).toHaveBeenCalledWith('你好啊');
+    const metadata = screen.getByTestId('user-message-metadata');
+    expect(row?.className).toContain('ai-message-entry');
+    expect(metadata.className).toContain('ai-message-metadata');
+    expect(metadata.textContent).toContain('18:12');
+    expect(metadata.firstElementChild?.tagName).toBe('TIME');
+    expect(screen.queryByRole('button', { name: '设为目标' })).toBeNull();
+
+    const copy = screen.getByRole('button', { name: '复制消息' });
+    expect(metadata.lastElementChild?.contains(copy)).toBe(true);
+    await user.hover(copy);
+    expect((await screen.findByRole('tooltip')).textContent).toContain('复制');
+    await user.click(copy);
+    expect(writeText).toHaveBeenCalledWith('你好啊');
+  });
+
+  it('AI 回答在悬浮区左侧按复制、时间的顺序展示元信息', async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const createdAtMs = new Date(2026, 6, 19, 18, 16).getTime();
+    render(
+      <ConversationEntryRow
+        entry={{
+          createdAtMs,
+          id: 'assistant-message',
+          role: 'assistant',
+          text: '已经完成处理。',
+          type: 'message',
+        }}
+        previous={null}
+        onOpenDocument={vi.fn()}
+      />,
+    );
+
+    const metadata = screen.getByTestId('assistant-message-metadata');
+    const copy = screen.getByRole('button', { name: '复制消息' });
+    expect(metadata.className).toContain('ai-message-metadata');
+    expect(metadata.firstElementChild?.contains(copy)).toBe(true);
+    expect(metadata.lastElementChild?.tagName).toBe('TIME');
+    expect(metadata.textContent).toContain('18:16');
+
+    await user.hover(copy);
+    expect((await screen.findByRole('tooltip')).textContent).toContain('复制');
+    await user.click(copy);
+    expect(writeText).toHaveBeenCalledWith('已经完成处理。');
   });
 
   it('把 GFM 列表、行内代码和链接渲染为语义化内容', () => {
