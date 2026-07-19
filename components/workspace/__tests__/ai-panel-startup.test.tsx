@@ -176,6 +176,7 @@ function renderPanel(
       workspaceRootPath="/workspace"
       onBeforeTurnStart={onBeforeTurnStart}
       onOpenDocument={vi.fn()}
+      onOpenPlanPreview={vi.fn()}
       onWorkspaceChanged={vi.fn()}
     />,
   );
@@ -726,6 +727,7 @@ describe('AI panel startup lifecycle', () => {
         workspaceRootPath="/workspace-2"
         onBeforeTurnStart={vi.fn().mockResolvedValue(true)}
         onOpenDocument={vi.fn()}
+        onOpenPlanPreview={vi.fn()}
         onWorkspaceChanged={vi.fn()}
       />,
     );

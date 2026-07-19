@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-18
+updated: 2026-07-19
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -80,9 +80,9 @@ AI 文件修改以 App Server 事件为刷新事实源。`item/fileChange/patchU
 
 计划模式通过实验接口 `collaborationMode/list` 发现固定 sidecar 的 `Plan` 与 `Default` 预设；不可用时只禁用入口，不阻塞普通对话。每个 `turn/start` 显式提交内置 collaboration mode，Plan 固定当前模型与 `medium` 推理强度，Default 使用恢复后的模型与强度，二者都不改变线程权限。Plan 是 Codex 的开发者指令约束，不是只读 sandbox；活跃 turn、审批或用户问题未完成时禁止切换。新建、恢复和重新打开线程均从 Default 开始，Madora 不为协作模式建立持久化镜像。
 
-Plan turn 的 `item/plan/delta` 只用于流式展示，`item/completed` 的完整 `plan` item 是权威正文；`turn/plan/updated` 仍只表示执行检查清单。正式计划作为独立 Markdown 结果块进入线程投影，并随 `thread/read` 恢复。仅实时完成且确实产出正式计划时显示客户端三选项：在原线程发送 `Implement the plan.`、把完整计划引导语作为新 Default 线程首条消息，或留在 Plan 继续补充；历史回放不自动弹出。计划正文仍由 App Server 写入共享 Codex Home，Madora 不创建计划文件或数据库副本。
+Plan turn 的 `item/plan/delta` 只用于流式展示，`item/completed` 的完整 `plan` item 是权威正文；`turn/plan/updated` 仍只表示执行检查清单。正式计划以渐隐摘要卡进入线程投影，并随 `thread/read` 恢复；卡片可复制完整 Markdown，或在主编辑区打开只读的内存 Plan 标签页。Plan 标签使用 `threadId + plan item id` 标识，只存在于当前工作区 UI，不调用文档读写 API、不进入最近文档，也不创建 Markdown 文件。仅实时完成且确实产出正式计划时显示客户端三选项：在原线程发送 `Implement the plan.`、把完整计划引导语作为新 Default 线程首条消息，或留在 Plan 继续补充；历史回放不自动弹出。计划正文仍由 App Server 写入共享 Codex Home，Madora 不创建计划文件或数据库副本。
 
-`item/tool/requestUserInput` 是独立的 server request。Rust 将 1–3 个问题、自由输入或 2–3 个选项以及可选超时投影为 opaque ID，前端在输入框上方逐题收集答案，Rust 再映射回 App Server 原始 question ID 与 option label，使同一 turn 继续。问题存在时普通发送被阻止但仍可中断 turn；resolved、interrupt 和运行时退出都会清理交互状态。
+`item/tool/requestUserInput` 是独立的 server request。Rust 将 1–3 个问题、自由输入或 2–3 个选项投影为 opaque ID，前端在输入框上方逐题收集答案，Rust 再映射回 App Server 原始 question ID 与 option label，使同一 turn 继续。兼容字段 `autoResolutionMs` 仍按固定 sidecar 的协议边界校验，但 Madora 不据此代替用户提交空答案；问题会持续等待用户选择。问题存在时普通发送被阻止但仍可中断 turn；`serverRequest/resolved`、interrupt 和运行时退出都会同时清理前端交互与 Rust pending 映射。
 
 输入空白边界上的 `/` 会打开独立 Skill 面板。Skill 通过当前工作区单元素 `cwds` 的 `skills/list` 自动加载，只展示 enabled 项；`skills/changed` 作为失效信号触发强制刷新。选择项在输入框插入统一立方体图标和 display name，模型文本编码为 `$skill-name`，并额外发送 `{ type: "skill", name, path }` 原生输入。Rust 只授权最近一次关联 `skills/list` 响应中的精确名称与 canonical path，列表刷新、变更通知、运行时停止或工作区切换都会撤销旧授权。
 

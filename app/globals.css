@@ -494,6 +494,39 @@
     height: 0;
   }
 
+  .madora-thin-scrollarea {
+    scrollbar-color: color-mix(in oklab, var(--muted-foreground) 30%, transparent) transparent;
+    scrollbar-width: thin;
+  }
+
+  .madora-thin-scrollarea::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+    background: transparent;
+  }
+
+  .madora-thin-scrollarea::-webkit-scrollbar-track,
+  .madora-thin-scrollarea::-webkit-scrollbar-track-piece,
+  .madora-thin-scrollarea::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  .madora-thin-scrollarea::-webkit-scrollbar-thumb {
+    min-height: 48px;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--muted-foreground) 30%, transparent);
+  }
+
+  .madora-thin-scrollarea::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in oklab, var(--muted-foreground) 46%, transparent);
+  }
+
+  .madora-thin-scrollarea::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+
   .workspace-editor-shell .markweave-editor-frame {
     min-height: 100%;
     padding: 2rem 2rem 8rem;

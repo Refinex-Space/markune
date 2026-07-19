@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronDown, X } from 'lucide-react';
+import { ChevronDown, Lightbulb, X } from 'lucide-react';
 
 import {
   ContextMenu,
@@ -21,21 +21,21 @@ import type {
 } from './document-tabs';
 
 interface DocumentTabBarProps {
-  activeTabPath: string | null;
+  activeTabId: string | null;
   tabs: DocumentEditorTab[];
   visibleTabLimit?: number;
   onCloseAllTabs: () => void;
-  onCloseOtherTabs: (tabPath: string) => void;
-  onCloseTab: (tabPath: string) => void;
-  onCloseTabsToLeft: (tabPath: string) => void;
-  onCloseTabsToRight: (tabPath: string) => void;
-  onSelectTab: (tabPath: string) => void;
+  onCloseOtherTabs: (tabId: string) => void;
+  onCloseTab: (tabId: string) => void;
+  onCloseTabsToLeft: (tabId: string) => void;
+  onCloseTabsToRight: (tabId: string) => void;
+  onSelectTab: (tabId: string) => void;
 }
 
 const DEFAULT_VISIBLE_TAB_LIMIT = 8;
 
 export function DocumentTabBar({
-  activeTabPath,
+  activeTabId,
   tabs,
   visibleTabLimit = DEFAULT_VISIBLE_TAB_LIMIT,
   onCloseAllTabs,
@@ -60,8 +60,8 @@ export function DocumentTabBar({
       <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">
         {visibleTabs.map((tab) => (
           <DocumentTabItem
-            activeTabPath={activeTabPath}
-            key={tab.absolutePath}
+            activeTabId={activeTabId}
+            key={tab.id}
             tab={tab}
             onCloseAllTabs={onCloseAllTabs}
             onCloseOtherTabs={onCloseOtherTabs}
@@ -87,9 +87,10 @@ export function DocumentTabBar({
           <DropdownMenuContent align="end" className="w-56">
             {overflowTabs.map((tab) => (
               <DropdownMenuItem
-                key={tab.absolutePath}
-                onSelect={() => onSelectTab(tab.absolutePath)}
+                key={tab.id}
+                onSelect={() => onSelectTab(tab.id)}
               >
+                {tab.kind === 'plan' ? <Lightbulb size={14} /> : null}
                 <span className="truncate">{tab.title}</span>
               </DropdownMenuItem>
             ))}
@@ -108,7 +109,7 @@ type DocumentTabItemProps = Omit<
 };
 
 function DocumentTabItem({
-  activeTabPath,
+  activeTabId,
   tab,
   onCloseAllTabs,
   onCloseOtherTabs,
@@ -117,7 +118,7 @@ function DocumentTabItem({
   onCloseTabsToRight,
   onSelectTab,
 }: DocumentTabItemProps) {
-  const active = activeTabPath === tab.absolutePath;
+  const active = activeTabId === tab.id;
 
   return (
     <ContextMenu>
@@ -133,14 +134,17 @@ function DocumentTabItem({
           role="tab"
           tabIndex={0}
           title={tab.title}
-          onClick={() => onSelectTab(tab.absolutePath)}
+          onClick={() => onSelectTab(tab.id)}
           onKeyDown={(event) => {
             if (event.key === 'Enter' || event.key === ' ') {
               event.preventDefault();
-              onSelectTab(tab.absolutePath);
+              onSelectTab(tab.id);
             }
           }}
         >
+          {tab.kind === 'plan' ? (
+            <Lightbulb className="mr-1.5 shrink-0" size={13} />
+          ) : null}
           <span className="min-w-0 flex-1 truncate">{tab.title}</span>
           <button
             aria-label={`关闭标签页 ${tab.title}`}
@@ -151,7 +155,7 @@ function DocumentTabItem({
             type="button"
             onClick={(event) => {
               event.stopPropagation();
-              onCloseTab(tab.absolutePath);
+              onCloseTab(tab.id);
             }}
           >
             <X size={12} />
@@ -159,19 +163,19 @@ function DocumentTabItem({
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-44">
-        <ContextMenuItem onSelect={() => onCloseTab(tab.absolutePath)}>
+        <ContextMenuItem onSelect={() => onCloseTab(tab.id)}>
           关闭
         </ContextMenuItem>
-        <ContextMenuItem onSelect={() => onCloseOtherTabs(tab.absolutePath)}>
+        <ContextMenuItem onSelect={() => onCloseOtherTabs(tab.id)}>
           关闭其他标签页
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => onCloseAllTabs()}>
           关闭所有标签页
         </ContextMenuItem>
-        <ContextMenuItem onSelect={() => onCloseTabsToLeft(tab.absolutePath)}>
+        <ContextMenuItem onSelect={() => onCloseTabsToLeft(tab.id)}>
           关闭左侧标签页
         </ContextMenuItem>
-        <ContextMenuItem onSelect={() => onCloseTabsToRight(tab.absolutePath)}>
+        <ContextMenuItem onSelect={() => onCloseTabsToRight(tab.id)}>
           关闭右侧标签页
         </ContextMenuItem>
       </ContextMenuContent>

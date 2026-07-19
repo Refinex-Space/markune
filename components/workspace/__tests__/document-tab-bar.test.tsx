@@ -7,9 +7,27 @@ import type { DocumentEditorTab } from '../document-tabs';
 
 function tabs(): DocumentEditorTab[] {
   return [
-    { absolutePath: '/repo/a.md', name: 'a.md', title: 'A' },
-    { absolutePath: '/repo/b.md', name: 'b.md', title: 'B' },
-    { absolutePath: '/repo/c.md', name: 'c.md', title: 'C' },
+    {
+      absolutePath: '/repo/a.md',
+      id: '/repo/a.md',
+      kind: 'document',
+      name: 'a.md',
+      title: 'A',
+    },
+    {
+      absolutePath: '/repo/b.md',
+      id: '/repo/b.md',
+      kind: 'document',
+      name: 'b.md',
+      title: 'B',
+    },
+    {
+      absolutePath: '/repo/c.md',
+      id: '/repo/c.md',
+      kind: 'document',
+      name: 'c.md',
+      title: 'C',
+    },
   ];
 }
 
@@ -17,7 +35,7 @@ describe('DocumentTabBar', () => {
   it('renders integrated tabs without hard divider lines', () => {
     render(
       <DocumentTabBar
-        activeTabPath="/repo/b.md"
+        activeTabId="/repo/b.md"
         tabs={tabs()}
         visibleTabLimit={8}
         onCloseAllTabs={vi.fn()}
@@ -49,7 +67,7 @@ describe('DocumentTabBar', () => {
 
     render(
       <DocumentTabBar
-        activeTabPath="/repo/b.md"
+        activeTabId="/repo/b.md"
         tabs={tabs()}
         visibleTabLimit={8}
         onCloseAllTabs={vi.fn()}
@@ -74,7 +92,7 @@ describe('DocumentTabBar', () => {
 
     render(
       <DocumentTabBar
-        activeTabPath="/repo/b.md"
+        activeTabId="/repo/b.md"
         tabs={tabs()}
         visibleTabLimit={8}
         onCloseAllTabs={vi.fn()}
@@ -104,7 +122,7 @@ describe('DocumentTabBar', () => {
 
     render(
       <DocumentTabBar
-        activeTabPath="/repo/b.md"
+        activeTabId="/repo/b.md"
         tabs={tabs()}
         visibleTabLimit={2}
         onCloseAllTabs={vi.fn()}

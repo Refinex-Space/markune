@@ -11,10 +11,15 @@ vi.mock('next-themes', () => ({
 vi.mock('../ai-panel', () => ({
   AiPanel: ({
     onOpenDocument,
+    onOpenPlanPreview,
     visible,
     workspaceRootPath,
   }: {
     onOpenDocument: (path: string) => void;
+    onOpenPlanPreview: (
+      plan: { id: string; text: string },
+      threadId: string,
+    ) => void;
     visible: boolean;
     workspaceRootPath: string | null;
   }) => (
@@ -22,6 +27,17 @@ vi.mock('../ai-panel', () => ({
       AI:{workspaceRootPath}
       <button type="button" onClick={() => onOpenDocument('/workspace/README.md')}>
         打开提及文档
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          onOpenPlanPreview(
+            { id: 'plan-1', text: '# 计划' },
+            'thread-1',
+          )
+        }
+      >
+        打开计划
       </button>
     </div>
   ),
@@ -73,6 +89,7 @@ describe('right AI panel integration', () => {
 
   it('AI 模式渲染工作区级面板而不是元信息面板', () => {
     const onOpenDocument = vi.fn();
+    const onOpenPlanPreview = vi.fn();
     render(
       <RightSidePanel
         currentDocument={null}
@@ -84,6 +101,7 @@ describe('right AI panel integration', () => {
         workspaceRootPath="/workspace"
         onBeforeTurnStart={vi.fn().mockResolvedValue(true)}
         onOpenDocument={onOpenDocument}
+        onOpenPlanPreview={onOpenPlanPreview}
         onWorkspaceChanged={vi.fn()}
       />,
     );
@@ -93,6 +111,11 @@ describe('right AI panel integration', () => {
     expect(screen.queryByTestId('document-meta-panel')).toBeNull();
     screen.getByRole('button', { name: '打开提及文档' }).click();
     expect(onOpenDocument).toHaveBeenCalledWith('/workspace/README.md');
+    screen.getByRole('button', { name: '打开计划' }).click();
+    expect(onOpenPlanPreview).toHaveBeenCalledWith(
+      { id: 'plan-1', text: '# 计划' },
+      'thread-1',
+    );
   });
 
   it('折叠或切换元信息面板时仍保持 AI 运行时挂载', () => {
@@ -105,6 +128,7 @@ describe('right AI panel integration', () => {
       workspaceRootPath: '/workspace',
       onBeforeTurnStart: vi.fn().mockResolvedValue(true),
       onOpenDocument: vi.fn(),
+      onOpenPlanPreview: vi.fn(),
       onWorkspaceChanged: vi.fn(),
     };
     const { rerender } = render(<RightSidePanel {...props} mode={null} />);

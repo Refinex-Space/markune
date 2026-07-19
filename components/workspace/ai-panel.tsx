@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Circle,
   CircleX,
+  Copy,
   Eye,
   File,
   FolderOpen,
@@ -28,6 +29,7 @@ import {
   History,
   Lightbulb,
   LoaderCircle,
+  Maximize2,
   MessageSquareText,
   MoreHorizontal,
   Paperclip,
@@ -143,6 +145,7 @@ interface AiPanelProps {
   workspaceRootPath: string | null;
   onBeforeTurnStart: () => Promise<boolean>;
   onOpenDocument: (documentPath: string) => void;
+  onOpenPlanPreview: (plan: AiProposedPlan, threadId: string) => void;
   onWorkspaceChanged: (
     event: AiWorkspaceChangeEvent,
   ) => void | Promise<void>;
@@ -393,6 +396,7 @@ export function AiPanel({
   workspaceRootPath,
   onBeforeTurnStart,
   onOpenDocument,
+  onOpenPlanPreview,
   onWorkspaceChanged,
 }: AiPanelProps) {
   const [view, setView] = React.useState<PanelView>('chat');
@@ -1681,6 +1685,12 @@ export function AiPanel({
               signingIn={signingIn}
               onApprove={approve}
               onOpenDocument={onOpenDocument}
+              onOpenPlanPreview={(plan) =>
+                onOpenPlanPreview(
+                  plan,
+                  activeThread?.id ?? plan.turnId ?? 'unscoped',
+                )
+              }
               onPrompt={(prompt) => void sendMessage(prompt)}
               onSignIn={() => void signIn()}
             />
@@ -1955,6 +1965,7 @@ function PanelContent({
   signingIn,
   onApprove,
   onOpenDocument,
+  onOpenPlanPreview,
   onPrompt,
   onSignIn,
 }: {
@@ -1970,6 +1981,7 @@ function PanelContent({
     choiceId: string,
   ) => void;
   onOpenDocument: (documentPath: string) => void;
+  onOpenPlanPreview: (plan: AiProposedPlan) => void;
   onPrompt: (prompt: string) => void;
   onSignIn: () => void;
 }) {
@@ -2062,12 +2074,17 @@ function PanelContent({
               onOpenDocument={onOpenDocument}
             />
           ) : block.type === 'proposedPlan' ? (
-            <ProposedPlanCard key={block.id} plan={block} />
+            <ProposedPlanCard
+              key={block.id}
+              plan={block}
+              onOpen={onOpenPlanPreview}
+            />
           ) : (
             <ConversationEntryRow
               entry={block}
               key={`${block.type}-${block.id}`}
               onOpenDocument={onOpenDocument}
+              onOpenPlanPreview={onOpenPlanPreview}
               previous={previousConversationEntry(blocks[index - 1])}
             />
           ),
@@ -2088,10 +2105,34 @@ function previousConversationEntry(block: AiConversationBlock | undefined) {
   return block?.type === 'message' ? block : null;
 }
 
-export function ProposedPlanCard({ plan }: { plan: AiProposedPlan }) {
+export function ProposedPlanCard({
+  plan,
+  onOpen = () => undefined,
+}: {
+  plan: AiProposedPlan;
+  onOpen?: (plan: AiProposedPlan) => void;
+}) {
+  const [copied, setCopied] = React.useState(false);
+  const canOpen = plan.status === 'completed' && Boolean(plan.text.trim());
+
+  const copyPlan = async () => {
+    if (!plan.text.trim()) return;
+    try {
+      await navigator.clipboard.writeText(plan.text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1_500);
+    } catch (error) {
+      console.warn('复制计划失败', error);
+    }
+  };
+
+  const openPlan = () => {
+    if (canOpen) onOpen(plan);
+  };
+
   return (
     <section
-      className="mt-4 overflow-hidden rounded-xl border border-border/70 bg-background"
+      className="my-4 overflow-hidden rounded-xl border border-border/70 bg-background"
       data-testid="proposed-plan"
     >
       <header className="flex items-center gap-2 border-b border-border/60 px-3 py-2.5">
@@ -2103,14 +2144,58 @@ export function ProposedPlanCard({ plan }: { plan: AiProposedPlan }) {
         </div>
         {plan.status === 'inProgress' ? (
           <LoaderCircle className="animate-spin text-muted-foreground" size={14} />
-        ) : null}
+        ) : (
+          <div className="flex shrink-0 items-center gap-0.5">
+            <button
+              aria-label={copied ? '已复制计划' : '复制计划'}
+              className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/55 hover:text-foreground"
+              disabled={!plan.text.trim()}
+              title={copied ? '已复制' : '复制'}
+              type="button"
+              onClick={() => void copyPlan()}
+            >
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+            </button>
+            <button
+              aria-label="在编辑器中查看完整计划"
+              className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/55 hover:text-foreground"
+              disabled={!plan.text.trim()}
+              title="查看完整计划"
+              type="button"
+              onClick={openPlan}
+            >
+              <Maximize2 size={14} />
+            </button>
+          </div>
+        )}
       </header>
-      <div className="px-3 py-3 text-[13px] leading-6">
+      <div
+        aria-label="查看完整计划"
+        className={cn(
+          'group relative max-h-56 overflow-hidden px-3 py-3 text-[13px] leading-6',
+          canOpen && 'cursor-pointer',
+        )}
+        role={canOpen ? 'button' : undefined}
+        tabIndex={canOpen ? 0 : undefined}
+        onClick={openPlan}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openPlan();
+          }
+        }}
+      >
         {plan.text ? (
           <AiMessageContent markdown={plan.text} />
         ) : (
           <span className="text-muted-foreground">正在整理完整方案…</span>
         )}
+        {plan.text ? (
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-b from-transparent via-background/85 to-background"
+          />
+        ) : null}
       </div>
     </section>
   );
@@ -2264,7 +2349,7 @@ function ChangeDiffPreview({ change }: { change: AiFileChange }) {
           <span className="text-red-500">-{change.deletions}</span>
         </div>
       </header>
-      <div className="max-h-[min(420px,65vh)] overflow-auto overscroll-contain py-1 font-mono text-[11px] leading-5">
+      <div className="madora-thin-scrollarea max-h-[min(420px,65vh)] overflow-auto overscroll-contain py-1 font-mono text-[11px] leading-5">
         {lines.map((line, index) =>
           line.kind === 'omitted' ? (
             <div
@@ -2376,14 +2461,16 @@ function isDiffHeaderLine(line: string) {
 export function ConversationEntryRow({
   entry,
   onOpenDocument,
+  onOpenPlanPreview = () => undefined,
   previous,
 }: {
   entry: AiConversationEntry;
   onOpenDocument: (documentPath: string) => void;
+  onOpenPlanPreview?: (plan: AiProposedPlan) => void;
   previous: AiConversationEntry | null;
 }) {
   if (entry.type === 'proposedPlan') {
-    return <ProposedPlanCard plan={entry} />;
+    return <ProposedPlanCard plan={entry} onOpen={onOpenPlanPreview} />;
   }
   if (entry.type === 'timeline') {
     return (
@@ -3396,17 +3483,6 @@ export function UserInputDecisionCard({
     Record<string, { note: string; optionId: string | null }>
   >({});
   const [submitting, setSubmitting] = React.useState(false);
-  const [remainingMs, setRemainingMs] = React.useState<number | null>(
-    request.autoResolutionMs,
-  );
-
-  React.useEffect(() => {
-    if (!request.autoResolutionMs) return;
-    const deadline = Date.now() + request.autoResolutionMs;
-    const update = () => setRemainingMs(Math.max(0, deadline - Date.now()));
-    const interval = window.setInterval(update, 250);
-    return () => window.clearInterval(interval);
-  }, [request.autoResolutionMs]);
 
   const question = request.questions[activeIndex];
   const answer = answers[question.id] ?? { note: '', optionId: null };
@@ -3432,8 +3508,6 @@ export function UserInputDecisionCard({
         (!candidateOption?.isOther || candidateAnswer.note.trim()),
     );
   });
-  const expired = remainingMs === 0;
-
   const selectOption = (optionId: string) => {
     setAnswers((current) => ({
       ...current,
@@ -3445,7 +3519,7 @@ export function UserInputDecisionCard({
   };
 
   const submit = async () => {
-    if (!allAnswered || submitting || expired) return;
+    if (!allAnswered || submitting) return;
     setSubmitting(true);
     try {
       await onSubmit(
@@ -3462,140 +3536,131 @@ export function UserInputDecisionCard({
 
   return (
     <section className="mx-3 mb-2 shrink-0 rounded-xl border border-border/70 bg-background p-3 shadow-[0_1px_4px_rgba(15,23,42,0.06)]">
-      <div className="flex items-start gap-3">
-        <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-muted/45 text-muted-foreground">
-          <MessageSquareText size={15} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-[11px] font-medium text-muted-foreground">
-              {question.header}
-            </span>
-            <span className="text-[10px] tabular-nums text-muted-foreground">
-              {activeIndex + 1}/{request.questions.length}
-              {remainingMs !== null
-                ? ` · ${Math.ceil(remainingMs / 1000)} 秒`
-                : ''}
-            </span>
-          </div>
-          <p className="mt-1 text-[13px] leading-5">{question.question}</p>
-          <div className="mt-2 space-y-1">
-            {question.options.map((option, optionIndex) => (
-              <button
-                aria-pressed={answer.optionId === option.id}
-                className={cn(
-                  'flex w-full items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors',
-                  answer.optionId === option.id
-                    ? 'border-foreground/25 bg-muted/60'
-                    : 'border-transparent hover:bg-muted/40',
-                )}
-                disabled={submitting || expired}
-                data-option-index={optionIndex}
-                key={option.id}
-                type="button"
-                onClick={() => selectOption(option.id)}
-                onKeyDown={(event) => {
-                  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
-                    return;
-                  }
-                  event.preventDefault();
-                  const nextIndex =
-                    event.key === 'Home'
-                      ? 0
-                      : event.key === 'End'
-                        ? question.options.length - 1
-                        : (optionIndex +
-                            (event.key === 'ArrowDown' ? 1 : -1) +
-                            question.options.length) %
-                          question.options.length;
-                  selectOption(question.options[nextIndex].id);
-                  const next = event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(
-                    `[data-option-index="${nextIndex}"]`,
-                  );
-                  next?.focus();
-                }}
-              >
-                <span
-                  className={cn(
-                    'mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border',
-                    answer.optionId === option.id &&
-                      'border-foreground bg-foreground text-background',
-                  )}
-                >
-                  {answer.optionId === option.id ? <Check size={10} /> : null}
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-xs font-medium">{option.label}</span>
-                  <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
-                    {option.description}
-                  </span>
-                </span>
-              </button>
-            ))}
-          </div>
-          {answer.optionId || freeform ? (
-            <input
-              aria-label={
-                freeform
-                  ? '回答'
-                  : selectedOption?.isOther
-                    ? '其他答案'
-                    : '补充说明'
-              }
-              autoComplete="off"
-              className="mt-2 h-8 w-full rounded-lg border border-border/70 bg-transparent px-2.5 text-xs outline-none placeholder:text-muted-foreground/60 focus:border-ring"
-              disabled={submitting || expired}
-              placeholder={
-                freeform
-                  ? '请输入回答'
-                  : selectedOption?.isOther
-                    ? '请输入其他答案'
-                    : '补充说明（可选）'
-              }
-              type={question.isSecret ? 'password' : 'text'}
-              value={answer.note}
-              onChange={(event) =>
-                setAnswers((current) => ({
-                  ...current,
-                  [question.id]: {
-                    note: event.target.value,
-                    optionId: freeform ? null : answer.optionId,
-                  },
-                }))
-              }
-            />
-          ) : null}
-          <div className="mt-3 flex items-center justify-between gap-2">
+      <div className="min-w-0">
+        <div className="flex items-center justify-between gap-3">
+          <span className="flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+            <Lightbulb className="shrink-0" size={13} />
+            <span className="truncate">{question.header}</span>
+          </span>
+          <span className="text-[10px] tabular-nums text-muted-foreground">
+            {activeIndex + 1}/{request.questions.length}
+          </span>
+        </div>
+        <p className="mt-1 text-[13px] leading-5">{question.question}</p>
+        <div className="mt-2 space-y-1">
+          {question.options.map((option, optionIndex) => (
             <button
-              className="h-7 rounded-md px-2 text-[11px] text-muted-foreground hover:bg-accent disabled:opacity-40"
-              disabled={activeIndex === 0 || submitting || expired}
+              aria-pressed={answer.optionId === option.id}
+              className={cn(
+                'flex w-full items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors',
+                answer.optionId === option.id
+                  ? 'border-foreground/25 bg-muted/60'
+                  : 'border-transparent hover:bg-muted/40',
+              )}
+              disabled={submitting}
+              data-option-index={optionIndex}
+              key={option.id}
               type="button"
-              onClick={() => setActiveIndex((current) => current - 1)}
+              onClick={() => selectOption(option.id)}
+              onKeyDown={(event) => {
+                if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+                  return;
+                }
+                event.preventDefault();
+                const nextIndex =
+                  event.key === 'Home'
+                    ? 0
+                    : event.key === 'End'
+                      ? question.options.length - 1
+                      : (optionIndex +
+                          (event.key === 'ArrowDown' ? 1 : -1) +
+                          question.options.length) %
+                        question.options.length;
+                selectOption(question.options[nextIndex].id);
+                const next = event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(
+                  `[data-option-index="${nextIndex}"]`,
+                );
+                next?.focus();
+              }}
             >
-              上一步
+              <span
+                className={cn(
+                  'mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border',
+                  answer.optionId === option.id &&
+                    'border-foreground bg-foreground text-background',
+                )}
+              >
+                {answer.optionId === option.id ? <Check size={10} /> : null}
+              </span>
+              <span className="min-w-0">
+                <span className="block text-xs font-medium">{option.label}</span>
+                <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
+                  {option.description}
+                </span>
+              </span>
             </button>
-            {expired ? (
-              <span className="text-[11px] text-muted-foreground">已按默认判断继续</span>
-            ) : activeIndex < request.questions.length - 1 ? (
-              <button
-                className="h-7 rounded-md bg-foreground px-3 text-[11px] font-medium text-background disabled:opacity-40"
-                disabled={!answered || submitting}
-                type="button"
-                onClick={() => setActiveIndex((current) => current + 1)}
-              >
-                下一步
-              </button>
-            ) : (
-              <button
-                className="h-7 rounded-md bg-foreground px-3 text-[11px] font-medium text-background disabled:opacity-40"
-                disabled={!allAnswered || submitting}
-                type="button"
-                onClick={() => void submit()}
-              >
-                {submitting ? '正在提交…' : '提交回答'}
-              </button>
-            )}
-          </div>
+          ))}
+        </div>
+        {answer.optionId || freeform ? (
+          <input
+            aria-label={
+              freeform
+                ? '回答'
+                : selectedOption?.isOther
+                  ? '其他答案'
+                  : '补充说明'
+            }
+            autoComplete="off"
+            className="mt-2 h-8 w-full rounded-lg border border-border/70 bg-transparent px-2.5 text-xs outline-none placeholder:text-muted-foreground/60 focus:border-ring"
+            disabled={submitting}
+            placeholder={
+              freeform
+                ? '请输入回答'
+                : selectedOption?.isOther
+                  ? '请输入其他答案'
+                  : '补充说明（可选）'
+            }
+            type={question.isSecret ? 'password' : 'text'}
+            value={answer.note}
+            onChange={(event) =>
+              setAnswers((current) => ({
+                ...current,
+                [question.id]: {
+                  note: event.target.value,
+                  optionId: freeform ? null : answer.optionId,
+                },
+              }))
+            }
+          />
+        ) : null}
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <button
+            className="h-7 rounded-md px-2 text-[11px] text-muted-foreground hover:bg-accent disabled:opacity-40"
+            disabled={activeIndex === 0 || submitting}
+            type="button"
+            onClick={() => setActiveIndex((current) => current - 1)}
+          >
+            上一步
+          </button>
+          {activeIndex < request.questions.length - 1 ? (
+            <button
+              className="h-7 rounded-md bg-foreground px-3 text-[11px] font-medium text-background disabled:opacity-40"
+              disabled={!answered || submitting}
+              type="button"
+              onClick={() => setActiveIndex((current) => current + 1)}
+            >
+              下一步
+            </button>
+          ) : (
+            <button
+              className="h-7 rounded-md bg-foreground px-3 text-[11px] font-medium text-background disabled:opacity-40"
+              disabled={!allAnswered || submitting}
+              type="button"
+              onClick={() => void submit()}
+            >
+              {submitting ? '正在提交…' : '提交回答'}
+            </button>
+          )}
         </div>
       </div>
     </section>

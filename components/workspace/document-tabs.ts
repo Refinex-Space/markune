@@ -1,19 +1,40 @@
 import type { WorkspaceNode } from './workspace-types';
 
-export interface DocumentEditorTab {
+export interface DocumentEditorDocumentTab {
   absolutePath: string;
+  id: string;
+  kind: 'document';
   name: string;
   title: string;
 }
 
+export interface DocumentEditorPlanTab {
+  id: string;
+  kind: 'plan';
+  markdown: string;
+  planId: string;
+  threadId: string;
+  title: string;
+}
+
+export type DocumentEditorTab =
+  | DocumentEditorDocumentTab
+  | DocumentEditorPlanTab;
+
+export interface PlanPreviewTabInput {
+  id: string;
+  text: string;
+  threadId: string;
+}
+
 export interface DocumentEditorLayout {
-  activeTabPath: string | null;
+  activeTabId: string | null;
   tabs: DocumentEditorTab[];
 }
 
 export function createInitialEditorLayout(): DocumentEditorLayout {
   return {
-    activeTabPath: null,
+    activeTabId: null,
     tabs: [],
   };
 }
@@ -27,32 +48,49 @@ export function openDocumentTab(
   }
 
   const tab = createDocumentTab(document);
-  const existingIndex = layout.tabs.findIndex(
-    (entry) => entry.absolutePath === tab.absolutePath,
-  );
+  const existingIndex = layout.tabs.findIndex((entry) => entry.id === tab.id);
   const tabs =
     existingIndex === -1
       ? [...layout.tabs, tab]
       : layout.tabs.map((entry, index) =>
-          index === existingIndex ? { ...entry, ...tab } : entry,
+          index === existingIndex ? tab : entry,
         );
 
   return {
-    activeTabPath: tab.absolutePath,
+    activeTabId: tab.id,
+    tabs,
+  };
+}
+
+export function openPlanPreviewTab(
+  layout: DocumentEditorLayout,
+  plan: PlanPreviewTabInput,
+): DocumentEditorLayout {
+  const tab = createPlanPreviewTab(plan);
+  const existingIndex = layout.tabs.findIndex((entry) => entry.id === tab.id);
+  const tabs =
+    existingIndex === -1
+      ? [...layout.tabs, tab]
+      : layout.tabs.map((entry, index) =>
+          index === existingIndex ? tab : entry,
+        );
+
+  return {
+    activeTabId: tab.id,
     tabs,
   };
 }
 
 export function selectDocumentTab(
   layout: DocumentEditorLayout,
-  tabPath: string,
+  tabId: string,
 ): DocumentEditorLayout {
-  if (layout.activeTabPath === tabPath) {
+  if (layout.activeTabId === tabId) {
     return layout;
   }
 
-  const tab = layout.tabs.find((entry) => entry.absolutePath === tabPath);
-  return tab ? { ...layout, activeTabPath: tab.absolutePath } : layout;
+  const tab = layout.tabs.find((entry) => entry.id === tabId);
+  return tab ? { ...layout, activeTabId: tab.id } : layout;
 }
 
 export function renameDocumentTab(
@@ -65,53 +103,52 @@ export function renameDocumentTab(
   }
 
   const tabIndex = layout.tabs.findIndex(
-    (tab) => tab.absolutePath === previousPath,
+    (tab) => tab.kind === 'document' && tab.absolutePath === previousPath,
   );
 
   if (tabIndex === -1) {
     return layout;
   }
 
+  const previousTab = layout.tabs[tabIndex];
   const renamedTab = createDocumentTab(document);
   const tabs = layout.tabs.map((tab, index) =>
     index === tabIndex ? renamedTab : tab,
   );
 
   return {
-    activeTabPath:
-      layout.activeTabPath === previousPath
-        ? renamedTab.absolutePath
-        : layout.activeTabPath,
+    activeTabId:
+      layout.activeTabId === previousTab.id ? renamedTab.id : layout.activeTabId,
     tabs,
   };
 }
 
 export function closeDocumentTab(
   layout: DocumentEditorLayout,
-  tabPath: string,
+  tabId: string,
 ): DocumentEditorLayout {
-  const tabIndex = layout.tabs.findIndex((tab) => tab.absolutePath === tabPath);
+  const tabIndex = layout.tabs.findIndex((tab) => tab.id === tabId);
 
   if (tabIndex === -1) {
     return layout;
   }
 
-  const tabs = layout.tabs.filter((tab) => tab.absolutePath !== tabPath);
-  const activeTabPath =
-    layout.activeTabPath === tabPath
-      ? tabs[Math.min(tabIndex, tabs.length - 1)]?.absolutePath ?? null
-      : layout.activeTabPath;
+  const tabs = layout.tabs.filter((tab) => tab.id !== tabId);
+  const activeTabId =
+    layout.activeTabId === tabId
+      ? tabs[Math.min(tabIndex, tabs.length - 1)]?.id ?? null
+      : layout.activeTabId;
 
-  return { activeTabPath, tabs };
+  return { activeTabId, tabs };
 }
 
 export function closeOtherDocumentTabs(
   layout: DocumentEditorLayout,
-  tabPath: string,
+  tabId: string,
 ): DocumentEditorLayout {
-  const tab = layout.tabs.find((entry) => entry.absolutePath === tabPath);
+  const tab = layout.tabs.find((entry) => entry.id === tabId);
 
-  return tab ? { activeTabPath: tabPath, tabs: [tab] } : layout;
+  return tab ? { activeTabId: tabId, tabs: [tab] } : layout;
 }
 
 export function closeAllDocumentTabs(): DocumentEditorLayout {
@@ -120,9 +157,9 @@ export function closeAllDocumentTabs(): DocumentEditorLayout {
 
 export function closeDocumentTabsToLeft(
   layout: DocumentEditorLayout,
-  tabPath: string,
+  tabId: string,
 ): DocumentEditorLayout {
-  const tabIndex = layout.tabs.findIndex((tab) => tab.absolutePath === tabPath);
+  const tabIndex = layout.tabs.findIndex((tab) => tab.id === tabId);
 
   if (tabIndex === -1) {
     return layout;
@@ -130,18 +167,18 @@ export function closeDocumentTabsToLeft(
 
   const tabs = layout.tabs.slice(tabIndex);
   return {
-    activeTabPath: tabs.some((tab) => tab.absolutePath === layout.activeTabPath)
-      ? layout.activeTabPath
-      : tabPath,
+    activeTabId: tabs.some((tab) => tab.id === layout.activeTabId)
+      ? layout.activeTabId
+      : tabId,
     tabs,
   };
 }
 
 export function closeDocumentTabsToRight(
   layout: DocumentEditorLayout,
-  tabPath: string,
+  tabId: string,
 ): DocumentEditorLayout {
-  const tabIndex = layout.tabs.findIndex((tab) => tab.absolutePath === tabPath);
+  const tabIndex = layout.tabs.findIndex((tab) => tab.id === tabId);
 
   if (tabIndex === -1) {
     return layout;
@@ -149,23 +186,42 @@ export function closeDocumentTabsToRight(
 
   const tabs = layout.tabs.slice(0, tabIndex + 1);
   return {
-    activeTabPath: tabs.some((tab) => tab.absolutePath === layout.activeTabPath)
-      ? layout.activeTabPath
-      : tabPath,
+    activeTabId: tabs.some((tab) => tab.id === layout.activeTabId)
+      ? layout.activeTabId
+      : tabId,
     tabs,
   };
 }
 
 export function getActiveTab(layout: DocumentEditorLayout) {
-  return (
-    layout.tabs.find((tab) => tab.absolutePath === layout.activeTabPath) ?? null
-  );
+  return layout.tabs.find((tab) => tab.id === layout.activeTabId) ?? null;
 }
 
-function createDocumentTab(document: WorkspaceNode): DocumentEditorTab {
+function createDocumentTab(document: WorkspaceNode): DocumentEditorDocumentTab {
   return {
     absolutePath: document.absolutePath,
+    id: document.absolutePath,
+    kind: 'document',
     name: document.name,
     title: document.title || document.name,
   };
+}
+
+function createPlanPreviewTab(plan: PlanPreviewTabInput): DocumentEditorPlanTab {
+  return {
+    id: `plan:${encodeURIComponent(plan.threadId)}:${encodeURIComponent(plan.id)}`,
+    kind: 'plan',
+    markdown: plan.text,
+    planId: plan.id,
+    threadId: plan.threadId,
+    title: getPlanPreviewTitle(plan.text),
+  };
+}
+
+function getPlanPreviewTitle(markdown: string) {
+  const heading = markdown
+    .split(/\r?\n/)
+    .map((line) => line.match(/^#\s+(.+?)\s*$/)?.[1]?.trim() ?? '')
+    .find(Boolean);
+  return heading?.slice(0, 80) || '计划';
 }

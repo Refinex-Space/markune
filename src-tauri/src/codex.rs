@@ -76,7 +76,6 @@ enum PendingServerRequestKind {
     },
     UserInput {
         questions: HashMap<String, PendingUserInputQuestion>,
-        auto_resolution_ms: Option<u64>,
     },
 }
 
@@ -712,6 +711,10 @@ fn spawn_stdout_reader(
                 }
             }
 
+            if payload.get("method").and_then(Value::as_str) == Some("serverRequest/resolved") {
+                remove_resolved_server_request(&payload, &pending_server_requests);
+            }
+
             if let (Some(request_id), Some(method)) = (
                 payload.get("id"),
                 payload.get("method").and_then(Value::as_str),
@@ -721,24 +724,8 @@ fn spawn_stdout_reader(
                     match prepare_pending_server_request(&mut payload) {
                         Ok(pending_request) => {
                             if let Ok(key) = request_id_key(&request_id) {
-                                let auto_resolution_ms = match &pending_request.kind {
-                                    PendingServerRequestKind::UserInput {
-                                        auto_resolution_ms,
-                                        ..
-                                    } => *auto_resolution_ms,
-                                    PendingServerRequestKind::Approval { .. } => None,
-                                };
                                 if let Ok(mut pending) = pending_server_requests.lock() {
-                                    pending.insert(key.clone(), pending_request);
-                                }
-                                if let Some(auto_resolution_ms) = auto_resolution_ms {
-                                    schedule_user_input_auto_resolution(
-                                        pending_server_requests.clone(),
-                                        writer.clone(),
-                                        key,
-                                        request_id.clone(),
-                                        auto_resolution_ms,
-                                    );
+                                    pending.insert(key, pending_request);
                                 }
                             }
                         }
@@ -787,37 +774,23 @@ fn spawn_stdout_reader(
     });
 }
 
-fn schedule_user_input_auto_resolution(
-    pending_server_requests: Arc<Mutex<HashMap<String, PendingServerRequest>>>,
-    writer: Arc<Mutex<ChildStdin>>,
-    request_key: String,
-    request_id: Value,
-    auto_resolution_ms: u64,
+fn remove_resolved_server_request(
+    payload: &Value,
+    pending_server_requests: &Mutex<HashMap<String, PendingServerRequest>>,
 ) {
-    thread::spawn(move || {
-        thread::sleep(Duration::from_millis(auto_resolution_ms));
-        let should_resolve = pending_server_requests
-            .lock()
-            .ok()
-            .and_then(|mut pending| {
-                let is_user_input = pending.get(&request_key).is_some_and(|request| {
-                    matches!(request.kind, PendingServerRequestKind::UserInput { .. })
-                });
-                is_user_input
-                    .then(|| pending.remove(&request_key))
-                    .flatten()
-            })
-            .is_some();
-        if should_resolve {
-            let _ = write_json_line(
-                &writer,
-                &json!({
-                    "id": request_id,
-                    "result": { "answers": {} },
-                }),
-            );
-        }
-    });
+    let Some(request_id) = payload
+        .get("params")
+        .and_then(Value::as_object)
+        .and_then(|params| params.get("requestId"))
+    else {
+        return;
+    };
+    let Ok(key) = request_id_key(request_id) else {
+        return;
+    };
+    if let Ok(mut pending) = pending_server_requests.lock() {
+        pending.remove(&key);
+    }
 }
 
 fn collect_plugin_icon_paths(payload: &Value) -> HashSet<PathBuf> {
@@ -1100,7 +1073,7 @@ fn prepare_user_input_request(
         return Err("Codex 用户输入请求必须包含 1 到 3 个问题".to_string());
     }
 
-    let auto_resolution_ms = match params.get("autoResolutionMs") {
+    let _auto_resolution_ms = match params.get("autoResolutionMs") {
         None | Some(Value::Null) => None,
         Some(value) => {
             let value = value
@@ -1219,14 +1192,11 @@ fn prepare_user_input_request(
         "madoraUserInput".to_string(),
         json!({
             "questions": display_questions,
-            "autoResolutionMs": auto_resolution_ms,
+            "autoResolutionMs": null,
         }),
     );
     Ok(PendingServerRequest {
-        kind: PendingServerRequestKind::UserInput {
-            questions,
-            auto_resolution_ms,
-        },
+        kind: PendingServerRequestKind::UserInput { questions },
         method: method.to_string(),
     })
 }
@@ -1255,7 +1225,7 @@ fn build_user_input_response(
     answers: &[CodexUserInputAnswer],
 ) -> Result<Value, String> {
     if answers.is_empty() {
-        return Ok(json!({ "answers": {} }));
+        return Err("Codex 用户输入回答不能为空".to_string());
     }
     if answers.len() != questions.len() {
         return Err("Codex 用户输入回答不完整".to_string());
@@ -2905,6 +2875,10 @@ mod tests {
             payload["params"]["madoraUserInput"]["questions"][0]["options"][2]["isOther"],
             true
         );
+        assert_eq!(
+            payload["params"]["madoraUserInput"]["autoResolutionMs"],
+            Value::Null
+        );
         let PendingServerRequestKind::UserInput { questions, .. } = &pending.kind else {
             panic!("expected user input request");
         };
@@ -2930,7 +2904,7 @@ mod tests {
     }
 
     #[test]
-    fn user_input_request_rejects_forged_ids_and_supports_other_and_timeout() {
+    fn user_input_request_rejects_forged_ids_and_supports_other_answers() {
         let mut payload = json!({
             "id": 8,
             "method": "item/tool/requestUserInput",
@@ -2973,10 +2947,7 @@ mod tests {
             }]
         )
         .is_err());
-        assert_eq!(
-            build_user_input_response(questions, &[]).expect("timeout response"),
-            json!({ "answers": {} })
-        );
+        assert!(build_user_input_response(questions, &[]).is_err());
         assert_eq!(
             build_user_input_response(
                 questions,
@@ -2995,6 +2966,29 @@ mod tests {
                 }
             })
         );
+    }
+
+    #[test]
+    fn resolved_server_request_clears_pending_user_input() {
+        let pending = Mutex::new(HashMap::from([(
+            request_id_key(&json!("input-1")).expect("request key"),
+            PendingServerRequest {
+                kind: PendingServerRequestKind::UserInput {
+                    questions: HashMap::new(),
+                },
+                method: "item/tool/requestUserInput".to_string(),
+            },
+        )]));
+
+        remove_resolved_server_request(
+            &json!({
+                "method": "serverRequest/resolved",
+                "params": { "requestId": "input-1", "threadId": "thread" }
+            }),
+            &pending,
+        );
+
+        assert!(pending.lock().expect("pending lock").is_empty());
     }
 
     #[test]

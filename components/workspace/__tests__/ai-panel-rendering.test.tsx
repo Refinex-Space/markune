@@ -65,21 +65,78 @@ function change(
 }
 
 describe('AI message rendering', () => {
-  it('正式计划使用独立 Markdown 结果块展示', () => {
+  it('正式计划展示渐隐摘要，并支持复制与打开完整预览', async () => {
+    const user = userEvent.setup();
+    const onOpen = vi.fn();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const plan = {
+      historical: false,
+      id: 'plan-1',
+      status: 'completed' as const,
+      text: '# 实施计划\n\n1. 完成协议桥接',
+      turnId: 'turn-1',
+    };
     render(
       <ProposedPlanCard
-        plan={{
-          historical: false,
-          id: 'plan-1',
-          status: 'completed',
-          text: '# 实施计划\n\n1. 完成协议桥接',
-          turnId: 'turn-1',
-        }}
+        plan={plan}
+        onOpen={onOpen}
       />,
     );
 
     expect(screen.getByRole('heading', { name: '实施计划' })).toBeTruthy();
     expect(screen.getByText('完成协议桥接')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '查看完整计划' }).className).toContain(
+      'max-h-56',
+    );
+
+    await user.click(screen.getByRole('button', { name: '复制计划' }));
+    await user.click(screen.getByRole('button', { name: '在编辑器中查看完整计划' }));
+
+    expect(writeText).toHaveBeenCalledWith(plan.text);
+    expect(onOpen).toHaveBeenCalledWith(plan);
+  });
+
+  it('用户决策不会因协议建议时间到期而自动消失', () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <UserInputDecisionCard
+          request={{
+            autoResolutionMs: 60_000,
+            id: 'request-persistent',
+            itemId: 'item-persistent',
+            questions: [{
+              header: '范围',
+              id: 'question-persistent',
+              isSecret: false,
+              options: [
+                { description: '选择 A', id: 'a', isOther: false, label: 'A' },
+                { description: '选择 B', id: 'b', isOther: false, label: 'B' },
+              ],
+              question: '请选择',
+            }],
+            turnId: 'turn-1',
+          }}
+          onSubmit={vi.fn().mockResolvedValue(undefined)}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: /选择 A/ }));
+      vi.advanceTimersByTime(5 * 60_000);
+
+      expect(screen.getByText('请选择')).toBeTruthy();
+      expect(
+        screen.getByRole<HTMLButtonElement>('button', { name: '提交回答' })
+          .disabled,
+      ).toBe(false);
+      expect(screen.queryByText(/默认判断继续/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('用户决策卡支持多问题、其他答案和秘密输入', async () => {
@@ -1059,6 +1116,7 @@ describe('AI message rendering', () => {
     expect(within(preview).getByText('新内容')).toBeTruthy();
     expect(within(preview).getByText('+5')).toBeTruthy();
     expect(within(preview).getByText('-1')).toBeTruthy();
+    expect(preview.querySelector('.madora-thin-scrollarea')).toBeTruthy();
 
     await user.click(screen.getByRole('button', { name: '再显示 1 个文件' }));
     expect(screen.getByText('package.json')).toBeTruthy();

@@ -61,6 +61,7 @@ import {
   createInitialEditorLayout,
   getActiveTab,
   openDocumentTab,
+  openPlanPreviewTab,
   renameDocumentTab,
   selectDocumentTab,
   type DocumentEditorLayout,
@@ -75,6 +76,7 @@ import { PinnedChromeMenu } from './pinned-chrome-menu';
 import { TerminalPanel, type TerminalTab } from './terminal-panel';
 import type {
   AiFileChange,
+  AiProposedPlan,
   AiWorkspaceChangeEvent,
 } from './ai-panel-state';
 import { useWorkspace } from './use-workspace';
@@ -410,6 +412,7 @@ export function WorkspaceLayout({
         )
       : workspace.currentDocument;
   const hasOpenDocumentTabs = documentEditorLayout.tabs.length > 0;
+  const activeEditorTab = getActiveTab(documentEditorLayout);
   const dailyContentDates = React.useMemo(
     () => getDailyContentDates(dailyNoteEntries),
     [dailyNoteEntries],
@@ -1964,6 +1967,12 @@ export function WorkspaceLayout({
         return;
       }
 
+      if (activeTab.kind === 'plan') {
+        clearPendingDocumentOpen();
+        setActiveEditorDocumentPath(null);
+        return;
+      }
+
       setActiveEditorDocumentPath(activeTab.absolutePath);
       rememberRecentDocumentByPath(activeTab.absolutePath);
       scheduleDocumentOpen(activeTab.absolutePath);
@@ -2048,6 +2057,7 @@ export function WorkspaceLayout({
       );
       if (includeOpenTabs) {
         for (const tab of documentEditorLayoutRef.current.tabs) {
+          if (tab.kind !== 'document') continue;
           if (!removedPaths.has(tab.absolutePath)) {
             reloadPaths.add(tab.absolutePath);
           }
@@ -2103,6 +2113,7 @@ export function WorkspaceLayout({
       const latestLayout = documentEditorLayoutRef.current;
       const unavailablePaths = new Set(removedPaths);
       for (const tab of latestLayout.tabs) {
+        if (tab.kind !== 'document') continue;
         if (!findWorkspaceDocumentByPath(nextSnapshot.nodes, tab.absolutePath)) {
           unavailablePaths.add(tab.absolutePath);
         }
@@ -2248,8 +2259,8 @@ export function WorkspaceLayout({
   );
 
   const handleSelectDocumentTab = React.useCallback(
-    (tabPath: string) => {
-      applyDocumentEditorLayout(selectDocumentTab(documentEditorLayout, tabPath));
+    (tabId: string) => {
+      applyDocumentEditorLayout(selectDocumentTab(documentEditorLayout, tabId));
     },
     [applyDocumentEditorLayout, documentEditorLayout],
   );
@@ -2269,7 +2280,7 @@ export function WorkspaceLayout({
       }
 
       const activeIndex = documentEditorLayout.tabs.findIndex(
-        (tab) => tab.absolutePath === documentEditorLayout.activeTabPath,
+        (tab) => tab.id === documentEditorLayout.activeTabId,
       );
       const currentIndex = activeIndex === -1 ? 0 : activeIndex;
       const offset = event.shiftKey ? -1 : 1;
@@ -2280,7 +2291,7 @@ export function WorkspaceLayout({
 
       if (nextTab) {
         applyDocumentEditorLayout(
-          selectDocumentTab(documentEditorLayout, nextTab.absolutePath),
+          selectDocumentTab(documentEditorLayout, nextTab.id),
         );
       }
     };
@@ -2314,16 +2325,16 @@ export function WorkspaceLayout({
   );
 
   const handleCloseDocumentTab = React.useCallback(
-    (tabPath: string) => {
-      applyDocumentEditorLayout(closeDocumentTab(documentEditorLayout, tabPath));
+    (tabId: string) => {
+      applyDocumentEditorLayout(closeDocumentTab(documentEditorLayout, tabId));
     },
     [applyDocumentEditorLayout, documentEditorLayout],
   );
 
   const handleCloseOtherDocumentTabs = React.useCallback(
-    (tabPath: string) => {
+    (tabId: string) => {
       applyDocumentEditorLayout(
-        closeOtherDocumentTabs(documentEditorLayout, tabPath),
+        closeOtherDocumentTabs(documentEditorLayout, tabId),
       );
     },
     [applyDocumentEditorLayout, documentEditorLayout],
@@ -2337,18 +2348,33 @@ export function WorkspaceLayout({
   );
 
   const handleCloseDocumentTabsToLeft = React.useCallback(
-    (tabPath: string) => {
+    (tabId: string) => {
       applyDocumentEditorLayout(
-        closeDocumentTabsToLeft(documentEditorLayout, tabPath),
+        closeDocumentTabsToLeft(documentEditorLayout, tabId),
       );
     },
     [applyDocumentEditorLayout, documentEditorLayout],
   );
 
   const handleCloseDocumentTabsToRight = React.useCallback(
-    (tabPath: string) => {
+    (tabId: string) => {
       applyDocumentEditorLayout(
-        closeDocumentTabsToRight(documentEditorLayout, tabPath),
+        closeDocumentTabsToRight(documentEditorLayout, tabId),
+      );
+    },
+    [applyDocumentEditorLayout, documentEditorLayout],
+  );
+
+  const handleOpenPlanPreview = React.useCallback(
+    (plan: AiProposedPlan, threadId: string) => {
+      setSystemPage(null);
+      setLeftPanelMode('workspace');
+      applyDocumentEditorLayout(
+        openPlanPreviewTab(documentEditorLayout, {
+          id: plan.id,
+          text: plan.text,
+          threadId,
+        }),
       );
     },
     [applyDocumentEditorLayout, documentEditorLayout],
@@ -2654,7 +2680,8 @@ export function WorkspaceLayout({
                         isLoading={gitLoading && Boolean(gitSelectedPath)}
                         label={gitDiffLabel}
                       />
-                    ) : workspace.currentDocument ||
+                    ) : activeEditorTab?.kind === 'plan' ||
+                      workspace.currentDocument ||
                       (!workspace.currentDirectory && hasOpenDocumentTabs) ? (
                       <DocumentEditorSurface
                         activeDocumentPath={activePanelDocumentPath}
@@ -2748,6 +2775,7 @@ export function WorkspaceLayout({
                     workspaceRootPath={workspaceRootPath}
                     onBeforeTurnStart={handleBeforeAiTurnStart}
                     onOpenDocument={handleOpenRecentDocument}
+                    onOpenPlanPreview={handleOpenPlanPreview}
                     onWorkspaceChanged={handleAiWorkspaceChanged}
                     onToggleDocumentReadOnly={
                       activePanelDocument
@@ -2777,6 +2805,7 @@ export function WorkspaceLayout({
                   saveError={workspace.saveError}
                   saveState={workspace.saveState}
                   visible={
+                    activeEditorTab?.kind !== 'plan' &&
                     Boolean(workspace.currentDocument) &&
                     workspace.documentLoadState === 'loaded'
                   }
@@ -3333,7 +3362,8 @@ function DocumentEditorSurface({
   onSelectTab: (tabPath: string) => void;
 }) {
   const activeTab = getActiveTab(documentEditorLayout);
-  const activeTabPath = activeTab?.absolutePath ?? null;
+  const activeTabPath =
+    activeTab?.kind === 'document' ? activeTab.absolutePath : null;
   const cachedSession = activeTabPath
     ? editorSessions[activeTabPath] ?? null
     : null;
@@ -3352,7 +3382,7 @@ function DocumentEditorSurface({
       data-testid="document-editor-surface"
     >
       <DocumentTabBar
-        activeTabPath={documentEditorLayout.activeTabPath}
+        activeTabId={documentEditorLayout.activeTabId}
         tabs={documentEditorLayout.tabs}
         onCloseAllTabs={onCloseAllTabs}
         onCloseOtherTabs={onCloseOtherTabs}
@@ -3419,6 +3449,20 @@ function renderDocumentEditorContent({
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
         没有打开的标签页
+      </div>
+    );
+  }
+
+  if (activeTab.kind === 'plan') {
+    return (
+      <div className="relative h-full min-h-0" data-testid="plan-preview-editor">
+        <MarkdownEditor
+          documentKey={activeTab.id}
+          markdown={activeTab.markdown}
+          pageWidthMode={pageWidthMode}
+          readOnly
+          workspaceRootPath={workspaceRootPath}
+        />
       </div>
     );
   }
