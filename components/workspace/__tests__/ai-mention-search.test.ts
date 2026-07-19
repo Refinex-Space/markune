@@ -53,6 +53,58 @@ describe('AI document mention search', () => {
     ).toEqual(['spring']);
   });
 
+  it('让当前文档在同等相关候选中优先，并支持跨分隔符前缀', () => {
+    const competingDocuments = [
+      {
+        absolutePath: '/workspace/Guides/Spring Boot Advanced.md',
+        id: 'advanced',
+        name: 'Spring Boot Advanced.md',
+        relativePath: 'Guides/Spring Boot Advanced.md',
+        title: 'Spring Boot 进阶',
+      },
+      {
+        absolutePath: '/workspace/Test.md',
+        id: 'current',
+        name: 'Test.md',
+        relativePath: 'Test.md',
+        title: 'Spring Boot 介绍',
+      },
+    ];
+
+    expect(
+      rankMentionDocuments(competingDocuments, 'SpringB', {
+        preferredPath: '/workspace/Test.md',
+      }).map((document) => document.id),
+    ).toEqual(['current', 'advanced']);
+  });
+
+  it('当前文档可压过截图中的跨词模糊候选', () => {
+    const competingDocuments = [
+      {
+        absolutePath:
+          '/workspace/框架生态/Spring AI (Hollis)/08_Agent/15_Spring AI Alibaba 多智能体支持.md',
+        id: 'spring-ai-alibaba',
+        name: '15_Spring AI Alibaba 多智能体支持.md',
+        relativePath:
+          '框架生态/Spring AI (Hollis)/08_Agent/15_Spring AI Alibaba 多智能体支持.md',
+        title: '15_Spring AI Alibaba 多智能体支持',
+      },
+      {
+        absolutePath: '/workspace/Test.md',
+        id: 'current',
+        name: 'Test.md',
+        relativePath: 'Test.md',
+        title: 'Spring Boot 介绍',
+      },
+    ];
+
+    expect(
+      rankMentionDocuments(competingDocuments, 'SpringB', {
+        preferredPath: '/workspace/Test.md',
+      }).map((document) => document.id),
+    ).toEqual(['current', 'spring-ai-alibaba']);
+  });
+
   it('排除已附加文档、去重并限制结果数量', () => {
     const repeated = [...documents, documents[0]];
 

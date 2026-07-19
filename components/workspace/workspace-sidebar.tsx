@@ -1,6 +1,7 @@
 import {
   CalendarDays,
   Inbox,
+  Paintbrush,
   RefreshCw,
   Search,
   Settings,
@@ -23,6 +24,7 @@ import type {
 
 interface WorkspaceSidebarProps {
   dailyCalendar?: ReactNode;
+  drawingContent?: ReactNode;
   inboxContent?: ReactNode;
   width: number;
   workspace: ReturnType<typeof useWorkspace>;
@@ -37,6 +39,7 @@ interface WorkspaceSidebarProps {
     format: WorkspaceImportFormat,
   ) => Promise<void> | void;
   onOpenDailyNote?: () => void;
+  onOpenDrawings?: () => void;
   onOpenInbox?: () => void;
   onOpenInFileManager?: (node: WorkspaceNode) => void;
   onOpenInPreferredEditor?: (node: WorkspaceNode) => void;
@@ -57,11 +60,12 @@ interface WorkspaceSidebarProps {
   searchPlaceholder?: string;
   searchQuery?: string;
   onSearchQueryChange?: (query: string) => void;
-  systemPage?: 'inbox' | 'views' | null;
+  systemPage?: 'drawings' | 'inbox' | 'views' | null;
 }
 
 export function WorkspaceSidebar({
   dailyCalendar,
+  drawingContent,
   inboxContent,
   width,
   workspace,
@@ -70,6 +74,7 @@ export function WorkspaceSidebar({
   onExportNode,
   onImportDocuments,
   onOpenDailyNote,
+  onOpenDrawings,
   onOpenInbox,
   onOpenInFileManager,
   onOpenInPreferredEditor,
@@ -173,6 +178,21 @@ export function WorkspaceSidebar({
               ) : null}
             </button>
             <button
+              aria-current={systemPage === 'drawings' ? 'page' : undefined}
+              className={cn(
+                'mt-1 flex h-8 w-[calc(100%-0.75rem)] items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors',
+                systemPage === 'drawings'
+                  ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                  : 'text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-accent-foreground',
+              )}
+              data-testid="drawing-entry"
+              type="button"
+              onClick={onOpenDrawings}
+            >
+              <Paintbrush size={15} strokeWidth={1.75} />
+              <span className="truncate">画板</span>
+            </button>
+            <button
               aria-current={systemPage === 'views' ? 'page' : undefined}
               className={cn(
                 'mt-1 flex h-8 w-[calc(100%-0.75rem)] items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors',
@@ -193,7 +213,7 @@ export function WorkspaceSidebar({
         <div
           className={cn(
             'workspace-tree-scrollarea min-h-0 flex-1',
-            systemPage === 'inbox'
+            systemPage === 'inbox' || systemPage === 'drawings'
               ? 'overflow-hidden'
               : 'overflow-y-auto px-2 pb-3',
           )}
@@ -201,6 +221,8 @@ export function WorkspaceSidebar({
         >
           {workspace.snapshot && systemPage === 'inbox' ? (
             inboxContent
+          ) : workspace.snapshot && systemPage === 'drawings' ? (
+            drawingContent
           ) : workspace.snapshot ? (
             <DocumentTree
               currentDirectoryPath={
@@ -248,7 +270,9 @@ export function WorkspaceSidebar({
           </footer>
         ) : null}
 
-        {systemPage === 'inbox' ? null : dailyCalendar}
+        {systemPage === 'inbox' || systemPage === 'drawings'
+          ? null
+          : dailyCalendar}
 
         {onOpenSettings ? (
           <footer className="shrink-0 px-2 py-2">

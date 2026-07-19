@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -113,7 +113,10 @@ function defaultResponse(method: string) {
     return { requirements: null };
   }
   if (method === 'experimentalFeature/list') {
-    return { data: [], nextCursor: null };
+    return {
+      data: [{ enabled: true, name: 'goals', stage: 'stable' }],
+      nextCursor: null,
+    };
   }
   if (method === 'plugin/installed') {
     return {
@@ -169,12 +172,13 @@ function renderPanel(
   onBeforeTurnStart = vi.fn().mockResolvedValue(true),
   currentDocument = null as typeof activeDocument | null,
   currentDocumentPath = currentDocument?.absolutePath ?? null,
+  documents: Array<Omit<typeof activeDocument, 'kind'>> = [],
 ) {
   return render(
     <AiPanel
       currentDocument={currentDocument}
       currentDocumentPath={currentDocumentPath}
-      documents={[]}
+      documents={documents}
       workspaceRootPath="/workspace"
       onBeforeTurnStart={onBeforeTurnStart}
       onOpenDocument={vi.fn()}
@@ -204,6 +208,42 @@ beforeEach(() => {
 });
 
 describe('AI panel startup lifecycle', () => {
+  it('当前文档会进入 @ 候选并在同等匹配中优先', async () => {
+    const user = userEvent.setup();
+    const competingDocument = {
+      absolutePath: '/workspace/Guides/Spring Boot Advanced.md',
+      id: 'spring-boot-advanced',
+      name: 'Spring Boot Advanced.md',
+      relativePath: 'Guides/Spring Boot Advanced.md',
+      title: 'Spring Boot 进阶',
+    };
+    const currentReference = {
+      absolutePath: activeDocument.absolutePath,
+      id: activeDocument.id,
+      name: activeDocument.name,
+      relativePath: activeDocument.relativePath,
+      title: activeDocument.title,
+    };
+
+    renderPanel(
+      vi.fn().mockResolvedValue(true),
+      activeDocument,
+      activeDocument.absolutePath,
+      [competingDocument, currentReference],
+    );
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '@SpringB');
+
+    const options = screen.getAllByRole('option');
+    expect(options[0].getAttribute('aria-label')).toBe(
+      '提及 Spring Boot 介绍，当前文档',
+    );
+    expect(within(options[0]).getByText('Test.md')).toBeTruthy();
+  });
+
   it('后台完成核心握手、自动加载插件与 Skill 且不预取 MCP 状态', async () => {
     renderPanel();
 
@@ -539,6 +579,63 @@ describe('AI panel startup lifecycle', () => {
 
     models.resolve(defaultResponse('model/list'));
     history.resolve(defaultResponse('thread/list'));
+  });
+
+  it('目标模式发送首条消息后建立线程 Goal 并展示原生状态', async () => {
+    const user = userEvent.setup();
+    bridge.request.mockImplementation(
+      (method: string, params?: Record<string, unknown>) => {
+        if (method === 'thread/goal/set') {
+          return Promise.resolve({
+            goal: {
+              createdAt: 100,
+              objective: params?.objective ?? '持续目标',
+              status: params?.status ?? 'active',
+              threadId: params?.threadId ?? 'thread-1',
+              timeUsedSeconds: 0,
+              tokenBudget: null,
+              tokensUsed: 0,
+              updatedAt: 100,
+            },
+          });
+        }
+        return Promise.resolve(defaultResponse(method));
+      },
+    );
+    renderPanel();
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    await user.click(screen.getByRole('button', { name: '添加上下文与工具' }));
+    await user.click(screen.getByText('目标'));
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    expect(editor.getAttribute('data-placeholder')).toBe(
+      '描述你的目标，定义可衡量的成果，以获得最佳效果',
+    );
+    await user.click(editor);
+    await user.type(editor, '持续修复问题直到全部测试通过');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith('thread/goal/set', {
+        objective: '持续修复问题直到全部测试通过',
+        status: 'active',
+        threadId: 'thread-1',
+      }),
+    );
+    const turnStartIndex = bridge.request.mock.calls.findIndex(
+      ([method]) => method === 'turn/start',
+    );
+    const goalSetIndex = bridge.request.mock.calls.findIndex(
+      ([method]) => method === 'thread/goal/set',
+    );
+    expect(turnStartIndex).toBeGreaterThanOrEqual(0);
+    expect(goalSetIndex).toBeGreaterThan(turnStartIndex);
+    expect(await screen.findByText('进行中的目标')).toBeTruthy();
+    expect(
+      within(screen.getByRole('region', { name: '目标状态' })).getByText(
+        '持续修复问题直到全部测试通过',
+      ),
+    ).toBeTruthy();
   });
 
   it('计划模式通过 collaborationMode 固定 medium 且不发送竞争字段', async () => {

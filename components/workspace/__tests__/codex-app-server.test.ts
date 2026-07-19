@@ -7,6 +7,8 @@ import {
   probeCodexRuntime,
   respondToCodexUserInput,
   startCodexRuntime,
+  threadGoalUpdateFromMessage,
+  threadTokenUsageUpdateFromMessage,
   type CodexProtocolMessage,
   type CodexRuntimeInfo,
 } from '../codex-app-server';
@@ -16,6 +18,143 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 describe('CodexAppServerClient', () => {
+  it('解析当前线程的上下文用量，并保留累计用量与当前窗口的区别', () => {
+    expect(
+      threadTokenUsageUpdateFromMessage({
+        method: 'thread/tokenUsage/updated',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          tokenUsage: {
+            total: {
+              cachedInputTokens: 90_000,
+              inputTokens: 180_000,
+              outputTokens: 12_000,
+              reasoningOutputTokens: 2_000,
+              totalTokens: 300_000,
+            },
+            last: {
+              cachedInputTokens: 40_000,
+              inputTokens: 140_000,
+              outputTokens: 9_000,
+              reasoningOutputTokens: 2_000,
+              totalTokens: 151_000,
+            },
+            modelContextWindow: 258_000,
+          },
+        },
+      }),
+    ).toEqual({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      tokenUsage: {
+        total: expect.objectContaining({ totalTokens: 300_000 }),
+        last: expect.objectContaining({ totalTokens: 151_000 }),
+        modelContextWindow: 258_000,
+      },
+    });
+  });
+
+  it('拒绝不完整或非法的上下文用量通知', () => {
+    for (const message of [
+      { method: 'turn/started', params: {} },
+      {
+        method: 'thread/tokenUsage/updated',
+        params: { threadId: '', turnId: 'turn-1', tokenUsage: {} },
+      },
+      {
+        method: 'thread/tokenUsage/updated',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          tokenUsage: {
+            total: {
+              cachedInputTokens: 0,
+              inputTokens: 1,
+              outputTokens: 0,
+              reasoningOutputTokens: 0,
+              totalTokens: 1,
+            },
+            last: {
+              cachedInputTokens: 0,
+              inputTokens: 1,
+              outputTokens: 0,
+              reasoningOutputTokens: 0,
+              totalTokens: -1,
+            },
+            modelContextWindow: 258_000,
+          },
+        },
+      },
+    ]) {
+      expect(threadTokenUsageUpdateFromMessage(message)).toBeNull();
+    }
+  });
+
+  it('解析 Goal 更新与清除通知', () => {
+    const goal = {
+      createdAt: 100,
+      objective: '持续修复问题直到全部测试通过',
+      status: 'active',
+      threadId: 'thread-1',
+      timeUsedSeconds: 12,
+      tokenBudget: null,
+      tokensUsed: 345,
+      updatedAt: 110,
+    };
+
+    expect(
+      threadGoalUpdateFromMessage({
+        method: 'thread/goal/updated',
+        params: { goal, threadId: 'thread-1', turnId: 'turn-1' },
+      }),
+    ).toEqual({
+      goal,
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      type: 'updated',
+    });
+    expect(
+      threadGoalUpdateFromMessage({
+        method: 'thread/goal/cleared',
+        params: { threadId: 'thread-1' },
+      }),
+    ).toEqual({ threadId: 'thread-1', type: 'cleared' });
+  });
+
+  it('拒绝 Goal 线程不一致、非法状态与伪造 turn id', () => {
+    const goal = {
+      createdAt: 100,
+      objective: '目标',
+      status: 'active',
+      threadId: 'thread-1',
+      timeUsedSeconds: 0,
+      tokenBudget: null,
+      tokensUsed: 0,
+      updatedAt: 100,
+    };
+    for (const message of [
+      {
+        method: 'thread/goal/updated',
+        params: { goal, threadId: 'thread-2', turnId: null },
+      },
+      {
+        method: 'thread/goal/updated',
+        params: {
+          goal: { ...goal, status: 'unknown' },
+          threadId: 'thread-1',
+          turnId: null,
+        },
+      },
+      {
+        method: 'thread/goal/updated',
+        params: { goal, threadId: 'thread-1', turnId: 42 },
+      },
+    ]) {
+      expect(threadGoalUpdateFromMessage(message)).toBeNull();
+    }
+  });
+
   it('保留共享 Codex Home 的运行时诊断契约', async () => {
     const runtime: CodexRuntimeInfo = {
       available: true,

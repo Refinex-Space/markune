@@ -886,9 +886,9 @@ pub fn rename_workspace_node(
             .map_err(|_| "无法读取重命名后的目录".to_string())
         }
         WorkspaceNodeKind::Document => {
-            fs::rename(&node, &target).map_err(|_| "无法重命名文档".to_string())?;
-            update_markdown_document_title(&target, &safe_name)
-                .map_err(|_| "无法更新文档标题".to_string())?;
+            let original_content =
+                fs::read_to_string(&node).map_err(|_| "无法读取待重命名文档".to_string())?;
+            let updated_content = markdown_document_with_title(&original_content, &safe_name);
             let mut metadata =
                 ensure_workspace_metadata(&root).map_err(|_| "无法读取工作区元数据".to_string())?;
             let old_relative_path = to_relative_path(&root, &node);
@@ -898,8 +898,24 @@ pub fn rename_workspace_node(
                 &old_relative_path,
                 &new_relative_path,
             );
-            write_workspace_metadata(&root, &metadata)
-                .map_err(|_| "无法写入工作区元数据".to_string())?;
+
+            fs::rename(&node, &target).map_err(|_| "无法重命名文档".to_string())?;
+            if write_text_atomic(&target, &updated_content).is_err() {
+                return Err(if fs::rename(&target, &node).is_ok() {
+                    "无法更新文档标题".to_string()
+                } else {
+                    "无法更新文档标题，且无法恢复原文件路径".to_string()
+                });
+            }
+            if write_workspace_metadata_atomic(&root, &metadata).is_err() {
+                let content_restored = write_text_atomic(&target, &original_content).is_ok();
+                let path_restored = fs::rename(&target, &node).is_ok();
+                return Err(if content_restored && path_restored {
+                    "无法写入工作区元数据".to_string()
+                } else {
+                    "无法写入工作区元数据，且无法完整恢复文档".to_string()
+                });
+            }
 
             let file_name = target
                 .file_name()
@@ -1746,6 +1762,15 @@ fn write_workspace_metadata(root: &Path, metadata: &WorkspaceMetadata) -> io::Re
     )
 }
 
+fn write_workspace_metadata_atomic(root: &Path, metadata: &WorkspaceMetadata) -> io::Result<()> {
+    let json = serde_json::to_string_pretty(metadata)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    write_text_atomic(
+        &workspace_private_dir(root).join("workspace.json"),
+        &format!("{json}\n"),
+    )
+}
+
 fn canonical_workspace_root(root_path: &str) -> Result<PathBuf, String> {
     let root = PathBuf::from(root_path)
         .canonicalize()
@@ -2542,12 +2567,17 @@ fn read_frontmatter_title(raw: &str) -> Option<String> {
     None
 }
 
+#[cfg(test)]
 fn update_markdown_document_title(path: &Path, title: &str) -> io::Result<()> {
     let raw = fs::read_to_string(path)?;
-    let with_frontmatter = upsert_markdown_frontmatter_title(&raw, title);
-    let updated = replace_first_h1(&with_frontmatter, title);
+    let updated = markdown_document_with_title(&raw, title);
 
     write_text_atomic(path, &updated)
+}
+
+fn markdown_document_with_title(raw: &str, title: &str) -> String {
+    let with_frontmatter = update_existing_markdown_frontmatter_title(raw, title);
+    replace_first_h1(&with_frontmatter, title)
 }
 
 fn replace_first_h1(raw: &str, new_title: &str) -> String {
@@ -2596,19 +2626,13 @@ fn insert_h1_at_body_start(raw: &str, title: &str) -> String {
     }
 }
 
-fn upsert_markdown_frontmatter_title(raw: &str, title: &str) -> String {
+fn update_existing_markdown_frontmatter_title(raw: &str, title: &str) -> String {
     if !raw.starts_with("---\n") {
-        return format!(
-            "---\ntitle: {title}\nrefinexDialect: 1\n---\n\n{}",
-            raw.trim_start()
-        );
+        return raw.to_string();
     }
 
     let Some(end_index) = raw[4..].find("\n---") else {
-        return format!(
-            "---\ntitle: {title}\nrefinexDialect: 1\n---\n\n{}",
-            raw.trim_start()
-        );
+        return raw.to_string();
     };
     let end_index = end_index + 4;
     let frontmatter = &raw[4..end_index];
@@ -2626,7 +2650,7 @@ fn upsert_markdown_frontmatter_title(raw: &str, title: &str) -> String {
     }
 
     if !title_replaced {
-        lines.insert(0, format!("title: {title}"));
+        return raw.to_string();
     }
 
     format!("---\n{}\n---{}", lines.join("\n"), body)
@@ -3631,11 +3655,60 @@ mod tests {
         .expect("重命名文档失败");
 
         assert_eq!(node.title.as_deref(), Some("新标题"));
+        assert_eq!(node.name, "新标题.md");
+        assert_eq!(node.relative_path, "新标题.md");
+        assert_eq!(node.id, "新标题.md");
         assert!(temp_dir.path().join("新标题.md").is_file());
         assert!(!doc_path.exists());
-        assert!(fs::read_to_string(temp_dir.path().join("新标题.md"))
-            .unwrap()
-            .contains("title: 新标题"));
+        let renamed = fs::read_to_string(temp_dir.path().join("新标题.md")).unwrap();
+        assert!(renamed.contains("title: 新标题"));
+        assert!(renamed.contains("# 新标题"));
+    }
+
+    #[test]
+    fn renames_markdown_document_without_inserting_missing_frontmatter_title() {
+        let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
+        let doc_path = temp_dir.path().join("old.md");
+        fs::write(
+            &doc_path,
+            "---\ncreatedAt: 1\nrefinexDialect: 1\n---\n\n# 旧标题\n\n正文内容\n",
+        )
+        .unwrap();
+
+        let node = rename_workspace_node(
+            temp_dir.path().to_string_lossy().to_string(),
+            doc_path.to_string_lossy().to_string(),
+            "新标题".to_string(),
+        )
+        .expect("重命名文档失败");
+
+        let renamed = fs::read_to_string(temp_dir.path().join("新标题.md")).unwrap();
+        assert_eq!(node.title.as_deref(), Some("新标题"));
+        assert!(!renamed.contains("title:"));
+        assert!(renamed.contains("# 新标题"));
+        assert!(renamed.contains("正文内容"));
+    }
+
+    #[test]
+    fn rejects_conflicting_document_rename_without_mutating_either_file() {
+        let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
+        let doc_path = temp_dir.path().join("old.md");
+        let existing_path = temp_dir.path().join("existing.md");
+        let original = "---\ntitle: 旧标题\n---\n\n# 旧标题\n";
+        let existing = "---\ntitle: 已有标题\n---\n\n# 已有标题\n";
+        fs::write(&doc_path, original).unwrap();
+        fs::write(&existing_path, existing).unwrap();
+
+        let error = rename_workspace_node(
+            temp_dir.path().to_string_lossy().to_string(),
+            doc_path.to_string_lossy().to_string(),
+            "existing".to_string(),
+        )
+        .expect_err("重名文档不应覆盖已有文件");
+
+        assert_eq!(error, "目标名称已存在");
+        assert_eq!(fs::read_to_string(doc_path).unwrap(), original);
+        assert_eq!(fs::read_to_string(existing_path).unwrap(), existing);
     }
 
     #[test]
@@ -3936,7 +4009,7 @@ mod tests {
     }
 
     #[test]
-    fn update_markdown_document_title_inserts_h1_in_document_without_frontmatter() {
+    fn update_markdown_document_title_preserves_missing_frontmatter_title() {
         let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
         let doc_path = temp_dir.path().join("bare.md");
         fs::write(&doc_path, "纯文本内容\n").expect("写入 Markdown 失败");
@@ -3944,12 +4017,32 @@ mod tests {
         update_markdown_document_title(&doc_path, "外部文件").expect("更新标题失败");
 
         let updated = fs::read_to_string(&doc_path).expect("读取文件失败");
-        assert!(updated.contains("title: 外部文件"));
+        assert!(!updated.contains("title: 外部文件"));
+        assert!(!updated.starts_with("---\n"));
         assert!(updated.contains("# 外部文件"));
         assert!(
             updated.contains("纯文本内容"),
             "正文应保留，实际: {updated}"
         );
+    }
+
+    #[test]
+    fn update_markdown_document_title_does_not_insert_missing_title_field() {
+        let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
+        let doc_path = temp_dir.path().join("guide.md");
+        fs::write(
+            &doc_path,
+            "---\ncreatedAt: 1\nrefinexDialect: 1\n---\n\n# 旧标题\n\n正文内容\n",
+        )
+        .expect("写入 Markdown 失败");
+
+        update_markdown_document_title(&doc_path, "新标题").expect("更新标题失败");
+
+        let updated = fs::read_to_string(&doc_path).expect("读取文件失败");
+        assert!(!updated.contains("title:"));
+        assert!(updated.contains("createdAt: 1"));
+        assert!(updated.contains("refinexDialect: 1"));
+        assert!(updated.contains("# 新标题"));
     }
 
     #[test]

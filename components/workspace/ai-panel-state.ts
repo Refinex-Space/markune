@@ -112,6 +112,18 @@ export interface AiPlanStep {
   step: string;
 }
 
+export interface AiTaskProgress {
+  additions: number;
+  completedSteps: number;
+  currentStepNumber: number;
+  deletions: number;
+  explanation: string | null;
+  fileCount: number;
+  steps: AiPlanStep[];
+  totalSteps: number;
+  turnId: string;
+}
+
 export type AiTimelineItem =
   | (AiActivityBase & {
       actions: AiCommandAction[];
@@ -817,7 +829,10 @@ function timelineFromItem(
         detail: null,
         id: `context-${turnId ?? 'unknown'}`,
         kind: 'context',
-        label: '上下文已自动压缩',
+        label:
+          common.status === 'inProgress'
+            ? '正在压缩上下文'
+            : '上下文已压缩',
       };
     case 'enteredReviewMode':
     case 'exitedReviewMode':
@@ -1088,6 +1103,70 @@ export function buildConversationBlocks(
     if (summary) blocks.push(summary);
   }
   return blocks;
+}
+
+export function selectActiveTaskProgress(
+  state: AiConversationState,
+  workspaceRootPath?: string | null,
+): AiTaskProgress | null {
+  const turnId = state.activeTurnId;
+  if (!turnId) return null;
+
+  let plan: Extract<AiTimelineItem, { kind: 'plan' }> | null = null;
+  for (let index = state.entries.length - 1; index >= 0; index -= 1) {
+    const entry = state.entries[index];
+    if (
+      entry.type === 'timeline' &&
+      entry.kind === 'plan' &&
+      entry.turnId === turnId
+    ) {
+      plan = entry;
+      break;
+    }
+  }
+  if (!plan || plan.steps.length === 0) return null;
+
+  const timelineChanges = state.entries.flatMap((entry) =>
+    entry.type === 'timeline' &&
+    entry.kind === 'file' &&
+    entry.turnId === turnId &&
+    matches(entry.status, ['completed', 'inProgress'])
+      ? entry.changes
+      : [],
+  );
+  const turnDiff = state.turns[turnId]?.diff;
+  const diffChanges = turnDiff
+    ? parseUnifiedDiffFileChanges(
+        turnDiff,
+        workspaceRootPath ?? inferWorkspaceRoot(timelineChanges),
+      )
+    : [];
+  const changes = mergeChangeSummaries(timelineChanges, diffChanges);
+  const completedSteps = plan.steps.filter(
+    (step) => step.status === 'completed',
+  ).length;
+  const inProgressIndex = plan.steps.findIndex(
+    (step) => step.status === 'inProgress',
+  );
+  const totalSteps = plan.steps.length;
+  const currentStepNumber =
+    inProgressIndex >= 0
+      ? inProgressIndex + 1
+      : completedSteps >= totalSteps
+        ? totalSteps
+        : Math.min(completedSteps + 1, totalSteps);
+
+  return {
+    additions: changes.reduce((total, change) => total + change.additions, 0),
+    completedSteps,
+    currentStepNumber,
+    deletions: changes.reduce((total, change) => total + change.deletions, 0),
+    explanation: plan.explanation,
+    fileCount: changes.length,
+    steps: plan.steps,
+    totalSteps,
+    turnId,
+  };
 }
 
 function isLastAssistantMessageForTurn(
@@ -2174,7 +2253,7 @@ function contextActivity(turnId: string): AiTimelineItem {
     durationMs: null,
     id: `context-${turnId}`,
     kind: 'context',
-    label: '上下文已自动压缩',
+    label: '上下文已压缩',
     startedAtMs: null,
     status: 'completed',
     turnId,

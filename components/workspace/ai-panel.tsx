@@ -33,6 +33,9 @@ import {
   Maximize2,
   MoreHorizontal,
   Paperclip,
+  Pause,
+  Pencil,
+  Play,
   Plus,
   Puzzle,
   Search,
@@ -67,9 +70,28 @@ import {
   HoverCardTrigger,
 } from '@/components/ui/hover-card';
 import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from '@/components/ui/popover';
+import {
   ConfirmationDialog,
   useConfirmationDialog,
 } from '@/components/ui/confirmation-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
 import {
@@ -81,6 +103,8 @@ import {
   respondToCodexUserInput,
   selectCodexContextAttachments,
   startCodexRuntime,
+  threadGoalUpdateFromMessage,
+  threadTokenUsageUpdateFromMessage,
   type CodexAccountResponse,
   type CodexApprovalPolicy,
   type CodexApprovalsReviewer,
@@ -100,8 +124,13 @@ import {
   type CodexSkillScope,
   type CodexSkillsListResponse,
   type CodexThread,
+  type CodexThreadGoal,
+  type CodexThreadGoalClearResponse,
+  type CodexThreadGoalGetResponse,
+  type CodexThreadGoalSetResponse,
   type CodexThreadListResponse,
   type CodexThreadPermissionSettings,
+  type CodexThreadTokenUsage,
   type CodexUserInputAnswer,
 } from './codex-app-server';
 import {
@@ -112,6 +141,7 @@ import {
   createEmptyConversation,
   getOutputPreviewLines,
   reduceCodexProtocolMessage,
+  selectActiveTaskProgress,
   threadNameUpdateFromMessage,
   workspaceChangeEventFromProtocolMessage,
   type AiActivityGroup,
@@ -128,6 +158,7 @@ import {
   type AiSkillInputMention,
   type AiTraceBlock,
   type AiTimelineItem,
+  type AiTaskProgress,
   type AiUserInputRequest,
   type AiWorkspaceChangeEvent,
 } from './ai-panel-state';
@@ -211,6 +242,9 @@ interface ComposerMentionTarget {
 
 const mentionLinkClassName =
   'mx-0.5 inline-flex cursor-pointer select-none items-center gap-1.5 rounded-sm border-0 bg-transparent p-0 align-middle font-sans text-[#3574f0] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3574f0]/35';
+const GOAL_COMMAND_SELECTION = 'madora:goal-mode';
+const COMPACT_COMMAND_SELECTION = 'madora:compact-context';
+const GOAL_OBJECTIVE_MAX_LENGTH = 4_000;
 
 type PanelView = 'chat' | 'history';
 type RuntimeStatus = 'error' | 'loading' | 'ready' | 'web';
@@ -498,6 +532,15 @@ export function AiPanel({
     React.useState<CodexCollaborationModeKind>('default');
   const [planImplementation, setPlanImplementation] =
     React.useState<AiProposedPlan | null>(null);
+  const [goalFeatureAvailable, setGoalFeatureAvailable] = React.useState(false);
+  const [goalDraftMode, setGoalDraftMode] = React.useState(false);
+  const [threadGoals, setThreadGoals] = React.useState<
+    Record<string, CodexThreadGoal>
+  >({});
+  const [goalObservedAt, setGoalObservedAt] = React.useState<
+    Record<string, number>
+  >({});
+  const [goalUpdating, setGoalUpdating] = React.useState(false);
   const [threads, setThreads] = React.useState<CodexThread[]>([]);
   const [threadListStatus, setThreadListStatus] =
     React.useState<ControlLoadStatus>('idle');
@@ -540,6 +583,12 @@ export function AiPanel({
   const [mentionQuery, setMentionQuery] = React.useState<string | null>(null);
   const [historyQuery, setHistoryQuery] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
+  const [threadTokenUsage, setThreadTokenUsage] = React.useState<
+    Record<string, CodexThreadTokenUsage>
+  >({});
+  const [compactingThreadId, setCompactingThreadId] = React.useState<
+    string | null
+  >(null);
   const [signingIn, setSigningIn] = React.useState(false);
   const [followLatestRequest, setFollowLatestRequest] = React.useState(0);
   const [composerFocusRequest, setComposerFocusRequest] = React.useState(0);
@@ -564,6 +613,12 @@ export function AiPanel({
   const pluginLoadGenerationRef = React.useRef<number | null>(null);
   const skillLoadRequestRef = React.useRef(0);
   const selectedAttachmentsRef = React.useRef<CodexContextAttachment[]>([]);
+  const threadTokenUsageRef = React.useRef<
+    Record<string, CodexThreadTokenUsage>
+  >({});
+  const compactingThreadIdRef = React.useRef<string | null>(null);
+  const goalDraftModeRef = React.useRef(false);
+  const threadGoalsRef = React.useRef<Record<string, CodexThreadGoal>>({});
 
   React.useEffect(() => {
     activeThreadIdRef.current = activeThread?.id ?? null;
@@ -601,6 +656,46 @@ export function AiPanel({
     selectedAttachmentsRef.current = selectedAttachments;
   }, [selectedAttachments]);
 
+  React.useEffect(() => {
+    goalDraftModeRef.current = goalDraftMode;
+  }, [goalDraftMode]);
+
+  const updateThreadGoal = React.useCallback(
+    (threadId: string, goal: CodexThreadGoal | null) => {
+      const next = { ...threadGoalsRef.current };
+      if (goal) {
+        next[threadId] = goal;
+      } else {
+        delete next[threadId];
+      }
+      threadGoalsRef.current = next;
+      setThreadGoals(next);
+      setGoalObservedAt((current) => {
+        const observed = { ...current };
+        if (goal) {
+          observed[threadId] = Date.now();
+        } else {
+          delete observed[threadId];
+        }
+        return observed;
+      });
+    },
+    [],
+  );
+
+  const updateThreadTokenUsage = React.useCallback(
+    (
+      update: (
+        current: Record<string, CodexThreadTokenUsage>,
+      ) => Record<string, CodexThreadTokenUsage>,
+    ) => {
+      const next = update(threadTokenUsageRef.current);
+      threadTokenUsageRef.current = next;
+      setThreadTokenUsage(next);
+    },
+    [],
+  );
+
   const applyThreadName = React.useCallback((threadId: string, name: string) => {
     setActiveThread((current) =>
       current?.id === threadId ? { ...current, name } : current,
@@ -618,11 +713,9 @@ export function AiPanel({
         .filter(isDocumentComposerMention)
         .map((document) => document.absolutePath),
     );
-    if (currentDocument?.absolutePath) {
-      excludedPaths.add(currentDocument.absolutePath);
-    }
     return rankMentionDocuments(documents, mentionQuery ?? '', {
       excludedPaths,
+      preferredPath: currentDocument?.absolutePath,
     });
   }, [currentDocument, documents, mentionQuery, selectedMentions]);
 
@@ -643,6 +736,10 @@ export function AiPanel({
   const selectedModelInfo = React.useMemo(
     () => models.find((model) => model.model === selectedModel) ?? null,
     [models, selectedModel],
+  );
+  const activeTaskProgress = React.useMemo(
+    () => selectActiveTaskProgress(conversation, workspaceRootPath),
+    [conversation, workspaceRootPath],
   );
   const planModeAvailable = React.useMemo(
     () =>
@@ -675,6 +772,157 @@ export function AiPanel({
     conversation.approvals.length > 0 ||
     conversation.userInputRequests.length > 0 ||
     submitting;
+  const activeThreadTokenUsage = activeThread
+    ? threadTokenUsage[activeThread.id] ?? null
+    : null;
+  const activeGoal = activeThread ? threadGoals[activeThread.id] ?? null : null;
+  const activeGoalObservedAt = activeThread
+    ? goalObservedAt[activeThread.id] ?? (activeGoal?.updatedAt ?? 0) * 1_000
+    : 0;
+  const goalEntryUnavailableReason =
+    runtimeStatus !== 'ready'
+      ? 'Codex 运行时尚未就绪'
+      : !goalFeatureAvailable
+        ? '当前 Codex 不支持目标模式'
+        : modeSwitchDisabled && !activeGoal
+          ? '当前任务运行中'
+          : null;
+  const compactUnavailableReason = !activeThread
+    ? '当前任务尚未建立上下文'
+    : runtimeStatus !== 'ready'
+      ? 'Codex 运行时尚未就绪'
+      : authRequired
+        ? '请先登录 ChatGPT'
+        : compactingThreadId === activeThread.id
+          ? '正在压缩上下文'
+          : conversation.activeTurnId
+            ? '当前任务运行中'
+            : conversation.approvals.length > 0
+              ? '请先处理审批请求'
+              : conversation.userInputRequests.length > 0
+                ? '请先回答 Codex 的问题'
+                : submitting
+                  ? '正在提交消息'
+                  : null;
+
+  const setGoalStatus = React.useCallback(
+    async (status: 'active' | 'paused') => {
+      const goal = activeThreadIdRef.current
+        ? threadGoalsRef.current[activeThreadIdRef.current]
+        : null;
+      if (!goal || goalUpdating) return;
+      setGoalUpdating(true);
+      setRuntimeError(null);
+      try {
+        const response =
+          await codexAppServerClient.request<CodexThreadGoalSetResponse>(
+            'thread/goal/set',
+            { status, threadId: goal.threadId },
+          );
+        updateThreadGoal(goal.threadId, response.goal);
+      } catch (error) {
+        setRuntimeError(getErrorMessage(error));
+      } finally {
+        setGoalUpdating(false);
+      }
+    },
+    [goalUpdating, updateThreadGoal],
+  );
+
+  const updateGoalObjective = React.useCallback(
+    async (objective: string) => {
+      const goal = activeThreadIdRef.current
+        ? threadGoalsRef.current[activeThreadIdRef.current]
+        : null;
+      const trimmed = objective.trim();
+      if (
+        !goal ||
+        goalUpdating ||
+        !trimmed ||
+        Array.from(trimmed).length > GOAL_OBJECTIVE_MAX_LENGTH
+      ) {
+        return false;
+      }
+      setGoalUpdating(true);
+      setRuntimeError(null);
+      try {
+        const shouldReactivate =
+          goal.status === 'complete' || goal.status === 'budgetLimited';
+        const response =
+          await codexAppServerClient.request<CodexThreadGoalSetResponse>(
+            'thread/goal/set',
+            {
+              objective: trimmed,
+              ...(shouldReactivate ? { status: 'active' } : {}),
+              threadId: goal.threadId,
+            },
+          );
+        updateThreadGoal(goal.threadId, response.goal);
+        return true;
+      } catch (error) {
+        setRuntimeError(getErrorMessage(error));
+        return false;
+      } finally {
+        setGoalUpdating(false);
+      }
+    },
+    [goalUpdating, updateThreadGoal],
+  );
+
+  const clearGoal = React.useCallback(async () => {
+    const goal = activeThreadIdRef.current
+      ? threadGoalsRef.current[activeThreadIdRef.current]
+      : null;
+    if (!goal || goalUpdating) return;
+    setGoalUpdating(true);
+    setRuntimeError(null);
+    try {
+      const response =
+        await codexAppServerClient.request<CodexThreadGoalClearResponse>(
+          'thread/goal/clear',
+          { threadId: goal.threadId },
+        );
+      if (response.cleared) {
+        updateThreadGoal(goal.threadId, null);
+      }
+    } catch (error) {
+      setRuntimeError(getErrorMessage(error));
+    } finally {
+      setGoalUpdating(false);
+    }
+  }, [goalUpdating, updateThreadGoal]);
+
+  const setMessageAsGoal = React.useCallback(
+    async (objective: string) => {
+      const threadId = activeThreadIdRef.current;
+      const trimmed = objective.trim();
+      if (
+        !threadId ||
+        !goalFeatureAvailable ||
+        goalUpdating ||
+        threadGoalsRef.current[threadId] ||
+        !trimmed ||
+        Array.from(trimmed).length > GOAL_OBJECTIVE_MAX_LENGTH
+      ) {
+        return;
+      }
+      setGoalUpdating(true);
+      setRuntimeError(null);
+      try {
+        const response =
+          await codexAppServerClient.request<CodexThreadGoalSetResponse>(
+            'thread/goal/set',
+            { objective: trimmed, status: 'active', threadId },
+          );
+        updateThreadGoal(threadId, response.goal);
+      } catch (error) {
+        setRuntimeError(getErrorMessage(error));
+      } finally {
+        setGoalUpdating(false);
+      }
+    },
+    [goalFeatureAvailable, goalUpdating, updateThreadGoal],
+  );
 
   const changeCollaborationMode = React.useCallback(
     (nextMode: CodexCollaborationModeKind) => {
@@ -701,6 +949,30 @@ export function AiPanel({
       collaborationModeRef.current = nextMode;
       setCollaborationMode(nextMode);
     }, [modeSwitchDisabled, models, planModeAvailable],
+  );
+
+  const changeGoalMode = React.useCallback(
+    (enabled: boolean) => {
+      if (!enabled) {
+        if (!activeGoal) {
+          goalDraftModeRef.current = false;
+          setGoalDraftMode(false);
+        }
+        return;
+      }
+      if (activeGoal) {
+        setComposerFocusRequest((current) => current + 1);
+        return;
+      }
+      if (!goalFeatureAvailable || modeSwitchDisabled) return;
+      if (collaborationModeRef.current === 'plan') {
+        changeCollaborationMode('default');
+      }
+      goalDraftModeRef.current = true;
+      setGoalDraftMode(true);
+      setComposerFocusRequest((current) => current + 1);
+    },
+    [activeGoal, changeCollaborationMode, goalFeatureAvailable, modeSwitchDisabled],
   );
 
   const resetToDefaultMode = React.useCallback(() => {
@@ -795,6 +1067,11 @@ export function AiPanel({
     setAutoReviewAvailable(
       guardianEnabled &&
         (!allowedReviewers || allowedReviewers.includes('auto_review')),
+    );
+    setGoalFeatureAvailable(
+      featureResponse.data.some(
+        (feature) => feature.name === 'goals' && feature.enabled,
+      ),
     );
 
   }, [workspaceRootPath]);
@@ -1027,6 +1304,48 @@ export function AiPanel({
     void releaseCodexContextAttachments([attachmentId]).catch(() => undefined);
   }, []);
 
+  const compactContext = React.useCallback(async () => {
+    const threadId = activeThreadIdRef.current;
+    if (
+      !threadId ||
+      runtimeStatusRef.current !== 'ready' ||
+      authRequiredRef.current ||
+      conversationRef.current.activeTurnId ||
+      conversationRef.current.approvals.length > 0 ||
+      conversationRef.current.userInputRequests.length > 0 ||
+      submittingRef.current ||
+      compactingThreadIdRef.current
+    ) {
+      return;
+    }
+
+    const previousUsage = threadTokenUsageRef.current[threadId] ?? null;
+    compactingThreadIdRef.current = threadId;
+    setCompactingThreadId(threadId);
+    updateThreadTokenUsage((current) => {
+      const next = { ...current };
+      delete next[threadId];
+      return next;
+    });
+    setRuntimeError(null);
+
+    try {
+      await codexAppServerClient.request('thread/compact/start', { threadId });
+    } catch (error) {
+      if (previousUsage) {
+        updateThreadTokenUsage((current) => ({
+          ...current,
+          [threadId]: previousUsage,
+        }));
+      }
+      if (compactingThreadIdRef.current === threadId) {
+        compactingThreadIdRef.current = null;
+        setCompactingThreadId(null);
+      }
+      setRuntimeError(getErrorMessage(error));
+    }
+  }, [updateThreadTokenUsage]);
+
   React.useEffect(() => {
     const generation = runtimeGenerationRef.current + 1;
     runtimeGenerationRef.current = generation;
@@ -1066,6 +1385,13 @@ export function AiPanel({
       collaborationModeRef.current = 'default';
       setCollaborationMode('default');
       setPlanImplementation(null);
+      setGoalFeatureAvailable(false);
+      goalDraftModeRef.current = false;
+      setGoalDraftMode(false);
+      threadGoalsRef.current = {};
+      setThreadGoals({});
+      setGoalObservedAt({});
+      setGoalUpdating(false);
       turnModesRef.current.clear();
       completedPlansRef.current.clear();
       setThreadListStatus('idle');
@@ -1074,6 +1400,10 @@ export function AiPanel({
       setPluginLoadWarning(null);
       setSkillStatus('idle');
       setSkillOptions([]);
+      threadTokenUsageRef.current = {};
+      setThreadTokenUsage({});
+      compactingThreadIdRef.current = null;
+      setCompactingThreadId(null);
     });
     if (!workspaceRootPath) {
       return;
@@ -1088,8 +1418,55 @@ export function AiPanel({
         return;
       }
 
+      const tokenUsageUpdate = threadTokenUsageUpdateFromMessage(message);
+      if (tokenUsageUpdate) {
+        updateThreadTokenUsage((current) => ({
+          ...current,
+          [tokenUsageUpdate.threadId]: tokenUsageUpdate.tokenUsage,
+        }));
+      }
+
+      const goalUpdate = threadGoalUpdateFromMessage(message);
+      if (goalUpdate?.type === 'updated') {
+        updateThreadGoal(goalUpdate.threadId, goalUpdate.goal);
+        goalDraftModeRef.current = false;
+        setGoalDraftMode(false);
+      } else if (goalUpdate?.type === 'cleared') {
+        updateThreadGoal(goalUpdate.threadId, null);
+      }
+
+      const item = message.params?.item;
+      const itemRecord =
+        item && typeof item === 'object' && !Array.isArray(item)
+          ? (item as Record<string, unknown>)
+          : null;
+      const eventThreadId =
+        typeof message.params?.threadId === 'string'
+          ? message.params.threadId
+          : null;
+      if (
+        message.method === 'item/started' &&
+        itemRecord?.type === 'contextCompaction' &&
+        eventThreadId
+      ) {
+        updateThreadTokenUsage((current) => {
+          const next = { ...current };
+          delete next[eventThreadId];
+          return next;
+        });
+      }
+      if (
+        ((message.method === 'item/completed' &&
+          itemRecord?.type === 'contextCompaction') ||
+          message.method === 'thread/compacted') &&
+        eventThreadId &&
+        compactingThreadIdRef.current === eventThreadId
+      ) {
+        compactingThreadIdRef.current = null;
+        setCompactingThreadId(null);
+      }
+
       if (message.method === 'item/completed') {
-        const item = message.params?.item;
         const turnId = message.params?.turnId;
         if (
           item &&
@@ -1132,6 +1509,13 @@ export function AiPanel({
           }
           turnModesRef.current.delete(turnId);
         }
+        if (
+          eventThreadId &&
+          compactingThreadIdRef.current === eventThreadId
+        ) {
+          compactingThreadIdRef.current = null;
+          setCompactingThreadId(null);
+        }
       }
 
       setConversation((current) =>
@@ -1145,6 +1529,14 @@ export function AiPanel({
 
       if (message.method === 'madora/runtime/exited') {
         setPlanImplementation(null);
+        goalDraftModeRef.current = false;
+        setGoalDraftMode(false);
+        threadGoalsRef.current = {};
+        setThreadGoals({});
+        setGoalObservedAt({});
+        setGoalUpdating(false);
+        compactingThreadIdRef.current = null;
+        setCompactingThreadId(null);
         codexAppServerClient.rejectPending(
           new Error('Codex App Server 已停止'),
         );
@@ -1245,6 +1637,8 @@ export function AiPanel({
     loadModelCatalog,
     loadSkills,
     loadThreadHistory,
+    updateThreadGoal,
+    updateThreadTokenUsage,
     workspaceRootPath,
   ]);
 
@@ -1258,9 +1652,13 @@ export function AiPanel({
     setSelectedAttachments([]);
     setActiveThread(null);
     activeThreadIdRef.current = null;
+    compactingThreadIdRef.current = null;
+    setCompactingThreadId(null);
     setConversation(createEmptyConversation());
     setSelectedMentions([]);
     setComposerValue('');
+    goalDraftModeRef.current = false;
+    setGoalDraftMode(false);
     permissionSettingsRef.current = DEFAULT_PERMISSION_SETTINGS;
     setPermissionSettings(DEFAULT_PERMISSION_SETTINGS);
     resetToDefaultMode();
@@ -1277,14 +1675,28 @@ export function AiPanel({
     setSelectedAttachments([]);
     setSelectedMentions([]);
     setComposerValue('');
+    goalDraftModeRef.current = false;
+    setGoalDraftMode(false);
     setRuntimeError(null);
+    compactingThreadIdRef.current = null;
+    setCompactingThreadId(null);
     resetToDefaultMode();
     setView('chat');
     try {
-      const response = await codexAppServerClient.request<ThreadReadResponse>(
-        'thread/read',
-        { threadId: thread.id, includeTurns: true },
-      );
+      const [response, goalResponse] = await Promise.all([
+        codexAppServerClient.request<ThreadReadResponse>('thread/read', {
+          threadId: thread.id,
+          includeTurns: true,
+        }),
+        goalFeatureAvailable
+          ? codexAppServerClient
+              .request<CodexThreadGoalGetResponse>('thread/goal/get', {
+                threadId: thread.id,
+              })
+              .catch(() => ({ goal: null }))
+          : Promise.resolve({ goal: null }),
+      ]);
+      updateThreadGoal(thread.id, goalResponse.goal);
       const resumed = await codexAppServerClient.request<ThreadResumeResponse>(
         'thread/resume',
         { threadId: thread.id },
@@ -1300,7 +1712,7 @@ export function AiPanel({
     } catch (error) {
       setRuntimeError(getErrorMessage(error));
     }
-  }, [resetToDefaultMode, workspaceRootPath]);
+  }, [goalFeatureAvailable, resetToDefaultMode, updateThreadGoal, workspaceRootPath]);
 
   const removeThread = React.useCallback(
     async (thread: CodexThread, action: 'archive' | 'delete') => {
@@ -1338,6 +1750,13 @@ export function AiPanel({
       const composerMentions = options.planAction ? [] : selectedMentions;
       const previousConversation = conversationRef.current;
       const previousThread = activeThread;
+      const startingGoal =
+        !options.planAction &&
+        goalDraftModeRef.current &&
+        !(
+          activeThreadIdRef.current &&
+          threadGoalsRef.current[activeThreadIdRef.current]
+        );
       let attachmentGrantsDetached = false;
       let createdThread: CodexThread | null = null;
       let createdThreadTitle: string | null = null;
@@ -1346,6 +1765,17 @@ export function AiPanel({
         !workspaceRootPath ||
         submittingRef.current
       ) {
+        return;
+      }
+      if (startingGoal && !text) {
+        setRuntimeError('目标不能为空。');
+        return;
+      }
+      if (
+        startingGoal &&
+        Array.from(text).length > GOAL_OBJECTIVE_MAX_LENGTH
+      ) {
+        setRuntimeError(`目标不能超过 ${GOAL_OBJECTIVE_MAX_LENGTH} 个字符。`);
         return;
       }
 
@@ -1402,7 +1832,9 @@ export function AiPanel({
         );
         const currentPermissionSettings = permissionSettingsRef.current;
         const currentModel = selectedModelRef.current;
-        const requestedMode = options.mode ?? collaborationModeRef.current;
+        const requestedMode = startingGoal
+          ? 'default'
+          : options.mode ?? collaborationModeRef.current;
         const selectedModelRecord = models.find(
           (model) => model.model === currentModel,
         );
@@ -1575,6 +2007,26 @@ export function AiPanel({
           ...current,
           activeTurnId: response.turn.id,
         }));
+        if (startingGoal) {
+          goalDraftModeRef.current = false;
+          setGoalDraftMode(false);
+          try {
+            const goalResponse =
+              await codexAppServerClient.request<CodexThreadGoalSetResponse>(
+                'thread/goal/set',
+                {
+                  objective: text,
+                  status: 'active',
+                  threadId: thread.id,
+                },
+              );
+            updateThreadGoal(thread.id, goalResponse.goal);
+          } catch (goalError) {
+            setRuntimeError(
+              `消息已发送，但目标未能启动：${getErrorMessage(goalError)}`,
+            );
+          }
+        }
       } catch (error) {
         if (options.planAction) {
           if (options.forceNewThread && createdThread) {
@@ -1606,6 +2058,7 @@ export function AiPanel({
       models,
       onBeforeTurnStart,
       selectedMentions,
+      updateThreadGoal,
       workspaceRootPath,
     ],
   );
@@ -1793,6 +2246,11 @@ export function AiPanel({
                 )
               }
               onPrompt={(prompt) => void sendMessage(prompt)}
+              onSetGoal={
+                goalFeatureAvailable && activeThread && !activeGoal
+                  ? (objective) => void setMessageAsGoal(objective)
+                  : undefined
+              }
               onSignIn={() => void signIn()}
             />
           </AiConversationViewport>
@@ -1818,12 +2276,36 @@ export function AiPanel({
             />
           ) : null}
 
+          {activeTaskProgress ? (
+            <TaskProgressIndicator
+              key={activeTaskProgress.turnId}
+              progress={activeTaskProgress}
+            />
+          ) : null}
+
+          {activeGoal ? (
+            <GoalStatusBar
+              goal={activeGoal}
+              observedAt={activeGoalObservedAt}
+              updating={goalUpdating}
+              onClear={() => void clearGoal()}
+              onSave={updateGoalObjective}
+              onStatusChange={(status) => void setGoalStatus(status)}
+            />
+          ) : null}
+
           <AiComposer
             active={Boolean(conversation.activeTurnId)}
             collaborationMode={collaborationMode}
+            compacting={compactingThreadId === activeThread?.id}
+            compactUnavailableReason={compactUnavailableReason}
+            contextUsage={activeThreadTokenUsage}
             currentDocument={currentDocument}
             effort={effort}
             focusRequest={composerFocusRequest}
+            goalActive={Boolean(activeGoal)}
+            goalDraftMode={goalDraftMode}
+            goalUnavailableReason={goalEntryUnavailableReason}
             attachments={selectedAttachments}
             mentionDocuments={filteredMentionDocuments}
             mentionQuery={mentionQuery}
@@ -1857,8 +2339,10 @@ export function AiPanel({
             onAttachmentSelect={(kind) => void selectContextAttachments(kind)}
             onDetectPlugins={() => void detectInstalledPlugins()}
             onEffortChange={setEffort}
+            onGoalModeChange={changeGoalMode}
             onInterrupt={() => void interruptTurn()}
             onCollaborationModeChange={changeCollaborationMode}
+            onCompact={() => void compactContext()}
             onMentionQueryChange={setMentionQuery}
             onMentionsChange={setSelectedMentions}
             onModelChange={(model) => {
@@ -2072,6 +2556,7 @@ function PanelContent({
   onOpenDocument,
   onOpenPlanPreview,
   onPrompt,
+  onSetGoal,
   onSignIn,
 }: {
   account: CodexAccountResponse['account'];
@@ -2088,6 +2573,7 @@ function PanelContent({
   onOpenDocument: (documentPath: string) => void;
   onOpenPlanPreview: (plan: AiProposedPlan) => void;
   onPrompt: (prompt: string) => void;
+  onSetGoal?: (objective: string) => void;
   onSignIn: () => void;
 }) {
   if (runtimeStatus === 'web') {
@@ -2241,6 +2727,7 @@ function PanelContent({
               key={`${block.type}-${block.id}`}
               onOpenDocument={onOpenDocument}
               onOpenPlanPreview={onOpenPlanPreview}
+              onSetGoal={onSetGoal}
               previous={previousConversationEntry(blocks[index - 1])}
             />
           ),
@@ -2354,6 +2841,172 @@ export function ProposedPlanCard({
         ) : null}
       </div>
     </section>
+  );
+}
+
+export function TaskProgressIndicator({
+  progress,
+}: {
+  progress: AiTaskProgress;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [pinned, setPinned] = React.useState(false);
+  const closeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelClose = React.useCallback(() => {
+    if (closeTimerRef.current === null) return;
+    clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = null;
+  }, []);
+
+  const showPreview = React.useCallback(() => {
+    cancelClose();
+    setOpen(true);
+  }, [cancelClose]);
+
+  const scheduleClose = React.useCallback(() => {
+    if (pinned) return;
+    cancelClose();
+    closeTimerRef.current = setTimeout(() => {
+      closeTimerRef.current = null;
+      setOpen(false);
+    }, 120);
+  }, [cancelClose, pinned]);
+
+  React.useEffect(
+    () => () => {
+      cancelClose();
+    },
+    [cancelClose],
+  );
+
+  const hasFileChanges = progress.fileCount > 0;
+  const summaryLabel = [
+    `第 ${progress.currentStepNumber} / ${progress.totalSteps} 步`,
+    hasFileChanges ? `${progress.fileCount} 个文件已更改` : null,
+    hasFileChanges ? `新增 ${progress.additions} 行` : null,
+    hasFileChanges ? `删除 ${progress.deletions} 行` : null,
+  ]
+    .filter(Boolean)
+    .join('，');
+
+  return (
+    <div
+      className="flex shrink-0 justify-center px-3 pb-1 pt-0.5"
+      data-testid="task-progress"
+    >
+      <Popover
+        open={open}
+        onOpenChange={(nextOpen) => {
+          setOpen(nextOpen);
+          if (!nextOpen) setPinned(false);
+        }}
+      >
+        <PopoverAnchor asChild>
+          <button
+            aria-expanded={open}
+            aria-haspopup="dialog"
+            aria-label={summaryLabel}
+            className="inline-flex h-8 max-w-full items-center gap-1.5 rounded-full border border-border/70 bg-background px-2.5 text-xs text-muted-foreground shadow-[0_1px_3px_rgba(15,23,42,0.06)] outline-none transition-colors hover:bg-muted/25 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/35"
+            type="button"
+            onBlur={scheduleClose}
+            onClick={() => {
+              cancelClose();
+              setPinned((current) => {
+                const next = !current;
+                setOpen(next);
+                return next;
+              });
+            }}
+            onFocus={showPreview}
+            onPointerEnter={showPreview}
+            onPointerLeave={scheduleClose}
+          >
+            <LoaderCircle
+              aria-hidden="true"
+              className="shrink-0 animate-spin text-primary/70"
+              size={14}
+            />
+            <span className="truncate font-medium tabular-nums">
+              第 {progress.currentStepNumber} / {progress.totalSteps} 步
+            </span>
+            {hasFileChanges ? (
+              <>
+                <span aria-hidden="true" className="text-border">
+                  ·
+                </span>
+                <span className="truncate">
+                  {progress.fileCount} 个文件已更改
+                </span>
+                <span className="shrink-0 tabular-nums text-emerald-600 dark:text-emerald-400">
+                  +{progress.additions}
+                </span>
+                <span className="shrink-0 tabular-nums text-red-600 dark:text-red-400">
+                  -{progress.deletions}
+                </span>
+              </>
+            ) : null}
+          </button>
+        </PopoverAnchor>
+        <PopoverContent
+          align="center"
+          aria-label="任务列表"
+          className="w-[min(400px,calc(100vw-2rem))] gap-0 rounded-xl p-1.5 shadow-lg"
+          collisionPadding={12}
+          role="region"
+          side="top"
+          sideOffset={6}
+          onPointerEnter={cancelClose}
+          onPointerLeave={scheduleClose}
+        >
+          <ol aria-label="任务步骤" className="space-y-px">
+            {progress.steps.map((step, index) => {
+              const completed = step.status === 'completed';
+              const current = step.status === 'inProgress';
+              return (
+                <li
+                  aria-current={current ? 'step' : undefined}
+                  className={cn(
+                    'flex min-h-8 items-start gap-2 rounded-md px-2 py-1.5 text-[12px] leading-5',
+                    current && 'text-foreground',
+                    !current && 'text-muted-foreground',
+                  )}
+                  key={`${index}-${step.step}`}
+                >
+                  <span
+                    className={cn(
+                      'mt-0.5 flex size-3.5 shrink-0 items-center justify-center',
+                      completed && 'text-muted-foreground/80',
+                      current && 'text-primary',
+                      !completed && !current && 'text-muted-foreground/65',
+                    )}
+                  >
+                    {completed ? (
+                      <Check aria-hidden="true" size={13} strokeWidth={2.2} />
+                    ) : (
+                      <Circle
+                        aria-hidden="true"
+                        size={12}
+                        strokeWidth={current ? 2.1 : 1.8}
+                      />
+                    )}
+                  </span>
+                  <span
+                    className={cn(
+                      'min-w-0 flex-1 break-words',
+                      completed && 'line-through decoration-border',
+                      current && 'font-medium',
+                    )}
+                  >
+                    {step.step}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }
 
@@ -2618,11 +3271,13 @@ export function ConversationEntryRow({
   entry,
   onOpenDocument,
   onOpenPlanPreview = () => undefined,
+  onSetGoal,
   previous,
 }: {
   entry: AiConversationEntry;
   onOpenDocument: (documentPath: string) => void;
   onOpenPlanPreview?: (plan: AiProposedPlan) => void;
+  onSetGoal?: (objective: string) => void;
   previous: AiConversationEntry | null;
 }) {
   if (entry.type === 'proposedPlan') {
@@ -2652,16 +3307,73 @@ export function ConversationEntryRow({
       {entry.role === 'assistant' ? (
         <AiMessageContent markdown={entry.text} />
       ) : (
-        <div className="w-max max-w-[88%] break-words rounded-xl bg-muted/70 px-3 py-2">
-          <UserMessageContent
-            attachments={entry.attachments ?? []}
-            mentions={entry.mentions ?? []}
-            text={entry.text}
-            onOpenMention={onOpenDocument}
-          />
-        </div>
+        <UserMessageBubble
+          attachments={entry.attachments ?? []}
+          mentions={entry.mentions ?? []}
+          text={entry.text}
+          onOpenMention={onOpenDocument}
+          onSetGoal={onSetGoal}
+        />
       )}
     </article>
+  );
+}
+
+function UserMessageBubble({
+  attachments,
+  mentions,
+  text,
+  onOpenMention,
+  onSetGoal,
+}: {
+  attachments: AiMessageAttachment[];
+  mentions: AiMessageMention[];
+  text: string;
+  onOpenMention: (path: string) => void;
+  onSetGoal?: (objective: string) => void;
+}) {
+  const [copied, setCopied] = React.useState(false);
+
+  return (
+    <div className="flex max-w-[88%] flex-col items-end">
+      <div className="w-max max-w-full break-words rounded-xl bg-muted/70 px-3 py-2">
+        <UserMessageContent
+          attachments={attachments}
+          mentions={mentions}
+          text={text}
+          onOpenMention={onOpenMention}
+        />
+      </div>
+      {text.trim() ? (
+        <div className="mt-1 flex items-center gap-0.5 text-[10px] text-muted-foreground">
+          <button
+            aria-label={copied ? '已复制消息' : '复制消息'}
+            className="flex h-6 items-center gap-1 rounded-md px-1.5 transition-colors hover:bg-accent hover:text-foreground"
+            type="button"
+            onClick={() => {
+              void navigator.clipboard.writeText(text).then(() => {
+                setCopied(true);
+                window.setTimeout(() => setCopied(false), 1_200);
+              }).catch(() => undefined);
+            }}
+          >
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+            {copied ? '已复制' : '复制'}
+          </button>
+          {onSetGoal ? (
+            <button
+              aria-label="设为目标"
+              className="flex h-6 items-center gap-1 rounded-md px-1.5 transition-colors hover:bg-accent hover:text-foreground"
+              type="button"
+              onClick={() => onSetGoal(text)}
+            >
+              <Goal size={12} />
+              设为目标
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -3875,6 +4587,205 @@ export function PlanImplementationCard({
   );
 }
 
+export function GoalStatusBar({
+  goal,
+  observedAt,
+  updating,
+  onClear,
+  onSave,
+  onStatusChange,
+}: {
+  goal: CodexThreadGoal;
+  observedAt: number;
+  updating: boolean;
+  onClear: () => void;
+  onSave: (objective: string) => Promise<boolean>;
+  onStatusChange: (status: 'active' | 'paused') => void;
+}) {
+  const [editorOpen, setEditorOpen] = React.useState(false);
+  const [objective, setObjective] = React.useState('');
+  const [now, setNow] = React.useState(() => Date.now());
+
+  React.useEffect(() => {
+    if (goal.status !== 'active') return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [goal.status, observedAt]);
+
+  const elapsedSeconds =
+    goal.timeUsedSeconds +
+    (goal.status === 'active'
+      ? Math.max(0, Math.floor((now - observedAt) / 1_000))
+      : 0);
+  const trimmedObjective = objective.trim();
+  const objectiveLength = Array.from(trimmedObjective).length;
+  const saveDisabled =
+    updating ||
+    !trimmedObjective ||
+    objectiveLength > GOAL_OBJECTIVE_MAX_LENGTH ||
+    trimmedObjective === goal.objective;
+  const canResume =
+    goal.status === 'paused' ||
+    goal.status === 'blocked' ||
+    goal.status === 'usageLimited';
+
+  return (
+    <TooltipProvider>
+      <section
+        aria-label="目标状态"
+        className="relative z-0 mx-6 -mb-2 flex min-h-11 items-center gap-2 rounded-t-2xl border border-border/75 bg-muted/35 px-3 pb-2.5 pt-2 text-xs"
+      >
+        <Goal className="shrink-0 text-muted-foreground" size={15} />
+        <span className="shrink-0 font-semibold text-foreground">
+          {goalStatusLabel(goal.status)}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-muted-foreground">
+          {goal.objective}
+        </span>
+        <span className="shrink-0 tabular-nums text-muted-foreground/80">
+          · {formatElapsedTime(elapsedSeconds)}
+        </span>
+        <div className="ml-1 flex shrink-0 items-center gap-0.5">
+          <GoalActionButton
+            label="编辑目标"
+            onClick={() => {
+              setObjective(goal.objective);
+              setEditorOpen(true);
+            }}
+          >
+            <Pencil size={14} />
+          </GoalActionButton>
+          {goal.status === 'active' ? (
+            <GoalActionButton
+              disabled={updating}
+              label="暂停目标"
+              onClick={() => onStatusChange('paused')}
+            >
+              <Pause size={14} />
+            </GoalActionButton>
+          ) : canResume ? (
+            <GoalActionButton
+              disabled={updating}
+              label="恢复目标"
+              onClick={() => onStatusChange('active')}
+            >
+              <Play size={14} />
+            </GoalActionButton>
+          ) : null}
+          <GoalActionButton
+            disabled={updating}
+            label="清除目标"
+            onClick={onClear}
+          >
+            <Trash2 size={14} />
+          </GoalActionButton>
+        </div>
+      </section>
+
+      <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
+        <DialogContent className="gap-4 p-5 sm:max-w-xl">
+          <div className="flex size-9 items-center justify-center rounded-xl bg-muted">
+            <Goal size={18} />
+          </div>
+          <DialogHeader className="gap-1">
+            <DialogTitle className="text-lg">编辑目标</DialogTitle>
+            <DialogDescription className="text-xs">
+              保存后，运行中的 Codex 会立即收到目标更新。
+            </DialogDescription>
+          </DialogHeader>
+          <textarea
+            aria-label="目标内容"
+            autoFocus
+            className="scrollbar-thin min-h-72 resize-none rounded-xl border border-border bg-background px-3 py-2.5 text-sm leading-6 outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/20"
+            maxLength={GOAL_OBJECTIVE_MAX_LENGTH + 1}
+            value={objective}
+            onChange={(event) => setObjective(event.target.value)}
+          />
+          <div className="-mt-2 text-right text-[10px] tabular-nums text-muted-foreground">
+            {objectiveLength}/{GOAL_OBJECTIVE_MAX_LENGTH}
+          </div>
+          <DialogFooter className="-mx-5 -mb-5 bg-muted/30 px-5 py-3">
+            <button
+              className="h-8 rounded-lg px-3 text-xs font-medium hover:bg-accent"
+              disabled={updating}
+              type="button"
+              onClick={() => setEditorOpen(false)}
+            >
+              取消
+            </button>
+            <button
+              className="h-8 rounded-lg bg-foreground px-3 text-xs font-medium text-background disabled:opacity-40"
+              disabled={saveDisabled}
+              type="button"
+              onClick={() => {
+                void onSave(trimmedObjective).then((saved) => {
+                  if (saved) setEditorOpen(false);
+                });
+              }}
+            >
+              保存
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </TooltipProvider>
+  );
+}
+
+function GoalActionButton({
+  children,
+  disabled = false,
+  label,
+  onClick,
+}: React.PropsWithChildren<{
+  disabled?: boolean;
+  label: string;
+  onClick: () => void;
+}>) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          aria-label={label}
+          className="flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+          disabled={disabled}
+          type="button"
+          onClick={onClick}
+        >
+          {children}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" sideOffset={5}>
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function goalStatusLabel(status: CodexThreadGoal['status']) {
+  switch (status) {
+    case 'active':
+      return '进行中的目标';
+    case 'paused':
+      return '已暂停的目标';
+    case 'blocked':
+      return '已阻塞的目标';
+    case 'usageLimited':
+      return '已因用量暂停的目标';
+    case 'budgetLimited':
+      return '已达预算的目标';
+    case 'complete':
+      return '已完成的目标';
+  }
+}
+
+function formatElapsedTime(seconds: number) {
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remaining = seconds % 60;
+  return remaining > 0 ? `${minutes}m ${remaining}s` : `${minutes}m`;
+}
+
 export function AiComposer({
   active,
   approvalPolicyAvailability,
@@ -3882,9 +4793,15 @@ export function AiComposer({
   authRequired = false,
   autoReviewAvailable,
   collaborationMode = 'default',
+  compacting = false,
+  compactUnavailableReason = null,
+  contextUsage = null,
   currentDocument,
   effort,
   focusRequest = 0,
+  goalActive = false,
+  goalDraftMode = false,
+  goalUnavailableReason = null,
   mentionDocuments,
   mentionQuery,
   modeSwitchDisabled = false,
@@ -3910,7 +4827,9 @@ export function AiComposer({
   onAttachmentSelect = () => undefined,
   onDetectPlugins = () => undefined,
   onCollaborationModeChange = () => undefined,
+  onCompact = () => undefined,
   onEffortChange,
+  onGoalModeChange = () => undefined,
   onInterrupt,
   onMentionQueryChange,
   onMentionsChange,
@@ -3926,9 +4845,15 @@ export function AiComposer({
   authRequired?: boolean;
   autoReviewAvailable: boolean;
   collaborationMode?: CodexCollaborationModeKind;
+  compacting?: boolean;
+  compactUnavailableReason?: string | null;
+  contextUsage?: CodexThreadTokenUsage | null;
   currentDocument: WorkspaceNode | null;
   effort: CodexReasoningEffort;
   focusRequest?: number;
+  goalActive?: boolean;
+  goalDraftMode?: boolean;
+  goalUnavailableReason?: string | null;
   mentionDocuments: AiDocumentReference[];
   mentionQuery: string | null;
   modeSwitchDisabled?: boolean;
@@ -3954,7 +4879,9 @@ export function AiComposer({
   onAttachmentSelect?: (kind: CodexContextAttachment['kind']) => void;
   onDetectPlugins?: () => void;
   onCollaborationModeChange?: (mode: CodexCollaborationModeKind) => void;
+  onCompact?: () => void;
   onEffortChange: (effort: CodexReasoningEffort) => void;
+  onGoalModeChange?: (enabled: boolean) => void;
   onInterrupt: () => void;
   onMentionQueryChange: (query: string | null) => void;
   onMentionsChange: (documents: AiComposerMention[]) => void;
@@ -4005,6 +4932,8 @@ export function AiComposer({
     ? '登录 ChatGPT 后可用'
     : runtimeUnavailable
     ? '桌面端连接 Codex 后可用'
+    : goalDraftMode
+    ? '描述你的目标，定义可衡量的成果，以获得最佳效果'
     : '要求后续变更，使用 @ 提及文档，/ 选择 Skill';
 
   React.useEffect(() => {
@@ -4187,6 +5116,60 @@ export function AiComposer({
     [onMentionQueryChange, syncEditorState],
   );
 
+  const runCompactCommand = React.useCallback(() => {
+    if (compactUnavailableReason) return;
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    editor.focus();
+    const targetRange = mentionTargetRef.current?.range;
+    const range =
+      targetRange && editor.contains(targetRange.commonAncestorContainer)
+        ? targetRange.cloneRange()
+        : getComposerRange(editor, savedRangeRef.current);
+    range.deleteContents();
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    savedRangeRef.current = range.cloneRange();
+
+    mentionTargetRef.current = null;
+    dismissedMentionKeyRef.current = null;
+    setSkillSelection({ path: null, query: null });
+    setSkillQuery(null);
+    onMentionQueryChange(null);
+    syncEditorState();
+    onCompact();
+  }, [compactUnavailableReason, onCompact, onMentionQueryChange, syncEditorState]);
+
+  const runGoalCommand = React.useCallback(() => {
+    if (goalUnavailableReason && !goalActive) return;
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    editor.focus();
+    const targetRange = mentionTargetRef.current?.range;
+    const range =
+      targetRange && editor.contains(targetRange.commonAncestorContainer)
+        ? targetRange.cloneRange()
+        : getComposerRange(editor, savedRangeRef.current);
+    range.deleteContents();
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    savedRangeRef.current = range.cloneRange();
+
+    mentionTargetRef.current = null;
+    dismissedMentionKeyRef.current = null;
+    setSkillSelection({ path: null, query: null });
+    setSkillQuery(null);
+    onMentionQueryChange(null);
+    syncEditorState();
+    onGoalModeChange(true);
+  }, [goalActive, goalUnavailableReason, onGoalModeChange, onMentionQueryChange, syncEditorState]);
+
   const closeMentionMenu = React.useCallback(() => {
     dismissedMentionKeyRef.current = mentionTargetRef.current?.key ?? null;
     mentionTargetRef.current = null;
@@ -4230,43 +5213,80 @@ export function AiComposer({
       ),
     [composerMentionPaths, skillOptions, skillQuery],
   );
-  const selectedSkillIndex =
+  const showGoalCommand = skillQuery !== null && goalCommandMatches(skillQuery);
+  const showCompactCommand =
+    skillQuery !== null && compactCommandMatches(skillQuery);
+  const goalCommandOffset = showGoalCommand ? 1 : 0;
+  const compactCommandIndex = showCompactCommand ? goalCommandOffset : -1;
+  const commandOffset = goalCommandOffset + (showCompactCommand ? 1 : 0);
+  const selectedMenuIndex =
     skillSelection.query === skillQuery
-      ? visibleSkills.findIndex((skill) => skill.path === skillSelection.path)
+      ? skillSelection.path === GOAL_COMMAND_SELECTION && showGoalCommand
+        ? 0
+        : skillSelection.path === COMPACT_COMMAND_SELECTION &&
+            showCompactCommand
+          ? compactCommandIndex
+        : (() => {
+            const skillIndex = visibleSkills.findIndex(
+              (skill) => skill.path === skillSelection.path,
+            );
+            return skillIndex < 0 ? -1 : skillIndex + commandOffset;
+          })()
       : -1;
-  const activeSkillIndex =
-    visibleSkills.length === 0 ? -1 : Math.max(0, selectedSkillIndex);
+  const menuOptionCount = visibleSkills.length + commandOffset;
+  const activeMenuIndex =
+    menuOptionCount === 0 ? -1 : Math.max(0, selectedMenuIndex);
   const activeSkill =
-    activeSkillIndex >= 0 ? (visibleSkills[activeSkillIndex] ?? null) : null;
+    activeMenuIndex >= commandOffset
+      ? (visibleSkills[activeMenuIndex - commandOffset] ?? null)
+      : null;
+  const activeGoalCommand = showGoalCommand && activeMenuIndex === 0;
+  const activeCompactCommand =
+    showCompactCommand && activeMenuIndex === compactCommandIndex;
   const selectSkillIndex = React.useCallback(
     (index: number) => {
       setSkillSelection({
-        path: visibleSkills[index]?.path ?? null,
+        path:
+          showGoalCommand && index === 0
+            ? GOAL_COMMAND_SELECTION
+            : showCompactCommand && index === compactCommandIndex
+            ? COMPACT_COMMAND_SELECTION
+            : visibleSkills[index - commandOffset]?.path ?? null,
         query: skillQuery,
       });
     },
-    [skillQuery, visibleSkills],
+    [commandOffset, compactCommandIndex, showCompactCommand, showGoalCommand, skillQuery, visibleSkills],
   );
 
   return (
-    <div className="shrink-0 px-3 pb-3 pt-2">
+    <div className="relative z-10 shrink-0 px-3 pb-3 pt-2">
       <div
         className="relative rounded-2xl border border-border/80 bg-background shadow-[0_1px_4px_rgba(15,23,42,0.06)] focus-within:border-foreground/20"
         ref={composerSurfaceRef}
       >
         {skillQuery !== null ? (
           <SkillMenu
-            activeIndex={activeSkillIndex}
+            activeIndex={activeMenuIndex}
+            compacting={compacting}
+            compactUnavailableReason={compactUnavailableReason}
+            contextUsage={contextUsage}
+            goalActive={goalActive}
+            goalUnavailableReason={goalUnavailableReason}
             listboxId={skillListboxId}
             query={skillQuery}
+            showGoalCommand={showGoalCommand}
+            showCompactCommand={showCompactCommand}
             skills={visibleSkills}
             status={skillStatus}
             onActiveIndexChange={selectSkillIndex}
+            onSelectCompact={runCompactCommand}
+            onSelectGoal={runGoalCommand}
             onSelect={insertSkillMention}
           />
         ) : mentionQuery !== null ? (
           <MentionMenu
             activeIndex={activeMentionIndex}
+            currentDocumentPath={currentDocument?.absolutePath ?? null}
             documents={mentionDocuments}
             listboxId={mentionListboxId}
             query={mentionQuery}
@@ -4305,8 +5325,8 @@ export function AiComposer({
         <div
           aria-label="向 Codex 提问"
           aria-activedescendant={
-            skillQuery !== null && activeSkill
-              ? mentionOptionId(skillListboxId, activeSkillIndex)
+            skillQuery !== null && activeMenuIndex >= 0
+              ? mentionOptionId(skillListboxId, activeMenuIndex)
               : mentionQuery !== null && activeMention
               ? mentionOptionId(mentionListboxId, activeMentionIndex)
               : undefined
@@ -4364,10 +5384,10 @@ export function AiComposer({
               if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
                 event.preventDefault();
                 const direction = event.key === 'ArrowDown' ? 1 : -1;
-                if (skillQuery !== null && visibleSkills.length > 0) {
+                if (skillQuery !== null && menuOptionCount > 0) {
                   selectSkillIndex(
-                    (activeSkillIndex + direction + visibleSkills.length) %
-                      visibleSkills.length,
+                    (activeMenuIndex + direction + menuOptionCount) %
+                      menuOptionCount,
                   );
                 } else if (mentionDocuments.length > 0) {
                   selectMentionIndex(
@@ -4385,7 +5405,11 @@ export function AiComposer({
                 event.key === 'Tab'
               ) {
                 event.preventDefault();
-                if (skillQuery !== null && activeSkill) {
+                if (skillQuery !== null && activeGoalCommand) {
+                  runGoalCommand();
+                } else if (skillQuery !== null && activeCompactCommand) {
+                  runCompactCommand();
+                } else if (skillQuery !== null && activeSkill) {
                   insertSkillMention(activeSkill);
                 } else if (activeMention) {
                   insertMention(activeMention);
@@ -4518,19 +5542,33 @@ export function AiComposer({
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
               <DropdownMenuItem
-                disabled
+                disabled={Boolean(goalUnavailableReason) && !goalActive}
                 className="min-h-9 gap-2 rounded-lg px-2 py-1.5 data-[disabled]:opacity-60"
+                title={goalUnavailableReason ?? undefined}
+                onSelect={() => onGoalModeChange(true)}
               >
                 <Goal className="text-muted-foreground" size={16} />
                 <span className="flex min-w-0 items-baseline gap-2">
                   <span className="shrink-0 text-[13px] font-medium">目标</span>
                   <span className="truncate text-[11px] text-muted-foreground">
-                    设置要持续追求的目标
+                    {goalActive
+                      ? '当前任务已有持续目标'
+                      : goalDraftMode
+                        ? '正在定义目标'
+                        : goalUnavailableReason || '设置要持续追求的目标'}
                   </span>
                 </span>
+                {goalActive || goalDraftMode ? (
+                  <Check className="ml-auto" size={14} />
+                ) : null}
               </DropdownMenuItem>
               <DropdownMenuItem
-                disabled={modeSwitchDisabled || !planModeAvailable}
+                disabled={
+                  modeSwitchDisabled ||
+                  !planModeAvailable ||
+                  goalActive ||
+                  goalDraftMode
+                }
                 className="min-h-9 gap-2 rounded-lg px-2 py-1.5 data-[disabled]:opacity-60"
                 onSelect={() =>
                   onCollaborationModeChange(
@@ -4544,6 +5582,8 @@ export function AiComposer({
                   <span className="truncate text-[11px] text-muted-foreground">
                     {collaborationMode === 'plan'
                       ? '已开启计划模式'
+                      : goalActive || goalDraftMode
+                        ? '请先清除目标'
                       : planModeAvailable
                         ? '开启计划模式'
                         : planModeUnavailableReason || '当前模型不可用'}
@@ -4726,7 +5766,22 @@ export function AiComposer({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {collaborationMode === 'plan' ? (
+          {goalActive || goalDraftMode ? (
+            <>
+              <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
+              <button
+                aria-label={goalDraftMode ? '退出目标模式' : '当前目标'}
+                className="inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                type="button"
+                onClick={() => onGoalModeChange(goalActive)}
+              >
+                <Goal size={14} />
+                目标
+              </button>
+            </>
+          ) : null}
+
+          {collaborationMode === 'plan' && !goalActive && !goalDraftMode ? (
             <>
               <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
               <button
@@ -4753,6 +5808,10 @@ export function AiComposer({
                 正在准备
               </span>
             ) : null}
+            <ContextUsageIndicator
+              compacting={compacting}
+              usage={contextUsage}
+            />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -4865,8 +5924,109 @@ export function AiComposer({
   );
 }
 
+function ContextUsageIndicator({
+  compacting,
+  usage,
+}: {
+  compacting: boolean;
+  usage: CodexThreadTokenUsage | null;
+}) {
+  const percent = contextUsagePercent(usage);
+  const remainingPercent = percent === null ? null : 100 - percent;
+  const label = compacting
+    ? '背景信息窗口：正在压缩'
+    : percent === null
+      ? '背景信息窗口：发送首条消息后显示'
+      : `背景信息窗口：${percent}% 已用`;
+
+  return (
+    <HoverCard openDelay={180} closeDelay={80}>
+      <HoverCardTrigger asChild>
+        <button
+          aria-label={label}
+          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          type="button"
+        >
+          <ContextUsageProgress compacting={compacting} percent={percent} />
+        </button>
+      </HoverCardTrigger>
+      <HoverCardContent
+        align="center"
+        className="w-auto min-w-[190px] rounded-xl px-4 py-2.5 text-center"
+        side="top"
+        sideOffset={8}
+      >
+        <div aria-label="上下文用量" role="status">
+          <div className="text-[13px] leading-5 text-muted-foreground">
+            背景信息窗口：
+          </div>
+          <div className="mt-0.5 text-[15px] font-medium leading-5">
+            {compacting
+              ? '正在压缩'
+              : percent === null
+                ? '发送首条消息后显示'
+                : `${percent}% 已用（剩余 ${remainingPercent}%）`}
+          </div>
+          {usage?.modelContextWindow ? (
+            <div className="mt-0.5 whitespace-nowrap text-[15px] font-medium leading-5">
+              已用 {formatTokenCount(usage.last.totalTokens)} 标记，共{' '}
+              {formatTokenCount(usage.modelContextWindow)}
+            </div>
+          ) : null}
+        </div>
+      </HoverCardContent>
+    </HoverCard>
+  );
+}
+
+const CONTEXT_PROGRESS_CIRCUMFERENCE = 2 * Math.PI * 10;
+
+function ContextUsageProgress({
+  compacting,
+  percent,
+}: {
+  compacting: boolean;
+  percent: number | null;
+}) {
+  const normalizedPercent = percent ?? 0;
+  const progressLength =
+    (CONTEXT_PROGRESS_CIRCUMFERENCE * normalizedPercent) / 100;
+
+  return (
+    <span
+      aria-hidden="true"
+      className="relative flex size-[15px] items-center justify-center"
+      data-context-percent={normalizedPercent}
+      data-testid="context-usage-progress"
+    >
+      <Circle
+        className="absolute inset-0 text-muted-foreground/25"
+        size={15}
+        strokeWidth={3}
+      />
+      {compacting ? (
+        <LoaderCircle className="animate-spin" size={15} strokeWidth={3} />
+      ) : (
+        <Circle
+          className="absolute inset-0 text-muted-foreground"
+          data-testid="context-usage-progress-arc"
+          size={15}
+          strokeWidth={3}
+          style={{
+            strokeDasharray: `${progressLength} ${CONTEXT_PROGRESS_CIRCUMFERENCE}`,
+            transform: 'rotate(-90deg)',
+            transformOrigin: 'center',
+            transition: 'stroke-dasharray 180ms ease-out',
+          }}
+        />
+      )}
+    </span>
+  );
+}
+
 function MentionMenu({
   activeIndex,
+  currentDocumentPath,
   documents,
   listboxId,
   query,
@@ -4875,6 +6035,7 @@ function MentionMenu({
   onSelect,
 }: {
   activeIndex: number;
+  currentDocumentPath: string | null;
   documents: AiDocumentReference[];
   listboxId: string;
   query: string;
@@ -4919,44 +6080,55 @@ function MentionMenu({
             没有匹配的文档
           </div>
         ) : (
-          documents.map((document, index) => (
-            <button
-              aria-label={`提及 ${document.title || document.name}`}
-              aria-selected={index === activeIndex}
-              className={cn(
-                'flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left outline-none',
-                index === activeIndex
-                  ? 'bg-accent text-accent-foreground'
-                  : 'hover:bg-accent/60',
-              )}
-              id={mentionOptionId(listboxId, index)}
-              key={document.absolutePath}
-              ref={(element) => {
-                optionRefs.current[index] = element;
-              }}
-              role="option"
-              type="button"
-              onMouseDown={(event) => event.preventDefault()}
-              onMouseMove={() => onActiveIndexChange(index)}
-              onClick={() => onSelect(document)}
-            >
-              <FileText className="shrink-0 text-muted-foreground" size={14} />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-xs">
-                  <MentionMatchedText
-                    query={query}
-                    text={document.title || document.name}
-                  />
+          documents.map((document, index) => {
+            const isCurrentDocument =
+              document.absolutePath === currentDocumentPath;
+            return (
+              <button
+                aria-label={`提及 ${document.title || document.name}${isCurrentDocument ? '，当前文档' : ''}`}
+                aria-selected={index === activeIndex}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left outline-none',
+                  index === activeIndex
+                    ? 'bg-accent text-accent-foreground'
+                    : 'hover:bg-accent/60',
+                )}
+                id={mentionOptionId(listboxId, index)}
+                key={document.absolutePath}
+                ref={(element) => {
+                  optionRefs.current[index] = element;
+                }}
+                role="option"
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseMove={() => onActiveIndexChange(index)}
+                onClick={() => onSelect(document)}
+              >
+                <FileText className="shrink-0 text-muted-foreground" size={14} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-1.5 text-xs">
+                    <span className="truncate">
+                      <MentionMatchedText
+                        query={query}
+                        text={document.title || document.name}
+                      />
+                    </span>
+                    {isCurrentDocument ? (
+                      <span className="shrink-0 rounded border border-border/70 bg-muted/45 px-1 py-0.5 text-[9px] leading-none text-muted-foreground">
+                        当前文档
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="truncate text-[10px] text-muted-foreground">
+                    <MentionMatchedText
+                      query={query}
+                      text={document.relativePath}
+                    />
+                  </div>
                 </div>
-                <div className="truncate text-[10px] text-muted-foreground">
-                  <MentionMatchedText
-                    query={query}
-                    text={document.relativePath}
-                  />
-                </div>
-              </div>
-            </button>
-          ))
+              </button>
+            );
+          })
         )}
       </div>
     </div>
@@ -4965,23 +6137,45 @@ function MentionMenu({
 
 function SkillMenu({
   activeIndex,
+  compacting,
+  compactUnavailableReason,
+  contextUsage,
+  goalActive,
+  goalUnavailableReason,
   listboxId,
   query,
+  showGoalCommand,
+  showCompactCommand,
   skills,
   status,
   onActiveIndexChange,
+  onSelectCompact,
+  onSelectGoal,
   onSelect,
 }: {
   activeIndex: number;
+  compacting: boolean;
+  compactUnavailableReason: string | null;
+  contextUsage: CodexThreadTokenUsage | null;
+  goalActive: boolean;
+  goalUnavailableReason: string | null;
   listboxId: string;
   query: string;
+  showGoalCommand: boolean;
+  showCompactCommand: boolean;
   skills: AiSkillMentionOption[];
   status: ControlLoadStatus;
   onActiveIndexChange: (index: number) => void;
+  onSelectCompact: () => void;
+  onSelectGoal: () => void;
   onSelect: (skill: AiSkillMentionOption) => void;
 }) {
   const listRef = React.useRef<HTMLDivElement>(null);
   const optionRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
+  const goalOffset = showGoalCommand ? 1 : 0;
+  const compactIndex = showCompactCommand ? goalOffset : -1;
+  const commandOffset = goalOffset + (showCompactCommand ? 1 : 0);
+  const usagePercent = contextUsagePercent(contextUsage);
 
   React.useLayoutEffect(() => {
     if (activeIndex < 0) return;
@@ -5003,16 +6197,92 @@ function SkillMenu({
       className="absolute bottom-[calc(100%+6px)] left-0 right-0 z-30 overflow-hidden rounded-xl border border-border/80 bg-popover p-1.5 shadow-none"
       data-skill-menu
     >
-      <div className="px-2 py-1.5 text-[11px] font-medium text-muted-foreground">
-        技能
-      </div>
       <div
-        aria-label="选择 Skill"
+        aria-label="选择命令或 Skill"
         className="scrollbar-thin max-h-72 overflow-y-auto"
         id={listboxId}
         ref={listRef}
         role="listbox"
       >
+        {showGoalCommand ? (
+          <button
+            aria-disabled={Boolean(goalUnavailableReason) && !goalActive}
+            aria-label="目标"
+            aria-selected={activeIndex === 0}
+            className={cn(
+              'flex min-h-10 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left outline-none',
+              activeIndex === 0
+                ? 'bg-accent text-accent-foreground'
+                : 'hover:bg-accent/60',
+              goalUnavailableReason && !goalActive &&
+                'cursor-not-allowed opacity-55',
+            )}
+            disabled={Boolean(goalUnavailableReason) && !goalActive}
+            id={mentionOptionId(listboxId, 0)}
+            ref={(element) => {
+              optionRefs.current[0] = element;
+            }}
+            role="option"
+            title={goalUnavailableReason ?? undefined}
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onMouseMove={() => onActiveIndexChange(0)}
+            onClick={onSelectGoal}
+          >
+            <Goal className="shrink-0 text-muted-foreground" size={15} />
+            <span className="shrink-0 text-xs font-medium">目标</span>
+            <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+              {goalActive
+                ? '当前任务已有持续目标'
+                : goalUnavailableReason || '设置要持续追求的目标'}
+            </span>
+          </button>
+        ) : null}
+        {showCompactCommand ? (
+          <button
+            aria-disabled={Boolean(compactUnavailableReason)}
+            aria-label={compacting ? '正在压缩上下文' : '压缩上下文'}
+            aria-selected={activeIndex === compactIndex}
+            className={cn(
+              'flex min-h-10 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left outline-none',
+              activeIndex === compactIndex
+                ? 'bg-accent text-accent-foreground'
+                : 'hover:bg-accent/60',
+              compactUnavailableReason && 'cursor-not-allowed opacity-55',
+            )}
+            disabled={Boolean(compactUnavailableReason)}
+            id={mentionOptionId(listboxId, compactIndex)}
+            ref={(element) => {
+              optionRefs.current[compactIndex] = element;
+            }}
+            role="option"
+            title={compactUnavailableReason ?? undefined}
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onMouseMove={() => onActiveIndexChange(compactIndex)}
+            onClick={onSelectCompact}
+          >
+            <LoaderCircle
+              className={cn(
+                'shrink-0 text-muted-foreground',
+                compacting && 'animate-spin',
+              )}
+              size={15}
+            />
+            <span className="shrink-0 text-xs font-medium">
+              {compacting ? '正在压缩' : '压缩'}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+              {compactUnavailableReason ||
+                (usagePercent === null
+                  ? '压缩此任务的上下文'
+                  : `压缩此任务的上下文（已占用 ${usagePercent}%）`)}
+            </span>
+          </button>
+        ) : null}
+        <div className="px-2 py-1.5 text-[11px] font-medium text-muted-foreground">
+          技能
+        </div>
         {status === 'loading' || status === 'idle' ? (
           <div className="flex items-center justify-center gap-2 px-2 py-5 text-xs text-muted-foreground">
             <LoaderCircle className="animate-spin" size={14} />
@@ -5027,7 +6297,9 @@ function SkillMenu({
             {query ? '没有匹配的技能' : '没有可用的技能'}
           </div>
         ) : (
-          skills.map((skill, index) => (
+          skills.map((skill, skillIndex) => {
+            const index = skillIndex + commandOffset;
+            return (
             <button
               aria-label={`选择 ${skill.displayName}`}
               aria-selected={index === activeIndex}
@@ -5059,7 +6331,8 @@ function SkillMenu({
                 {skillScopeLabel(skill.scope)}
               </span>
             </button>
-          ))
+            );
+          })
         )}
       </div>
     </div>
@@ -5085,6 +6358,43 @@ function MentionMatchedText({ query, text }: { query: string; text: string }) {
 
 function mentionOptionId(listboxId: string, index: number) {
   return `${listboxId}-option-${index}`;
+}
+
+function compactCommandMatches(query: string) {
+  const normalized = query.trim().toLocaleLowerCase();
+  return (
+    normalized.length === 0 ||
+    'compact'.includes(normalized) ||
+    '压缩'.includes(normalized)
+  );
+}
+
+function goalCommandMatches(query: string) {
+  const normalized = query.trim().toLocaleLowerCase();
+  return (
+    normalized.length === 0 ||
+    'goal'.includes(normalized) ||
+    '目标'.includes(normalized)
+  );
+}
+
+function contextUsagePercent(usage: CodexThreadTokenUsage | null) {
+  if (!usage?.modelContextWindow) return null;
+  return Math.min(
+    100,
+    Math.max(
+      0,
+      Math.floor((usage.last.totalTokens / usage.modelContextWindow) * 100),
+    ),
+  );
+}
+
+function formatTokenCount(value: number) {
+  if (value < 1_000) return String(value);
+  const divisor = value >= 1_000_000 ? 1_000_000 : 1_000;
+  const suffix = divisor === 1_000_000 ? 'm' : 'k';
+  const scaled = value / divisor;
+  return `${Number.isInteger(scaled) ? scaled : scaled.toFixed(1).replace(/\.0$/, '')}${suffix}`;
 }
 
 function ContextChip({

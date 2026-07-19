@@ -70,6 +70,69 @@ export interface CodexTurn {
   durationMs?: number | null;
 }
 
+export interface CodexTokenUsageBreakdown {
+  cachedInputTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+  totalTokens: number;
+}
+
+export interface CodexThreadTokenUsage {
+  last: CodexTokenUsageBreakdown;
+  modelContextWindow: number | null;
+  total: CodexTokenUsageBreakdown;
+}
+
+export interface CodexThreadTokenUsageUpdate {
+  threadId: string;
+  tokenUsage: CodexThreadTokenUsage;
+  turnId: string;
+}
+
+export type CodexThreadGoalStatus =
+  | 'active'
+  | 'paused'
+  | 'blocked'
+  | 'usageLimited'
+  | 'budgetLimited'
+  | 'complete';
+
+export interface CodexThreadGoal {
+  createdAt: number;
+  objective: string;
+  status: CodexThreadGoalStatus;
+  threadId: string;
+  timeUsedSeconds: number;
+  tokenBudget: number | null;
+  tokensUsed: number;
+  updatedAt: number;
+}
+
+export interface CodexThreadGoalGetResponse {
+  goal: CodexThreadGoal | null;
+}
+
+export interface CodexThreadGoalSetResponse {
+  goal: CodexThreadGoal;
+}
+
+export interface CodexThreadGoalClearResponse {
+  cleared: boolean;
+}
+
+export type CodexThreadGoalUpdate =
+  | {
+      goal: CodexThreadGoal;
+      threadId: string;
+      turnId: string | null;
+      type: 'updated';
+    }
+  | {
+      threadId: string;
+      type: 'cleared';
+    };
+
 export type CodexThreadItem = Record<string, unknown> & {
   id?: string;
   type?: string;
@@ -331,6 +394,151 @@ export class CodexAppServerClient {
 }
 
 export const codexAppServerClient = new CodexAppServerClient();
+
+export function threadTokenUsageUpdateFromMessage(
+  message: CodexProtocolMessage,
+): CodexThreadTokenUsageUpdate | null {
+  if (message.method !== 'thread/tokenUsage/updated') return null;
+
+  const threadId = nonEmptyString(message.params?.threadId);
+  const turnId = nonEmptyString(message.params?.turnId);
+  const tokenUsage = asRecord(message.params?.tokenUsage);
+  const total = tokenUsage && tokenUsageBreakdownFromValue(tokenUsage.total);
+  const last = tokenUsage && tokenUsageBreakdownFromValue(tokenUsage.last);
+  const modelContextWindow = tokenUsage?.modelContextWindow;
+
+  if (
+    !threadId ||
+    !turnId ||
+    !total ||
+    !last ||
+    !(
+      modelContextWindow === null ||
+      (isNonNegativeInteger(modelContextWindow) && modelContextWindow > 0)
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    threadId,
+    turnId,
+    tokenUsage: { last, modelContextWindow, total },
+  };
+}
+
+export function threadGoalUpdateFromMessage(
+  message: CodexProtocolMessage,
+): CodexThreadGoalUpdate | null {
+  if (message.method === 'thread/goal/cleared') {
+    const threadId = nonEmptyString(message.params?.threadId);
+    return threadId ? { threadId, type: 'cleared' } : null;
+  }
+  if (message.method !== 'thread/goal/updated') return null;
+
+  const threadId = nonEmptyString(message.params?.threadId);
+  const goal = threadGoalFromValue(message.params?.goal);
+  const turnIdValue = message.params?.turnId;
+  const turnId =
+    turnIdValue === null || turnIdValue === undefined
+      ? null
+      : nonEmptyString(turnIdValue);
+  if (
+    !threadId ||
+    !goal ||
+    goal.threadId !== threadId ||
+    (turnIdValue !== null && turnIdValue !== undefined && !turnId)
+  ) {
+    return null;
+  }
+  return { goal, threadId, turnId, type: 'updated' };
+}
+
+export function threadGoalFromValue(value: unknown): CodexThreadGoal | null {
+  const record = asRecord(value);
+  if (!record) return null;
+
+  const threadId = nonEmptyString(record.threadId);
+  const objective = nonEmptyString(record.objective);
+  const status = threadGoalStatusFromValue(record.status);
+  const tokenBudget = record.tokenBudget;
+  if (
+    !threadId ||
+    !objective ||
+    !status ||
+    !(tokenBudget === null || isNonNegativeInteger(tokenBudget)) ||
+    !isNonNegativeInteger(record.tokensUsed) ||
+    !isNonNegativeInteger(record.timeUsedSeconds) ||
+    !isNonNegativeInteger(record.createdAt) ||
+    !isNonNegativeInteger(record.updatedAt)
+  ) {
+    return null;
+  }
+
+  return {
+    createdAt: record.createdAt,
+    objective,
+    status,
+    threadId,
+    timeUsedSeconds: record.timeUsedSeconds,
+    tokenBudget,
+    tokensUsed: record.tokensUsed,
+    updatedAt: record.updatedAt,
+  };
+}
+
+function threadGoalStatusFromValue(
+  value: unknown,
+): CodexThreadGoalStatus | null {
+  return value === 'active' ||
+    value === 'paused' ||
+    value === 'blocked' ||
+    value === 'usageLimited' ||
+    value === 'budgetLimited' ||
+    value === 'complete'
+    ? value
+    : null;
+}
+
+function tokenUsageBreakdownFromValue(
+  value: unknown,
+): CodexTokenUsageBreakdown | null {
+  const record = asRecord(value);
+  if (!record) return null;
+
+  const fields = [
+    'cachedInputTokens',
+    'inputTokens',
+    'outputTokens',
+    'reasoningOutputTokens',
+    'totalTokens',
+  ] as const;
+  if (fields.some((field) => !isNonNegativeInteger(record[field]))) {
+    return null;
+  }
+
+  return {
+    cachedInputTokens: record.cachedInputTokens as number,
+    inputTokens: record.inputTokens as number,
+    outputTokens: record.outputTokens as number,
+    reasoningOutputTokens: record.reasoningOutputTokens as number,
+    totalTokens: record.totalTokens as number,
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function nonEmptyString(value: unknown) {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return Number.isInteger(value) && typeof value === 'number' && value >= 0;
+}
 
 export async function probeCodexRuntime() {
   const { invoke } = await import('@tauri-apps/api/core');

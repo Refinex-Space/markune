@@ -24,6 +24,8 @@ referenced_by: AGENTS.md#knowledge-map
 - 新线程默认使用 Codex 命名权限配置 `:workspace`、`on-request` 审批策略和 `user` reviewer，并把已 canonicalize 的当前工作区作为唯一 runtime workspace root。`turn/start` 不得携带权限覆盖；恢复线程不得隐式重置权限，后续切换只能走 `thread/settings/update`。
 - 权限模式必须保持 profile 与 reviewer 分层：自动审查只可使用 `:workspace + on-request + auto_review`，不得扩大文件或网络边界；完全访问必须经过显式风险确认并固定为 `:danger-full-access + never + user`；只读模式使用 `:read-only + on-request + user`。运行中的 turn 或待审批请求存在时禁止切换。
 - Codex collaboration mode 与权限模式必须保持分离。Plan 只能使用 `collaborationMode/list` 返回的内置预设、当前模型、`medium` 推理强度和显式空 `developer_instructions`；渲染器不得提交自定义开发者指令、未知模式或非法强度。Plan 依赖指令禁止实施，并不提供强制只读安全边界；不得因此绕过现有 permission profile、审批或审计。
+- 上下文压缩不得成为通用 App Server 参数透传入口。Rust 只允许 `thread/compact/start` 的精确 `threadId`，拒绝缺失、空值、控制字符、超长值、未知字段和自定义压缩指令。上下文用量只作为当前面板的临时协议状态，不得写入日志、工作区、local storage 或 Madora 会话镜像；自动压缩必须继续由 Codex Core 原生阈值控制，前端不得按百分比重复触发。
+- Goal 不得成为扩大权限或无限前端重试的入口。Rust 只允许用户设置非空、最多 4,000 字符且不含非法控制字符的 objective，并只允许 `active | paused` 生命周期写入；模型终态、token budget、自定义 continuation prompt 和未知字段一律拒绝。Goal 的续跑、预算、空转保护和运行中 objective steering 由 Codex Core 负责，Madora 不得建立定时轮询、后台重发或第二份持久化状态。目标文本仍属于会话用户内容，会遵循 Codex Home 的线程持久化规则，不得写入共享日志。
 - 自定义 permission profile 只能来自 App Server `permissionProfile/list`，并遵循其 `allowed` 标记与 `configRequirements/read` 的企业要求；Madora 不得开放通用 `config/read`、配置写入或实验功能写入。渲染器直接提交的 `localImage` 路径必须在工作区内；工作区外图片只允许由 Rust 从有效原生附件授权注入。Codex 原生 `mention` 只允许非空的 `app://` 或 `plugin://` 目标。
 - Codex 文件与文件夹附件必须由 Tauri 原生选择器创建不可猜测、最多 15 分钟有效的授权，渲染器只可取得 ID、显示名称、类型与图片标记。Rust 在每次 `turn/start` 重新 canonicalize 并校验真实类型、去重且限制最多 20 个；未知、过期、伪造或已变化的授权必须失败关闭。发送完成、移除附件、切换线程或工作区时应幂等释放授权。
 - 原生附件授权不等于扩大 Codex 文件系统权限。非图片附件只把所选路径作为不可信用户上下文交给 App Server，工作区外读取仍必须服从当前 permission profile 和审批；不得为附件修改 Tauri capability、资源协议 scope 或 runtime workspace roots。
@@ -43,6 +45,7 @@ referenced_by: AGENTS.md#knowledge-map
 ## Uploads And Links
 
 - 上传资源必须保留在工作区资源目录内，Markdown 新写入只存储 `madora-asset://{assetId}`，不得把绝对路径、Windows 盘符或文档层级相关路径作为资产身份。协议解析必须经当前工作区资产索引，并继续对物理路径执行 canonicalize 与资源目录边界校验；只有校验成功的单个物理文件可以动态加入当前进程的资源协议范围，不得授权整个工作区、磁盘或卷。旧 `.madora/assets/files/...` 引用只读兼容。
+- 图稿引用的剪贴板兼容只允许 64 位十六进制 `madora-asset://{assetId}` 和合法 UUID `madora-drawing://{drawingId}` 的精确组合；这只是编辑器图片粘贴解析规则，不得扩大浏览器导航协议、Tauri capability 或 `assetProtocol.scope`。
 - 链接卡片只能使用既有的受限预览 route 或 Tauri 命令；不得在渲染器直接请求任意 URL。
 
 ## Inbox Storage
@@ -51,6 +54,16 @@ referenced_by: AGENTS.md#knowledge-map
 - Promote 的目标目录必须是工作区内已存在的普通目录，禁止隐藏目录和 `Daily`；Append 只能通过受校验的日期映射到现有 `Daily/YYYY/MM/YYYY-MM-DD.md` 规则。
 - Capture 更新、删除和流转必须做 `modifiedAt` 乐观并发校验。硬删除不得级联 Note 或 Daily；组合操作失败不得留下重复 Daily 块或无留痕的新笔记。
 - 资产清理的引用扫描只额外包含 `.madora/inbox/*.md`，不得借此扫描 `.madora` 其他私有内容或扩大 Tauri capability、asset protocol scope 和通用文件权限。
+
+## Drawing Storage
+
+- 渲染器只能提交已选择工作区根、UUID Drawing ID、受校验的相对图集路径以及 opaque grant/session ID；不得提交 bundle、导入源或导出目标的任意绝对路径。
+- Rust 必须拒绝绝对路径、父目录段、隐藏图集、UUID 图集名、超过 8 层的图集、符号链接路径和 canonicalize 后逃出 `.madora/drawings` 的访问。扫描到单个损坏 bundle 时返回独立 issue，不得阻塞其他图稿。
+- 场景、预览和组件库分别限制为 100 MiB、2 MiB 和 20 MiB，并经 Raw IPC 传输；场景必须是受支持的 Excalidraw JSON 结构，预览优先使用 WebP，并只允许有 WebP 或 PNG 签名的 macOS WebView 兼容回退，组件库必须是 Excalidraw library JSON。
+- 保存使用 `expectedRevision` 乐观并发和 SHA-256 双重检查。begin 与 commit 都必须重新检查磁盘 revision/scene hash；普通保存不得覆盖外部修改，显式覆盖也只能覆盖 begin 之后未再次变化的磁盘版本。失败时必须保持 dirty 并清理 staging；提交中断必须恢复原文件。
+- 成功提交只保留一份上一有效场景和元数据备份。预览生成或暂存失败不得阻塞场景保存；恢复或回收站路径冲突必须生成唯一目标，不得覆盖现有 bundle。
+- 导入/export grant 必须限时、不可猜测并在使用时重新校验源文件或目录；导出始终使用 `create_new` 语义。Madora 不改写用户 `.gitignore`，也不扩大 Tauri capability、文件系统插件权限或 `assetProtocol.scope`。
+- Excalidraw 远程 iframe/embeddable 必须禁用。画布 HTTP(S) 外链只经现有 Tauri opener 打开；缩略图只能由受限 Raw IPC 读取为可撤销 Blob URL，不得把 `.madora/drawings` 加入资源协议范围。
 
 ## Document Export
 

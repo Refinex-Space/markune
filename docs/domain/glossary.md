@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-18
+updated: 2026-07-19
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -20,6 +20,12 @@ referenced_by: AGENTS.md#knowledge-map
 - Prepared import document: the normalized Markdown, title, asset manifest, warnings and PDF/OCR metadata produced before a document import commit.
 - Import commit session: a per-document staging transaction that validates and de-duplicates assets, replaces `madora-import://asset/{token}` placeholders with `madora-asset://{hash}`, and writes one uniquely named Markdown document.
 - Global search: client-side full-text Markdown search over workspace documents.
+- Drawing: an Excalidraw scene with a stable UUID identity, stored outside the Markdown document tree and indexed as a separate global-search result type.
+- Drawing album: a nested physical directory under `.madora/drawings/albums` used to organize drawings; it is derived from location rather than stored in `meta.json`.
+- Drawing bundle: one drawing directory containing the authoritative `scene.excalidraw`, schema-v1 metadata, one valid backup pair and an optional WebP preview.
+- Drawing save session: an opaque Rust-side staging transaction that receives scene and preview bytes through Raw IPC, validates revision and SHA-256, then atomically commits a new bundle revision.
+- Drawing snapshot: a content-addressed static WebP workspace asset used by Markdown references; later edits to the source drawing do not mutate the snapshot.
+- Drawing back-link: a stable `madora-drawing://{drawing-id}` link that opens the source drawing without depending on its title or album path.
 - Inbox: the workspace capture and triage center for Markdown fragments that are not yet formal notes, Daily entries, or tasks. Inbox search is separate from global document search.
 - Capture: one lightweight Markdown fragment stored under `.madora/inbox`, identified by its file name and carrying triage metadata in camelCase frontmatter.
 - Triage: deciding whether a Capture should remain open, be processed, be promoted to a Note, be appended to Daily, be completed, archived, or deleted. Legacy snoozed Captures remain recoverable as open items.

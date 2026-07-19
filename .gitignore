@@ -20,6 +20,7 @@
 /.next-dev/
 /out/
 /public/import-runtime/
+/public/excalidraw-runtime/
 /.tauri-build/
 
 # production

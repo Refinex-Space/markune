@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-18
+updated: 2026-07-19
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -61,6 +61,30 @@ pnpm lint
 cargo check --manifest-path src-tauri/Cargo.toml
 pnpm build:desktop:web
 ```
+
+## Drawing Acceptance
+
+画板相关改动先执行聚焦检查：
+
+```bash
+pnpm exec vitest run components/workspace/__tests__/drawing-integration.test.ts components/workspace/__tests__/workspace-global-search.test.ts components/workspace/__tests__/inbox-shell.test.ts components/editor/__tests__/markdown-editor.test.tsx
+pnpm exec tsc --noEmit
+pnpm lint
+cargo test --manifest-path src-tauri/Cargo.toml drawings::tests
+pnpm build:desktop:web
+```
+
+构建后确认 `public/excalidraw-runtime/index.css` 与 `fonts/` 已生成，普通 `out/index.html` 没有预加载包含 Excalidraw 实现的动态 JS chunk，也没有静态引用 Excalidraw CSS。随后在真实桌面运行时验收：
+
+- 入口位于 Inbox 下方且不创建 Markdown 标签；切换图集、编辑器、AI 和终端面板不会重置其他面板状态。
+- 创建图稿后绘制中文文本、箭头、自由线、图片与框架；重启后场景、组件库、图集位置、最近列表和视口都能恢复。
+- 连续编辑显示未保存/保存中/已保存；`Cmd/Ctrl+S` 强制提交。外部修改 scene 或 meta 后自动保存进入冲突，只有“加载磁盘版本”或“用当前版本覆盖”能继续。
+- 导入 `.excalidraw` 与 `.excalidrawlib`，导出 JSON/PNG/SVG；导出同名时不得覆盖已有文件。回收站恢复遇到路径冲突时创建唯一名称。
+- 破坏单个 scene 或 meta 后，其余图稿仍能展示；元数据可读且存在 backup 时可进入恢复页加载上一有效场景。损坏预览只降级为占位图，不能阻塞保存。
+- 复制 Markdown 引用后，纯文本必须是 `[![标题](madora-asset://<snapshot-id>)](madora-drawing://<drawing-id>)`，不得包含 `asset://localhost` 或绝对路径；分别用富文本和纯文本剪贴板粘贴到 Live 模式，预览都应显示且点击能打开原图稿。旧版产生的精确 `\[!\[...\]\(...\)\]\(...\)` 转义形式打开后应自动恢复显示，并在下一次编辑保存时规范化。移动/重命名不影响回链，永久删除原图稿后文档快照仍可显示。
+- 验证 500 幅图稿的图集滚动只按可见区域读取预览，并用包含多张图片的大场景检查 100 MiB 场景边界、保存等待和内存占用。
+
+macOS WKWebView 与 Windows WebView2 都必须分别进行真实桌面验收；当前平台通过不能替代另一平台。损坏恢复时优先复制整个 `.madora/drawings` 作为工作区级备份，再通过 UI 加载 bundle 内的单份有效备份；不要手工编辑 revision 或 SHA 字段。
 
 真实桌面验收使用一组 Markdown、HTML、DOCX、原生文本 PDF、扫描中文 PDF、扫描英文 PDF、加密 PDF 和损坏文件，覆盖相对图片、Windows 反斜杠、Unicode 文件名、data URI、远程 URL、重复图片与另一 Madora 工作区的资产。确认批量任务可部分成功、取消保留已提交文件、错误报告可查看、目录刷新并展开到首个成功文档；重启后图片仍可显示。
 
@@ -123,7 +147,7 @@ test ! -d .madora/ai-sessions
 
 首次启动桌面端并打开工作区后，不先打开 AI 面板，确认 App Server 已在后台启动；随后首次展开 AI 面板时应直接显示正常的新任务界面，不出现占满会话区的“正在连接 Codex”。在核心握手尚未完成时，输入区仍可编辑，点击发送后应显示轻量准备状态，核心成功后自动继续发送；启动失败时必须保留输入内容并显示可诊断错误。
 
-分别模拟慢速或失败的 `model/list`、`thread/list`、`plugin/installed` 与 `skills/list`，确认：核心就绪后可以使用 App Server 默认模型发送，历史页显示独立加载、重试或空状态，启动过程不会预取 `mcpServerStatus/list`，但会按当前工作区自动加载已安装插件和 enabled Skill。展开加号菜单应显示“文件和文件夹”、不可操作的“目标/计划模式”占位和已加载插件；插件仍在加载时显示轻量状态，失败时才提供重试且不阻塞输入。菜单必须完整位于输入框上方并与输入框保持间距。输入空白边界上的 `/` 应打开独立“技能”面板，显示统一立方体图标、名称、描述与来源，加载或失败状态只留在该面板。折叠 AI 面板、切换到元信息面板再返回时，正在运行的 turn、草稿与线程状态必须保留；切换工作区根目录时才允许重建对应的 Codex 运行时边界。
+分别模拟慢速或失败的 `model/list`、`thread/list`、`plugin/installed` 与 `skills/list`，确认：核心就绪后可以使用 App Server 默认模型发送，历史页显示独立加载、重试或空状态，启动过程不会预取 `mcpServerStatus/list`，但会按当前工作区自动加载已安装插件和 enabled Skill。展开加号菜单应显示“文件和文件夹”、可用时的“目标”、计划模式和已加载插件；插件仍在加载时显示轻量状态，失败时才提供重试且不阻塞输入。菜单必须完整位于输入框上方并与输入框保持间距。输入空白边界上的 `/` 应打开命令与 Skill 面板，目标和压缩命令位于“技能”分组上方，Skill 显示统一立方体图标、名称、描述与来源。选择目标后输入框显示目标提示，首次发送应依次出现 `turn/start` 与 `thread/goal/set`；状态条必须可编辑、暂停、恢复和清除，重开任务通过 `thread/goal/get` 恢复，续跑只由 Codex Core 驱动。折叠 AI 面板、切换到元信息面板再返回时，正在运行的 turn、Goal、草稿与线程状态必须保留；切换工作区根目录时才允许重建对应的 Codex 运行时边界。
 
 使用真实安装的 Documents、PDF、Spreadsheets、Presentations 等插件检查加号菜单：本地 `composerIcon` 优先，其次使用当前明暗主题 logo，远程资源只允许 HTTPS；图标保持 `16 × 16`、完整缩放且不挤压名称和描述。切换浅色/深色主题后应使用相应资源。临时移除一个图标文件、提供错误格式或让远程图片加载失败时，只有该项降级为通用插件图标，其他插件仍可见且可插入 `plugin://{id}` mention。重新检测插件、切换工作区或重启 App Server 后，旧本地图标路径必须不可再读取。
 
@@ -176,5 +200,7 @@ pnpm desktop:build -- --bundles dmg --no-sign
 ## Rollback
 
 For source changes, prefer `git diff` inspection followed by targeted `git restore <path>` only for files intentionally changed in the current task. Do not revert unrelated user work.
+
+回滚画板功能时，定向恢复本次前端、Rust、脚本、依赖与文档文件，并删除由 staging 生成且已被 Git 忽略的 `public/excalidraw-runtime`。不要删除用户工作区的 `.madora/drawings`；旧图稿 bundle 是可直接交给 Excalidraw 的用户数据，应保留到确认无需恢复后再另行处理。
 
 旧 `.madora/ai-sessions` 若尚未提交删除，可在对应知识库仓库中定向 `git restore`。提交删除后旧内容仍存在于 Git 历史；彻底清除需要单独批准历史重写，不能作为常规回滚或清理步骤执行。

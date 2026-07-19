@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -10,17 +10,24 @@ import {
   AiPanelHeader,
   ChangeSummaryCard,
   ConversationEntryRow,
+  GoalStatusBar,
   PlanImplementationCard,
   ProcessingTrace,
   ProposedPlanCard,
+  TaskProgressIndicator,
   UserInputDecisionCard,
   UserMessageContent,
 } from '../ai-panel';
 import {
   createOutputPreview,
   type AiChangeSummaryBlock,
+  type AiTaskProgress,
   type AiTraceBlock,
 } from '../ai-panel-state';
+import type {
+  CodexThreadGoal,
+  CodexThreadTokenUsage,
+} from '../codex-app-server';
 
 const mentionedDocument = {
   absolutePath: '/workspace/README.md',
@@ -46,6 +53,15 @@ const roadmapDocument = {
   title: 'Roadmap',
 };
 
+const currentWorkspaceDocument = {
+  absolutePath: '/workspace/Test.md',
+  id: 'Test.md',
+  kind: 'document' as const,
+  name: 'Test.md',
+  relativePath: 'Test.md',
+  title: 'Spring Boot 介绍',
+};
+
 function change(
   path: string,
   absolutePath: string | null,
@@ -65,6 +81,66 @@ function change(
 }
 
 describe('AI message rendering', () => {
+  it('任务进度支持 Hover 预览、点击固定和 Escape 关闭', async () => {
+    const user = userEvent.setup();
+    const progress: AiTaskProgress = {
+      additions: 12,
+      completedSteps: 1,
+      currentStepNumber: 2,
+      deletions: 3,
+      explanation: null,
+      fileCount: 2,
+      steps: [
+        { step: '核对协议事件', status: 'completed' },
+        { step: '实现状态选择器', status: 'inProgress' },
+        { step: '补充交互测试', status: 'pending' },
+      ],
+      totalSteps: 3,
+      turnId: 'turn-task',
+    };
+
+    render(<TaskProgressIndicator progress={progress} />);
+
+    const trigger = screen.getByRole('button', {
+      name: '第 2 / 3 步，2 个文件已更改，新增 12 行，删除 3 行',
+    });
+    expect(screen.getByTestId('task-progress').className).toContain('pb-1');
+    expect(trigger.className).toContain('h-8');
+    expect(trigger.className).toContain('gap-1.5');
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+
+    fireEvent.pointerEnter(trigger);
+    const preview = await screen.findByRole('region', { name: '任务列表' });
+    expect(preview.className).toContain('p-1.5');
+    expect(preview.className).toContain('w-[min(400px,calc(100vw-2rem))]');
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    expect(within(preview).getByRole('list', { name: '任务步骤' })).toBeTruthy();
+    expect(within(preview).getByText('核对协议事件').className).toContain(
+      'line-through',
+    );
+    expect(
+      within(preview).getByText('实现状态选择器').closest('[aria-current="step"]'),
+    ).toBeTruthy();
+    expect(
+      within(preview).getByText('实现状态选择器').closest('li')?.className,
+    ).toContain('min-h-8');
+
+    fireEvent.pointerLeave(trigger);
+    await waitFor(() => {
+      expect(screen.queryByRole('region', { name: '任务列表' })).toBeNull();
+    });
+
+    await user.click(trigger);
+    expect(await screen.findByRole('region', { name: '任务列表' })).toBeTruthy();
+    fireEvent.pointerLeave(trigger);
+    expect(screen.getByRole('region', { name: '任务列表' })).toBeTruthy();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(screen.queryByRole('region', { name: '任务列表' })).toBeNull();
+    });
+  });
+
   it('正式计划展示渐隐摘要，并支持复制与打开完整预览', async () => {
     const user = userEvent.setup();
     const onOpen = vi.fn();
@@ -284,7 +360,9 @@ describe('AI message rendering', () => {
     expect(onStay).toHaveBeenCalledTimes(1);
   });
 
-  it('用户消息按内容宽度收缩并保留长消息最大宽度', () => {
+  it('用户消息按内容宽度收缩，并可把既有消息设为目标', async () => {
+    const user = userEvent.setup();
+    const onSetGoal = vi.fn();
     render(
       <ConversationEntryRow
         entry={{
@@ -295,18 +373,23 @@ describe('AI message rendering', () => {
         }}
         previous={null}
         onOpenDocument={vi.fn()}
+        onSetGoal={onSetGoal}
       />,
     );
 
     const content = screen.getByText('你好啊');
     const row = content.closest('article');
     const bubble = content.closest('div.w-max');
+    const wrapper = bubble?.parentElement;
 
     expect(row?.className).toContain('flex');
     expect(row?.className).toContain('justify-end');
     expect(bubble?.className).toContain('w-max');
-    expect(bubble?.className).toContain('max-w-[88%]');
+    expect(bubble?.className).toContain('max-w-full');
+    expect(wrapper?.className).toContain('max-w-[88%]');
     expect(bubble?.className).toContain('break-words');
+    await user.click(screen.getByRole('button', { name: '设为目标' }));
+    expect(onSetGoal).toHaveBeenCalledWith('你好啊');
   });
 
   it('把 GFM 列表、行内代码和链接渲染为语义化内容', () => {
@@ -390,8 +473,107 @@ describe('AI message rendering', () => {
     expect(screen.queryByText('联网搜索已启用')).toBeNull();
     expect(screen.queryByText(/MCP Server/)).toBeNull();
     expect(screen.queryByText('提及工作区文档')).toBeNull();
-    expect(screen.getByText('目标').closest('[role="menuitem"]')?.getAttribute('aria-disabled')).toBe('true');
+    expect(screen.getByText('目标').closest('[role="menuitem"]')?.getAttribute('aria-disabled')).toBeNull();
     expect(screen.getByText('计划模式').closest('[role="menuitem"]')?.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('目标模式可从加号与斜杠命令进入，并切换目标输入提示', async () => {
+    const user = userEvent.setup();
+    const onGoalModeChange = vi.fn();
+    const { rerender } = render(
+      <ComposerHarness
+        onGoalModeChange={onGoalModeChange}
+        onOpenMention={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '添加上下文与工具' }));
+    await user.click(screen.getByText('目标'));
+    expect(onGoalModeChange).toHaveBeenCalledWith(true);
+
+    rerender(
+      <ComposerHarness
+        goalDraftMode
+        onGoalModeChange={onGoalModeChange}
+        onOpenMention={vi.fn()}
+      />,
+    );
+    expect(
+      screen
+        .getByRole('textbox', { name: '向 Codex 提问' })
+        .getAttribute('data-placeholder'),
+    ).toBe('描述你的目标，定义可衡量的成果，以获得最佳效果');
+    expect(screen.getByRole('button', { name: '退出目标模式' })).toBeTruthy();
+
+    rerender(
+      <ComposerHarness
+        onGoalModeChange={onGoalModeChange}
+        onOpenMention={vi.fn()}
+      />,
+    );
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '/');
+    await user.click(
+      within(
+        screen.getByRole('listbox', { name: '选择命令或 Skill' }),
+      ).getByRole('option', { name: '目标' }),
+    );
+    expect(onGoalModeChange).toHaveBeenLastCalledWith(true);
+    expect(editor.textContent).toBe('');
+  });
+
+  it('目标状态条支持暂停、编辑、恢复和清除', async () => {
+    const user = userEvent.setup();
+    const onClear = vi.fn();
+    const onSave = vi.fn().mockResolvedValue(true);
+    const onStatusChange = vi.fn();
+    const goal: CodexThreadGoal = {
+      createdAt: 100,
+      objective: '持续优化当前项目直到测试全部通过',
+      status: 'active',
+      threadId: 'thread-1',
+      timeUsedSeconds: 6,
+      tokenBudget: null,
+      tokensUsed: 120,
+      updatedAt: 100,
+    };
+    const { rerender } = render(
+      <GoalStatusBar
+        goal={goal}
+        observedAt={Date.now()}
+        updating={false}
+        onClear={onClear}
+        onSave={onSave}
+        onStatusChange={onStatusChange}
+      />,
+    );
+
+    expect(screen.getByText('进行中的目标')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '暂停目标' }));
+    expect(onStatusChange).toHaveBeenCalledWith('paused');
+
+    await user.click(screen.getByRole('button', { name: '编辑目标' }));
+    const editor = screen.getByRole('textbox', { name: '目标内容' });
+    await user.clear(editor);
+    await user.type(editor, '更新后的目标');
+    await user.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith('更新后的目标'));
+
+    rerender(
+      <GoalStatusBar
+        goal={{ ...goal, status: 'paused' }}
+        observedAt={Date.now()}
+        updating={false}
+        onClear={onClear}
+        onSave={onSave}
+        onStatusChange={onStatusChange}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: '恢复目标' }));
+    expect(onStatusChange).toHaveBeenCalledWith('active');
+    await user.click(screen.getByRole('button', { name: '清除目标' }));
+    expect(onClear).toHaveBeenCalledOnce();
   });
 
   it('计划模式可用时允许切换并在输入框底栏显示状态', async () => {
@@ -514,7 +696,7 @@ describe('AI message rendering', () => {
     await user.click(editor);
     await user.type(editor, '/Design');
 
-    const listbox = screen.getByRole('listbox', { name: '选择 Skill' });
+    const listbox = screen.getByRole('listbox', { name: '选择命令或 Skill' });
     expect(
       within(listbox).getByRole('option', { name: /Design QA/ }),
     ).toBeTruthy();
@@ -529,8 +711,184 @@ describe('AI message rendering', () => {
     expect(mention.querySelector('img')?.getAttribute('src')).toBe(
       '/icons/mentions/box.svg',
     );
-    expect(screen.queryByRole('listbox', { name: '选择 Skill' })).toBeNull();
+    expect(
+      screen.queryByRole('listbox', { name: '选择命令或 Skill' }),
+    ).toBeNull();
     expect(screen.getByTestId('selected-mention-count').textContent).toBe('1');
+  });
+
+  it('展示当前上下文窗口，并从 / 菜单手动触发压缩', async () => {
+    const user = userEvent.setup();
+    const onCompact = vi.fn();
+    const contextUsage: CodexThreadTokenUsage = {
+      last: {
+        cachedInputTokens: 40_000,
+        inputTokens: 140_000,
+        outputTokens: 9_000,
+        reasoningOutputTokens: 2_000,
+        totalTokens: 151_000,
+      },
+      modelContextWindow: 258_000,
+      total: {
+        cachedInputTokens: 90_000,
+        inputTokens: 180_000,
+        outputTokens: 12_000,
+        reasoningOutputTokens: 2_000,
+        totalTokens: 300_000,
+      },
+    };
+
+    const { rerender } = render(
+      <ComposerHarness
+        contextUsage={contextUsage}
+        onCompact={onCompact}
+        onOpenMention={vi.fn()}
+      />,
+    );
+
+    const usageTrigger = screen.getByRole('button', {
+      name: '背景信息窗口：58% 已用',
+    });
+    const initialArcStyle = within(usageTrigger)
+      .getByTestId('context-usage-progress-arc')
+      .getAttribute('style');
+    expect(
+      within(usageTrigger)
+        .getByTestId('context-usage-progress')
+        .getAttribute('data-context-percent'),
+    ).toBe('58');
+    await user.hover(usageTrigger);
+    const usage = await screen.findByRole('status', { name: '上下文用量' });
+    expect(usage.closest('[data-slot="hover-card-content"]')?.className).toContain(
+      'min-w-[190px]',
+    );
+    expect(within(usage).getByText('背景信息窗口：')).toBeTruthy();
+    expect(within(usage).getByText('58% 已用（剩余 42%）')).toBeTruthy();
+    expect(within(usage).getByText('已用 151k 标记，共 258k')).toBeTruthy();
+
+    const updatedUsage: CodexThreadTokenUsage = {
+      ...contextUsage,
+      last: { ...contextUsage.last, totalTokens: 200_000 },
+    };
+    rerender(
+      <ComposerHarness
+        contextUsage={updatedUsage}
+        onCompact={onCompact}
+        onOpenMention={vi.fn()}
+      />,
+    );
+    expect(
+      screen
+        .getByTestId('context-usage-progress')
+        .getAttribute('data-context-percent'),
+    ).toBe('77');
+    expect(
+      screen.getByTestId('context-usage-progress-arc').getAttribute('style'),
+    ).not.toBe(initialArcStyle);
+
+    rerender(
+      <ComposerHarness
+        contextUsage={{
+          ...updatedUsage,
+          last: { ...updatedUsage.last, totalTokens: 300_000 },
+        }}
+        onCompact={onCompact}
+        onOpenMention={vi.fn()}
+      />,
+    );
+    expect(
+      screen
+        .getByTestId('context-usage-progress')
+        .getAttribute('data-context-percent'),
+    ).toBe('100');
+    expect(
+      screen.getByRole('button', { name: '背景信息窗口：100% 已用' }),
+    ).toBeTruthy();
+
+    rerender(
+      <ComposerHarness
+        compacting
+        contextUsage={updatedUsage}
+        onCompact={onCompact}
+        onOpenMention={vi.fn()}
+      />,
+    );
+    const compactingTrigger = screen.getByRole('button', {
+      name: '背景信息窗口：正在压缩',
+    });
+    expect(
+      within(compactingTrigger)
+        .getByTestId('context-usage-progress')
+        .querySelector('.animate-spin'),
+    ).toBeTruthy();
+    expect(
+      within(compactingTrigger).queryByTestId('context-usage-progress-arc'),
+    ).toBeNull();
+
+    rerender(
+      <ComposerHarness
+        contextUsage={updatedUsage}
+        onCompact={onCompact}
+        onOpenMention={vi.fn()}
+      />,
+    );
+
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '/');
+    const listbox = screen.getByRole('listbox', { name: '选择命令或 Skill' });
+    const compact = within(listbox).getByRole('option', { name: /压缩/ });
+    expect(within(compact).getByText('压缩此任务的上下文（已占用 77%）')).toBeTruthy();
+    await user.click(compact);
+
+    expect(onCompact).toHaveBeenCalledOnce();
+    expect(editor.textContent).toBe('');
+    expect(
+      screen.queryByRole('listbox', { name: '选择命令或 Skill' }),
+    ).toBeNull();
+  });
+
+  it('首条消息前展示空进度环并解释用量尚未产生', async () => {
+    const user = userEvent.setup();
+    render(<ComposerHarness onOpenMention={vi.fn()} />);
+
+    const usageTrigger = screen.getByRole('button', {
+      name: '背景信息窗口：发送首条消息后显示',
+    });
+    expect(
+      within(usageTrigger)
+        .getByTestId('context-usage-progress')
+        .getAttribute('data-context-percent'),
+    ).toBe('0');
+
+    await user.hover(usageTrigger);
+    expect(
+      await screen.findByText('发送首条消息后显示'),
+    ).toBeTruthy();
+  });
+
+  it('任务运行中禁用 / 压缩命令并解释原因', async () => {
+    const user = userEvent.setup();
+    const onCompact = vi.fn();
+    render(
+      <ComposerHarness
+        active
+        compactUnavailableReason="当前任务运行中"
+        onCompact={onCompact}
+        onOpenMention={vi.fn()}
+      />,
+    );
+
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '/');
+    const compact = within(
+      screen.getByRole('listbox', { name: '选择命令或 Skill' }),
+    ).getByRole('option', { name: /压缩/ });
+    expect(compact.getAttribute('aria-disabled')).toBe('true');
+    expect(within(compact).getByText('当前任务运行中')).toBeTruthy();
+    await user.click(compact);
+    expect(onCompact).not.toHaveBeenCalled();
   });
 
   it('插件自动加载失败时才提供重试入口', async () => {
@@ -612,6 +970,27 @@ describe('AI message rendering', () => {
     expect(
       screen.getByRole('option', { name: /README/ }).getAttribute('aria-selected'),
     ).toBe('true');
+  });
+
+  it('在提及候选中标记当前文档并保留实际路径', async () => {
+    const user = userEvent.setup();
+    render(
+      <ComposerHarness
+        currentDocument={currentWorkspaceDocument}
+        mentionDocuments={[currentWorkspaceDocument]}
+        onOpenMention={vi.fn()}
+      />,
+    );
+
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '@SpringB');
+
+    const option = screen.getByRole('option', {
+      name: '提及 Spring Boot 介绍，当前文档',
+    });
+    expect(within(option).getByText('当前文档')).toBeTruthy();
+    expect(within(option).getByText('Test.md')).toBeTruthy();
   });
 
   it('支持上下键循环选择、选中项自适应滚动和回车插入', async () => {
@@ -1372,13 +1751,23 @@ function createTrace({
 }
 
 function ComposerHarness({
+  active = false,
   attachments = [],
+  compacting = false,
+  compactUnavailableReason = null,
   collaborationMode = 'default',
+  contextUsage = null,
+  currentDocument = null,
+  goalActive = false,
+  goalDraftMode = false,
+  goalUnavailableReason = null,
   mentionDocuments = [mentionedDocument],
   onAttachmentRemove = vi.fn(),
   onAttachmentSelect = vi.fn(),
   onDetectPlugins = vi.fn(),
   onCollaborationModeChange = vi.fn(),
+  onCompact = vi.fn(),
+  onGoalModeChange = vi.fn(),
   onOpenMention,
   onSend = vi.fn(),
   pluginOptions = [],
@@ -1387,18 +1776,28 @@ function ComposerHarness({
   skillOptions = [],
   skillStatus = 'idle',
 }: {
+  active?: boolean;
   attachments?: Array<{
     attachmentId: string;
     isImage: boolean;
     kind: 'file' | 'folder';
     name: string;
   }>;
+  compacting?: boolean;
+  compactUnavailableReason?: string | null;
   collaborationMode?: 'default' | 'plan';
+  contextUsage?: CodexThreadTokenUsage | null;
+  currentDocument?: typeof currentWorkspaceDocument | null;
+  goalActive?: boolean;
+  goalDraftMode?: boolean;
+  goalUnavailableReason?: string | null;
   mentionDocuments?: Array<typeof mentionedDocument>;
   onAttachmentRemove?: (attachmentId: string) => void;
   onAttachmentSelect?: (kind: 'file' | 'folder') => void;
   onDetectPlugins?: () => void;
   onCollaborationModeChange?: (mode: 'default' | 'plan') => void;
+  onCompact?: () => void;
+  onGoalModeChange?: (enabled: boolean) => void;
   onOpenMention: (path: string) => void;
   onSend?: () => void;
   pluginOptions?: Array<{
@@ -1427,13 +1826,19 @@ function ComposerHarness({
   return (
     <>
       <AiComposer
-        active={false}
+        active={active}
         approvalPolicyAvailability={{ never: true, onRequest: true }}
         attachments={attachments}
         autoReviewAvailable
         collaborationMode={collaborationMode}
-        currentDocument={null}
+        compacting={compacting}
+        compactUnavailableReason={compactUnavailableReason}
+        contextUsage={contextUsage}
+        currentDocument={currentDocument}
         effort="medium"
+        goalActive={goalActive}
+        goalDraftMode={goalDraftMode}
+        goalUnavailableReason={goalUnavailableReason}
         mentionDocuments={mentionDocuments}
         mentionQuery={mentionQuery}
         models={[]}
@@ -1454,7 +1859,9 @@ function ComposerHarness({
         onAttachmentSelect={onAttachmentSelect}
         onDetectPlugins={onDetectPlugins}
         onCollaborationModeChange={onCollaborationModeChange}
+        onCompact={onCompact}
         onEffortChange={vi.fn()}
+        onGoalModeChange={onGoalModeChange}
         onInterrupt={vi.fn()}
         onMentionQueryChange={setMentionQuery}
         onMentionsChange={(mentions) => setMentionCount(mentions.length)}

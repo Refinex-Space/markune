@@ -25,8 +25,9 @@ referenced_by: AGENTS.md#knowledge-map
 
 - Codex 协议封装位于 `components/workspace/codex-app-server.ts` 与 `src-tauri/src/codex.rs`；不得从 React 组件直接启动进程或写入 stdio。
 - Windows 上的 Codex 版本探测与 App Server sidecar 必须复用无窗口命令构造入口，设置 `CREATE_NO_WINDOW`；不得让控制台子系统的 `codex.exe` 拉起独立终端窗口。
-- 客户端请求必须由 Rust allowlist 限制。当前允许账户、模型、线程、turn、MCP inventory/OAuth、skills、按工作区受控的 `plugin/installed`，以及只读的 `collaborationMode/list`、`permissionProfile/list`、`configRequirements/read`、`experimentalFeature/list` 和受控的 `thread/settings/update`；禁止向渲染器暴露通用 App Server `fs/*`、`command/exec`、`thread/shellCommand`、`config/read` 或配置写入方法。
+- 客户端请求必须由 Rust allowlist 限制。当前允许账户、模型、线程、turn、MCP inventory/OAuth、skills、按工作区受控的 `plugin/installed`，以及只读的 `collaborationMode/list`、`permissionProfile/list`、`configRequirements/read`、`experimentalFeature/list`、受控的 `thread/settings/update` 和 `thread/compact/start`；禁止向渲染器暴露通用 App Server `fs/*`、`command/exec`、`thread/shellCommand`、`config/read` 或配置写入方法。`thread/compact/start` 参数必须是仅含非空、无控制字符 `threadId` 的对象，不得接受额外配置或客户端压缩提示词。
 - App Server 的响应、通知与 server request 使用统一 `codex:event` 事件。前端必须按 JSON-RPC `id` 关联请求，并在运行时退出时拒绝所有 pending 请求。
+- `thread/tokenUsage/updated` 必须保留 `total`、`last` 与 `modelContextWindow` 的协议区别；当前上下文占比只使用 `last.totalTokens`。手动或自动压缩状态以 `contextCompaction` item 为权威，`thread/compacted` 只作旧协议完成兼容；不得通过累计 token 自行推断或触发压缩。
 - 消息与工具通知必须按首次到达顺序保存在同一会话流中；同一 item 的完成通知只更新原位置，不得把工具记录统一追加到回答末尾。`thread/name/updated` 必须同步当前标题与历史列表。
 - 历史投影只能消费 App Server 返回的 thread items。固定 sidecar `0.144.4` 不得通过直接读取 Codex JSONL、SQLite 或维护第二份 Madora 会话日志来弥补 `thread/read` / `thread/turns/list` 缺失的工具 item；sidecar 升级后应以 `thread/items/list` 或等价官方接口补齐并重新运行契约测试。
 - 前端必须保留 turn 的 `startedAt`、`completedAt`、`durationMs` 和 agent message phase。`commentary` 只进入处理过程，`final_answer` 独立展示；phase 缺失时不得推断或改写旧消息语义。
@@ -49,6 +50,7 @@ referenced_by: AGENTS.md#knowledge-map
 - “当前文档”“本文”“这篇文档”“current document”与“active file”只能解析为当前 turn 的 `madora_active_document`；不得根据日期、最近文件、线程历史或工作区惯例猜测。只有请求依赖正文时才读取活跃文档，普通问候不得强制产生无意义工具调用。
 - 会话历史恢复只能依据 `text_elements` 的精确区间解析受控的带引号相对路径，并用当前工作区根目录恢复可点击绝对路径；绝对路径、空路径和包含父目录段的标记必须被拒绝。旧版 `mention + text_elements` 仅保留读取兼容，不得继续生成。
 - `turn/start.additionalContext` 是随固定 Codex sidecar 使用的实验协议。升级 Codex 时必须重新生成带 `--experimental` 的 App Server Schema，并运行前端与 Rust 契约测试。
+- 线程 Goal 只允许调用 `thread/goal/set`、`thread/goal/get` 与 `thread/goal/clear`。渲染器可提交的 `set` 字段仅为 `threadId`、不超过 4,000 字符的非空 `objective` 和用户生命周期状态 `active | paused`；不得提交 `tokenBudget`、自定义续跑提示或模型拥有的 `blocked | usageLimited | budgetLimited | complete` 状态。`thread/goal/updated` 与 `thread/goal/cleared` 必须按 `threadId` 校验后更新当前 UI，重新打开任务时通过 `thread/goal/get` 恢复。
 - 命令、文件修改与权限升级审批只能响应 App Server 已登记的 server request id。未知 server request 必须由 Rust 返回 `-32601`，格式无效的已知请求返回 `-32602`，不能转发成可操作 UI 或留在 pending 状态。
 - `item/tool/requestUserInput` 只接受 1–3 个问题、每题 2–3 个互斥选项或一个自由输入，并把协议 question/option 映射为 Rust 生成的 opaque ID。前端只能调用独立回答命令提交这些 ID 与可选补充文本；Rust 必须恢复原始 question ID 和 option label，按 `user_note:` 组合补充说明，并拒绝空答案、伪造 ID、缺题、重复回答和重复提交。`autoResolutionMs` 兼容值仍限制为 60–240 秒，但不得创建客户端定时器或发送空 answers；只有用户回答、turn 中断、App Server resolved 或运行时退出可以结束等待。
 
@@ -65,6 +67,17 @@ Inbox bridge 固定由 `workspace-api.ts` 调用以下命令：`list_inbox_captu
 - Capture ID 是文件名身份；命令不得接受任意 Capture 路径。缺失的已知 frontmatter 字段按默认值恢复，未知字段在重写时保留。
 - Promote 只接受普通工作区相对目录，不得写入隐藏目录或 Daily；新笔记唯一命名，复制正文、创建时间和标签，无 H1 时补标题。Append 只接受 `YYYY-MM-DD` 与 `HH:mm`，复用或创建 `## Inbox` 并写入 Capture 幂等标记。
 - Promote/Append 的正式文档写入和 Capture 留痕属于同一组合操作；后半段失败时必须回滚本次新建笔记或 Daily 内容追加。删除只作用于 Capture 文件，不级联删除已生成内容。
+
+## Drawing Commands
+
+画板 bridge 固定集中在 `workspace-api.ts`，并使用 `DrawingMeta`、`DrawingSummary`、`DrawingAlbumNode`、`DrawingLibrarySnapshot`、`DrawingDocumentDescriptor`、`DrawingSaveSession`、`DrawingSaveState` 与 `DrawingUiState` 契约。
+
+- 查询命令为 `load_drawing_library`、`read_drawing_meta`、`read_drawing_scene`、`read_drawing_preview`、`read_drawing_library`、`read_drawing_ui_state`；场景、预览和组件库返回 Raw IPC response，不得转成 JSON 数字数组或 base64。
+- 保存固定使用 `begin_drawing_save`、Raw `stage_drawing_scene`、可选 Raw `stage_drawing_preview`、`commit_drawing_save` 和 `cancel_drawing_save`。begin 只接收 Drawing ID、期望 revision、受限元数据和显式冲突覆盖标记；commit 只接收 opaque session ID。
+- 图稿与图集 create、rename、move、duplicate、trash、restore、permanent-delete 命令只接受 Drawing ID、图集回收站 ID 或受校验相对图集路径。删除图稿先移动整个 bundle 到 `.trash`；删除空图集不得递归，非空图集必须通过整图集回收事务移动到 `.trash/albums/<trash-id>`。复制图集必须为所有图稿生成新 Drawing ID；恢复冲突时生成唯一图集名，不得覆盖现有目录。
+- 导入选择器返回限时 opaque grant/source ID；导出选择器返回一次性目录 grant，Raw 写入不接受绝对目标路径且不得覆盖现有文件。组件库和 Markdown 快照同样采用 begin-session 加 Raw body 的两步协议。
+- `read_drawing_ui_state` / `write_drawing_ui_state` 只维护 schema v1 的最近 Drawing ID 与有限数值视口。该状态不得参与场景 revision、SHA 或 `updatedAt`。
+- `create_drawing_markdown_snapshot` 必须先把 WebP 通过 Raw IPC 写入现有内容寻址资产存储，再返回稳定 `madora-asset://` URL；`madora-drawing://` 只作为前端内部回链，不开放任意协议处理器。
 
 ## Document Export Commands
 
