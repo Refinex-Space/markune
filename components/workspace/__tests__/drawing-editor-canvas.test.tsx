@@ -36,6 +36,50 @@ afterEach(() => {
 });
 
 describe('DrawingEditorCanvas', () => {
+  it('does not expose editor actions before the initial scene is hydrated', () => {
+    let actions: DrawingEditorActions | null = null;
+    render(
+      <DrawingEditorCanvas
+        autoSaveBlocked
+        favorite={false}
+        initialLibrary={null}
+        initialScene='{"type":"excalidraw","version":2,"elements":[]}'
+        tags={[]}
+        theme="light"
+        title="延迟就绪"
+        viewport={null}
+        onDirty={vi.fn()}
+        onLibraryChange={vi.fn().mockResolvedValue(undefined)}
+        onReady={(nextActions) => {
+          actions = nextActions;
+        }}
+        onSave={vi.fn().mockResolvedValue(undefined)}
+        onViewportChange={vi.fn()}
+      />,
+    );
+
+    expect(actions).toBeNull();
+
+    const onChange = excalidrawMock.props?.onChange as (
+      elements: readonly ExcalidrawElement[],
+      appState: AppState,
+      files: BinaryFiles,
+    ) => void;
+    act(() =>
+      onChange(
+        [],
+        {
+          gridSize: null,
+          gridStep: 5,
+          viewBackgroundColor: '#ffffff',
+        } as AppState,
+        {},
+      ),
+    );
+
+    expect(actions).not.toBeNull();
+  });
+
   it('notifies dirty only once for repeated callbacks with the same scene', () => {
     const onDirty = vi.fn();
     render(
@@ -132,6 +176,12 @@ describe('DrawingEditorCanvas', () => {
         getSceneElements: () => elements,
       }),
     );
+    const onChange = excalidrawMock.props?.onChange as (
+      elements: readonly ExcalidrawElement[],
+      appState: AppState,
+      files: BinaryFiles,
+    ) => void;
+    act(() => onChange(elements, appState, {}));
 
     const bytes = await actions!.exportBytes('png');
 
@@ -189,5 +239,65 @@ describe('DrawingEditorCanvas', () => {
     const preview = await actions!.createPreview();
 
     expect(preview).toEqual(pngBytes);
+  });
+
+  it('retries preview generation as PNG when WebP export fails', async () => {
+    let actions: DrawingEditorActions | null = null;
+    const pngBytes = Uint8Array.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ]);
+    excalidrawMock.exportToBlob
+      .mockRejectedValueOnce(new Error('WebP encoding is unavailable'))
+      .mockResolvedValueOnce(
+        new Blob([pngBytes], {
+          type: 'image/png',
+        }),
+      );
+    render(
+      <DrawingEditorCanvas
+        autoSaveBlocked
+        favorite={false}
+        initialLibrary={null}
+        initialScene='{"type":"excalidraw","version":2,"elements":[]}'
+        tags={[]}
+        theme="light"
+        title="PNG 回退"
+        viewport={null}
+        onDirty={vi.fn()}
+        onLibraryChange={vi.fn().mockResolvedValue(undefined)}
+        onReady={(nextActions) => {
+          actions = nextActions;
+        }}
+        onSave={vi.fn().mockResolvedValue(undefined)}
+        onViewportChange={vi.fn()}
+      />,
+    );
+
+    const onChange = excalidrawMock.props?.onChange as (
+      elements: readonly ExcalidrawElement[],
+      appState: AppState,
+      files: BinaryFiles,
+    ) => void;
+    const appState = {
+      gridSize: null,
+      gridStep: 5,
+      viewBackgroundColor: '#ffffff',
+    } as AppState;
+    const elements = [
+      { id: 'shape-1', isDeleted: false, version: 1 },
+    ] as unknown as readonly ExcalidrawElement[];
+
+    act(() => onChange(elements, appState, {}));
+    const preview = await actions!.createPreview();
+
+    expect(preview).toEqual(pngBytes);
+    expect(excalidrawMock.exportToBlob).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ mimeType: 'image/webp' }),
+    );
+    expect(excalidrawMock.exportToBlob).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ mimeType: 'image/png' }),
+    );
   });
 });

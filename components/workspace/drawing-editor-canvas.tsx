@@ -43,6 +43,7 @@ export function DrawingEditorCanvas({
   onSave,
   onViewportChange,
 }: DrawingEditorCanvasProps) {
+  const [sceneReady, setSceneReady] = React.useState(false);
   const apiRef = React.useRef<ExcalidrawImperativeAPI | null>(null);
   const elementsRef = React.useRef<readonly ExcalidrawElement[]>([]);
   const appStateRef = React.useRef<AppState | null>(null);
@@ -126,7 +127,9 @@ export function DrawingEditorCanvas({
       (element) => !element.isDeleted,
     );
     if (!appState || elements.length === 0) return null;
-    try {
+
+    const files = api?.getFiles() ?? filesRef.current;
+    const exportPreview = async (mimeType: 'image/png' | 'image/webp') => {
       const blob = await exportToBlob({
         appState: {
           ...appState,
@@ -136,13 +139,29 @@ export function DrawingEditorCanvas({
         },
         elements,
         exportPadding: 16,
-        files: api?.getFiles() ?? filesRef.current,
+        files,
         maxWidthOrHeight: 640,
-        mimeType: 'image/webp',
-        quality: 0.82,
+        mimeType,
+        ...(mimeType === 'image/webp' ? { quality: 0.82 } : {}),
       });
       const bytes = new Uint8Array(await blob.arrayBuffer());
-      return isWebp(bytes) || isPng(bytes) ? bytes : null;
+
+      if (mimeType === 'image/webp') {
+        return isWebp(bytes) || isPng(bytes) ? bytes : null;
+      }
+
+      return isPng(bytes) ? bytes : null;
+    };
+
+    try {
+      const bytes = await exportPreview('image/webp');
+      if (bytes) return bytes;
+    } catch {
+      // refinex: WebP encoding is not available in every desktop WebView.
+    }
+
+    try {
+      return await exportPreview('image/png');
     } catch {
       return null;
     }
@@ -277,6 +296,8 @@ export function DrawingEditorCanvas({
   );
 
   React.useEffect(() => {
+    if (!sceneReady) return;
+
     const actions: DrawingEditorActions = {
       createPreview,
       exportBytes,
@@ -288,7 +309,7 @@ export function DrawingEditorCanvas({
       if (dirtyRef.current && !blockedRef.current) void flush();
       onReadyRef.current(null);
     };
-  }, [clearTimers, createPreview, exportBytes, flush]);
+  }, [clearTimers, createPreview, exportBytes, flush, sceneReady]);
 
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -332,6 +353,7 @@ export function DrawingEditorCanvas({
             initialSignatureRef.current = signature;
             lastObservedSignatureRef.current = signature;
             lastSavedSignatureRef.current = signature;
+            setSceneReady(true);
             return;
           }
           if (signature === lastObservedSignatureRef.current) return;
