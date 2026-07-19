@@ -368,7 +368,7 @@ export function useDrawingController({
 
   const markDirty = React.useCallback(() => {
     setSaveState((current) =>
-      current.status === 'conflict'
+      current.status === 'conflict' || current.status === 'dirty'
         ? current
         : { revision: current.revision, status: 'dirty' },
     );

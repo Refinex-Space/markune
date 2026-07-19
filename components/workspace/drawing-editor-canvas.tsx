@@ -48,6 +48,7 @@ export function DrawingEditorCanvas({
   const appStateRef = React.useRef<AppState | null>(null);
   const filesRef = React.useRef<BinaryFiles>({});
   const initialSignatureRef = React.useRef<string | null>(null);
+  const lastObservedSignatureRef = React.useRef<string | null>(null);
   const lastSavedSignatureRef = React.useRef<string | null>(null);
   const lastSavedMetadataSignatureRef = React.useRef(
     drawingMetadataSignature({ favorite, tags, title }),
@@ -137,7 +138,8 @@ export function DrawingEditorCanvas({
         mimeType: 'image/webp',
         quality: 0.82,
       });
-      return new Uint8Array(await blob.arrayBuffer());
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      return isWebp(bytes) ? bytes : null;
     } catch {
       return null;
     }
@@ -323,10 +325,19 @@ export function DrawingEditorCanvas({
           const signature = sceneSignature(elements, appState, files);
           if (initialSignatureRef.current === null) {
             initialSignatureRef.current = signature;
+            lastObservedSignatureRef.current = signature;
             lastSavedSignatureRef.current = signature;
             return;
           }
-          if (signature === lastSavedSignatureRef.current) return;
+          if (signature === lastObservedSignatureRef.current) return;
+          lastObservedSignatureRef.current = signature;
+          if (signature === lastSavedSignatureRef.current) {
+            dirtyRef.current =
+              drawingMetadataSignature(propsRef.current) !==
+              lastSavedMetadataSignatureRef.current;
+            if (!dirtyRef.current) clearTimers();
+            return;
+          }
           dirtyRef.current = true;
           onDirtyRef.current();
           scheduleSave();
@@ -375,4 +386,18 @@ function drawingMetadataSignature({
   title: string;
 }) {
   return JSON.stringify([title, tags, favorite]);
+}
+
+function isWebp(bytes: Uint8Array) {
+  return (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  );
 }

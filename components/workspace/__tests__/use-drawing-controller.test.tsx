@@ -64,6 +64,19 @@ afterEach(() => {
 });
 
 describe('useDrawingController', () => {
+  it('keeps repeated dirty notifications idempotent', () => {
+    const { result, unmount } = renderHook(() =>
+      useDrawingController({ active: false, rootPath: null }),
+    );
+
+    act(() => result.current.markDirty());
+    const dirtyState = result.current.saveState;
+    act(() => result.current.markDirty());
+
+    expect(result.current.saveState).toBe(dirtyState);
+    unmount();
+  });
+
   it('starts queued saves with the latest committed revision', async () => {
     const expectedRevisions: number[] = [];
     let committedRevision = 1;
