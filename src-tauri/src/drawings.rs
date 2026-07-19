@@ -1033,7 +1033,7 @@ pub fn release_drawing_import_grant(
 }
 
 #[tauri::command]
-pub fn select_drawing_export_target(
+pub async fn select_drawing_export_target(
     app: AppHandle,
     state: State<'_, DrawingState>,
     file_name: String,
