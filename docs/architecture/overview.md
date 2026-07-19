@@ -74,6 +74,8 @@ AI 文件修改以 App Server 事件为刷新事实源。`item/fileChange/patchU
 
 文档上下文采用路径引用，不复制文档正文。活动文档身份只取自当前编辑器文档标签保存的物理绝对路径；frontmatter `title` 只作为可读元数据，不参与身份解析，输入框和欢迎提示展示工作区相对路径。发送前必须确认该标签路径已经成为工作区当前加载文档，否则阻止 turn，避免快速切换标签时保存或引用上一份文档。前端把显式 `@` 文档在模型文本中编码为带引号的工作区相对路径，并用 `text_elements.placeholder` 保留文档链接；同时把编辑器当前活跃文档标为 `active`、显式提及标为 `mention`，只通过 Madora 私有字段提交给 Tauri。Rust canonicalize 并验证路径后，将固定语义策略写入 `madora_document_context_policy`（`application`），将活跃文档写入 `madora_active_document`、其他显式引用写入 `madora_explicit_document_references`（均为 `untrusted`）。因此“当前文档/本文”只解析为该 turn 的活跃文档，不从 frontmatter 标题、日期、最近文件或会话历史猜测；没有活跃文档时显式发送 `null` 以清除 App Server 的粘性上下文。Codex 仅在请求依赖文档内容时通过正常工作区工具读取，因此读取动作仍进入原生工具时间线。
 
+文档树重命名以用户确认的新名称为统一显示身份：原生层移动物理 `.md` 文件并更新已有 frontmatter `title` 与首个 H1，前端随后刷新树节点、迁移已打开 Tab、编辑器 session 和最近文档路径。若展示标题已经等于目标名称、但物理文件 stem 仍不一致，仍必须执行重命名；只有物理 stem 与文档标题均已一致时才视为无操作。没有 frontmatter `title` 的外部 Markdown 不因重命名新增该字段。
+
 任意本地文件与文件夹上下文必须经过 Tauri 原生选择器。渲染器只取得 15 分钟有效的 opaque attachment ID、名称、类型和图片标记，单次最多保留 20 个，不取得所选绝对路径。发送 turn 时 Rust 重新校验授权与真实路径：受支持图片转换为 App Server `localImage`，其他文件和目录按官方 `# Files mentioned by the user` 文本头编码，并用私有 `text_elements.placeholder` 保存历史展示元数据。附件授权只允许把所选路径传入当前 turn，不扩大 Codex permission profile；工作区外文件或目录的实际读取仍由 App Server 工具权限和审批决定。
 
 插件入口在核心运行时就绪后使用固定 sidecar 的 `plugin/installed` 按当前工作区自动加载，每个运行时代际最多发起一次成功请求，只展示已安装、已启用且未被管理员禁用的插件；加载失败时只在菜单内提供重试。App Server 返回的 `composerIcon`、`logo` 与 `logoDark` 本地文件由 Rust 按响应请求 ID 建立精确路径授权，前端只能通过 `read_codex_plugin_icon` 读取当前插件清单声明的单个受支持图片；远程图标只接受 HTTPS。菜单按 composer、主题 logo、通用占位图标的顺序降级，单个资源失败不影响插件清单。授权在重新检测、运行时停止或工作区切换时失效，不扩大资源协议 scope。

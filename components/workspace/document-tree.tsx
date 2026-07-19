@@ -236,7 +236,7 @@ export function DocumentTree({
 
       setEditingNodeId(null);
 
-      if (!normalized || normalized === getNodeDisplayName(node)) {
+      if (!normalized || isWorkspaceNodeRenameNoop(node, normalized)) {
         return;
       }
 
@@ -1327,7 +1327,22 @@ function DeleteNodeDialog({
 }
 
 function getNodeDisplayName(node: WorkspaceNode) {
+  if (node.kind === 'directory') {
+    return node.name;
+  }
+
   return node.title?.trim() || node.name.replace(/\.md$/i, '');
+}
+
+function isWorkspaceNodeRenameNoop(node: WorkspaceNode, nextName: string) {
+  if (node.kind === 'directory') {
+    return nextName === node.name;
+  }
+
+  const physicalName = node.name.replace(/\.md$/i, '');
+  const documentTitle = node.title?.trim() || physicalName;
+
+  return nextName === physicalName && nextName === documentTitle;
 }
 
 function hasDescendantByAbsolutePath(

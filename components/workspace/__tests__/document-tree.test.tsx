@@ -633,6 +633,83 @@ describe('DocumentTree', () => {
     );
   });
 
+  it('submits rename when the displayed title already matches but the physical file name differs', async () => {
+    const user = userEvent.setup();
+    const onRenameNode = vi.fn();
+    const mismatchedDocument: WorkspaceNode = {
+      absolutePath: '/workspace/Test.md',
+      id: 'Test.md',
+      kind: 'document',
+      name: 'Test.md',
+      relativePath: 'Test.md',
+      title: 'Spring Boot 介绍',
+    };
+
+    render(
+      <DocumentTree
+        currentDocumentPath={mismatchedDocument.absolutePath}
+        nodes={[mismatchedDocument]}
+        searchQuery=""
+        onCreateDirectory={vi.fn()}
+        onCreateDocument={vi.fn()}
+        onDeleteNode={vi.fn()}
+        onImportMarkdown={vi.fn()}
+        onRenameNode={onRenameNode}
+        onSelectDocument={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByLabelText('打开 Test.md 操作菜单'));
+    await user.click(screen.getByRole('menuitem', { name: '重命名' }));
+    await user.type(
+      screen.getByRole('textbox', { name: '重命名 Spring Boot 介绍' }),
+      '{Enter}',
+    );
+
+    expect(onRenameNode).toHaveBeenCalledWith(
+      mismatchedDocument,
+      'Spring Boot 介绍',
+    );
+  });
+
+  it('keeps rename as a no-op when the document title and physical file name already match', async () => {
+    const user = userEvent.setup();
+    const onRenameNode = vi.fn();
+    const synchronizedDocument: WorkspaceNode = {
+      absolutePath: '/workspace/Spring Boot 介绍.md',
+      id: 'Spring Boot 介绍.md',
+      kind: 'document',
+      name: 'Spring Boot 介绍.md',
+      relativePath: 'Spring Boot 介绍.md',
+      title: 'Spring Boot 介绍',
+    };
+
+    render(
+      <DocumentTree
+        currentDocumentPath={synchronizedDocument.absolutePath}
+        nodes={[synchronizedDocument]}
+        searchQuery=""
+        onCreateDirectory={vi.fn()}
+        onCreateDocument={vi.fn()}
+        onDeleteNode={vi.fn()}
+        onImportMarkdown={vi.fn()}
+        onRenameNode={onRenameNode}
+        onSelectDocument={vi.fn()}
+      />,
+    );
+
+    await user.click(
+      screen.getByLabelText('打开 Spring Boot 介绍.md 操作菜单'),
+    );
+    await user.click(screen.getByRole('menuitem', { name: '重命名' }));
+    await user.type(
+      screen.getByRole('textbox', { name: '重命名 Spring Boot 介绍' }),
+      '{Enter}',
+    );
+
+    expect(onRenameNode).not.toHaveBeenCalled();
+  });
+
   it('renders directory rename input outside the row button', async () => {
     const user = userEvent.setup();
 
