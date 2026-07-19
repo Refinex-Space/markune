@@ -92,7 +92,7 @@ Plan turn 的 `item/plan/delta` 只用于流式展示，`item/completed` 的完�
 
 输入空白边界上的 `/` 会打开独立 Skill 面板。Skill 通过当前工作区单元素 `cwds` 的 `skills/list` 自动加载，只展示 enabled 项；`skills/changed` 作为失效信号触发强制刷新。选择项在输入框插入统一立方体图标和 display name，模型文本编码为 `$skill-name`，并额外发送 `{ type: "skill", name, path }` 原生输入。Rust 只授权最近一次关联 `skills/list` 响应中的精确名称与 canonical path，列表刷新、变更通知、运行时停止或工作区切换都会撤销旧授权。
 
-提及候选只来自当前已加载的 Markdown 文档索引，并在前端按标题、文件名和工作区相对路径进行确定性的 Unicode 模糊排序；当前文档和已附加文档从候选中排除。编辑器基于真实光标位置识别空白分隔的 `@token`，候选列表支持方向键循环选择、选中项就近滚动、Enter/Tab 确认和 Escape 关闭。固定 sidecar 虽提供通用 `fuzzyFileSearch`，但 Madora 不向渲染器开放该文件系统枚举接口，避免绕过文档索引和工作区路径边界。
+提及候选只来自当前已加载的 Markdown 文档索引，并在前端按标题、文件名和工作区相对路径进行确定性的 Unicode 模糊排序。匹配同时识别忽略空格与常用路径分隔符的紧凑前缀；当前文档在真实命中后获得有限排序加权并显式标记，但不会压过更高等级的文本匹配；只有已显式插入输入框的文档从候选中排除。编辑器基于真实光标位置识别空白分隔的 `@token`，候选列表支持方向键循环选择、选中项就近滚动、Enter/Tab 确认和 Escape 关闭。固定 sidecar 虽提供通用 `fuzzyFileSearch`，但 Madora 不向渲染器开放该文件系统枚举接口，避免绕过文档索引和工作区路径边界。
 
 Codex App Server 是 AI 会话持久化的唯一所有者。Madora 默认把 sidecar 绑定到共享的 `~/.codex`，允许的 `CODEX_HOME` 覆盖必须是工作区之外的既有绝对目录；该进程的 `sqlite_home` 固定为同一目录。Codex 管理 `sessions/**/*.jsonl` 会话记录、`session_index.jsonl` 追加索引和 SQLite 查询投影，Madora 只能通过 `thread/start`、`thread/resume`、`thread/list`、`thread/read`、`thread/name/set`、`thread/archive` 与 `thread/delete` 访问线程，禁止直接读写这些内部文件或数据库。
 

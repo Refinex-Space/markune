@@ -53,6 +53,31 @@ describe('AI document mention search', () => {
     ).toEqual(['spring']);
   });
 
+  it('让当前文档在同等相关候选中优先，并支持跨分隔符前缀', () => {
+    const competingDocuments = [
+      {
+        absolutePath: '/workspace/Guides/Spring Boot Advanced.md',
+        id: 'advanced',
+        name: 'Spring Boot Advanced.md',
+        relativePath: 'Guides/Spring Boot Advanced.md',
+        title: 'Spring Boot 进阶',
+      },
+      {
+        absolutePath: '/workspace/Test.md',
+        id: 'current',
+        name: 'Test.md',
+        relativePath: 'Test.md',
+        title: 'Spring Boot 介绍',
+      },
+    ];
+
+    expect(
+      rankMentionDocuments(competingDocuments, 'SpringB', {
+        preferredPath: '/workspace/Test.md',
+      }).map((document) => document.id),
+    ).toEqual(['current', 'advanced']);
+  });
+
   it('排除已附加文档、去重并限制结果数量', () => {
     const repeated = [...documents, documents[0]];
 

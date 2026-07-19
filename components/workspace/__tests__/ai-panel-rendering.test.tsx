@@ -53,6 +53,15 @@ const roadmapDocument = {
   title: 'Roadmap',
 };
 
+const currentWorkspaceDocument = {
+  absolutePath: '/workspace/Test.md',
+  id: 'Test.md',
+  kind: 'document' as const,
+  name: 'Test.md',
+  relativePath: 'Test.md',
+  title: 'Spring Boot 介绍',
+};
+
 function change(
   path: string,
   absolutePath: string | null,
@@ -963,6 +972,27 @@ describe('AI message rendering', () => {
     ).toBe('true');
   });
 
+  it('在提及候选中标记当前文档并保留实际路径', async () => {
+    const user = userEvent.setup();
+    render(
+      <ComposerHarness
+        currentDocument={currentWorkspaceDocument}
+        mentionDocuments={[currentWorkspaceDocument]}
+        onOpenMention={vi.fn()}
+      />,
+    );
+
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '@SpringB');
+
+    const option = screen.getByRole('option', {
+      name: '提及 Spring Boot 介绍，当前文档',
+    });
+    expect(within(option).getByText('当前文档')).toBeTruthy();
+    expect(within(option).getByText('Test.md')).toBeTruthy();
+  });
+
   it('支持上下键循环选择、选中项自适应滚动和回车插入', async () => {
     const user = userEvent.setup();
     const scrollIntoView = vi.fn();
@@ -1727,6 +1757,7 @@ function ComposerHarness({
   compactUnavailableReason = null,
   collaborationMode = 'default',
   contextUsage = null,
+  currentDocument = null,
   goalActive = false,
   goalDraftMode = false,
   goalUnavailableReason = null,
@@ -1756,6 +1787,7 @@ function ComposerHarness({
   compactUnavailableReason?: string | null;
   collaborationMode?: 'default' | 'plan';
   contextUsage?: CodexThreadTokenUsage | null;
+  currentDocument?: typeof currentWorkspaceDocument | null;
   goalActive?: boolean;
   goalDraftMode?: boolean;
   goalUnavailableReason?: string | null;
@@ -1802,7 +1834,7 @@ function ComposerHarness({
         compacting={compacting}
         compactUnavailableReason={compactUnavailableReason}
         contextUsage={contextUsage}
-        currentDocument={null}
+        currentDocument={currentDocument}
         effort="medium"
         goalActive={goalActive}
         goalDraftMode={goalDraftMode}

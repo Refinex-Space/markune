@@ -172,12 +172,13 @@ function renderPanel(
   onBeforeTurnStart = vi.fn().mockResolvedValue(true),
   currentDocument = null as typeof activeDocument | null,
   currentDocumentPath = currentDocument?.absolutePath ?? null,
+  documents: Array<Omit<typeof activeDocument, 'kind'>> = [],
 ) {
   return render(
     <AiPanel
       currentDocument={currentDocument}
       currentDocumentPath={currentDocumentPath}
-      documents={[]}
+      documents={documents}
       workspaceRootPath="/workspace"
       onBeforeTurnStart={onBeforeTurnStart}
       onOpenDocument={vi.fn()}
@@ -207,6 +208,42 @@ beforeEach(() => {
 });
 
 describe('AI panel startup lifecycle', () => {
+  it('当前文档会进入 @ 候选并在同等匹配中优先', async () => {
+    const user = userEvent.setup();
+    const competingDocument = {
+      absolutePath: '/workspace/Guides/Spring Boot Advanced.md',
+      id: 'spring-boot-advanced',
+      name: 'Spring Boot Advanced.md',
+      relativePath: 'Guides/Spring Boot Advanced.md',
+      title: 'Spring Boot 进阶',
+    };
+    const currentReference = {
+      absolutePath: activeDocument.absolutePath,
+      id: activeDocument.id,
+      name: activeDocument.name,
+      relativePath: activeDocument.relativePath,
+      title: activeDocument.title,
+    };
+
+    renderPanel(
+      vi.fn().mockResolvedValue(true),
+      activeDocument,
+      activeDocument.absolutePath,
+      [competingDocument, currentReference],
+    );
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '@SpringB');
+
+    const options = screen.getAllByRole('option');
+    expect(options[0].getAttribute('aria-label')).toBe(
+      '提及 Spring Boot 介绍，当前文档',
+    );
+    expect(within(options[0]).getByText('Test.md')).toBeTruthy();
+  });
+
   it('后台完成核心握手、自动加载插件与 Skill 且不预取 MCP 状态', async () => {
     renderPanel();
 

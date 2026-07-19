@@ -15,6 +15,7 @@ export interface MentionToken {
 interface MentionSearchOptions {
   excludedPaths?: ReadonlySet<string>;
   limit?: number;
+  preferredPath?: string | null;
 }
 
 interface NormalizedText {
@@ -28,6 +29,7 @@ interface TextMatch {
 }
 
 const DEFAULT_RESULT_LIMIT = 8;
+const PREFERRED_DOCUMENT_BOOST = 5_000;
 
 export function rankMentionDocuments<T extends MentionSearchDocument>(
   documents: readonly T[],
@@ -49,8 +51,13 @@ export function rankMentionDocuments<T extends MentionSearchDocument>(
       }
       seen.add(document.absolutePath);
 
+      const preferredBoost =
+        document.absolutePath === options.preferredPath
+          ? PREFERRED_DOCUMENT_BOOST
+          : 0;
+
       if (normalizedQuery.length === 0) {
-        return [{ document, order, score: 0 }];
+        return [{ document, order, score: preferredBoost }];
       }
 
       const fields = [
@@ -66,7 +73,9 @@ export function rankMentionDocuments<T extends MentionSearchDocument>(
           : Math.max(best ?? Number.NEGATIVE_INFINITY, fieldScore);
       }, null);
 
-      return score === null ? [] : [{ document, order, score }];
+      return score === null
+        ? []
+        : [{ document, order, score: score + preferredBoost }];
     })
     .sort(
       (left, right) =>
@@ -166,6 +175,43 @@ function matchNormalizedText(
     } satisfies TextMatch;
   }
 
+  const compactQuery = normalizedQuery.filter(
+    (character) => !isSearchBoundary(character),
+  );
+  const compactText = compactNormalizedText(normalized);
+  const compactIndex = findContiguousMatch(
+    compactText.characters,
+    compactQuery,
+  );
+  if (
+    compactQuery.length > 0 &&
+    compactIndex >= 0 &&
+    (compactQuery.length !== normalizedQuery.length ||
+      compactText.characters.length !== normalized.characters.length)
+  ) {
+    const normalizedStart = compactText.normalizedIndices[compactIndex] ?? 0;
+    const boundary =
+      normalizedStart === 0 ||
+      isSearchBoundary(normalized.characters[normalizedStart - 1]);
+    const score =
+      compactText.characters.length === compactQuery.length
+        ? 95_000
+        : compactIndex === 0
+          ? 85_000
+          : boundary
+            ? 75_000 - compactIndex
+            : 65_000 - compactIndex;
+    return {
+      indices: unique(
+        compactText.indices.slice(
+          compactIndex,
+          compactIndex + compactQuery.length,
+        ),
+      ),
+      score,
+    } satisfies TextMatch;
+  }
+
   const matchedIndices: number[] = [];
   let queryIndex = 0;
   let firstIndex = -1;
@@ -219,6 +265,21 @@ function normalizeText(text: string): NormalizedText {
   });
 
   return { characters, indices };
+}
+
+function compactNormalizedText(normalized: NormalizedText) {
+  const characters: string[] = [];
+  const indices: number[] = [];
+  const normalizedIndices: number[] = [];
+
+  normalized.characters.forEach((character, normalizedIndex) => {
+    if (isSearchBoundary(character)) return;
+    characters.push(character);
+    indices.push(normalized.indices[normalizedIndex]);
+    normalizedIndices.push(normalizedIndex);
+  });
+
+  return { characters, indices, normalizedIndices };
 }
 
 function compareStableText(left: string, right: string) {

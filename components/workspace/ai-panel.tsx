@@ -713,11 +713,9 @@ export function AiPanel({
         .filter(isDocumentComposerMention)
         .map((document) => document.absolutePath),
     );
-    if (currentDocument?.absolutePath) {
-      excludedPaths.add(currentDocument.absolutePath);
-    }
     return rankMentionDocuments(documents, mentionQuery ?? '', {
       excludedPaths,
+      preferredPath: currentDocument?.absolutePath,
     });
   }, [currentDocument, documents, mentionQuery, selectedMentions]);
 
@@ -5288,6 +5286,7 @@ export function AiComposer({
         ) : mentionQuery !== null ? (
           <MentionMenu
             activeIndex={activeMentionIndex}
+            currentDocumentPath={currentDocument?.absolutePath ?? null}
             documents={mentionDocuments}
             listboxId={mentionListboxId}
             query={mentionQuery}
@@ -6027,6 +6026,7 @@ function ContextUsageProgress({
 
 function MentionMenu({
   activeIndex,
+  currentDocumentPath,
   documents,
   listboxId,
   query,
@@ -6035,6 +6035,7 @@ function MentionMenu({
   onSelect,
 }: {
   activeIndex: number;
+  currentDocumentPath: string | null;
   documents: AiDocumentReference[];
   listboxId: string;
   query: string;
@@ -6079,44 +6080,55 @@ function MentionMenu({
             没有匹配的文档
           </div>
         ) : (
-          documents.map((document, index) => (
-            <button
-              aria-label={`提及 ${document.title || document.name}`}
-              aria-selected={index === activeIndex}
-              className={cn(
-                'flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left outline-none',
-                index === activeIndex
-                  ? 'bg-accent text-accent-foreground'
-                  : 'hover:bg-accent/60',
-              )}
-              id={mentionOptionId(listboxId, index)}
-              key={document.absolutePath}
-              ref={(element) => {
-                optionRefs.current[index] = element;
-              }}
-              role="option"
-              type="button"
-              onMouseDown={(event) => event.preventDefault()}
-              onMouseMove={() => onActiveIndexChange(index)}
-              onClick={() => onSelect(document)}
-            >
-              <FileText className="shrink-0 text-muted-foreground" size={14} />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-xs">
-                  <MentionMatchedText
-                    query={query}
-                    text={document.title || document.name}
-                  />
+          documents.map((document, index) => {
+            const isCurrentDocument =
+              document.absolutePath === currentDocumentPath;
+            return (
+              <button
+                aria-label={`提及 ${document.title || document.name}${isCurrentDocument ? '，当前文档' : ''}`}
+                aria-selected={index === activeIndex}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left outline-none',
+                  index === activeIndex
+                    ? 'bg-accent text-accent-foreground'
+                    : 'hover:bg-accent/60',
+                )}
+                id={mentionOptionId(listboxId, index)}
+                key={document.absolutePath}
+                ref={(element) => {
+                  optionRefs.current[index] = element;
+                }}
+                role="option"
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseMove={() => onActiveIndexChange(index)}
+                onClick={() => onSelect(document)}
+              >
+                <FileText className="shrink-0 text-muted-foreground" size={14} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-1.5 text-xs">
+                    <span className="truncate">
+                      <MentionMatchedText
+                        query={query}
+                        text={document.title || document.name}
+                      />
+                    </span>
+                    {isCurrentDocument ? (
+                      <span className="shrink-0 rounded border border-border/70 bg-muted/45 px-1 py-0.5 text-[9px] leading-none text-muted-foreground">
+                        当前文档
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="truncate text-[10px] text-muted-foreground">
+                    <MentionMatchedText
+                      query={query}
+                      text={document.relativePath}
+                    />
+                  </div>
                 </div>
-                <div className="truncate text-[10px] text-muted-foreground">
-                  <MentionMatchedText
-                    query={query}
-                    text={document.relativePath}
-                  />
-                </div>
-              </div>
-            </button>
-          ))
+              </button>
+            );
+          })
         )}
       </div>
     </div>
