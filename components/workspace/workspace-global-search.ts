@@ -2,6 +2,8 @@ import type { WorkspaceSearchResult } from './workspace-types';
 
 export interface WorkspaceSearchDocument extends WorkspaceSearchResult {
   content: string;
+  drawingId?: string;
+  kind?: 'document' | 'drawing';
 }
 
 export interface TextHighlightRange {

@@ -62,6 +62,30 @@ cargo check --manifest-path src-tauri/Cargo.toml
 pnpm build:desktop:web
 ```
 
+## Drawing Acceptance
+
+画板相关改动先执行聚焦检查：
+
+```bash
+pnpm exec vitest run components/workspace/__tests__/drawing-integration.test.ts components/workspace/__tests__/workspace-global-search.test.ts components/workspace/__tests__/inbox-shell.test.ts components/editor/__tests__/markdown-editor.test.tsx
+pnpm exec tsc --noEmit
+pnpm lint
+cargo test --manifest-path src-tauri/Cargo.toml drawings::tests
+pnpm build:desktop:web
+```
+
+构建后确认 `public/excalidraw-runtime/index.css` 与 `fonts/` 已生成，普通 `out/index.html` 没有预加载包含 Excalidraw 实现的动态 JS chunk，也没有静态引用 Excalidraw CSS。随后在真实桌面运行时验收：
+
+- 入口位于 Inbox 下方且不创建 Markdown 标签；切换图集、编辑器、AI 和终端面板不会重置其他面板状态。
+- 创建图稿后绘制中文文本、箭头、自由线、图片与框架；重启后场景、组件库、图集位置、最近列表和视口都能恢复。
+- 连续编辑显示未保存/保存中/已保存；`Cmd/Ctrl+S` 强制提交。外部修改 scene 或 meta 后自动保存进入冲突，只有“加载磁盘版本”或“用当前版本覆盖”能继续。
+- 导入 `.excalidraw` 与 `.excalidrawlib`，导出 JSON/PNG/SVG；导出同名时不得覆盖已有文件。回收站恢复遇到路径冲突时创建唯一名称。
+- 破坏单个 scene 或 meta 后，其余图稿仍能展示；元数据可读且存在 backup 时可进入恢复页加载上一有效场景。损坏预览只降级为占位图，不能阻塞保存。
+- 复制 Markdown 引用后，预览是稳定静态快照，点击回链能打开原图稿；移动/重命名不影响回链，永久删除原图稿后文档快照仍可显示。
+- 验证 500 幅图稿的图集滚动只按可见区域读取预览，并用包含多张图片的大场景检查 100 MiB 场景边界、保存等待和内存占用。
+
+macOS WKWebView 与 Windows WebView2 都必须分别进行真实桌面验收；当前平台通过不能替代另一平台。损坏恢复时优先复制整个 `.madora/drawings` 作为工作区级备份，再通过 UI 加载 bundle 内的单份有效备份；不要手工编辑 revision 或 SHA 字段。
+
 真实桌面验收使用一组 Markdown、HTML、DOCX、原生文本 PDF、扫描中文 PDF、扫描英文 PDF、加密 PDF 和损坏文件，覆盖相对图片、Windows 反斜杠、Unicode 文件名、data URI、远程 URL、重复图片与另一 Madora 工作区的资产。确认批量任务可部分成功、取消保留已提交文件、错误报告可查看、目录刷新并展开到首个成功文档；重启后图片仍可显示。
 
 跨平台验收必须在真实 Windows 与 macOS 上使用同一夹具互相导入，至少覆盖 Windows 非系统盘和 macOS 外置卷。DOCX/PDF 是语义恢复而非像素级复刻；复杂公式、合并单元格、浮动文本框、矢量图或异常阅读顺序必须保留内容或出现明确警告，不能静默丢失。Windows 检查不能代替 macOS 验收。
@@ -176,5 +200,7 @@ pnpm desktop:build -- --bundles dmg --no-sign
 ## Rollback
 
 For source changes, prefer `git diff` inspection followed by targeted `git restore <path>` only for files intentionally changed in the current task. Do not revert unrelated user work.
+
+回滚画板功能时，定向恢复本次前端、Rust、脚本、依赖与文档文件，并删除由 staging 生成且已被 Git 忽略的 `public/excalidraw-runtime`。不要删除用户工作区的 `.madora/drawings`；旧图稿 bundle 是可直接交给 Excalidraw 的用户数据，应保留到确认无需恢复后再另行处理。
 
 旧 `.madora/ai-sessions` 若尚未提交删除，可在对应知识库仓库中定向 `git restore`。提交删除后旧内容仍存在于 Git 历史；彻底清除需要单独批准历史重写，不能作为常规回滚或清理步骤执行。

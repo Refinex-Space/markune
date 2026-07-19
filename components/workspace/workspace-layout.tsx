@@ -55,6 +55,8 @@ import {
   getDailyContentDates,
 } from './daily-notes';
 import { DocumentTabBar } from './document-tab-bar';
+import { DrawingSidebar } from './drawing-sidebar';
+import { DrawingWorkspacePage } from './drawing-workspace-page';
 import { resolveDocumentExportMarkdown } from './document-export-core';
 import {
   closeAllDocumentTabs,
@@ -85,6 +87,7 @@ import type {
   AiWorkspaceChangeEvent,
 } from './ai-panel-state';
 import { useWorkspace } from './use-workspace';
+import { useDrawingController } from './use-drawing-controller';
 import { useInboxController } from './use-inbox-controller';
 import { WorkspaceGlobalSearchDialog } from './workspace-global-search-dialog';
 import { useDocumentExport } from './use-document-export';
@@ -118,6 +121,7 @@ import {
   listenTerminalData,
   listenTerminalError,
   listenTerminalExit,
+  loadDrawingLibrary,
   closeAppWindow,
   readAppSettings,
   recordRecentDocument,
@@ -184,7 +188,7 @@ type LeftPanelMode = 'workspace' | 'git';
 type BottomPanelMode = 'git-log' | 'terminal' | null;
 type GlobalSearchIndexStatus = 'error' | 'idle' | 'indexing' | 'ready';
 type ThemeMode = 'dark' | 'light' | 'system';
-type WorkspaceSystemPage = 'inbox' | 'settings' | 'views' | null;
+type WorkspaceSystemPage = 'drawings' | 'inbox' | 'settings' | 'views' | null;
 
 interface GlobalSearchState {
   index: WorkspaceSearchIndex | null;
@@ -535,6 +539,26 @@ export function WorkspaceLayout({
   const [leftPanelMode, setLeftPanelMode] =
     React.useState<LeftPanelMode>('workspace');
   const [systemPage, setSystemPage] = React.useState<WorkspaceSystemPage>(null);
+  const drawings = useDrawingController({
+    active: systemPage === 'drawings',
+    rootPath: workspaceRootPath,
+  });
+  const openDrawingFromLibrary = drawings.openDrawing;
+
+  React.useEffect(() => {
+    const handleOpenDrawing = (event: Event) => {
+      const drawingId = (event as CustomEvent<{ drawingId?: string }>).detail
+        ?.drawingId;
+      if (!drawingId) return;
+      setLeftPanelMode('workspace');
+      setSystemPage('drawings');
+      showWorkspaceSidebar(false);
+      clearCurrentDocument();
+      void openDrawingFromLibrary(drawingId);
+    };
+    window.addEventListener('madora:open-drawing', handleOpenDrawing);
+    return () => window.removeEventListener('madora:open-drawing', handleOpenDrawing);
+  }, [clearCurrentDocument, openDrawingFromLibrary, showWorkspaceSidebar]);
   const [treeRevealRequest, setTreeRevealRequest] = React.useState<{
     absolutePath: string;
     requestId: number;
@@ -1737,6 +1761,16 @@ export function WorkspaceLayout({
 
   const handleSelectGlobalSearchResult = React.useCallback(
     (result: WorkspaceGlobalSearchResult) => {
+      if (result.document.kind === 'drawing' && result.document.drawingId) {
+        setGlobalSearchOpen(false);
+        setGlobalSearchQuery('');
+        setLeftPanelMode('workspace');
+        setSystemPage('drawings');
+        showWorkspaceSidebar(false);
+        clearCurrentDocument();
+        void openDrawingFromLibrary(result.document.drawingId);
+        return;
+      }
       const node = findWorkspaceDocumentByPath(
         workspace.snapshot?.nodes ?? [],
         result.document.absolutePath,
@@ -1751,7 +1785,14 @@ export function WorkspaceLayout({
       revealNodeInWorkspaceTree(node.absolutePath);
       void openDocumentNode(node);
     },
-    [openDocumentNode, revealNodeInWorkspaceTree, workspace.snapshot?.nodes],
+    [
+      clearCurrentDocument,
+      openDrawingFromLibrary,
+      openDocumentNode,
+      revealNodeInWorkspaceTree,
+      showWorkspaceSidebar,
+      workspace.snapshot?.nodes,
+    ],
   );
 
   const handleCreateDocument = React.useCallback(
@@ -1831,6 +1872,13 @@ export function WorkspaceLayout({
     setSystemPage('views');
     workspace.clearCurrentDocument();
   }, [workspace]);
+
+  const handleOpenDrawingsPage = React.useCallback(() => {
+    setLeftPanelMode('workspace');
+    setSystemPage('drawings');
+    showWorkspaceSidebar(false);
+    clearCurrentDocument();
+  }, [clearCurrentDocument, showWorkspaceSidebar]);
 
   const handleOpenInboxPage = React.useCallback(() => {
     setLeftPanelMode('workspace');
@@ -2559,6 +2607,11 @@ export function WorkspaceLayout({
                     />
                   ) : null
                 }
+                drawingContent={
+                  workspace.snapshot ? (
+                    <DrawingSidebar controller={drawings} />
+                  ) : null
+                }
                 width={leftSidebarWidth}
                 workspace={workspace}
                 onCreateDocument={handleCreateDocument}
@@ -2574,6 +2627,7 @@ export function WorkspaceLayout({
                   void handleOpenDailyNote(formatDailyDate(new Date()))
                 }
                 onOpenInbox={handleOpenInboxPage}
+                onOpenDrawings={handleOpenDrawingsPage}
                 onOpenViews={handleOpenViewsPage}
                 onOpenInFileManager={handleOpenNodeInFileManager}
                 onOpenSettings={() => openSettingsPage('appearance')}
@@ -2587,20 +2641,30 @@ export function WorkspaceLayout({
                 onTogglePinned={handleToggleNodePinned}
                 inboxActiveCount={inbox.activeCount}
                 searchPlaceholder={
-                  systemPage === 'inbox' ? '搜索 Inbox' : '搜索'
+                  systemPage === 'inbox'
+                    ? '搜索 Inbox'
+                    : systemPage === 'drawings'
+                      ? '搜索图稿'
+                      : '搜索'
                 }
                 searchQuery={
                   systemPage === 'inbox'
                     ? inbox.query
+                    : systemPage === 'drawings'
+                      ? drawings.query
                     : workspace.searchQuery
                 }
                 onSearchQueryChange={
                   systemPage === 'inbox'
                     ? inbox.setQuery
+                    : systemPage === 'drawings'
+                      ? drawings.setQuery
                     : workspace.setSearchQuery
                 }
                 systemPage={
-                  systemPage === 'inbox' || systemPage === 'views'
+                  systemPage === 'drawings' ||
+                  systemPage === 'inbox' ||
+                  systemPage === 'views'
                     ? systemPage
                     : null
                 }
@@ -2678,7 +2742,13 @@ export function WorkspaceLayout({
 
                 <div className="flex min-h-0 flex-1 overflow-hidden">
                   <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-                    {systemPage === 'inbox' && workspace.snapshot ? (
+                    {systemPage === 'drawings' && workspace.snapshot ? (
+                      <DrawingWorkspacePage
+                        controller={drawings}
+                        rootPath={workspace.snapshot.rootPath}
+                        theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
+                      />
+                    ) : systemPage === 'inbox' && workspace.snapshot ? (
                       <InboxPage
                         controller={inbox}
                         pageWidthMode={pageWidthMode}
@@ -3776,11 +3846,13 @@ async function readWorkspaceSearchDocuments(
         results[index] = {
           ...document,
           content: content.content,
+          kind: 'document',
         };
       } catch {
         results[index] = {
           ...document,
           content: '',
+          kind: 'document',
         };
       }
     }
@@ -3792,7 +3864,24 @@ async function readWorkspaceSearchDocuments(
     }).map(() => readNextDocument()),
   );
 
-  return results.filter(Boolean);
+  let drawingDocuments: WorkspaceSearchDocument[] = [];
+  try {
+    const drawingLibrary = await loadDrawingLibrary(snapshot.rootPath);
+    drawingDocuments = drawingLibrary.drawings.map((drawing) => ({
+      absolutePath: '',
+      content: drawing.searchText,
+      drawingId: drawing.id,
+      id: drawing.id,
+      kind: 'drawing',
+      name: drawing.title,
+      relativePath: drawing.albumPath || '未归类',
+      title: drawing.title,
+    }));
+  } catch {
+    // A drawing index failure must not prevent Markdown search.
+  }
+
+  return [...results.filter(Boolean), ...drawingDocuments];
 }
 
 function findWorkspaceDocumentByPath(

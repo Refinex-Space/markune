@@ -67,4 +67,27 @@ describe('workspace global search', () => {
 
     expect(searchWorkspaceIndex(index, '   ')).toEqual([]);
   });
+
+  it('indexes drawing titles, album paths, tags, and canvas text with its result kind', () => {
+    const index = buildWorkspaceSearchIndex([
+      ...documents,
+      {
+        absolutePath: '',
+        content: '架构 deployment topology',
+        drawingId: '11111111-1111-4111-8111-111111111111',
+        id: '11111111-1111-4111-8111-111111111111',
+        kind: 'drawing' as const,
+        name: '部署拓扑',
+        relativePath: '技术/架构',
+        title: '部署拓扑',
+      },
+    ]);
+
+    const result = searchWorkspaceIndex(index, 'deployment topology')[0];
+
+    expect(result.document.kind).toBe('drawing');
+    expect(result.document.drawingId).toBe(
+      '11111111-1111-4111-8111-111111111111',
+    );
+  });
 });

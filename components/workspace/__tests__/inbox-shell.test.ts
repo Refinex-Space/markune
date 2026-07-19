@@ -13,11 +13,13 @@ describe('Inbox workspace shell', () => {
     );
     const daily = source.indexOf('data-testid="daily-note-entry"');
     const inbox = source.indexOf('data-testid="inbox-entry"');
+    const drawings = source.indexOf('data-testid="drawing-entry"');
     const views = source.indexOf('data-testid="workspace-views-entry"');
 
     expect(daily).toBeGreaterThan(-1);
     expect(inbox).toBeGreaterThan(daily);
-    expect(views).toBeGreaterThan(inbox);
+    expect(drawings).toBeGreaterThan(inbox);
+    expect(views).toBeGreaterThan(drawings);
     expect(source).toContain("inboxActiveCount > 99 ? '99+' : inboxActiveCount");
     expect(source).not.toContain('bg-sidebar-primary');
   });
@@ -63,9 +65,10 @@ describe('Inbox workspace shell', () => {
       'utf8',
     );
 
-    expect(layout).toContain("systemPage === 'inbox' ? '搜索 Inbox' : '搜索'");
+    expect(layout).toContain("systemPage === 'inbox'");
+    expect(layout).toContain("? '搜索 Inbox'");
     expect(layout).toContain('? inbox.query');
     expect(sidebar).toContain("workspace.snapshot && systemPage === 'inbox'");
-    expect(sidebar).toContain("systemPage === 'inbox' ? null : dailyCalendar");
+    expect(sidebar).toContain("systemPage === 'inbox' || systemPage === 'drawings'");
   });
 });

@@ -1,5 +1,6 @@
 mod assets;
 mod codex;
+mod drawings;
 mod export;
 mod git;
 mod import;
@@ -20,6 +21,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(terminal::TerminalState::default())
         .manage(codex::CodexState::default())
+        .manage(drawings::DrawingState::default())
         .manage(export_state)
         .manage(import::ImportState::default())
         .register_uri_scheme_protocol("madora-export", move |_context, request| {
@@ -47,6 +49,44 @@ pub fn run() {
             codex::read_codex_plugin_icon,
             codex::select_codex_context_attachments,
             codex::release_codex_context_attachments,
+            drawings::load_drawing_library,
+            drawings::read_drawing_meta,
+            drawings::read_drawing_scene,
+            drawings::read_drawing_preview,
+            drawings::read_drawing_library,
+            drawings::read_drawing_ui_state,
+            drawings::write_drawing_ui_state,
+            drawings::create_drawing,
+            drawings::begin_drawing_save,
+            drawings::stage_drawing_scene,
+            drawings::stage_drawing_preview,
+            drawings::commit_drawing_save,
+            drawings::cancel_drawing_save,
+            drawings::rename_drawing,
+            drawings::move_drawing,
+            drawings::duplicate_drawing,
+            drawings::trash_drawing,
+            drawings::restore_drawing,
+            drawings::permanently_delete_drawing,
+            drawings::create_drawing_album,
+            drawings::rename_drawing_album,
+            drawings::move_drawing_album,
+            drawings::delete_drawing_album,
+            drawings::duplicate_drawing_album,
+            drawings::trash_drawing_album,
+            drawings::restore_drawing_album,
+            drawings::permanently_delete_drawing_album,
+            drawings::begin_drawing_library_write,
+            drawings::write_drawing_library,
+            drawings::select_drawing_import_sources,
+            drawings::read_drawing_import_source,
+            drawings::import_drawing_from_grant,
+            drawings::import_drawing_library_from_grant,
+            drawings::release_drawing_import_grant,
+            drawings::select_drawing_export_target,
+            drawings::write_drawing_export,
+            drawings::begin_drawing_markdown_snapshot,
+            drawings::create_drawing_markdown_snapshot,
             export::select_document_export_directory,
             export::write_document_export_bundle,
             export::print_document_pdf,

@@ -259,6 +259,21 @@ export function MarkdownEditor({
       data-testid="markdown-editor-root"
       ref={editorRootRef}
       tabIndex={-1}
+      onClickCapture={(event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        const link = target.closest<HTMLAnchorElement>('a[href]');
+        const href = link?.getAttribute('href') ?? '';
+        const match = /^madora-drawing:\/\/([0-9a-f-]{36})$/i.exec(href);
+        if (!match) return;
+        event.preventDefault();
+        event.stopPropagation();
+        window.dispatchEvent(
+          new CustomEvent('madora:open-drawing', {
+            detail: { drawingId: match[1].toLowerCase() },
+          }),
+        );
+      }}
       onKeyDownCapture={(event) => {
         const primaryModifier = event.metaKey || event.ctrlKey;
         const key = event.key.toLowerCase();

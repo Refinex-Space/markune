@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { FileText, Search } from 'lucide-react';
+import { FileText, Paintbrush, Search } from 'lucide-react';
 
 import {
   Dialog,
@@ -60,8 +60,8 @@ export function WorkspaceGlobalSearchDialog({
         showCloseButton={false}
       >
         <DialogHeader className="sr-only">
-          <DialogTitle>搜索文档</DialogTitle>
-          <DialogDescription>搜索当前工作区的 Markdown 文档</DialogDescription>
+          <DialogTitle>搜索工作区</DialogTitle>
+          <DialogDescription>搜索当前工作区的文档与图稿</DialogDescription>
         </DialogHeader>
         <div
           className="flex h-12 min-w-0 items-center gap-2 border-b px-3"
@@ -70,9 +70,9 @@ export function WorkspaceGlobalSearchDialog({
           <Search className="shrink-0 text-muted-foreground" size={17} />
           <Input
             ref={inputRef}
-            aria-label="搜索文档"
+            aria-label="搜索工作区"
             className="h-10 min-w-0 flex-1 border-0 px-0 text-base shadow-none focus-visible:ring-0 md:text-sm"
-            placeholder="搜索文档标题、路径或正文"
+            placeholder="搜索文档或图稿的标题、路径与内容"
             role="searchbox"
             value={query}
             onChange={(event) => {
@@ -159,7 +159,7 @@ function renderSearchState({
   if (results.length === 0) {
     return (
       <div className="flex h-28 items-center justify-center text-sm text-muted-foreground">
-        没有匹配的文档
+        没有匹配的内容
       </div>
     );
   }
@@ -168,18 +168,22 @@ function renderSearchState({
     <div className="space-y-1">
       {results.map((result, index) => (
         <button
-          aria-label={`打开文档 ${result.document.title}`}
+          aria-label={`打开${result.document.kind === 'drawing' ? '图稿' : '文档'} ${result.document.title}`}
           className={cn(
             'flex w-full gap-3 rounded-lg px-3 py-2 text-left transition-colors',
             index === boundedActiveIndex
               ? 'bg-muted text-foreground'
               : 'hover:bg-muted/70',
           )}
-          key={result.document.absolutePath}
+          key={`${result.document.kind ?? 'document'}:${result.document.id}`}
           type="button"
           onClick={() => onSelectResult(result)}
         >
-          <FileText className="mt-0.5 shrink-0 text-muted-foreground" size={16} />
+          {result.document.kind === 'drawing' ? (
+            <Paintbrush className="mt-0.5 shrink-0 text-muted-foreground" size={16} />
+          ) : (
+            <FileText className="mt-0.5 shrink-0 text-muted-foreground" size={16} />
+          )}
           <span className="min-w-0 flex-1 space-y-1">
             <span className="block truncate text-sm font-medium">
               <HighlightedText
@@ -188,6 +192,7 @@ function renderSearchState({
               />
             </span>
             <span className="block truncate text-xs text-muted-foreground">
+              {result.document.kind === 'drawing' ? '图稿 · ' : ''}
               <HighlightedText
                 highlights={result.pathHighlights}
                 text={result.document.relativePath}

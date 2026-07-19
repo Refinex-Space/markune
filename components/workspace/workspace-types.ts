@@ -4,6 +4,116 @@ export type WorkspaceExportFormat = 'html' | 'markdown' | 'pdf' | 'word';
 
 export type WorkspaceImportFormat = 'html' | 'markdown' | 'pdf' | 'word';
 
+export type DrawingCollection = 'all' | 'recent' | 'favorites' | 'trash';
+
+export interface DrawingMeta {
+  schemaVersion: 1;
+  id: string;
+  title: string;
+  tags: string[];
+  favorite: boolean;
+  createdAt: string;
+  updatedAt: string;
+  revision: number;
+  sceneSha256: string;
+  elementCount: number;
+  searchText: string;
+  previewRevision: number | null;
+}
+
+export interface DrawingIssue {
+  drawingId: string | null;
+  albumPath: string;
+  message: string;
+}
+
+export interface DrawingSummary extends DrawingMeta {
+  albumPath: string;
+  hasBackup: boolean;
+  hasPreview: boolean;
+  trashed: boolean;
+  issue?: string | null;
+}
+
+export interface DrawingAlbumNode {
+  name: string;
+  path: string;
+  children: DrawingAlbumNode[];
+  drawings: DrawingSummary[];
+}
+
+export interface DrawingTrashedAlbumSummary {
+  trashId: string;
+  name: string;
+  originalPath: string;
+  trashedAt: string;
+  drawingCount: number;
+}
+
+export interface DrawingLibrarySnapshot {
+  albums: DrawingAlbumNode[];
+  drawings: DrawingSummary[];
+  trash: DrawingSummary[];
+  trashAlbums: DrawingTrashedAlbumSummary[];
+  issues: DrawingIssue[];
+}
+
+export interface DrawingViewport {
+  scrollX: number;
+  scrollY: number;
+  zoom: number;
+}
+
+export interface DrawingUiState {
+  schemaVersion: 1;
+  recentDrawingIds: string[];
+  viewports: Record<string, DrawingViewport>;
+}
+
+export interface DrawingDocumentDescriptor {
+  meta: DrawingMeta;
+  albumPath: string;
+  hasBackup: boolean;
+  hasPreview: boolean;
+}
+
+export interface DrawingSaveSession {
+  sessionId: string;
+  nextRevision: number;
+}
+
+export type DrawingSaveState =
+  | { status: 'saved'; revision: number }
+  | { status: 'dirty'; revision: number }
+  | { status: 'saving'; revision: number }
+  | { status: 'conflict'; revision: number; message: string }
+  | { status: 'error'; revision: number; message: string };
+
+export interface DrawingSaveManifest {
+  title: string;
+  tags: string[];
+  favorite: boolean;
+  elementCount: number;
+  searchText: string;
+}
+
+export interface DrawingImportSource {
+  fileName: string;
+  kind: 'drawing' | 'library';
+  size: number;
+  sourceId: string;
+}
+
+export interface DrawingImportGrant {
+  grantId: string;
+  sources: DrawingImportSource[];
+}
+
+export interface DrawingExportGrant {
+  grantId: string;
+  fileName: string;
+}
+
 export interface ExportDirectoryGrant {
   grantId: string;
   displayPath: string;

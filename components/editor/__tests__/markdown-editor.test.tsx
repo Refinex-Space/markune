@@ -653,4 +653,30 @@ describe('MarkdownEditor', () => {
     expect(scrollToMock).toHaveBeenCalledWith({ top: expect.any(Number) });
   });
 
+  it('只拦截稳定的 madora-drawing 内链并派发打开事件', () => {
+    const onOpenDrawing = vi.fn();
+    window.addEventListener('madora:open-drawing', onOpenDrawing);
+    render(<MarkdownEditor markdown="# 图稿" />);
+    const root = screen.getByTestId('markdown-editor-root');
+    const drawingLink = document.createElement('a');
+    drawingLink.href =
+      'madora-drawing://11111111-1111-4111-8111-111111111111';
+    root.append(drawingLink);
+
+    fireEvent.click(drawingLink);
+
+    expect(onOpenDrawing).toHaveBeenCalledTimes(1);
+    expect((onOpenDrawing.mock.calls[0][0] as CustomEvent).detail).toEqual({
+      drawingId: '11111111-1111-4111-8111-111111111111',
+    });
+
+    const httpLink = document.createElement('a');
+    httpLink.href = 'https://example.com';
+    httpLink.addEventListener('click', (event) => event.preventDefault());
+    root.append(httpLink);
+    fireEvent.click(httpLink);
+    expect(onOpenDrawing).toHaveBeenCalledTimes(1);
+    window.removeEventListener('madora:open-drawing', onOpenDrawing);
+  });
+
 });

@@ -68,6 +68,17 @@ Inbox bridge 固定由 `workspace-api.ts` 调用以下命令：`list_inbox_captu
 - Promote 只接受普通工作区相对目录，不得写入隐藏目录或 Daily；新笔记唯一命名，复制正文、创建时间和标签，无 H1 时补标题。Append 只接受 `YYYY-MM-DD` 与 `HH:mm`，复用或创建 `## Inbox` 并写入 Capture 幂等标记。
 - Promote/Append 的正式文档写入和 Capture 留痕属于同一组合操作；后半段失败时必须回滚本次新建笔记或 Daily 内容追加。删除只作用于 Capture 文件，不级联删除已生成内容。
 
+## Drawing Commands
+
+画板 bridge 固定集中在 `workspace-api.ts`，并使用 `DrawingMeta`、`DrawingSummary`、`DrawingAlbumNode`、`DrawingLibrarySnapshot`、`DrawingDocumentDescriptor`、`DrawingSaveSession`、`DrawingSaveState` 与 `DrawingUiState` 契约。
+
+- 查询命令为 `load_drawing_library`、`read_drawing_meta`、`read_drawing_scene`、`read_drawing_preview`、`read_drawing_library`、`read_drawing_ui_state`；场景、预览和组件库返回 Raw IPC response，不得转成 JSON 数字数组或 base64。
+- 保存固定使用 `begin_drawing_save`、Raw `stage_drawing_scene`、可选 Raw `stage_drawing_preview`、`commit_drawing_save` 和 `cancel_drawing_save`。begin 只接收 Drawing ID、期望 revision、受限元数据和显式冲突覆盖标记；commit 只接收 opaque session ID。
+- 图稿与图集 create、rename、move、duplicate、trash、restore、permanent-delete 命令只接受 Drawing ID、图集回收站 ID 或受校验相对图集路径。删除图稿先移动整个 bundle 到 `.trash`；删除空图集不得递归，非空图集必须通过整图集回收事务移动到 `.trash/albums/<trash-id>`。复制图集必须为所有图稿生成新 Drawing ID；恢复冲突时生成唯一图集名，不得覆盖现有目录。
+- 导入选择器返回限时 opaque grant/source ID；导出选择器返回一次性目录 grant，Raw 写入不接受绝对目标路径且不得覆盖现有文件。组件库和 Markdown 快照同样采用 begin-session 加 Raw body 的两步协议。
+- `read_drawing_ui_state` / `write_drawing_ui_state` 只维护 schema v1 的最近 Drawing ID 与有限数值视口。该状态不得参与场景 revision、SHA 或 `updatedAt`。
+- `create_drawing_markdown_snapshot` 必须先把 WebP 通过 Raw IPC 写入现有内容寻址资产存储，再返回稳定 `madora-asset://` URL；`madora-drawing://` 只作为前端内部回链，不开放任意协议处理器。
+
 ## Document Export Commands
 
 单文档导出固定使用以下桥接类型：

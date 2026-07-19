@@ -8,6 +8,14 @@ import type {
   DocumentExportResult,
   DocumentImportGrant,
   DocumentImportManifest,
+  DrawingDocumentDescriptor,
+  DrawingExportGrant,
+  DrawingImportGrant,
+  DrawingLibrarySnapshot,
+  DrawingSaveManifest,
+  DrawingSaveSession,
+  DrawingTrashedAlbumSummary,
+  DrawingUiState,
   DocumentContentMeta,
   ExportDirectoryGrant,
   GitBranchItem,
@@ -275,6 +283,407 @@ export async function readInboxCapture(rootPath: string, captureId: string) {
   const { invoke } = await import('@tauri-apps/api/core');
 
   return invoke<InboxCapture>('read_inbox_capture', { rootPath, captureId });
+}
+
+export async function loadDrawingLibrary(rootPath: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<DrawingLibrarySnapshot>('load_drawing_library', { rootPath });
+}
+
+export async function readDrawingMeta(rootPath: string, drawingId: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<DrawingDocumentDescriptor>('read_drawing_meta', {
+    rootPath,
+    drawingId,
+  });
+}
+
+export async function readDrawingScene(
+  rootPath: string,
+  drawingId: string,
+  backup = false,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  const result = await invoke<ArrayBuffer | Uint8Array>('read_drawing_scene', {
+    rootPath,
+    drawingId,
+    backup,
+  });
+
+  return toUint8Array(result);
+}
+
+export async function readDrawingPreview(
+  rootPath: string,
+  drawingId: string,
+  trashed = false,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  const result = await invoke<ArrayBuffer | Uint8Array>('read_drawing_preview', {
+    rootPath,
+    drawingId,
+    trashed,
+  });
+
+  return toUint8Array(result);
+}
+
+export async function readDrawingLibrary(rootPath: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  const result = await invoke<ArrayBuffer | Uint8Array>('read_drawing_library', {
+    rootPath,
+  });
+
+  return toUint8Array(result);
+}
+
+export async function readDrawingUiState(rootPath: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<DrawingUiState>('read_drawing_ui_state', { rootPath });
+}
+
+export async function writeDrawingUiState(
+  rootPath: string,
+  uiState: DrawingUiState,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<DrawingUiState>('write_drawing_ui_state', {
+    rootPath,
+    uiState,
+  });
+}
+
+export async function createDrawing(
+  rootPath: string,
+  albumPath: string,
+  title: string,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<DrawingDocumentDescriptor>('create_drawing', {
+    rootPath,
+    albumPath,
+    title,
+  });
+}
+
+export async function beginDrawingSave(
+  rootPath: string,
+  drawingId: string,
+  expectedRevision: number,
+  manifest: DrawingSaveManifest,
+  force = false,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<DrawingSaveSession>('begin_drawing_save', {
+    rootPath,
+    drawingId,
+    expectedRevision,
+    manifest,
+    force,
+  });
+}
+
+export async function stageDrawingScene(
+  sessionId: string,
+  bytes: Uint8Array,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('stage_drawing_scene', bytes, {
+    headers: { 'x-madora-drawing-session': sessionId },
+  });
+}
+
+export async function stageDrawingPreview(
+  sessionId: string,
+  bytes: Uint8Array,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('stage_drawing_preview', bytes, {
+    headers: { 'x-madora-drawing-session': sessionId },
+  });
+}
+
+export async function commitDrawingSave(sessionId: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<DrawingDocumentDescriptor>('commit_drawing_save', {
+    sessionId,
+  });
+}
+
+export async function cancelDrawingSave(sessionId: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('cancel_drawing_save', { sessionId });
+}
+
+export async function renameDrawing(
+  rootPath: string,
+  drawingId: string,
+  expectedRevision: number,
+  title: string,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<DrawingDocumentDescriptor>('rename_drawing', {
+    rootPath,
+    drawingId,
+    expectedRevision,
+    title,
+  });
+}
+
+export async function moveDrawing(
+  rootPath: string,
+  drawingId: string,
+  albumPath: string,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<DrawingDocumentDescriptor>('move_drawing', {
+    rootPath,
+    drawingId,
+    albumPath,
+  });
+}
+
+export async function duplicateDrawing(
+  rootPath: string,
+  drawingId: string,
+  albumPath?: string | null,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<DrawingDocumentDescriptor>('duplicate_drawing', {
+    rootPath,
+    drawingId,
+    albumPath: albumPath ?? null,
+  });
+}
+
+export async function trashDrawing(rootPath: string, drawingId: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('trash_drawing', { rootPath, drawingId });
+}
+
+export async function restoreDrawing(
+  rootPath: string,
+  drawingId: string,
+  albumPath?: string | null,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<DrawingDocumentDescriptor>('restore_drawing', {
+    rootPath,
+    drawingId,
+    albumPath: albumPath ?? null,
+  });
+}
+
+export async function permanentlyDeleteDrawing(
+  rootPath: string,
+  drawingId: string,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('permanently_delete_drawing', { rootPath, drawingId });
+}
+
+export async function createDrawingAlbum(rootPath: string, albumPath: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<string>('create_drawing_album', { rootPath, albumPath });
+}
+
+export async function renameDrawingAlbum(
+  rootPath: string,
+  albumPath: string,
+  newName: string,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<string>('rename_drawing_album', {
+    rootPath,
+    albumPath,
+    newName,
+  });
+}
+
+export async function moveDrawingAlbum(
+  rootPath: string,
+  albumPath: string,
+  parentAlbumPath: string,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<string>('move_drawing_album', {
+    rootPath,
+    albumPath,
+    parentAlbumPath,
+  });
+}
+
+export async function deleteDrawingAlbum(rootPath: string, albumPath: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('delete_drawing_album', { rootPath, albumPath });
+}
+
+export async function duplicateDrawingAlbum(
+  rootPath: string,
+  albumPath: string,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<string>('duplicate_drawing_album', { rootPath, albumPath });
+}
+
+export async function trashDrawingAlbum(rootPath: string, albumPath: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<DrawingTrashedAlbumSummary>('trash_drawing_album', {
+    rootPath,
+    albumPath,
+  });
+}
+
+export async function restoreDrawingAlbum(rootPath: string, trashId: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<string>('restore_drawing_album', { rootPath, trashId });
+}
+
+export async function permanentlyDeleteDrawingAlbum(
+  rootPath: string,
+  trashId: string,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('permanently_delete_drawing_album', {
+    rootPath,
+    trashId,
+  });
+}
+
+export async function writeDrawingLibrary(
+  rootPath: string,
+  bytes: Uint8Array,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  const session = await invoke<Pick<DrawingSaveSession, 'sessionId'>>(
+    'begin_drawing_library_write',
+    { rootPath },
+  );
+
+  return invoke<void>('write_drawing_library', bytes, {
+    headers: { 'x-madora-drawing-session': session.sessionId },
+  });
+}
+
+export async function selectDrawingImportSources() {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<DrawingImportGrant | null>('select_drawing_import_sources');
+}
+
+export async function readDrawingImportSource(
+  grantId: string,
+  sourceId: string,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  const result = await invoke<ArrayBuffer | Uint8Array>(
+    'read_drawing_import_source',
+    { grantId, sourceId },
+  );
+
+  return toUint8Array(result);
+}
+
+export async function importDrawingFromGrant(
+  rootPath: string,
+  albumPath: string,
+  grantId: string,
+  sourceId: string,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<DrawingDocumentDescriptor>('import_drawing_from_grant', {
+    rootPath,
+    albumPath,
+    grantId,
+    sourceId,
+  });
+}
+
+export async function importDrawingLibraryFromGrant(
+  rootPath: string,
+  grantId: string,
+  sourceId: string,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('import_drawing_library_from_grant', {
+    rootPath,
+    grantId,
+    sourceId,
+  });
+}
+
+export async function releaseDrawingImportGrant(grantId: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('release_drawing_import_grant', { grantId });
+}
+
+export async function selectDrawingExportTarget(
+  fileName: string,
+  format: 'excalidraw' | 'excalidrawlib' | 'png' | 'svg',
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<DrawingExportGrant | null>('select_drawing_export_target', {
+    fileName,
+    format,
+  });
+}
+
+export async function writeDrawingExport(
+  grantId: string,
+  bytes: Uint8Array,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<string>('write_drawing_export', bytes, {
+    headers: { 'x-madora-drawing-export': grantId },
+  });
+}
+
+export async function createDrawingMarkdownSnapshot(
+  rootPath: string,
+  drawingId: string,
+  title: string,
+  bytes: Uint8Array,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  const session = await invoke<Pick<DrawingSaveSession, 'sessionId'>>(
+    'begin_drawing_markdown_snapshot',
+    { rootPath, drawingId, title },
+  );
+
+  return invoke<UploadedWorkspaceAsset>(
+    'create_drawing_markdown_snapshot',
+    bytes,
+    { headers: { 'x-madora-drawing-session': session.sessionId } },
+  );
 }
 
 export async function createInboxCapture(
@@ -913,6 +1322,10 @@ function getDownloadDialogFilterName(mediaType: string) {
   }
 
   return 'Resource';
+}
+
+function toUint8Array(value: ArrayBuffer | Uint8Array) {
+  return value instanceof Uint8Array ? value : new Uint8Array(value);
 }
 
 export async function setAppWindowTitle(title: string) {
