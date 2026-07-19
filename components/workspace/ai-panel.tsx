@@ -892,38 +892,6 @@ export function AiPanel({
     }
   }, [goalUpdating, updateThreadGoal]);
 
-  const setMessageAsGoal = React.useCallback(
-    async (objective: string) => {
-      const threadId = activeThreadIdRef.current;
-      const trimmed = objective.trim();
-      if (
-        !threadId ||
-        !goalFeatureAvailable ||
-        goalUpdating ||
-        threadGoalsRef.current[threadId] ||
-        !trimmed ||
-        Array.from(trimmed).length > GOAL_OBJECTIVE_MAX_LENGTH
-      ) {
-        return;
-      }
-      setGoalUpdating(true);
-      setRuntimeError(null);
-      try {
-        const response =
-          await codexAppServerClient.request<CodexThreadGoalSetResponse>(
-            'thread/goal/set',
-            { objective: trimmed, status: 'active', threadId },
-          );
-        updateThreadGoal(threadId, response.goal);
-      } catch (error) {
-        setRuntimeError(getErrorMessage(error));
-      } finally {
-        setGoalUpdating(false);
-      }
-    },
-    [goalFeatureAvailable, goalUpdating, updateThreadGoal],
-  );
-
   const changeCollaborationMode = React.useCallback(
     (nextMode: CodexCollaborationModeKind) => {
       if (modeSwitchDisabled || nextMode === collaborationModeRef.current) return;
@@ -2246,11 +2214,6 @@ export function AiPanel({
                 )
               }
               onPrompt={(prompt) => void sendMessage(prompt)}
-              onSetGoal={
-                goalFeatureAvailable && activeThread && !activeGoal
-                  ? (objective) => void setMessageAsGoal(objective)
-                  : undefined
-              }
               onSignIn={() => void signIn()}
             />
           </AiConversationViewport>
@@ -2556,7 +2519,6 @@ function PanelContent({
   onOpenDocument,
   onOpenPlanPreview,
   onPrompt,
-  onSetGoal,
   onSignIn,
 }: {
   account: CodexAccountResponse['account'];
@@ -2573,7 +2535,6 @@ function PanelContent({
   onOpenDocument: (documentPath: string) => void;
   onOpenPlanPreview: (plan: AiProposedPlan) => void;
   onPrompt: (prompt: string) => void;
-  onSetGoal?: (objective: string) => void;
   onSignIn: () => void;
 }) {
   if (runtimeStatus === 'web') {
@@ -2727,8 +2688,8 @@ function PanelContent({
               key={`${block.type}-${block.id}`}
               onOpenDocument={onOpenDocument}
               onOpenPlanPreview={onOpenPlanPreview}
-              onSetGoal={onSetGoal}
               previous={previousConversationEntry(blocks[index - 1])}
+              timestampMs={messageTimestampMs(block, conversation.turns)}
             />
           ),
         )}
@@ -2746,6 +2707,21 @@ function PanelContent({
 
 function previousConversationEntry(block: AiConversationBlock | undefined) {
   return block?.type === 'message' ? block : null;
+}
+
+function messageTimestampMs(
+  entry: AiConversationEntry,
+  turns: AiConversationState['turns'],
+) {
+  if (entry.type !== 'message') return null;
+  if (entry.createdAtMs !== undefined && entry.createdAtMs !== null) {
+    return entry.createdAtMs;
+  }
+  const turn = entry.turnId ? turns[entry.turnId] : null;
+  if (!turn) return null;
+  return entry.role === 'user'
+    ? turn.startedAtMs
+    : (turn.completedAtMs ?? turn.startedAtMs);
 }
 
 export function ProposedPlanCard({
@@ -3271,14 +3247,14 @@ export function ConversationEntryRow({
   entry,
   onOpenDocument,
   onOpenPlanPreview = () => undefined,
-  onSetGoal,
   previous,
+  timestampMs,
 }: {
   entry: AiConversationEntry;
   onOpenDocument: (documentPath: string) => void;
   onOpenPlanPreview?: (plan: AiProposedPlan) => void;
-  onSetGoal?: (objective: string) => void;
   previous: AiConversationEntry | null;
+  timestampMs?: number | null;
 }) {
   if (entry.type === 'proposedPlan') {
     return <ProposedPlanCard plan={entry} onOpen={onOpenPlanPreview} />;
@@ -3296,23 +3272,34 @@ export function ConversationEntryRow({
     );
   }
 
+  const resolvedTimestampMs =
+    timestampMs === undefined ? (entry.createdAtMs ?? null) : timestampMs;
+
   return (
     <article
       className={cn(
-        'text-[13px] leading-6',
+        'ai-message-entry text-[13px] leading-6 outline-none',
         previous && 'mt-5',
         entry.role === 'user' && 'flex justify-end',
       )}
+      tabIndex={0}
     >
       {entry.role === 'assistant' ? (
-        <AiMessageContent markdown={entry.text} />
+        <div className="min-w-0">
+          <AiMessageContent markdown={entry.text} />
+          <MessageMetadata
+            role="assistant"
+            text={entry.text}
+            timestampMs={resolvedTimestampMs}
+          />
+        </div>
       ) : (
         <UserMessageBubble
           attachments={entry.attachments ?? []}
           mentions={entry.mentions ?? []}
           text={entry.text}
+          timestampMs={resolvedTimestampMs}
           onOpenMention={onOpenDocument}
-          onSetGoal={onSetGoal}
         />
       )}
     </article>
@@ -3323,17 +3310,15 @@ function UserMessageBubble({
   attachments,
   mentions,
   text,
+  timestampMs,
   onOpenMention,
-  onSetGoal,
 }: {
   attachments: AiMessageAttachment[];
   mentions: AiMessageMention[];
   text: string;
+  timestampMs: number | null;
   onOpenMention: (path: string) => void;
-  onSetGoal?: (objective: string) => void;
 }) {
-  const [copied, setCopied] = React.useState(false);
-
   return (
     <div className="flex max-w-[88%] flex-col items-end">
       <div className="w-max max-w-full break-words rounded-xl bg-muted/70 px-3 py-2">
@@ -3344,37 +3329,82 @@ function UserMessageBubble({
           onOpenMention={onOpenMention}
         />
       </div>
-      {text.trim() ? (
-        <div className="mt-1 flex items-center gap-0.5 text-[10px] text-muted-foreground">
-          <button
-            aria-label={copied ? '已复制消息' : '复制消息'}
-            className="flex h-6 items-center gap-1 rounded-md px-1.5 transition-colors hover:bg-accent hover:text-foreground"
-            type="button"
-            onClick={() => {
-              void navigator.clipboard.writeText(text).then(() => {
-                setCopied(true);
-                window.setTimeout(() => setCopied(false), 1_200);
-              }).catch(() => undefined);
-            }}
-          >
-            {copied ? <Check size={12} /> : <Copy size={12} />}
-            {copied ? '已复制' : '复制'}
-          </button>
-          {onSetGoal ? (
-            <button
-              aria-label="设为目标"
-              className="flex h-6 items-center gap-1 rounded-md px-1.5 transition-colors hover:bg-accent hover:text-foreground"
-              type="button"
-              onClick={() => onSetGoal(text)}
-            >
-              <Goal size={12} />
-              设为目标
-            </button>
-          ) : null}
-        </div>
-      ) : null}
+      <MessageMetadata role="user" text={text} timestampMs={timestampMs} />
     </div>
   );
+}
+
+function MessageMetadata({
+  role,
+  text,
+  timestampMs,
+}: {
+  role: 'assistant' | 'user';
+  text: string;
+  timestampMs: number | null;
+}) {
+  const [copied, setCopied] = React.useState(false);
+  const formattedTime = formatMessageTimestamp(timestampMs);
+
+  if (!text.trim()) return null;
+
+  const copyButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          aria-label={copied ? '已复制消息' : '复制消息'}
+          className="inline-flex size-6 items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          type="button"
+          onClick={() => {
+            void navigator.clipboard
+              .writeText(text)
+              .then(() => {
+                setCopied(true);
+                window.setTimeout(() => setCopied(false), 1_200);
+              })
+              .catch(() => undefined);
+          }}
+        >
+          {copied ? <Check size={13} /> : <Copy size={13} />}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" sideOffset={4}>
+        {copied ? '已复制' : '复制'}
+      </TooltipContent>
+    </Tooltip>
+  );
+  const time = formattedTime ? (
+    <time
+      className="px-1 text-[11px] leading-none tabular-nums"
+      dateTime={new Date(timestampMs as number).toISOString()}
+    >
+      {formattedTime}
+    </time>
+  ) : null;
+
+  return (
+    <TooltipProvider delayDuration={250}>
+      <div
+        className={cn(
+          'ai-message-metadata mt-1 flex min-h-6 items-center gap-0.5 text-muted-foreground transition-opacity duration-150',
+          role === 'user' ? 'justify-end' : 'justify-start',
+        )}
+        data-testid={`${role}-message-metadata`}
+      >
+        {role === 'assistant' ? copyButton : time}
+        {role === 'assistant' ? time : copyButton}
+      </div>
+    </TooltipProvider>
+  );
+}
+
+function formatMessageTimestamp(timestampMs: number | null) {
+  if (timestampMs === null || !Number.isFinite(timestampMs)) return null;
+  const date = new Date(timestampMs);
+  if (Number.isNaN(date.getTime())) return null;
+  return `${String(date.getHours()).padStart(2, '0')}:${String(
+    date.getMinutes(),
+  ).padStart(2, '0')}`;
 }
 
 export function UserMessageContent({

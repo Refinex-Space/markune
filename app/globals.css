@@ -527,6 +527,17 @@
     height: 0;
   }
 
+  .ai-message-entry .ai-message-metadata {
+    pointer-events: none;
+    opacity: 0;
+  }
+
+  .ai-message-entry:hover .ai-message-metadata,
+  .ai-message-entry:focus-within .ai-message-metadata {
+    pointer-events: auto;
+    opacity: 1;
+  }
+
   .workspace-editor-shell .markweave-editor-frame {
     min-height: 100%;
     padding: 2rem 2rem 8rem;

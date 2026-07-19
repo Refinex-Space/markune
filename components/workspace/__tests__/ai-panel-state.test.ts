@@ -39,6 +39,54 @@ describe('AI panel event reducer', () => {
     ]);
   });
 
+  it('记录用户发送与助手完成事件的消息时间', () => {
+    let state = reduceCodexProtocolMessage(createEmptyConversation(), {
+      method: 'item/completed',
+      params: {
+        completedAtMs: 1_000,
+        item: {
+          content: [{ type: 'text', text: '请检查工作区' }],
+          id: 'user-message',
+          type: 'userMessage',
+        },
+        turnId: 'turn-1',
+      },
+    });
+    state = reduceCodexProtocolMessage(state, {
+      method: 'item/started',
+      params: {
+        item: { id: 'assistant-message', text: '', type: 'agentMessage' },
+        startedAtMs: 1_100,
+        turnId: 'turn-1',
+      },
+    });
+    state = reduceCodexProtocolMessage(state, {
+      method: 'item/completed',
+      params: {
+        completedAtMs: 1_500,
+        item: {
+          id: 'assistant-message',
+          text: '检查完成',
+          type: 'agentMessage',
+        },
+        turnId: 'turn-1',
+      },
+    });
+
+    expect(state.entries).toEqual([
+      expect.objectContaining({
+        createdAtMs: 1_000,
+        id: 'user-message',
+        role: 'user',
+      }),
+      expect.objectContaining({
+        createdAtMs: 1_500,
+        id: 'assistant-message',
+        role: 'assistant',
+      }),
+    ]);
+  });
+
   it('按消息和工具事件的真实到达顺序组织会话', () => {
     const preamble = reduceCodexProtocolMessage(createEmptyConversation(), {
       method: 'item/agentMessage/delta',
