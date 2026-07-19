@@ -382,6 +382,7 @@ export function WorkspaceLayout({
     workspace.syncExternalMarkdownDocument,
   );
   const workspaceRootPathRef = React.useRef(workspaceRootPath);
+  const editorWorkspaceRootPathRef = React.useRef(workspaceRootPath);
 
   React.useEffect(() => {
     currentDocumentPathRef.current = currentDocumentPath;
@@ -1563,7 +1564,9 @@ export function WorkspaceLayout({
   }, []);
 
   React.useEffect(() => {
-    if (workspaceRootPath) {
+    const previousRootPath = editorWorkspaceRootPathRef.current;
+    editorWorkspaceRootPathRef.current = workspaceRootPath;
+    if (previousRootPath === workspaceRootPath) {
       return;
     }
 
@@ -1572,7 +1575,9 @@ export function WorkspaceLayout({
       setDocumentEditorLayout(closeAllDocumentTabs());
       setActiveEditorDocumentPath(null);
       setEditorSessions({});
-      setRecentDocuments([]);
+      if (!workspaceRootPath) {
+        setRecentDocuments([]);
+      }
     }, 0);
 
     return () => window.clearTimeout(timer);
