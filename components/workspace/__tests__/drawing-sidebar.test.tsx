@@ -74,6 +74,14 @@ function controller(overrides: Partial<DrawingController> = {}) {
 }
 
 describe('DrawingSidebar', () => {
+  it('centers collection counts on the same slot as the create button', () => {
+    render(<DrawingSidebar controller={controller()} />);
+
+    const count = screen.getByTestId('drawing-collection-count-全部图稿');
+    expect(count.className).toContain('size-7');
+    expect(count.className).toContain('justify-center');
+  });
+
   it('uses the document-tree folder states and guide line', async () => {
     const user = userEvent.setup();
 

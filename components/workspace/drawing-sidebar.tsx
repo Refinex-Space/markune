@@ -744,7 +744,10 @@ function CollectionRow({
       {icon}
       <span className="truncate">{label}</span>
       {typeof count === 'number' ? (
-        <span className="ml-auto text-[10px] tabular-nums text-muted-foreground">
+        <span
+          className="ml-auto flex size-7 shrink-0 items-center justify-center text-[10px] tabular-nums text-muted-foreground"
+          data-testid={`drawing-collection-count-${label}`}
+        >
           {count}
         </span>
       ) : null}

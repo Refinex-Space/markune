@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { DrawingWorkspacePage } from '../drawing-workspace-page';
@@ -187,6 +188,8 @@ describe('DrawingWorkspacePage', () => {
     expect(screen.getByTestId('drawing-gallery-header').className).toContain('h-10');
     expect(screen.getByTestId('drawing-card').className).not.toContain('shadow');
     expect(screen.getByTestId('drawing-card').className).not.toContain('transform');
+    expect(screen.getByTestId('drawing-preview-surface').className)
+      .toContain('bg-muted/45');
 
     fireEvent.contextMenu(screen.getByTestId('drawing-card'));
 
@@ -195,7 +198,32 @@ describe('DrawingWorkspacePage', () => {
     expect(screen.getByRole('menuitem', { name: '移动到…' })).toBeTruthy();
   });
 
+  it('uses the application dropdown menu for drawing sorting', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <DrawingWorkspacePage
+        controller={controller()}
+        rootPath="/repo"
+        theme="light"
+      />,
+    );
+
+    expect(screen.queryByRole('combobox', { name: '图稿排序' })).toBeNull();
+    const trigger = screen.getByRole('button', { name: '图稿排序' });
+    expect(trigger.textContent).toContain('最近更新');
+
+    await user.click(trigger);
+    await user.click(screen.getByRole('menuitemradio', { name: '名称' }));
+
+    expect(trigger.textContent).toContain('名称');
+  });
+
   it('renders a PNG fallback preview with the detected media type', async () => {
+    const originalIntersectionObserver = Object.getOwnPropertyDescriptor(
+      globalThis,
+      'IntersectionObserver',
+    );
     const originalCreateObjectUrl = Object.getOwnPropertyDescriptor(
       URL,
       'createObjectURL',
@@ -206,6 +234,16 @@ describe('DrawingWorkspacePage', () => {
     );
     const createObjectURL = vi.fn().mockReturnValue('blob:drawing-preview');
     const revokeObjectURL = vi.fn();
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+    Object.defineProperty(globalThis, 'IntersectionObserver', {
+      configurable: true,
+      value: class {
+        disconnect = disconnect;
+        observe = observe;
+        unobserve = vi.fn();
+      },
+    });
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,
       value: createObjectURL,
@@ -236,7 +274,19 @@ describe('DrawingWorkspacePage', () => {
       );
       const previewBlob = createObjectURL.mock.calls[0]?.[0] as Blob;
       expect(previewBlob.type).toBe('image/png');
+      expect(observe).not.toHaveBeenCalled();
+      expect(screen.getByTestId('drawing-preview-surface').className)
+        .not.toContain('bg-muted/45');
     } finally {
+      if (originalIntersectionObserver) {
+        Object.defineProperty(
+          globalThis,
+          'IntersectionObserver',
+          originalIntersectionObserver,
+        );
+      } else {
+        Reflect.deleteProperty(globalThis, 'IntersectionObserver');
+      }
       if (originalCreateObjectUrl) {
         Object.defineProperty(URL, 'createObjectURL', originalCreateObjectUrl);
       } else {

@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Check,
+  ChevronDown,
   Clock3,
   FileImage,
   Grid2X2,
@@ -33,6 +34,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
@@ -181,16 +184,34 @@ function DrawingGallery({
           </p>
         </div>
         <div className="ml-auto flex items-center gap-1">
-          <select
-            aria-label="图稿排序"
-            className="h-7 rounded-md border bg-background px-2 text-xs outline-none"
-            value={sort}
-            onChange={(event) => setSort(event.target.value as GallerySort)}
-          >
-            <option value="updated">最近更新</option>
-            <option value="created">创建时间</option>
-            <option value="name">名称</option>
-          </select>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                aria-label="图稿排序"
+                className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/70 bg-background px-2 text-xs text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-1 focus-visible:ring-ring"
+                type="button"
+              >
+                {gallerySortLabel(sort)}
+                <ChevronDown className="text-muted-foreground" size={13} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-36">
+              <DropdownMenuRadioGroup
+                value={sort}
+                onValueChange={(value) => setSort(value as GallerySort)}
+              >
+                <DropdownMenuRadioItem value="updated">
+                  最近更新
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="created">
+                  创建时间
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="name">
+                  名称
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             aria-label="缩略图视图"
             size="icon-sm"
@@ -218,7 +239,11 @@ function DrawingGallery({
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-5">
+      <div
+        className="min-h-0 flex-1 overflow-y-auto p-5"
+        data-drawing-gallery-scrollarea=""
+        data-testid="drawing-gallery-scrollarea"
+      >
         {controller.error ? (
           <div className="mb-4 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
             <AlertTriangle className="mt-0.5 shrink-0" size={14} />
@@ -463,9 +488,11 @@ function DrawingCard({
       >
         <div
           className={cn(
-            'flex items-center justify-center overflow-hidden bg-muted/45',
+            'flex items-center justify-center overflow-hidden',
+            !objectUrl && 'bg-muted/45',
             viewMode === 'grid' ? 'aspect-[4/3] w-full border-b' : 'ml-2 size-12 rounded-md border',
           )}
+          data-testid="drawing-preview-surface"
         >
           {objectUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -760,6 +787,11 @@ function useDrawingPreview(
   const [objectUrl, setObjectUrl] = React.useState<string | null>(null);
   const ref = React.useCallback((node: HTMLElement | null) => {
     if (!node) return;
+    const root = node.closest<HTMLElement>('[data-drawing-gallery-scrollarea]');
+    if (isNearDrawingViewport(node, root)) {
+      setVisible(true);
+      return;
+    }
     if (typeof IntersectionObserver === 'undefined') {
       setVisible(true);
       return;
@@ -771,7 +803,7 @@ function useDrawingPreview(
           observer.disconnect();
         }
       },
-      { rootMargin: '240px' },
+      { root, rootMargin: '240px' },
     );
     observer.observe(node);
     return () => observer.disconnect();
@@ -801,6 +833,26 @@ function useDrawingPreview(
   }, [available, drawingId, previewRevision, rootPath, trashed, visible]);
 
   return { objectUrl, ref };
+}
+
+function isNearDrawingViewport(
+  node: HTMLElement,
+  root: HTMLElement | null,
+) {
+  const nodeRect = node.getBoundingClientRect();
+  const rootRect = root?.getBoundingClientRect() ?? {
+    bottom: window.innerHeight,
+    left: 0,
+    right: window.innerWidth,
+    top: 0,
+  };
+  const margin = 240;
+  return (
+    nodeRect.bottom >= rootRect.top - margin &&
+    nodeRect.top <= rootRect.bottom + margin &&
+    nodeRect.right >= rootRect.left - margin &&
+    nodeRect.left <= rootRect.right + margin
+  );
 }
 
 function drawingPreviewMediaType(bytes: Uint8Array) {
@@ -846,6 +898,14 @@ function galleryTitle(controller: DrawingController) {
 
 function selectedAlbum(controller: DrawingController) {
   return controller.selection.kind === 'album' ? controller.selection.path : '';
+}
+
+function gallerySortLabel(sort: GallerySort) {
+  return {
+    created: '创建时间',
+    name: '名称',
+    updated: '最近更新',
+  }[sort];
 }
 
 function sortDrawings(drawings: DrawingSummary[], sort: GallerySort) {
