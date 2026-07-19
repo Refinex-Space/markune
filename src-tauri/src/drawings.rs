@@ -26,6 +26,8 @@ const MAX_TAGS: usize = 10;
 const MAX_TAG_CHARS: usize = 32;
 const MAX_ALBUM_DEPTH: usize = 8;
 const MAX_ALBUM_NAME_CHARS: usize = 80;
+const PREVIEW_PNG_FILE: &str = "preview.png";
+const PREVIEW_WEBP_FILE: &str = "preview.webp";
 const SESSION_TTL: Duration = Duration::from_secs(30 * 60);
 const GRANT_TTL: Duration = Duration::from_secs(15 * 60);
 
@@ -92,6 +94,35 @@ struct SnapshotSessionEntry {
 enum DrawingImportKind {
     Drawing,
     Library,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DrawingPreviewFormat {
+    Png,
+    Webp,
+}
+
+impl DrawingPreviewFormat {
+    fn file_name(self) -> &'static str {
+        match self {
+            Self::Png => PREVIEW_PNG_FILE,
+            Self::Webp => PREVIEW_WEBP_FILE,
+        }
+    }
+
+    fn media_type(self) -> &'static str {
+        match self {
+            Self::Png => "image/png",
+            Self::Webp => "image/webp",
+        }
+    }
+
+    fn extension(self) -> &'static str {
+        match self {
+            Self::Png => "png",
+            Self::Webp => "webp",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -310,8 +341,9 @@ pub fn read_drawing_preview(
     } else {
         locate_active_bundle(&root, &drawing_id)?
     };
-    let bytes = read_limited_file(&bundle.join("preview.webp"), MAX_PREVIEW_BYTES, "图稿预览")?;
-    validate_webp(&bytes)?;
+    let preview = drawing_preview_path(&bundle).ok_or_else(|| "图稿预览不存在。".to_string())?;
+    let bytes = read_limited_file(&preview, MAX_PREVIEW_BYTES, "图稿预览")?;
+    validate_preview_image(&bytes)?;
     Ok(Response::new(bytes))
 }
 
@@ -456,8 +488,13 @@ pub fn stage_drawing_preview(
     if bytes.len() > MAX_PREVIEW_BYTES {
         return Err("图稿预览超过 2 MiB 限制。".to_string());
     }
-    validate_webp(&bytes)?;
-    fs::write(session.staging_dir.join("preview.webp"), bytes)
+    let format = validate_preview_image(&bytes)?;
+    let stale_file = match format {
+        DrawingPreviewFormat::Png => PREVIEW_WEBP_FILE,
+        DrawingPreviewFormat::Webp => PREVIEW_PNG_FILE,
+    };
+    let _ = fs::remove_file(session.staging_dir.join(stale_file));
+    fs::write(session.staging_dir.join(format.file_name()), bytes)
         .map_err(|error| format!("无法暂存图稿预览：{error}"))
 }
 
@@ -562,9 +599,9 @@ pub fn duplicate_drawing(
         &format!("{} 副本", source_meta.title),
         &scene,
     )?;
-    if source.join("preview.webp").is_file() {
+    if drawing_preview_path(&source).is_some() {
         let target = locate_active_bundle(&root, &descriptor.meta.id)?;
-        let _ = fs::copy(source.join("preview.webp"), target.join("preview.webp"));
+        let _ = copy_drawing_preview(&source, &target);
     }
     Ok(descriptor)
 }
@@ -1120,17 +1157,18 @@ pub fn create_drawing_markdown_snapshot(
     if bytes.len() > MAX_PREVIEW_BYTES {
         return Err("Markdown 图稿快照超过 2 MiB 限制。".to_string());
     }
-    validate_webp(&bytes)?;
+    let format = validate_preview_image(&bytes)?;
     let root = canonical_workspace_root(&session.root_path)?;
     locate_active_bundle(&root, &session.drawing_id)?;
     assets::store_workspace_asset_bytes_impl(
         session.root_path,
         format!(
-            "{}-{}.webp",
+            "{}-{}.{}",
             safe_file_stem(&session.title),
-            session.drawing_id
+            session.drawing_id,
+            format.extension(),
         ),
-        "image/webp".to_string(),
+        format.media_type().to_string(),
         bytes,
     )
     .map(|(uploaded, _)| uploaded)
@@ -1167,14 +1205,19 @@ fn commit_save_session(session: &SaveSessionEntry) -> Result<DrawingDocumentDesc
     backup_bundle(&bundle)?;
     let next_revision = current.revision.saturating_add(1);
     let mut preview_revision = current.preview_revision;
-    let staged_preview = session.staging_dir.join("preview.webp");
-    if staged_preview.is_file() {
+    if let Some(staged_preview) = drawing_preview_path(&session.staging_dir) {
         if let Ok(preview) = read_limited_file(&staged_preview, MAX_PREVIEW_BYTES, "暂存图稿预览")
         {
-            if validate_webp(&preview).is_ok()
-                && write_bytes_atomic(&bundle.join("preview.webp"), &preview).is_ok()
-            {
-                preview_revision = Some(next_revision);
+            if let Ok(format) = validate_preview_image(&preview) {
+                let target = bundle.join(format.file_name());
+                if write_bytes_atomic(&target, &preview).is_ok() {
+                    let stale_file = match format {
+                        DrawingPreviewFormat::Png => PREVIEW_WEBP_FILE,
+                        DrawingPreviewFormat::Webp => PREVIEW_PNG_FILE,
+                    };
+                    let _ = fs::remove_file(bundle.join(stale_file));
+                    preview_revision = Some(next_revision);
+                }
             }
         }
     }
@@ -1466,10 +1509,7 @@ fn duplicate_album_contents(
             meta.favorite = source_meta.favorite;
             meta.search_text = source_meta.search_text;
             write_meta_atomic(&bundle, &meta)?;
-            if entry.join("preview.webp").is_file() {
-                fs::copy(entry.join("preview.webp"), bundle.join("preview.webp"))
-                    .map_err(|error| format!("无法复制图稿预览：{error}"))?;
-            }
+            copy_drawing_preview(&entry, &bundle)?;
         } else {
             validate_album_segment(&name)?;
             let child_target = target.join(&name);
@@ -1507,7 +1547,7 @@ fn summary_for_bundle(
         album_path: album_path.to_string(),
         has_backup: bundle.join("scene.backup.excalidraw").is_file()
             && bundle.join("meta.backup.json").is_file(),
-        has_preview: bundle.join("preview.webp").is_file(),
+        has_preview: drawing_preview_path(bundle).is_some(),
         trashed,
         issue,
     })
@@ -1520,7 +1560,7 @@ fn descriptor_for_bundle(root: &Path, bundle: &Path) -> Result<DrawingDocumentDe
         album_path: album_path_for_bundle(root, bundle),
         has_backup: bundle.join("scene.backup.excalidraw").is_file()
             && bundle.join("meta.backup.json").is_file(),
-        has_preview: bundle.join("preview.webp").is_file(),
+        has_preview: drawing_preview_path(bundle).is_some(),
     })
 }
 
@@ -1728,6 +1768,49 @@ fn validate_webp(bytes: &[u8]) -> Result<(), String> {
         return Err("图稿预览不是有效 WebP。".to_string());
     }
     Ok(())
+}
+
+fn validate_png(bytes: &[u8]) -> Result<(), String> {
+    if bytes.len() < 8 || &bytes[0..8] != b"\x89PNG\r\n\x1a\n" {
+        return Err("图稿预览不是有效 PNG。".to_string());
+    }
+    Ok(())
+}
+
+fn validate_preview_image(bytes: &[u8]) -> Result<DrawingPreviewFormat, String> {
+    if validate_webp(bytes).is_ok() {
+        return Ok(DrawingPreviewFormat::Webp);
+    }
+    if validate_png(bytes).is_ok() {
+        return Ok(DrawingPreviewFormat::Png);
+    }
+    Err("图稿预览必须是有效 WebP 或 PNG。".to_string())
+}
+
+fn drawing_preview_path(bundle: &Path) -> Option<PathBuf> {
+    [PREVIEW_WEBP_FILE, PREVIEW_PNG_FILE]
+        .into_iter()
+        .filter_map(|file_name| {
+            let path = bundle.join(file_name);
+            let metadata = fs::symlink_metadata(&path).ok()?;
+            if metadata.file_type().is_symlink() || !metadata.is_file() {
+                return None;
+            }
+            let modified = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+            Some((modified, path))
+        })
+        .max_by_key(|(modified, _)| *modified)
+        .map(|(_, path)| path)
+}
+
+fn copy_drawing_preview(source_bundle: &Path, target_bundle: &Path) -> Result<(), String> {
+    let Some(source) = drawing_preview_path(source_bundle) else {
+        return Ok(());
+    };
+    let bytes = read_limited_file(&source, MAX_PREVIEW_BYTES, "图稿预览")?;
+    let format = validate_preview_image(&bytes)?;
+    write_bytes_atomic(&target_bundle.join(format.file_name()), &bytes)
+        .map_err(|error| format!("无法复制图稿预览：{error}"))
 }
 
 fn validate_ui_state(state: &DrawingUiState) -> Result<(), String> {
@@ -2240,6 +2323,15 @@ mod tests {
         assert!(validate_library(br#"{"type":"other","libraryItems":[]}"#).is_err());
         assert!(validate_webp(b"RIFF1234WEBP").is_ok());
         assert!(validate_webp(b"not-webp").is_err());
+        assert_eq!(
+            validate_preview_image(b"\x89PNG\r\n\x1a\n"),
+            Ok(DrawingPreviewFormat::Png)
+        );
+        assert_eq!(
+            validate_preview_image(b"RIFF1234WEBP"),
+            Ok(DrawingPreviewFormat::Webp)
+        );
+        assert!(validate_preview_image(b"not-an-image").is_err());
         let mut ui_state = default_ui_state();
         ui_state.viewports.insert(
             "11111111-1111-4111-8111-111111111111".to_string(),
@@ -2250,6 +2342,48 @@ mod tests {
             },
         );
         assert!(validate_ui_state(&ui_state).is_ok());
+    }
+
+    #[test]
+    fn commits_png_preview_when_webp_encoding_is_unavailable() {
+        let root = workspace();
+        let descriptor = create_drawing(
+            root.path().to_string_lossy().into_owned(),
+            "兼容".to_string(),
+            "PNG 预览".to_string(),
+        )
+        .expect("创建图稿失败");
+        let staging_dir = ensure_drawings_root(root.path())
+            .expect("读取图稿根目录失败")
+            .join(".staging/test-png-preview");
+        fs::create_dir_all(&staging_dir).expect("创建预览暂存目录失败");
+        fs::write(staging_dir.join("scene.excalidraw"), default_scene_bytes())
+            .expect("写入暂存场景失败");
+        fs::write(staging_dir.join(PREVIEW_PNG_FILE), b"\x89PNG\r\n\x1a\n")
+            .expect("写入 PNG 预览失败");
+        let session = SaveSessionEntry {
+            drawing_id: descriptor.meta.id.clone(),
+            expected_scene_sha256: descriptor.meta.scene_sha256,
+            expected_revision: descriptor.meta.revision,
+            expires_at: Instant::now() + SESSION_TTL,
+            manifest: DrawingSaveManifest {
+                element_count: 0,
+                favorite: false,
+                search_text: String::new(),
+                tags: Vec::new(),
+                title: descriptor.meta.title,
+            },
+            root_path: root.path().to_string_lossy().into_owned(),
+            staging_dir,
+        };
+
+        let committed = commit_save_session(&session).expect("提交 PNG 预览失败");
+        let bundle =
+            locate_active_bundle(root.path(), &descriptor.meta.id).expect("查找 PNG 预览图稿失败");
+        assert!(committed.has_preview);
+        assert_eq!(committed.meta.preview_revision, Some(2));
+        assert!(bundle.join(PREVIEW_PNG_FILE).is_file());
+        assert!(!bundle.join(PREVIEW_WEBP_FILE).exists());
     }
 
     #[test]
@@ -2320,12 +2454,16 @@ mod tests {
     #[test]
     fn duplicates_trashes_restores_and_deletes_album_as_one_unit() {
         let root = workspace();
-        create_drawing(
+        let descriptor = create_drawing(
             root.path().to_string_lossy().into_owned(),
             "项目/架构".to_string(),
             "系统图".to_string(),
         )
         .expect("创建图稿失败");
+        let source_bundle =
+            locate_active_bundle(root.path(), &descriptor.meta.id).expect("查找源图稿失败");
+        fs::write(source_bundle.join(PREVIEW_PNG_FILE), b"\x89PNG\r\n\x1a\n")
+            .expect("写入源 PNG 预览失败");
 
         let duplicated = duplicate_drawing_album(
             root.path().to_string_lossy().into_owned(),
@@ -2337,6 +2475,7 @@ mod tests {
             load_drawing_library(root.path().to_string_lossy().into_owned()).expect("读取图集失败");
         assert_eq!(snapshot.drawings.len(), 2);
         assert_ne!(snapshot.drawings[0].meta.id, snapshot.drawings[1].meta.id);
+        assert!(snapshot.drawings.iter().all(|drawing| drawing.has_preview));
 
         let trashed = trash_drawing_album(
             root.path().to_string_lossy().into_owned(),

@@ -58,7 +58,7 @@ referenced_by: AGENTS.md#knowledge-map
 
 - 渲染器只能提交已选择工作区根、UUID Drawing ID、受校验的相对图集路径以及 opaque grant/session ID；不得提交 bundle、导入源或导出目标的任意绝对路径。
 - Rust 必须拒绝绝对路径、父目录段、隐藏图集、UUID 图集名、超过 8 层的图集、符号链接路径和 canonicalize 后逃出 `.madora/drawings` 的访问。扫描到单个损坏 bundle 时返回独立 issue，不得阻塞其他图稿。
-- 场景、预览和组件库分别限制为 100 MiB、2 MiB 和 20 MiB，并经 Raw IPC 传输；场景必须是受支持的 Excalidraw JSON 结构，预览必须有 WebP 签名，组件库必须是 Excalidraw library JSON。
+- 场景、预览和组件库分别限制为 100 MiB、2 MiB 和 20 MiB，并经 Raw IPC 传输；场景必须是受支持的 Excalidraw JSON 结构，预览优先使用 WebP，并只允许有 WebP 或 PNG 签名的 macOS WebView 兼容回退，组件库必须是 Excalidraw library JSON。
 - 保存使用 `expectedRevision` 乐观并发和 SHA-256 双重检查。begin 与 commit 都必须重新检查磁盘 revision/scene hash；普通保存不得覆盖外部修改，显式覆盖也只能覆盖 begin 之后未再次变化的磁盘版本。失败时必须保持 dirty 并清理 staging；提交中断必须恢复原文件。
 - 成功提交只保留一份上一有效场景和元数据备份。预览生成或暂存失败不得阻塞场景保存；恢复或回收站路径冲突必须生成唯一目标，不得覆盖现有 bundle。
 - 导入/export grant 必须限时、不可猜测并在使用时重新校验源文件或目录；导出始终使用 `create_new` 语义。Madora 不改写用户 `.gitignore`，也不扩大 Tauri capability、文件系统插件权限或 `assetProtocol.scope`。

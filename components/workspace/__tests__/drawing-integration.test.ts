@@ -55,7 +55,7 @@ const snapshot: DrawingLibrarySnapshot = {
 };
 
 describe('drawing integration', () => {
-  it('filters collections, nested albums, tags, and canvas text', () => {
+  it('filters collections, nested albums, and canvas text without legacy tags', () => {
     expect(
       selectVisibleDrawings(
         snapshot,
@@ -75,6 +75,13 @@ describe('drawing integration', () => {
         'topology',
       ).map((drawing) => drawing.title),
     ).toEqual(['部署拓扑']);
+    expect(
+      selectVisibleDrawings(
+        snapshot,
+        { collection: 'all', kind: 'collection' },
+        '架构',
+      ),
+    ).toEqual([]);
   });
 
   it('keeps Excalidraw behind a client-only dynamic boundary and stages fonts', () => {
@@ -113,7 +120,7 @@ describe('drawing integration', () => {
     expect(editor).toContain("/^madora-drawing:\\/\\/([0-9a-f-]{36})$/i");
   });
 
-  it('uses application dialogs instead of browser prompts for drawing actions', () => {
+  it('keeps move dialogs but creates and renames albums inline', () => {
     const sidebar = readFileSync(
       join(workspaceRoot, 'components/workspace/drawing-sidebar.tsx'),
       'utf8',
@@ -125,6 +132,7 @@ describe('drawing integration', () => {
 
     expect(sidebar).toContain('<Dialog');
     expect(sidebar).toContain("createNewDrawing('未命名图稿'");
+    expect(sidebar).toContain('重命名图集');
     expect(sidebar).not.toContain('window.prompt');
     expect(gallery).not.toContain('window.prompt');
   });

@@ -77,6 +77,45 @@ describe('useDrawingController', () => {
     unmount();
   });
 
+  it('opens an inactive drawing and exposes one queued file action', async () => {
+    apiMocks.readDrawingMeta.mockResolvedValue(descriptor(1));
+    apiMocks.readDrawingScene.mockResolvedValue(
+      new TextEncoder().encode('{"type":"excalidraw","version":2,"elements":[]}'),
+    );
+    apiMocks.readDrawingLibrary.mockResolvedValue(new Uint8Array());
+
+    const { result, unmount } = renderHook(() =>
+      useDrawingController({ active: false, rootPath: '/workspace' }),
+    );
+
+    await settleRootReset();
+    await act(async () => {
+      await result.current.requestDrawingAction(
+        '11111111-1111-4111-8111-111111111111',
+        { format: 'png', kind: 'export' },
+      );
+    });
+
+    expect(result.current.selection).toEqual({
+      id: '11111111-1111-4111-8111-111111111111',
+      kind: 'drawing',
+    });
+    expect(result.current.requestedAction).toMatchObject({
+      drawingId: '11111111-1111-4111-8111-111111111111',
+      format: 'png',
+      kind: 'export',
+    });
+
+    act(() =>
+      result.current.completeDrawingAction(
+        result.current.requestedAction!.requestId,
+      ),
+    );
+
+    expect(result.current.requestedAction).toBeNull();
+    unmount();
+  });
+
   it('starts queued saves with the latest committed revision', async () => {
     const expectedRevisions: number[] = [];
     let committedRevision = 1;
@@ -107,6 +146,7 @@ describe('useDrawingController', () => {
       useDrawingController({ active: false, rootPath: '/workspace' }),
     );
 
+    await settleRootReset();
     await act(async () => {
       await result.current.openDrawing(
         '11111111-1111-4111-8111-111111111111',
@@ -140,3 +180,9 @@ describe('useDrawingController', () => {
     unmount();
   });
 });
+
+async function settleRootReset() {
+  await act(async () => {
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+}

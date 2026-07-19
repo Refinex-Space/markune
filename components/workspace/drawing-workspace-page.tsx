@@ -6,8 +6,6 @@ import {
   ArrowLeft,
   Check,
   Clock3,
-  Copy,
-  Download,
   FileImage,
   Grid2X2,
   List,
@@ -19,14 +17,30 @@ import {
 
 import { Button } from '@/components/ui/button';
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 
+import {
+  DrawingContextActions,
+  DrawingDropdownActions,
+} from './drawing-action-menu';
 import { DrawingEditorDynamic } from './drawing-editor-dynamic';
 import type {
   DrawingEditorActions,
@@ -80,7 +94,7 @@ function DrawingRecoverySurface({
   const descriptor = controller.descriptor!;
   return (
     <section className="flex h-full min-h-0 flex-col bg-background">
-      <header className="flex h-11 shrink-0 items-center gap-2 border-b px-2">
+      <header className="flex h-10 shrink-0 items-center gap-2 border-b px-2">
         <Button
           aria-label="返回图集"
           size="icon-sm"
@@ -142,6 +156,7 @@ function DrawingGallery({
 }) {
   const [viewMode, setViewMode] = React.useState<GalleryViewMode>('grid');
   const [sort, setSort] = React.useState<GallerySort>('updated');
+  const [moveTarget, setMoveTarget] = React.useState<DrawingSummary | null>(null);
   const drawings = React.useMemo(
     () => sortDrawings(controller.visibleDrawings, sort),
     [controller.visibleDrawings, sort],
@@ -154,7 +169,10 @@ function DrawingGallery({
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b px-5">
+      <header
+        className="flex h-10 shrink-0 items-center gap-3 border-b px-5"
+        data-testid="drawing-gallery-header"
+      >
         <div className="min-w-0">
           <h1 className="truncate text-sm font-semibold">{title}</h1>
           <p className="text-[11px] text-muted-foreground">
@@ -266,6 +284,7 @@ function DrawingGallery({
                 controller={controller}
                 drawing={drawing}
                 key={drawing.id}
+                onMoveRequest={setMoveTarget}
                 rootPath={rootPath}
                 trash={trash}
                 viewMode={viewMode}
@@ -274,6 +293,14 @@ function DrawingGallery({
           </div>
         )}
       </div>
+      <DrawingMoveDialog
+        controller={controller}
+        drawing={moveTarget}
+        key={moveTarget?.id ?? 'no-drawing-move-target'}
+        onOpenChange={(open) => {
+          if (!open) setMoveTarget(null);
+        }}
+      />
     </section>
   );
 }
@@ -389,12 +416,14 @@ function DrawingIssueCard({
 function DrawingCard({
   controller,
   drawing,
+  onMoveRequest,
   rootPath,
   trash,
   viewMode,
 }: {
   controller: DrawingController;
   drawing: DrawingSummary;
+  onMoveRequest: (drawing: DrawingSummary) => void;
   rootPath: string;
   trash: boolean;
   viewMode: GalleryViewMode;
@@ -403,21 +432,26 @@ function DrawingCard({
     rootPath,
     drawing.id,
     drawing.hasPreview,
+    drawing.previewRevision,
     trash,
   );
   const open = () => {
     if (!trash) void controller.openDrawing(drawing.id);
   };
 
+  const actionProps = { controller, drawing, onMoveRequest, trash };
+
   return (
-    <article
-      ref={ref}
-      className={cn(
-        'group relative overflow-hidden rounded-xl border bg-card transition-[border-color,box-shadow,transform] hover:border-foreground/20 hover:shadow-sm',
-        viewMode === 'list' && 'flex h-16 items-center rounded-lg',
-      )}
-      data-testid="drawing-card"
-    >
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <article
+          ref={ref}
+          className={cn(
+            'group relative overflow-hidden rounded-xl border bg-card transition-colors hover:border-foreground/20',
+            viewMode === 'list' && 'flex h-16 items-center rounded-lg',
+          )}
+          data-testid="drawing-card"
+        >
       <button
         aria-label={`${trash ? '选择' : '打开'}图稿 ${drawing.title}`}
         className={cn(
@@ -449,7 +483,10 @@ function DrawingCard({
           <div className="flex items-center gap-1.5">
             <h2 className="truncate text-sm font-medium">{drawing.title}</h2>
             {drawing.favorite ? (
-              <Star className="shrink-0 fill-amber-400 text-amber-500" size={12} />
+              <Star
+                className="shrink-0 fill-amber-300/40 text-amber-600/70 dark:fill-amber-300/25 dark:text-amber-300/70"
+                size={12}
+              />
             ) : null}
             {drawing.issue ? (
               <AlertTriangle className="shrink-0 text-amber-500" size={12} />
@@ -458,64 +495,81 @@ function DrawingCard({
           <p className="mt-1 truncate text-[11px] text-muted-foreground">
             {drawing.albumPath || '未归类'} · {formatDrawingTime(drawing.updatedAt)}
           </p>
-          {viewMode === 'grid' && drawing.tags.length > 0 ? (
-            <div className="mt-2 flex gap-1 overflow-hidden">
-              {drawing.tags.slice(0, 3).map((tag) => (
-                <span
-                  className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                  key={tag}
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
-          ) : null}
         </div>
       </button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             aria-label={`${drawing.title} 更多操作`}
-            className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-md border bg-background/90 opacity-0 shadow-sm backdrop-blur group-hover:opacity-100 focus:opacity-100"
+            className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-md border bg-background/90 opacity-0 backdrop-blur group-hover:opacity-100 focus:opacity-100"
             type="button"
           >
             <MoreHorizontal size={14} />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-40">
-          {trash ? (
-            <>
-              <DropdownMenuItem onSelect={() => void controller.restore(drawing.id)}>
-                <RefreshCw /> 恢复
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                variant="destructive"
-                onSelect={() => {
-                  if (window.confirm(`永久删除“${drawing.title}”？此操作不可撤销。`)) {
-                    void controller.permanentlyDelete(drawing.id);
-                  }
-                }}
-              >
-                <Trash2 /> 永久删除
-              </DropdownMenuItem>
-            </>
-          ) : (
-            <>
-              <DropdownMenuItem onSelect={() => void controller.duplicate(drawing.id)}>
-                <Copy /> 创建副本
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                variant="destructive"
-                onSelect={() => void controller.moveToTrash(drawing.id)}
-              >
-                <Trash2 /> 移到回收站
-              </DropdownMenuItem>
-            </>
-          )}
+        <DropdownMenuContent align="end" className="w-48">
+          <DrawingDropdownActions {...actionProps} />
         </DropdownMenuContent>
       </DropdownMenu>
-    </article>
+        </article>
+      </ContextMenuTrigger>
+      <ContextMenuContent
+        className="w-48"
+        onCloseAutoFocus={(event) => event.preventDefault()}
+      >
+        <DrawingContextActions {...actionProps} />
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+function DrawingMoveDialog({
+  controller,
+  drawing,
+  onOpenChange,
+}: {
+  controller: DrawingController;
+  drawing: DrawingSummary | null;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [value, setValue] = React.useState(drawing?.albumPath ?? '');
+
+  return (
+    <Dialog open={Boolean(drawing)} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!drawing) return;
+            onOpenChange(false);
+            void controller.move(drawing.id, value.trim());
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>移动“{drawing?.title}”</DialogTitle>
+            <DialogDescription>
+              输入目标图集路径；留空表示移动到未归类。
+            </DialogDescription>
+          </DialogHeader>
+          <input
+            autoFocus
+            className="mt-4 h-9 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-ring"
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+          />
+          <DialogFooter className="mt-5">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+            >
+              取消
+            </Button>
+            <Button type="submit">移动</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -528,26 +582,17 @@ function DrawingEditorSurface({
 }) {
   const descriptor = controller.descriptor!;
   const [title, setTitle] = React.useState(descriptor.meta.title);
-  const [tagsText, setTagsText] = React.useState(descriptor.meta.tags.join(', '));
   const [favorite, setFavorite] = React.useState(descriptor.meta.favorite);
+  const [actionsReady, setActionsReady] = React.useState(0);
   const actionsRef = React.useRef<DrawingEditorActions | null>(null);
-
-  const tags = React.useMemo(
-    () =>
-      tagsText
-        .split(/[,，]/)
-        .map((tag) => tag.trim())
-        .filter(Boolean)
-        .slice(0, 10),
-    [tagsText],
-  );
+  const processedActionRef = React.useRef(0);
 
   const flushMetadata = () => {
     controller.markDirty();
     window.requestAnimationFrame(() => void actionsRef.current?.flush(true, false));
   };
 
-  const exportDrawing = async (format: DrawingExportFormat) => {
+  const exportDrawing = React.useCallback(async (format: DrawingExportFormat) => {
     const actions = actionsRef.current;
     if (!actions) return;
     try {
@@ -558,21 +603,49 @@ function DrawingEditorSurface({
     } catch (error) {
       controller.setError(error instanceof Error ? error.message : String(error));
     }
-  };
+  }, [controller, title]);
 
-  const copyMarkdown = async () => {
-    const preview = await actionsRef.current?.createPreview();
-    if (!preview) {
-      controller.setError('空画布暂时无法创建 Markdown 预览。');
+  const copyMarkdown = React.useCallback(async () => {
+    try {
+      const preview = await actionsRef.current?.createPreview();
+      if (!preview) {
+        controller.setError('当前画布暂时无法创建 Markdown 预览。');
+        return;
+      }
+      const markdown = await controller.createMarkdownReference(preview);
+      if (markdown) await navigator.clipboard.writeText(markdown);
+    } catch (error) {
+      controller.setError(error instanceof Error ? error.message : String(error));
+    }
+  }, [controller]);
+
+  React.useEffect(() => {
+    const request = controller.requestedAction;
+    if (
+      !request ||
+      request.drawingId !== descriptor.meta.id ||
+      !actionsRef.current ||
+      processedActionRef.current === request.requestId
+    ) {
       return;
     }
-    const markdown = await controller.createMarkdownReference(preview);
-    if (markdown) await navigator.clipboard.writeText(markdown);
-  };
+    processedActionRef.current = request.requestId;
+    void (async () => {
+      try {
+        if (request.kind === 'copy-markdown') await copyMarkdown();
+        else await exportDrawing(request.format);
+      } finally {
+        controller.completeDrawingAction(request.requestId);
+      }
+    })();
+  }, [actionsReady, controller, copyMarkdown, descriptor.meta.id, exportDrawing]);
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <header className="flex h-11 shrink-0 items-center gap-2 border-b px-2">
+      <header
+        className="flex h-10 shrink-0 items-center gap-2 border-b px-2"
+        data-testid="drawing-editor-header"
+      >
         <Button
           aria-label="返回图集"
           size="icon-sm"
@@ -583,18 +656,10 @@ function DrawingEditorSurface({
         </Button>
         <input
           aria-label="图稿标题"
-          className="min-w-24 max-w-64 flex-1 rounded px-2 py-1 text-sm font-medium outline-none focus:bg-muted/60"
+          className="h-7 w-48 max-w-[40vw] shrink-0 rounded-md bg-muted/45 px-2 text-sm font-medium outline-none transition-colors hover:bg-muted/60 focus:bg-muted/70"
           maxLength={120}
           value={title}
           onChange={(event) => setTitle(event.target.value)}
-          onBlur={flushMetadata}
-        />
-        <input
-          aria-label="图稿标签"
-          className="hidden h-7 w-44 rounded-md border bg-background px-2 text-xs outline-none focus:border-ring lg:block"
-          placeholder="标签，以逗号分隔"
-          value={tagsText}
-          onChange={(event) => setTagsText(event.target.value)}
           onBlur={flushMetadata}
         />
         <Button
@@ -606,38 +671,15 @@ function DrawingEditorSurface({
             flushMetadata();
           }}
         >
-          <Star className={favorite ? 'fill-amber-400 text-amber-500' : ''} />
+          <Star
+            className={
+              favorite
+                ? 'fill-amber-300/40 text-amber-600/70 dark:fill-amber-300/25 dark:text-amber-300/70'
+                : 'text-muted-foreground'
+            }
+          />
         </Button>
         <SaveStatus state={controller.saveState.status} />
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button aria-label="图稿操作" size="icon-sm" variant="ghost">
-              <MoreHorizontal />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-52">
-            <DropdownMenuItem onSelect={() => void copyMarkdown()}>
-              <Copy /> 复制 Markdown 引用
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => void exportDrawing('excalidraw')}>
-              <Download /> 导出 .excalidraw
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => void exportDrawing('png')}>
-              <Download /> 导出 PNG
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => void exportDrawing('svg')}>
-              <Download /> 导出 SVG
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              variant="destructive"
-              onSelect={() => void controller.moveToTrash(descriptor.meta.id)}
-            >
-              <Trash2 /> 移到回收站
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </header>
 
       {controller.saveState.status === 'conflict' ? (
@@ -666,7 +708,7 @@ function DrawingEditorSurface({
           initialLibrary={controller.library}
           initialScene={controller.scene!}
           key={descriptor.meta.id}
-          tags={tags}
+          tags={descriptor.meta.tags}
           theme={theme}
           title={title.trim() || '未命名图稿'}
           viewport={controller.viewport}
@@ -674,6 +716,7 @@ function DrawingEditorSurface({
           onLibraryChange={controller.persistLibrary}
           onReady={(actions) => {
             actionsRef.current = actions;
+            setActionsReady((current) => current + 1);
             controller.registerFlush(actions ? () => actions.flush() : null);
           }}
           onSave={controller.save}
@@ -710,6 +753,7 @@ function useDrawingPreview(
   rootPath: string,
   drawingId: string,
   available: boolean,
+  previewRevision: number | null,
   trashed: boolean,
 ) {
   const [visible, setVisible] = React.useState(false);
@@ -740,11 +784,13 @@ function useDrawingPreview(
     void readDrawingPreview(rootPath, drawingId, trashed)
       .then((bytes) => {
         if (cancelled) return;
+        const mediaType = drawingPreviewMediaType(bytes);
+        if (!mediaType) return;
         const buffer = bytes.buffer.slice(
           bytes.byteOffset,
           bytes.byteOffset + bytes.byteLength,
         ) as ArrayBuffer;
-        url = URL.createObjectURL(new Blob([buffer], { type: 'image/webp' }));
+        url = URL.createObjectURL(new Blob([buffer], { type: mediaType }));
         setObjectUrl(url);
       })
       .catch(() => undefined);
@@ -752,9 +798,39 @@ function useDrawingPreview(
       cancelled = true;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [available, drawingId, rootPath, trashed, visible]);
+  }, [available, drawingId, previewRevision, rootPath, trashed, visible]);
 
   return { objectUrl, ref };
+}
+
+function drawingPreviewMediaType(bytes: Uint8Array) {
+  if (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return 'image/webp';
+  }
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return 'image/png';
+  }
+  return null;
 }
 
 function galleryTitle(controller: DrawingController) {

@@ -36,15 +36,15 @@ Capture 的持久状态仅为 `open`、`processing`、`done`、`archived`。Inbo
 
 ## Drawing Workspace Boundary
 
-画板是独立于 Markdown 文档标签的工作区级 `systemPage`。入口固定在 Inbox 下方；激活后 `drawing-sidebar.tsx` 接管左侧目录区并展示系统集合、嵌套图集和图稿叶节点，`drawing-workspace-page.tsx` 在右侧切换图集总览、损坏恢复页或全尺寸 Excalidraw 编辑器。现有 AI、终端和元信息面板保持用户原有开关状态，不因打开画板而强制关闭。
+画板是独立于 Markdown 文档标签的工作区级 `systemPage`。入口固定在 Inbox 下方；激活后 `drawing-sidebar.tsx` 接管左侧目录区并展示系统集合、嵌套图集和图稿叶节点，`drawing-workspace-page.tsx` 在右侧切换图集总览、损坏恢复页或全尺寸 Excalidraw 编辑器。图稿和图集的省略号菜单与右键菜单共用操作集合；图集创建和重命名使用与文档树一致的行内输入。现有 AI、终端和元信息面板保持用户原有开关状态，不因打开画板而强制关闭。
 
 `use-drawing-controller.ts` 是图稿生命周期与串行保存的唯一前端控制器，`workspace-api.ts` 是唯一 Tauri bridge。Excalidraw 只在进入单幅图稿时通过 `next/dynamic` 客户端加载；自托管样式与字体由 `scripts/stage-excalidraw-runtime.mjs` 复制到忽略版本控制的 `public/excalidraw-runtime`，普通 Markdown 首屏不加载其运行时代码或样式。画布固定 `zh-CN`，跟随应用主题；远程 embeddable 禁用，HTTP(S) 外链经 Tauri opener 打开。
 
-权威图稿保存在 `.madora/drawings/albums/<album>/<drawing-id>` bundle，包含官方 `scene.excalidraw`、单份有效备份、`meta.json`、元数据备份和可选 `preview.webp`；单幅图稿回收站位于 `.madora/drawings/.trash/<drawing-id>`，整图集回收记录位于 `.madora/drawings/.trash/albums/<trash-id>`。组件库与视口/最近图稿分别保存在 `library.excalidrawlib` 和 `ui-state.json`。图集路径由物理位置推导，稳定 Drawing UUID 是移动、重命名、搜索和 Markdown 回链的身份；复制整图集时所有图稿生成新 UUID。该目录不进入 `.madora/workspace.json`，也不会被伪装为 Markdown。
+权威图稿保存在 `.madora/drawings/albums/<album>/<drawing-id>` bundle，包含官方 `scene.excalidraw`、单份有效备份、`meta.json`、元数据备份和可选预览；预览优先保存为 `preview.webp`，macOS WebView 无法编码 WebP 时兼容保存为 `preview.png`，同一 bundle 只保留当前格式。单幅图稿回收站位于 `.madora/drawings/.trash/<drawing-id>`，整图集回收记录位于 `.madora/drawings/.trash/albums/<trash-id>`。组件库与视口/最近图稿分别保存在 `library.excalidrawlib` 和 `ui-state.json`。图集路径由物理位置推导，稳定 Drawing UUID 是移动、重命名、搜索和 Markdown 回链的身份；复制整图集时所有图稿生成新 UUID。该目录不进入 `.madora/workspace.json`，也不会被伪装为 Markdown。
 
-保存使用 800 ms debounce、最长 5 秒等待的串行事务：渲染器先取得 opaque save session，再通过 Raw IPC 暂存场景和可选 WebP 预览，Rust 在提交前重新校验 revision、场景结构和 SHA-256，并以原子替换保留上一份有效备份。预览失败不阻塞场景提交；冲突会暂停自动保存，只允许重新加载磁盘版本或显式覆盖。损坏 bundle 以独立异常卡展示，元数据仍可读时允许加载备份，不阻塞其余图稿。
+保存使用 800 ms debounce、最长 5 秒等待的串行事务：渲染器先取得 opaque save session，再通过 Raw IPC 暂存场景和可选 WebP/PNG 预览，Rust 在提交前重新校验 revision、场景结构和 SHA-256，并以原子替换保留上一份有效备份。预览失败不阻塞场景提交；冲突会暂停自动保存，只允许重新加载磁盘版本或显式覆盖。损坏 bundle 以独立异常卡展示，元数据仍可读时允许加载备份，不阻塞其余图稿。
 
-全局搜索把图稿作为独立结果类型，索引标题、标签、图集路径和 `meta.searchText`，不暴露绝对 bundle 路径。Markdown 引用使用内容寻址的静态 `madora-asset://<snapshot-id>` 预览与 `madora-drawing://<drawing-id>` 回链；编辑器只拦截经过 UUID 校验的后者，保留 Markweave 既有 HTTP(S) 与 Ctrl/Cmd-click 语义。永久删除原图稿不删除已写入文档的静态快照。
+全局搜索把图稿作为独立结果类型，索引标题、图集路径和 `meta.searchText`，不暴露绝对 bundle 路径。历史 `meta.tags` 字段只为存储兼容保留，不再提供编辑、展示或搜索入口。Markdown 引用使用内容寻址的静态 `madora-asset://<snapshot-id>` 预览与 `madora-drawing://<drawing-id>` 回链；编辑器只拦截经过 UUID 校验的后者，保留 Markweave 既有 HTTP(S) 与 Ctrl/Cmd-click 语义。永久删除原图稿不删除已写入文档的静态快照。
 
 ## Multi-format Import Boundary
 

@@ -59,6 +59,15 @@ export interface DrawingSavePayload {
   scene: Uint8Array;
 }
 
+export type DrawingActionCommand =
+  | { kind: 'copy-markdown' }
+  | { format: 'excalidraw' | 'png' | 'svg'; kind: 'export' };
+
+export type DrawingActionRequest = DrawingActionCommand & {
+  drawingId: string;
+  requestId: number;
+};
+
 const EMPTY_LIBRARY: DrawingLibrarySnapshot = {
   albums: [],
   drawings: [],
@@ -85,6 +94,8 @@ export function useDrawingController({
     kind: 'collection',
   });
   const [query, setQuery] = React.useState('');
+  const [requestedAction, setRequestedAction] =
+    React.useState<DrawingActionRequest | null>(null);
   const [descriptor, setDescriptor] =
     React.useState<DrawingDocumentDescriptor | null>(null);
   const [scene, setScene] = React.useState<string | null>(null);
@@ -106,6 +117,7 @@ export function useDrawingController({
   const uiStateTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const actionRequestRef = React.useRef(0);
 
   React.useEffect(() => {
     uiStateRef.current = uiState;
@@ -150,6 +162,7 @@ export function useDrawingController({
       setDescriptor(null);
       setScene(null);
       setLibrary(null);
+      setRequestedAction(null);
       setUiState(EMPTY_UI_STATE);
       setError(null);
     }, 0);
@@ -185,7 +198,7 @@ export function useDrawingController({
 
   const openDrawing = React.useCallback(
     async (drawingId: string) => {
-      if (!rootPath) return;
+      if (!rootPath) return false;
       await flushRef.current?.();
       const requestId = ++loadRequestRef.current;
       setLoading(true);
@@ -193,7 +206,7 @@ export function useDrawingController({
       setScene(null);
       try {
         const nextDescriptor = await readDrawingMeta(rootPath, drawingId);
-        if (requestId !== loadRequestRef.current) return;
+        if (requestId !== loadRequestRef.current) return false;
         descriptorRef.current = nextDescriptor;
         setDescriptor(nextDescriptor);
         setSelection({ id: drawingId, kind: 'drawing' });
@@ -215,7 +228,7 @@ export function useDrawingController({
           readDrawingScene(rootPath, drawingId),
           readDrawingLibrary(rootPath),
         ]);
-        if (requestId !== loadRequestRef.current) return;
+        if (requestId !== loadRequestRef.current) return false;
         if (libraryResult.status === 'fulfilled') {
           setLibrary(new TextDecoder().decode(libraryResult.value));
         } else {
@@ -226,15 +239,34 @@ export function useDrawingController({
         if (libraryResult.status === 'rejected') {
           setError(`组件库读取失败：${formatError(libraryResult.reason)}`);
         }
+        return true;
       } catch (nextError) {
         if (requestId === loadRequestRef.current) {
           setError(formatError(nextError));
         }
+        return false;
       } finally {
         if (requestId === loadRequestRef.current) setLoading(false);
       }
     },
     [rootPath, updateUiState],
+  );
+
+  const completeDrawingAction = React.useCallback((requestId: number) => {
+    setRequestedAction((current) =>
+      current?.requestId === requestId ? null : current,
+    );
+  }, []);
+
+  const requestDrawingAction = React.useCallback(
+    async (drawingId: string, action: DrawingActionCommand) => {
+      const requestId = ++actionRequestRef.current;
+      setRequestedAction({ ...action, drawingId, requestId });
+      if (descriptorRef.current?.meta.id === drawingId) return;
+      const opened = await openDrawing(drawingId);
+      if (!opened) completeDrawingAction(requestId);
+    },
+    [completeDrawingAction, openDrawing],
   );
 
   const openBackup = React.useCallback(async () => {
@@ -572,6 +604,7 @@ export function useDrawingController({
   );
 
   return {
+    completeDrawingAction,
     createAlbum,
     createMarkdownReference,
     createNewDrawing,
@@ -598,6 +631,8 @@ export function useDrawingController({
     permanentlyDelete,
     persistLibrary,
     query,
+    requestedAction,
+    requestDrawingAction,
     recordViewport,
     refresh,
     registerFlush,
@@ -724,7 +759,6 @@ export function selectVisibleDrawings(
     [
       drawing.title,
       drawing.albumPath,
-      drawing.tags.join(' '),
       drawing.searchText,
     ]
       .join(' ')

@@ -120,8 +120,11 @@ export function DrawingEditorCanvas({
   }, []);
 
   const createPreview = React.useCallback(async () => {
-    const appState = appStateRef.current;
-    const elements = elementsRef.current.filter((element) => !element.isDeleted);
+    const api = apiRef.current;
+    const appState = api?.getAppState() ?? appStateRef.current;
+    const elements = (api?.getSceneElements() ?? elementsRef.current).filter(
+      (element) => !element.isDeleted,
+    );
     if (!appState || elements.length === 0) return null;
     try {
       const blob = await exportToBlob({
@@ -133,13 +136,13 @@ export function DrawingEditorCanvas({
         },
         elements,
         exportPadding: 16,
-        files: filesRef.current,
+        files: api?.getFiles() ?? filesRef.current,
         maxWidthOrHeight: 640,
         mimeType: 'image/webp',
         quality: 0.82,
       });
       const bytes = new Uint8Array(await blob.arrayBuffer());
-      return isWebp(bytes) ? bytes : null;
+      return isWebp(bytes) || isPng(bytes) ? bytes : null;
     } catch {
       return null;
     }
@@ -240,13 +243,15 @@ export function DrawingEditorCanvas({
 
   const exportBytes = React.useCallback(
     async (format: DrawingExportFormat) => {
-      const appState = appStateRef.current;
+      const api = apiRef.current;
+      const appState = api?.getAppState() ?? appStateRef.current;
       if (!appState) throw new Error('画布尚未就绪。');
-      const elements = elementsRef.current.filter((element) => !element.isDeleted);
-      const files = filesRef.current;
+      const allElements = api?.getSceneElements() ?? elementsRef.current;
+      const elements = allElements.filter((element) => !element.isDeleted);
+      const files = api?.getFiles() ?? filesRef.current;
       if (format === 'excalidraw') {
         return new TextEncoder().encode(
-          serializeAsJSON(elementsRef.current, appState, files, 'local'),
+          serializeAsJSON(allElements, appState, files, 'local'),
         );
       }
       if (format === 'png') {
@@ -399,5 +404,19 @@ function isWebp(bytes: Uint8Array) {
     bytes[9] === 0x45 &&
     bytes[10] === 0x42 &&
     bytes[11] === 0x50
+  );
+}
+
+function isPng(bytes: Uint8Array) {
+  return (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
   );
 }
