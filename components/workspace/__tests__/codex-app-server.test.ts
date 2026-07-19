@@ -7,6 +7,7 @@ import {
   probeCodexRuntime,
   respondToCodexUserInput,
   startCodexRuntime,
+  threadTokenUsageUpdateFromMessage,
   type CodexProtocolMessage,
   type CodexRuntimeInfo,
 } from '../codex-app-server';
@@ -16,6 +17,79 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 describe('CodexAppServerClient', () => {
+  it('解析当前线程的上下文用量，并保留累计用量与当前窗口的区别', () => {
+    expect(
+      threadTokenUsageUpdateFromMessage({
+        method: 'thread/tokenUsage/updated',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          tokenUsage: {
+            total: {
+              cachedInputTokens: 90_000,
+              inputTokens: 180_000,
+              outputTokens: 12_000,
+              reasoningOutputTokens: 2_000,
+              totalTokens: 300_000,
+            },
+            last: {
+              cachedInputTokens: 40_000,
+              inputTokens: 140_000,
+              outputTokens: 9_000,
+              reasoningOutputTokens: 2_000,
+              totalTokens: 151_000,
+            },
+            modelContextWindow: 258_000,
+          },
+        },
+      }),
+    ).toEqual({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      tokenUsage: {
+        total: expect.objectContaining({ totalTokens: 300_000 }),
+        last: expect.objectContaining({ totalTokens: 151_000 }),
+        modelContextWindow: 258_000,
+      },
+    });
+  });
+
+  it('拒绝不完整或非法的上下文用量通知', () => {
+    for (const message of [
+      { method: 'turn/started', params: {} },
+      {
+        method: 'thread/tokenUsage/updated',
+        params: { threadId: '', turnId: 'turn-1', tokenUsage: {} },
+      },
+      {
+        method: 'thread/tokenUsage/updated',
+        params: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          tokenUsage: {
+            total: {
+              cachedInputTokens: 0,
+              inputTokens: 1,
+              outputTokens: 0,
+              reasoningOutputTokens: 0,
+              totalTokens: 1,
+            },
+            last: {
+              cachedInputTokens: 0,
+              inputTokens: 1,
+              outputTokens: 0,
+              reasoningOutputTokens: 0,
+              totalTokens: -1,
+            },
+            modelContextWindow: 258_000,
+          },
+        },
+      },
+    ]) {
+      expect(threadTokenUsageUpdateFromMessage(message)).toBeNull();
+    }
+  });
+
   it('保留共享 Codex Home 的运行时诊断契约', async () => {
     const runtime: CodexRuntimeInfo = {
       available: true,

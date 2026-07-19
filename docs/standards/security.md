@@ -24,6 +24,7 @@ referenced_by: AGENTS.md#knowledge-map
 - 新线程默认使用 Codex 命名权限配置 `:workspace`、`on-request` 审批策略和 `user` reviewer，并把已 canonicalize 的当前工作区作为唯一 runtime workspace root。`turn/start` 不得携带权限覆盖；恢复线程不得隐式重置权限，后续切换只能走 `thread/settings/update`。
 - 权限模式必须保持 profile 与 reviewer 分层：自动审查只可使用 `:workspace + on-request + auto_review`，不得扩大文件或网络边界；完全访问必须经过显式风险确认并固定为 `:danger-full-access + never + user`；只读模式使用 `:read-only + on-request + user`。运行中的 turn 或待审批请求存在时禁止切换。
 - Codex collaboration mode 与权限模式必须保持分离。Plan 只能使用 `collaborationMode/list` 返回的内置预设、当前模型、`medium` 推理强度和显式空 `developer_instructions`；渲染器不得提交自定义开发者指令、未知模式或非法强度。Plan 依赖指令禁止实施，并不提供强制只读安全边界；不得因此绕过现有 permission profile、审批或审计。
+- 上下文压缩不得成为通用 App Server 参数透传入口。Rust 只允许 `thread/compact/start` 的精确 `threadId`，拒绝缺失、空值、控制字符、超长值、未知字段和自定义压缩指令。上下文用量只作为当前面板的临时协议状态，不得写入日志、工作区、local storage 或 Madora 会话镜像；自动压缩必须继续由 Codex Core 原生阈值控制，前端不得按百分比重复触发。
 - 自定义 permission profile 只能来自 App Server `permissionProfile/list`，并遵循其 `allowed` 标记与 `configRequirements/read` 的企业要求；Madora 不得开放通用 `config/read`、配置写入或实验功能写入。渲染器直接提交的 `localImage` 路径必须在工作区内；工作区外图片只允许由 Rust 从有效原生附件授权注入。Codex 原生 `mention` 只允许非空的 `app://` 或 `plugin://` 目标。
 - Codex 文件与文件夹附件必须由 Tauri 原生选择器创建不可猜测、最多 15 分钟有效的授权，渲染器只可取得 ID、显示名称、类型与图片标记。Rust 在每次 `turn/start` 重新 canonicalize 并校验真实类型、去重且限制最多 20 个；未知、过期、伪造或已变化的授权必须失败关闭。发送完成、移除附件、切换线程或工作区时应幂等释放授权。
 - 原生附件授权不等于扩大 Codex 文件系统权限。非图片附件只把所选路径作为不可信用户上下文交给 App Server，工作区外读取仍必须服从当前 permission profile 和审批；不得为附件修改 Tauri capability、资源协议 scope 或 runtime workspace roots。

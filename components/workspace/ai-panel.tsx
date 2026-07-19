@@ -86,6 +86,7 @@ import {
   respondToCodexUserInput,
   selectCodexContextAttachments,
   startCodexRuntime,
+  threadTokenUsageUpdateFromMessage,
   type CodexAccountResponse,
   type CodexApprovalPolicy,
   type CodexApprovalsReviewer,
@@ -107,6 +108,7 @@ import {
   type CodexThread,
   type CodexThreadListResponse,
   type CodexThreadPermissionSettings,
+  type CodexThreadTokenUsage,
   type CodexUserInputAnswer,
 } from './codex-app-server';
 import {
@@ -218,6 +220,7 @@ interface ComposerMentionTarget {
 
 const mentionLinkClassName =
   'mx-0.5 inline-flex cursor-pointer select-none items-center gap-1.5 rounded-sm border-0 bg-transparent p-0 align-middle font-sans text-[#3574f0] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3574f0]/35';
+const COMPACT_COMMAND_SELECTION = 'madora:compact-context';
 
 type PanelView = 'chat' | 'history';
 type RuntimeStatus = 'error' | 'loading' | 'ready' | 'web';
@@ -547,6 +550,12 @@ export function AiPanel({
   const [mentionQuery, setMentionQuery] = React.useState<string | null>(null);
   const [historyQuery, setHistoryQuery] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
+  const [threadTokenUsage, setThreadTokenUsage] = React.useState<
+    Record<string, CodexThreadTokenUsage>
+  >({});
+  const [compactingThreadId, setCompactingThreadId] = React.useState<
+    string | null
+  >(null);
   const [signingIn, setSigningIn] = React.useState(false);
   const [followLatestRequest, setFollowLatestRequest] = React.useState(0);
   const [composerFocusRequest, setComposerFocusRequest] = React.useState(0);
@@ -571,6 +580,10 @@ export function AiPanel({
   const pluginLoadGenerationRef = React.useRef<number | null>(null);
   const skillLoadRequestRef = React.useRef(0);
   const selectedAttachmentsRef = React.useRef<CodexContextAttachment[]>([]);
+  const threadTokenUsageRef = React.useRef<
+    Record<string, CodexThreadTokenUsage>
+  >({});
+  const compactingThreadIdRef = React.useRef<string | null>(null);
 
   React.useEffect(() => {
     activeThreadIdRef.current = activeThread?.id ?? null;
@@ -607,6 +620,19 @@ export function AiPanel({
   React.useEffect(() => {
     selectedAttachmentsRef.current = selectedAttachments;
   }, [selectedAttachments]);
+
+  const updateThreadTokenUsage = React.useCallback(
+    (
+      update: (
+        current: Record<string, CodexThreadTokenUsage>,
+      ) => Record<string, CodexThreadTokenUsage>,
+    ) => {
+      const next = update(threadTokenUsageRef.current);
+      threadTokenUsageRef.current = next;
+      setThreadTokenUsage(next);
+    },
+    [],
+  );
 
   const applyThreadName = React.useCallback((threadId: string, name: string) => {
     setActiveThread((current) =>
@@ -686,6 +712,26 @@ export function AiPanel({
     conversation.approvals.length > 0 ||
     conversation.userInputRequests.length > 0 ||
     submitting;
+  const activeThreadTokenUsage = activeThread
+    ? threadTokenUsage[activeThread.id] ?? null
+    : null;
+  const compactUnavailableReason = !activeThread
+    ? '当前任务尚未建立上下文'
+    : runtimeStatus !== 'ready'
+      ? 'Codex 运行时尚未就绪'
+      : authRequired
+        ? '请先登录 ChatGPT'
+        : compactingThreadId === activeThread.id
+          ? '正在压缩上下文'
+          : conversation.activeTurnId
+            ? '当前任务运行中'
+            : conversation.approvals.length > 0
+              ? '请先处理审批请求'
+              : conversation.userInputRequests.length > 0
+                ? '请先回答 Codex 的问题'
+                : submitting
+                  ? '正在提交消息'
+                  : null;
 
   const changeCollaborationMode = React.useCallback(
     (nextMode: CodexCollaborationModeKind) => {
@@ -1038,6 +1084,48 @@ export function AiPanel({
     void releaseCodexContextAttachments([attachmentId]).catch(() => undefined);
   }, []);
 
+  const compactContext = React.useCallback(async () => {
+    const threadId = activeThreadIdRef.current;
+    if (
+      !threadId ||
+      runtimeStatusRef.current !== 'ready' ||
+      authRequiredRef.current ||
+      conversationRef.current.activeTurnId ||
+      conversationRef.current.approvals.length > 0 ||
+      conversationRef.current.userInputRequests.length > 0 ||
+      submittingRef.current ||
+      compactingThreadIdRef.current
+    ) {
+      return;
+    }
+
+    const previousUsage = threadTokenUsageRef.current[threadId] ?? null;
+    compactingThreadIdRef.current = threadId;
+    setCompactingThreadId(threadId);
+    updateThreadTokenUsage((current) => {
+      const next = { ...current };
+      delete next[threadId];
+      return next;
+    });
+    setRuntimeError(null);
+
+    try {
+      await codexAppServerClient.request('thread/compact/start', { threadId });
+    } catch (error) {
+      if (previousUsage) {
+        updateThreadTokenUsage((current) => ({
+          ...current,
+          [threadId]: previousUsage,
+        }));
+      }
+      if (compactingThreadIdRef.current === threadId) {
+        compactingThreadIdRef.current = null;
+        setCompactingThreadId(null);
+      }
+      setRuntimeError(getErrorMessage(error));
+    }
+  }, [updateThreadTokenUsage]);
+
   React.useEffect(() => {
     const generation = runtimeGenerationRef.current + 1;
     runtimeGenerationRef.current = generation;
@@ -1085,6 +1173,10 @@ export function AiPanel({
       setPluginLoadWarning(null);
       setSkillStatus('idle');
       setSkillOptions([]);
+      threadTokenUsageRef.current = {};
+      setThreadTokenUsage({});
+      compactingThreadIdRef.current = null;
+      setCompactingThreadId(null);
     });
     if (!workspaceRootPath) {
       return;
@@ -1099,8 +1191,46 @@ export function AiPanel({
         return;
       }
 
+      const tokenUsageUpdate = threadTokenUsageUpdateFromMessage(message);
+      if (tokenUsageUpdate) {
+        updateThreadTokenUsage((current) => ({
+          ...current,
+          [tokenUsageUpdate.threadId]: tokenUsageUpdate.tokenUsage,
+        }));
+      }
+
+      const item = message.params?.item;
+      const itemRecord =
+        item && typeof item === 'object' && !Array.isArray(item)
+          ? (item as Record<string, unknown>)
+          : null;
+      const eventThreadId =
+        typeof message.params?.threadId === 'string'
+          ? message.params.threadId
+          : null;
+      if (
+        message.method === 'item/started' &&
+        itemRecord?.type === 'contextCompaction' &&
+        eventThreadId
+      ) {
+        updateThreadTokenUsage((current) => {
+          const next = { ...current };
+          delete next[eventThreadId];
+          return next;
+        });
+      }
+      if (
+        ((message.method === 'item/completed' &&
+          itemRecord?.type === 'contextCompaction') ||
+          message.method === 'thread/compacted') &&
+        eventThreadId &&
+        compactingThreadIdRef.current === eventThreadId
+      ) {
+        compactingThreadIdRef.current = null;
+        setCompactingThreadId(null);
+      }
+
       if (message.method === 'item/completed') {
-        const item = message.params?.item;
         const turnId = message.params?.turnId;
         if (
           item &&
@@ -1143,6 +1273,13 @@ export function AiPanel({
           }
           turnModesRef.current.delete(turnId);
         }
+        if (
+          eventThreadId &&
+          compactingThreadIdRef.current === eventThreadId
+        ) {
+          compactingThreadIdRef.current = null;
+          setCompactingThreadId(null);
+        }
       }
 
       setConversation((current) =>
@@ -1156,6 +1293,8 @@ export function AiPanel({
 
       if (message.method === 'madora/runtime/exited') {
         setPlanImplementation(null);
+        compactingThreadIdRef.current = null;
+        setCompactingThreadId(null);
         codexAppServerClient.rejectPending(
           new Error('Codex App Server 已停止'),
         );
@@ -1256,6 +1395,7 @@ export function AiPanel({
     loadModelCatalog,
     loadSkills,
     loadThreadHistory,
+    updateThreadTokenUsage,
     workspaceRootPath,
   ]);
 
@@ -1269,6 +1409,8 @@ export function AiPanel({
     setSelectedAttachments([]);
     setActiveThread(null);
     activeThreadIdRef.current = null;
+    compactingThreadIdRef.current = null;
+    setCompactingThreadId(null);
     setConversation(createEmptyConversation());
     setSelectedMentions([]);
     setComposerValue('');
@@ -1289,6 +1431,8 @@ export function AiPanel({
     setSelectedMentions([]);
     setComposerValue('');
     setRuntimeError(null);
+    compactingThreadIdRef.current = null;
+    setCompactingThreadId(null);
     resetToDefaultMode();
     setView('chat');
     try {
@@ -1839,6 +1983,9 @@ export function AiPanel({
           <AiComposer
             active={Boolean(conversation.activeTurnId)}
             collaborationMode={collaborationMode}
+            compacting={compactingThreadId === activeThread?.id}
+            compactUnavailableReason={compactUnavailableReason}
+            contextUsage={activeThreadTokenUsage}
             currentDocument={currentDocument}
             effort={effort}
             focusRequest={composerFocusRequest}
@@ -1877,6 +2024,7 @@ export function AiPanel({
             onEffortChange={setEffort}
             onInterrupt={() => void interruptTurn()}
             onCollaborationModeChange={changeCollaborationMode}
+            onCompact={() => void compactContext()}
             onMentionQueryChange={setMentionQuery}
             onMentionsChange={setSelectedMentions}
             onModelChange={(model) => {
@@ -4066,6 +4214,9 @@ export function AiComposer({
   authRequired = false,
   autoReviewAvailable,
   collaborationMode = 'default',
+  compacting = false,
+  compactUnavailableReason = null,
+  contextUsage = null,
   currentDocument,
   effort,
   focusRequest = 0,
@@ -4094,6 +4245,7 @@ export function AiComposer({
   onAttachmentSelect = () => undefined,
   onDetectPlugins = () => undefined,
   onCollaborationModeChange = () => undefined,
+  onCompact = () => undefined,
   onEffortChange,
   onInterrupt,
   onMentionQueryChange,
@@ -4110,6 +4262,9 @@ export function AiComposer({
   authRequired?: boolean;
   autoReviewAvailable: boolean;
   collaborationMode?: CodexCollaborationModeKind;
+  compacting?: boolean;
+  compactUnavailableReason?: string | null;
+  contextUsage?: CodexThreadTokenUsage | null;
   currentDocument: WorkspaceNode | null;
   effort: CodexReasoningEffort;
   focusRequest?: number;
@@ -4138,6 +4293,7 @@ export function AiComposer({
   onAttachmentSelect?: (kind: CodexContextAttachment['kind']) => void;
   onDetectPlugins?: () => void;
   onCollaborationModeChange?: (mode: CodexCollaborationModeKind) => void;
+  onCompact?: () => void;
   onEffortChange: (effort: CodexReasoningEffort) => void;
   onInterrupt: () => void;
   onMentionQueryChange: (query: string | null) => void;
@@ -4371,6 +4527,33 @@ export function AiComposer({
     [onMentionQueryChange, syncEditorState],
   );
 
+  const runCompactCommand = React.useCallback(() => {
+    if (compactUnavailableReason) return;
+    const editor = editorRef.current;
+    if (!editor) return;
+
+    editor.focus();
+    const targetRange = mentionTargetRef.current?.range;
+    const range =
+      targetRange && editor.contains(targetRange.commonAncestorContainer)
+        ? targetRange.cloneRange()
+        : getComposerRange(editor, savedRangeRef.current);
+    range.deleteContents();
+    range.collapse(true);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    savedRangeRef.current = range.cloneRange();
+
+    mentionTargetRef.current = null;
+    dismissedMentionKeyRef.current = null;
+    setSkillSelection({ path: null, query: null });
+    setSkillQuery(null);
+    onMentionQueryChange(null);
+    syncEditorState();
+    onCompact();
+  }, [compactUnavailableReason, onCompact, onMentionQueryChange, syncEditorState]);
+
   const closeMentionMenu = React.useCallback(() => {
     dismissedMentionKeyRef.current = mentionTargetRef.current?.key ?? null;
     mentionTargetRef.current = null;
@@ -4414,22 +4597,39 @@ export function AiComposer({
       ),
     [composerMentionPaths, skillOptions, skillQuery],
   );
-  const selectedSkillIndex =
+  const showCompactCommand =
+    skillQuery !== null && compactCommandMatches(skillQuery);
+  const compactCommandOffset = showCompactCommand ? 1 : 0;
+  const selectedMenuIndex =
     skillSelection.query === skillQuery
-      ? visibleSkills.findIndex((skill) => skill.path === skillSelection.path)
+      ? skillSelection.path === COMPACT_COMMAND_SELECTION && showCompactCommand
+        ? 0
+        : (() => {
+            const skillIndex = visibleSkills.findIndex(
+              (skill) => skill.path === skillSelection.path,
+            );
+            return skillIndex < 0 ? -1 : skillIndex + compactCommandOffset;
+          })()
       : -1;
-  const activeSkillIndex =
-    visibleSkills.length === 0 ? -1 : Math.max(0, selectedSkillIndex);
+  const menuOptionCount = visibleSkills.length + compactCommandOffset;
+  const activeMenuIndex =
+    menuOptionCount === 0 ? -1 : Math.max(0, selectedMenuIndex);
   const activeSkill =
-    activeSkillIndex >= 0 ? (visibleSkills[activeSkillIndex] ?? null) : null;
+    activeMenuIndex >= compactCommandOffset
+      ? (visibleSkills[activeMenuIndex - compactCommandOffset] ?? null)
+      : null;
+  const activeCompactCommand = showCompactCommand && activeMenuIndex === 0;
   const selectSkillIndex = React.useCallback(
     (index: number) => {
       setSkillSelection({
-        path: visibleSkills[index]?.path ?? null,
+        path:
+          showCompactCommand && index === 0
+            ? COMPACT_COMMAND_SELECTION
+            : visibleSkills[index - compactCommandOffset]?.path ?? null,
         query: skillQuery,
       });
     },
-    [skillQuery, visibleSkills],
+    [compactCommandOffset, showCompactCommand, skillQuery, visibleSkills],
   );
 
   return (
@@ -4440,12 +4640,17 @@ export function AiComposer({
       >
         {skillQuery !== null ? (
           <SkillMenu
-            activeIndex={activeSkillIndex}
+            activeIndex={activeMenuIndex}
+            compacting={compacting}
+            compactUnavailableReason={compactUnavailableReason}
+            contextUsage={contextUsage}
             listboxId={skillListboxId}
             query={skillQuery}
+            showCompactCommand={showCompactCommand}
             skills={visibleSkills}
             status={skillStatus}
             onActiveIndexChange={selectSkillIndex}
+            onSelectCompact={runCompactCommand}
             onSelect={insertSkillMention}
           />
         ) : mentionQuery !== null ? (
@@ -4489,8 +4694,8 @@ export function AiComposer({
         <div
           aria-label="向 Codex 提问"
           aria-activedescendant={
-            skillQuery !== null && activeSkill
-              ? mentionOptionId(skillListboxId, activeSkillIndex)
+            skillQuery !== null && activeMenuIndex >= 0
+              ? mentionOptionId(skillListboxId, activeMenuIndex)
               : mentionQuery !== null && activeMention
               ? mentionOptionId(mentionListboxId, activeMentionIndex)
               : undefined
@@ -4548,10 +4753,10 @@ export function AiComposer({
               if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
                 event.preventDefault();
                 const direction = event.key === 'ArrowDown' ? 1 : -1;
-                if (skillQuery !== null && visibleSkills.length > 0) {
+                if (skillQuery !== null && menuOptionCount > 0) {
                   selectSkillIndex(
-                    (activeSkillIndex + direction + visibleSkills.length) %
-                      visibleSkills.length,
+                    (activeMenuIndex + direction + menuOptionCount) %
+                      menuOptionCount,
                   );
                 } else if (mentionDocuments.length > 0) {
                   selectMentionIndex(
@@ -4569,7 +4774,9 @@ export function AiComposer({
                 event.key === 'Tab'
               ) {
                 event.preventDefault();
-                if (skillQuery !== null && activeSkill) {
+                if (skillQuery !== null && activeCompactCommand) {
+                  runCompactCommand();
+                } else if (skillQuery !== null && activeSkill) {
                   insertSkillMention(activeSkill);
                 } else if (activeMention) {
                   insertMention(activeMention);
@@ -4937,6 +5144,10 @@ export function AiComposer({
                 正在准备
               </span>
             ) : null}
+            <ContextUsageIndicator
+              compacting={compacting}
+              usage={contextUsage}
+            />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -5049,6 +5260,106 @@ export function AiComposer({
   );
 }
 
+function ContextUsageIndicator({
+  compacting,
+  usage,
+}: {
+  compacting: boolean;
+  usage: CodexThreadTokenUsage | null;
+}) {
+  const percent = contextUsagePercent(usage);
+  const remainingPercent = percent === null ? null : 100 - percent;
+  const label = compacting
+    ? '背景信息窗口：正在压缩'
+    : percent === null
+      ? '背景信息窗口：发送首条消息后显示'
+      : `背景信息窗口：${percent}% 已用`;
+
+  return (
+    <HoverCard openDelay={180} closeDelay={80}>
+      <HoverCardTrigger asChild>
+        <button
+          aria-label={label}
+          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          type="button"
+        >
+          <ContextUsageProgress compacting={compacting} percent={percent} />
+        </button>
+      </HoverCardTrigger>
+      <HoverCardContent
+        align="center"
+        className="w-auto min-w-[190px] rounded-xl px-4 py-2.5 text-center"
+        side="top"
+        sideOffset={8}
+      >
+        <div aria-label="上下文用量" role="status">
+          <div className="text-[13px] leading-5 text-muted-foreground">
+            背景信息窗口：
+          </div>
+          <div className="mt-0.5 text-[15px] font-medium leading-5">
+            {compacting
+              ? '正在压缩'
+              : percent === null
+                ? '发送首条消息后显示'
+                : `${percent}% 已用（剩余 ${remainingPercent}%）`}
+          </div>
+          {usage?.modelContextWindow ? (
+            <div className="mt-0.5 whitespace-nowrap text-[15px] font-medium leading-5">
+              已用 {formatTokenCount(usage.last.totalTokens)} 标记，共{' '}
+              {formatTokenCount(usage.modelContextWindow)}
+            </div>
+          ) : null}
+        </div>
+      </HoverCardContent>
+    </HoverCard>
+  );
+}
+
+const CONTEXT_PROGRESS_CIRCUMFERENCE = 2 * Math.PI * 10;
+
+function ContextUsageProgress({
+  compacting,
+  percent,
+}: {
+  compacting: boolean;
+  percent: number | null;
+}) {
+  const normalizedPercent = percent ?? 0;
+  const progressLength =
+    (CONTEXT_PROGRESS_CIRCUMFERENCE * normalizedPercent) / 100;
+
+  return (
+    <span
+      aria-hidden="true"
+      className="relative flex size-[15px] items-center justify-center"
+      data-context-percent={normalizedPercent}
+      data-testid="context-usage-progress"
+    >
+      <Circle
+        className="absolute inset-0 text-muted-foreground/25"
+        size={15}
+        strokeWidth={3}
+      />
+      {compacting ? (
+        <LoaderCircle className="animate-spin" size={15} strokeWidth={3} />
+      ) : (
+        <Circle
+          className="absolute inset-0 text-muted-foreground"
+          data-testid="context-usage-progress-arc"
+          size={15}
+          strokeWidth={3}
+          style={{
+            strokeDasharray: `${progressLength} ${CONTEXT_PROGRESS_CIRCUMFERENCE}`,
+            transform: 'rotate(-90deg)',
+            transformOrigin: 'center',
+            transition: 'stroke-dasharray 180ms ease-out',
+          }}
+        />
+      )}
+    </span>
+  );
+}
+
 function MentionMenu({
   activeIndex,
   documents,
@@ -5149,23 +5460,35 @@ function MentionMenu({
 
 function SkillMenu({
   activeIndex,
+  compacting,
+  compactUnavailableReason,
+  contextUsage,
   listboxId,
   query,
+  showCompactCommand,
   skills,
   status,
   onActiveIndexChange,
+  onSelectCompact,
   onSelect,
 }: {
   activeIndex: number;
+  compacting: boolean;
+  compactUnavailableReason: string | null;
+  contextUsage: CodexThreadTokenUsage | null;
   listboxId: string;
   query: string;
+  showCompactCommand: boolean;
   skills: AiSkillMentionOption[];
   status: ControlLoadStatus;
   onActiveIndexChange: (index: number) => void;
+  onSelectCompact: () => void;
   onSelect: (skill: AiSkillMentionOption) => void;
 }) {
   const listRef = React.useRef<HTMLDivElement>(null);
   const optionRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
+  const compactOffset = showCompactCommand ? 1 : 0;
+  const usagePercent = contextUsagePercent(contextUsage);
 
   React.useLayoutEffect(() => {
     if (activeIndex < 0) return;
@@ -5187,16 +5510,58 @@ function SkillMenu({
       className="absolute bottom-[calc(100%+6px)] left-0 right-0 z-30 overflow-hidden rounded-xl border border-border/80 bg-popover p-1.5 shadow-none"
       data-skill-menu
     >
-      <div className="px-2 py-1.5 text-[11px] font-medium text-muted-foreground">
-        技能
-      </div>
       <div
-        aria-label="选择 Skill"
+        aria-label="选择命令或 Skill"
         className="scrollbar-thin max-h-72 overflow-y-auto"
         id={listboxId}
         ref={listRef}
         role="listbox"
       >
+        {showCompactCommand ? (
+          <button
+            aria-disabled={Boolean(compactUnavailableReason)}
+            aria-label={compacting ? '正在压缩上下文' : '压缩上下文'}
+            aria-selected={activeIndex === 0}
+            className={cn(
+              'flex min-h-10 w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left outline-none',
+              activeIndex === 0
+                ? 'bg-accent text-accent-foreground'
+                : 'hover:bg-accent/60',
+              compactUnavailableReason && 'cursor-not-allowed opacity-55',
+            )}
+            disabled={Boolean(compactUnavailableReason)}
+            id={mentionOptionId(listboxId, 0)}
+            ref={(element) => {
+              optionRefs.current[0] = element;
+            }}
+            role="option"
+            title={compactUnavailableReason ?? undefined}
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onMouseMove={() => onActiveIndexChange(0)}
+            onClick={onSelectCompact}
+          >
+            <LoaderCircle
+              className={cn(
+                'shrink-0 text-muted-foreground',
+                compacting && 'animate-spin',
+              )}
+              size={15}
+            />
+            <span className="shrink-0 text-xs font-medium">
+              {compacting ? '正在压缩' : '压缩'}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+              {compactUnavailableReason ||
+                (usagePercent === null
+                  ? '压缩此任务的上下文'
+                  : `压缩此任务的上下文（已占用 ${usagePercent}%）`)}
+            </span>
+          </button>
+        ) : null}
+        <div className="px-2 py-1.5 text-[11px] font-medium text-muted-foreground">
+          技能
+        </div>
         {status === 'loading' || status === 'idle' ? (
           <div className="flex items-center justify-center gap-2 px-2 py-5 text-xs text-muted-foreground">
             <LoaderCircle className="animate-spin" size={14} />
@@ -5211,7 +5576,9 @@ function SkillMenu({
             {query ? '没有匹配的技能' : '没有可用的技能'}
           </div>
         ) : (
-          skills.map((skill, index) => (
+          skills.map((skill, skillIndex) => {
+            const index = skillIndex + compactOffset;
+            return (
             <button
               aria-label={`选择 ${skill.displayName}`}
               aria-selected={index === activeIndex}
@@ -5243,7 +5610,8 @@ function SkillMenu({
                 {skillScopeLabel(skill.scope)}
               </span>
             </button>
-          ))
+            );
+          })
         )}
       </div>
     </div>
@@ -5269,6 +5637,34 @@ function MentionMatchedText({ query, text }: { query: string; text: string }) {
 
 function mentionOptionId(listboxId: string, index: number) {
   return `${listboxId}-option-${index}`;
+}
+
+function compactCommandMatches(query: string) {
+  const normalized = query.trim().toLocaleLowerCase();
+  return (
+    normalized.length === 0 ||
+    'compact'.includes(normalized) ||
+    '压缩'.includes(normalized)
+  );
+}
+
+function contextUsagePercent(usage: CodexThreadTokenUsage | null) {
+  if (!usage?.modelContextWindow) return null;
+  return Math.min(
+    100,
+    Math.max(
+      0,
+      Math.floor((usage.last.totalTokens / usage.modelContextWindow) * 100),
+    ),
+  );
+}
+
+function formatTokenCount(value: number) {
+  if (value < 1_000) return String(value);
+  const divisor = value >= 1_000_000 ? 1_000_000 : 1_000;
+  const suffix = divisor === 1_000_000 ? 'm' : 'k';
+  const scaled = value / divisor;
+  return `${Number.isInteger(scaled) ? scaled : scaled.toFixed(1).replace(/\.0$/, '')}${suffix}`;
 }
 
 function ContextChip({

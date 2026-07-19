@@ -1211,6 +1211,32 @@ describe('AI panel event reducer', () => {
       method: 'thread/compacted',
       params: { threadId: 'thread-1', turnId: 'turn-1' },
     });
+    expect(state.entries).toContainEqual(
+      expect.objectContaining({
+        id: 'context-turn-1',
+        kind: 'context',
+        label: '上下文已压缩',
+        status: 'completed',
+      }),
+    );
+    state = reduceCodexProtocolMessage(state, {
+      method: 'item/started',
+      params: {
+        turnId: 'turn-1',
+        item: {
+          id: 'context-item-1',
+          type: 'contextCompaction',
+        },
+      },
+    });
+    expect(state.entries).toContainEqual(
+      expect.objectContaining({
+        id: 'context-turn-1',
+        kind: 'context',
+        label: '正在压缩上下文',
+        status: 'inProgress',
+      }),
+    );
     state = reduceCodexProtocolMessage(state, {
       method: 'item/completed',
       params: {
@@ -1237,6 +1263,8 @@ describe('AI panel event reducer', () => {
       expect.objectContaining({
         id: 'context-turn-1',
         kind: 'context',
+        label: '上下文已压缩',
+        status: 'completed',
       }),
     ]);
   });

@@ -1459,6 +1459,10 @@ fn validate_request_params_with_authorized_context(
         validate_skill_list_params(root, params)?;
     }
 
+    if method == "thread/compact/start" {
+        validate_thread_compact_start_params(params)?;
+    }
+
     if method == "collaborationMode/list"
         && params.as_object().is_none_or(|params| !params.is_empty())
     {
@@ -1568,6 +1572,26 @@ fn validate_turn_collaboration_mode(params: &Value) -> Result<(), String> {
         .any(|key| params.get(*key).is_some())
     {
         return Err("turn/start 使用 collaborationMode 时不得同时覆盖模型或指令".to_string());
+    }
+    Ok(())
+}
+
+fn validate_thread_compact_start_params(params: &Value) -> Result<(), String> {
+    let params = params
+        .as_object()
+        .ok_or_else(|| "thread/compact/start 参数格式无效".to_string())?;
+    if params.len() != 1 || !params.contains_key("threadId") {
+        return Err("thread/compact/start 只接受 threadId".to_string());
+    }
+    let thread_id = params
+        .get("threadId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "thread/compact/start threadId 无效".to_string())?;
+    if thread_id.is_empty()
+        || thread_id.len() > 256
+        || thread_id.chars().any(char::is_control)
+    {
+        return Err("thread/compact/start threadId 无效".to_string());
     }
     Ok(())
 }
@@ -2124,6 +2148,7 @@ fn is_allowed_client_method(method: &str) -> bool {
             | "thread/delete"
             | "thread/name/set"
             | "thread/settings/update"
+            | "thread/compact/start"
             | "collaborationMode/list"
             | "turn/start"
             | "turn/interrupt"
@@ -2458,6 +2483,7 @@ mod tests {
     fn allowlist_rejects_generic_filesystem_and_shell_methods() {
         assert!(is_allowed_client_method("thread/start"));
         assert!(is_allowed_client_method("thread/settings/update"));
+        assert!(is_allowed_client_method("thread/compact/start"));
         assert!(is_allowed_client_method("collaborationMode/list"));
         assert!(is_allowed_client_method("permissionProfile/list"));
         assert!(is_allowed_client_method("configRequirements/read"));
@@ -2563,6 +2589,32 @@ mod tests {
             &json!({ "unexpected": true })
         )
         .is_err());
+    }
+
+    #[test]
+    fn context_compaction_requires_an_exact_thread_id() {
+        let root = tempdir().expect("create root");
+        assert!(validate_request_params(
+            root.path(),
+            "thread/compact/start",
+            &json!({ "threadId": "thread-1" })
+        )
+        .is_ok());
+
+        for invalid in [
+            json!({}),
+            json!({ "threadId": "" }),
+            json!({ "threadId": 1 }),
+            json!({ "threadId": "thread-1", "unexpected": true }),
+            json!({ "threadId": "thread\n1" }),
+        ] {
+            assert!(validate_request_params(
+                root.path(),
+                "thread/compact/start",
+                &invalid
+            )
+            .is_err());
+        }
     }
 
     #[test]

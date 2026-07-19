@@ -23,6 +23,7 @@ import {
   type AiTaskProgress,
   type AiTraceBlock,
 } from '../ai-panel-state';
+import type { CodexThreadTokenUsage } from '../codex-app-server';
 
 const mentionedDocument = {
   absolutePath: '/workspace/README.md',
@@ -576,7 +577,7 @@ describe('AI message rendering', () => {
     await user.click(editor);
     await user.type(editor, '/Design');
 
-    const listbox = screen.getByRole('listbox', { name: '选择 Skill' });
+    const listbox = screen.getByRole('listbox', { name: '选择命令或 Skill' });
     expect(
       within(listbox).getByRole('option', { name: /Design QA/ }),
     ).toBeTruthy();
@@ -591,8 +592,184 @@ describe('AI message rendering', () => {
     expect(mention.querySelector('img')?.getAttribute('src')).toBe(
       '/icons/mentions/box.svg',
     );
-    expect(screen.queryByRole('listbox', { name: '选择 Skill' })).toBeNull();
+    expect(
+      screen.queryByRole('listbox', { name: '选择命令或 Skill' }),
+    ).toBeNull();
     expect(screen.getByTestId('selected-mention-count').textContent).toBe('1');
+  });
+
+  it('展示当前上下文窗口，并从 / 菜单手动触发压缩', async () => {
+    const user = userEvent.setup();
+    const onCompact = vi.fn();
+    const contextUsage: CodexThreadTokenUsage = {
+      last: {
+        cachedInputTokens: 40_000,
+        inputTokens: 140_000,
+        outputTokens: 9_000,
+        reasoningOutputTokens: 2_000,
+        totalTokens: 151_000,
+      },
+      modelContextWindow: 258_000,
+      total: {
+        cachedInputTokens: 90_000,
+        inputTokens: 180_000,
+        outputTokens: 12_000,
+        reasoningOutputTokens: 2_000,
+        totalTokens: 300_000,
+      },
+    };
+
+    const { rerender } = render(
+      <ComposerHarness
+        contextUsage={contextUsage}
+        onCompact={onCompact}
+        onOpenMention={vi.fn()}
+      />,
+    );
+
+    const usageTrigger = screen.getByRole('button', {
+      name: '背景信息窗口：58% 已用',
+    });
+    const initialArcStyle = within(usageTrigger)
+      .getByTestId('context-usage-progress-arc')
+      .getAttribute('style');
+    expect(
+      within(usageTrigger)
+        .getByTestId('context-usage-progress')
+        .getAttribute('data-context-percent'),
+    ).toBe('58');
+    await user.hover(usageTrigger);
+    const usage = await screen.findByRole('status', { name: '上下文用量' });
+    expect(usage.closest('[data-slot="hover-card-content"]')?.className).toContain(
+      'min-w-[190px]',
+    );
+    expect(within(usage).getByText('背景信息窗口：')).toBeTruthy();
+    expect(within(usage).getByText('58% 已用（剩余 42%）')).toBeTruthy();
+    expect(within(usage).getByText('已用 151k 标记，共 258k')).toBeTruthy();
+
+    const updatedUsage: CodexThreadTokenUsage = {
+      ...contextUsage,
+      last: { ...contextUsage.last, totalTokens: 200_000 },
+    };
+    rerender(
+      <ComposerHarness
+        contextUsage={updatedUsage}
+        onCompact={onCompact}
+        onOpenMention={vi.fn()}
+      />,
+    );
+    expect(
+      screen
+        .getByTestId('context-usage-progress')
+        .getAttribute('data-context-percent'),
+    ).toBe('77');
+    expect(
+      screen.getByTestId('context-usage-progress-arc').getAttribute('style'),
+    ).not.toBe(initialArcStyle);
+
+    rerender(
+      <ComposerHarness
+        contextUsage={{
+          ...updatedUsage,
+          last: { ...updatedUsage.last, totalTokens: 300_000 },
+        }}
+        onCompact={onCompact}
+        onOpenMention={vi.fn()}
+      />,
+    );
+    expect(
+      screen
+        .getByTestId('context-usage-progress')
+        .getAttribute('data-context-percent'),
+    ).toBe('100');
+    expect(
+      screen.getByRole('button', { name: '背景信息窗口：100% 已用' }),
+    ).toBeTruthy();
+
+    rerender(
+      <ComposerHarness
+        compacting
+        contextUsage={updatedUsage}
+        onCompact={onCompact}
+        onOpenMention={vi.fn()}
+      />,
+    );
+    const compactingTrigger = screen.getByRole('button', {
+      name: '背景信息窗口：正在压缩',
+    });
+    expect(
+      within(compactingTrigger)
+        .getByTestId('context-usage-progress')
+        .querySelector('.animate-spin'),
+    ).toBeTruthy();
+    expect(
+      within(compactingTrigger).queryByTestId('context-usage-progress-arc'),
+    ).toBeNull();
+
+    rerender(
+      <ComposerHarness
+        contextUsage={updatedUsage}
+        onCompact={onCompact}
+        onOpenMention={vi.fn()}
+      />,
+    );
+
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '/');
+    const listbox = screen.getByRole('listbox', { name: '选择命令或 Skill' });
+    const compact = within(listbox).getByRole('option', { name: /压缩/ });
+    expect(within(compact).getByText('压缩此任务的上下文（已占用 77%）')).toBeTruthy();
+    await user.click(compact);
+
+    expect(onCompact).toHaveBeenCalledOnce();
+    expect(editor.textContent).toBe('');
+    expect(
+      screen.queryByRole('listbox', { name: '选择命令或 Skill' }),
+    ).toBeNull();
+  });
+
+  it('首条消息前展示空进度环并解释用量尚未产生', async () => {
+    const user = userEvent.setup();
+    render(<ComposerHarness onOpenMention={vi.fn()} />);
+
+    const usageTrigger = screen.getByRole('button', {
+      name: '背景信息窗口：发送首条消息后显示',
+    });
+    expect(
+      within(usageTrigger)
+        .getByTestId('context-usage-progress')
+        .getAttribute('data-context-percent'),
+    ).toBe('0');
+
+    await user.hover(usageTrigger);
+    expect(
+      await screen.findByText('发送首条消息后显示'),
+    ).toBeTruthy();
+  });
+
+  it('任务运行中禁用 / 压缩命令并解释原因', async () => {
+    const user = userEvent.setup();
+    const onCompact = vi.fn();
+    render(
+      <ComposerHarness
+        active
+        compactUnavailableReason="当前任务运行中"
+        onCompact={onCompact}
+        onOpenMention={vi.fn()}
+      />,
+    );
+
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '/');
+    const compact = within(
+      screen.getByRole('listbox', { name: '选择命令或 Skill' }),
+    ).getByRole('option', { name: /压缩/ });
+    expect(compact.getAttribute('aria-disabled')).toBe('true');
+    expect(within(compact).getByText('当前任务运行中')).toBeTruthy();
+    await user.click(compact);
+    expect(onCompact).not.toHaveBeenCalled();
   });
 
   it('插件自动加载失败时才提供重试入口', async () => {
@@ -1434,13 +1611,18 @@ function createTrace({
 }
 
 function ComposerHarness({
+  active = false,
   attachments = [],
+  compacting = false,
+  compactUnavailableReason = null,
   collaborationMode = 'default',
+  contextUsage = null,
   mentionDocuments = [mentionedDocument],
   onAttachmentRemove = vi.fn(),
   onAttachmentSelect = vi.fn(),
   onDetectPlugins = vi.fn(),
   onCollaborationModeChange = vi.fn(),
+  onCompact = vi.fn(),
   onOpenMention,
   onSend = vi.fn(),
   pluginOptions = [],
@@ -1449,18 +1631,23 @@ function ComposerHarness({
   skillOptions = [],
   skillStatus = 'idle',
 }: {
+  active?: boolean;
   attachments?: Array<{
     attachmentId: string;
     isImage: boolean;
     kind: 'file' | 'folder';
     name: string;
   }>;
+  compacting?: boolean;
+  compactUnavailableReason?: string | null;
   collaborationMode?: 'default' | 'plan';
+  contextUsage?: CodexThreadTokenUsage | null;
   mentionDocuments?: Array<typeof mentionedDocument>;
   onAttachmentRemove?: (attachmentId: string) => void;
   onAttachmentSelect?: (kind: 'file' | 'folder') => void;
   onDetectPlugins?: () => void;
   onCollaborationModeChange?: (mode: 'default' | 'plan') => void;
+  onCompact?: () => void;
   onOpenMention: (path: string) => void;
   onSend?: () => void;
   pluginOptions?: Array<{
@@ -1489,11 +1676,14 @@ function ComposerHarness({
   return (
     <>
       <AiComposer
-        active={false}
+        active={active}
         approvalPolicyAvailability={{ never: true, onRequest: true }}
         attachments={attachments}
         autoReviewAvailable
         collaborationMode={collaborationMode}
+        compacting={compacting}
+        compactUnavailableReason={compactUnavailableReason}
+        contextUsage={contextUsage}
         currentDocument={null}
         effort="medium"
         mentionDocuments={mentionDocuments}
@@ -1516,6 +1706,7 @@ function ComposerHarness({
         onAttachmentSelect={onAttachmentSelect}
         onDetectPlugins={onDetectPlugins}
         onCollaborationModeChange={onCollaborationModeChange}
+        onCompact={onCompact}
         onEffortChange={vi.fn()}
         onInterrupt={vi.fn()}
         onMentionQueryChange={setMentionQuery}

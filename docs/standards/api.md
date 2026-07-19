@@ -25,8 +25,9 @@ referenced_by: AGENTS.md#knowledge-map
 
 - Codex 协议封装位于 `components/workspace/codex-app-server.ts` 与 `src-tauri/src/codex.rs`；不得从 React 组件直接启动进程或写入 stdio。
 - Windows 上的 Codex 版本探测与 App Server sidecar 必须复用无窗口命令构造入口，设置 `CREATE_NO_WINDOW`；不得让控制台子系统的 `codex.exe` 拉起独立终端窗口。
-- 客户端请求必须由 Rust allowlist 限制。当前允许账户、模型、线程、turn、MCP inventory/OAuth、skills、按工作区受控的 `plugin/installed`，以及只读的 `collaborationMode/list`、`permissionProfile/list`、`configRequirements/read`、`experimentalFeature/list` 和受控的 `thread/settings/update`；禁止向渲染器暴露通用 App Server `fs/*`、`command/exec`、`thread/shellCommand`、`config/read` 或配置写入方法。
+- 客户端请求必须由 Rust allowlist 限制。当前允许账户、模型、线程、turn、MCP inventory/OAuth、skills、按工作区受控的 `plugin/installed`，以及只读的 `collaborationMode/list`、`permissionProfile/list`、`configRequirements/read`、`experimentalFeature/list`、受控的 `thread/settings/update` 和 `thread/compact/start`；禁止向渲染器暴露通用 App Server `fs/*`、`command/exec`、`thread/shellCommand`、`config/read` 或配置写入方法。`thread/compact/start` 参数必须是仅含非空、无控制字符 `threadId` 的对象，不得接受额外配置或客户端压缩提示词。
 - App Server 的响应、通知与 server request 使用统一 `codex:event` 事件。前端必须按 JSON-RPC `id` 关联请求，并在运行时退出时拒绝所有 pending 请求。
+- `thread/tokenUsage/updated` 必须保留 `total`、`last` 与 `modelContextWindow` 的协议区别；当前上下文占比只使用 `last.totalTokens`。手动或自动压缩状态以 `contextCompaction` item 为权威，`thread/compacted` 只作旧协议完成兼容；不得通过累计 token 自行推断或触发压缩。
 - 消息与工具通知必须按首次到达顺序保存在同一会话流中；同一 item 的完成通知只更新原位置，不得把工具记录统一追加到回答末尾。`thread/name/updated` 必须同步当前标题与历史列表。
 - 历史投影只能消费 App Server 返回的 thread items。固定 sidecar `0.144.4` 不得通过直接读取 Codex JSONL、SQLite 或维护第二份 Madora 会话日志来弥补 `thread/read` / `thread/turns/list` 缺失的工具 item；sidecar 升级后应以 `thread/items/list` 或等价官方接口补齐并重新运行契约测试。
 - 前端必须保留 turn 的 `startedAt`、`completedAt`、`durationMs` 和 agent message phase。`commentary` 只进入处理过程，`final_answer` 独立展示；phase 缺失时不得推断或改写旧消息语义。

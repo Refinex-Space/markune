@@ -829,7 +829,10 @@ function timelineFromItem(
         detail: null,
         id: `context-${turnId ?? 'unknown'}`,
         kind: 'context',
-        label: '上下文已自动压缩',
+        label:
+          common.status === 'inProgress'
+            ? '正在压缩上下文'
+            : '上下文已压缩',
       };
     case 'enteredReviewMode':
     case 'exitedReviewMode':
@@ -2250,7 +2253,7 @@ function contextActivity(turnId: string): AiTimelineItem {
     durationMs: null,
     id: `context-${turnId}`,
     kind: 'context',
-    label: '上下文已自动压缩',
+    label: '上下文已压缩',
     startedAtMs: null,
     status: 'completed',
     turnId,

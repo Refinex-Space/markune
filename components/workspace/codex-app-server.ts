@@ -70,6 +70,26 @@ export interface CodexTurn {
   durationMs?: number | null;
 }
 
+export interface CodexTokenUsageBreakdown {
+  cachedInputTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+  totalTokens: number;
+}
+
+export interface CodexThreadTokenUsage {
+  last: CodexTokenUsageBreakdown;
+  modelContextWindow: number | null;
+  total: CodexTokenUsageBreakdown;
+}
+
+export interface CodexThreadTokenUsageUpdate {
+  threadId: string;
+  tokenUsage: CodexThreadTokenUsage;
+  turnId: string;
+}
+
 export type CodexThreadItem = Record<string, unknown> & {
   id?: string;
   type?: string;
@@ -331,6 +351,78 @@ export class CodexAppServerClient {
 }
 
 export const codexAppServerClient = new CodexAppServerClient();
+
+export function threadTokenUsageUpdateFromMessage(
+  message: CodexProtocolMessage,
+): CodexThreadTokenUsageUpdate | null {
+  if (message.method !== 'thread/tokenUsage/updated') return null;
+
+  const threadId = nonEmptyString(message.params?.threadId);
+  const turnId = nonEmptyString(message.params?.turnId);
+  const tokenUsage = asRecord(message.params?.tokenUsage);
+  const total = tokenUsage && tokenUsageBreakdownFromValue(tokenUsage.total);
+  const last = tokenUsage && tokenUsageBreakdownFromValue(tokenUsage.last);
+  const modelContextWindow = tokenUsage?.modelContextWindow;
+
+  if (
+    !threadId ||
+    !turnId ||
+    !total ||
+    !last ||
+    !(
+      modelContextWindow === null ||
+      (isNonNegativeInteger(modelContextWindow) && modelContextWindow > 0)
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    threadId,
+    turnId,
+    tokenUsage: { last, modelContextWindow, total },
+  };
+}
+
+function tokenUsageBreakdownFromValue(
+  value: unknown,
+): CodexTokenUsageBreakdown | null {
+  const record = asRecord(value);
+  if (!record) return null;
+
+  const fields = [
+    'cachedInputTokens',
+    'inputTokens',
+    'outputTokens',
+    'reasoningOutputTokens',
+    'totalTokens',
+  ] as const;
+  if (fields.some((field) => !isNonNegativeInteger(record[field]))) {
+    return null;
+  }
+
+  return {
+    cachedInputTokens: record.cachedInputTokens as number,
+    inputTokens: record.inputTokens as number,
+    outputTokens: record.outputTokens as number,
+    reasoningOutputTokens: record.reasoningOutputTokens as number,
+    totalTokens: record.totalTokens as number,
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function nonEmptyString(value: unknown) {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return Number.isInteger(value) && typeof value === 'number' && value >= 0;
+}
 
 export async function probeCodexRuntime() {
   const { invoke } = await import('@tauri-apps/api/core');
