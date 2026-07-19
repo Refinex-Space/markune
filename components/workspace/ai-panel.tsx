@@ -66,6 +66,10 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from '@/components/ui/hover-card';
+import {
+  ConfirmationDialog,
+  useConfirmationDialog,
+} from '@/components/ui/confirmation-dialog';
 import { cn } from '@/lib/utils';
 
 import {
@@ -141,9 +145,10 @@ import type { WorkspaceNode } from './workspace-types';
 
 interface AiPanelProps {
   currentDocument: WorkspaceNode | null;
+  currentDocumentPath: string | null;
   documents: AiDocumentReference[];
   workspaceRootPath: string | null;
-  onBeforeTurnStart: () => Promise<boolean>;
+  onBeforeTurnStart: (documentPath: string | null) => Promise<boolean>;
   onOpenDocument: (documentPath: string) => void;
   onOpenPlanPreview: (plan: AiProposedPlan, threadId: string) => void;
   onWorkspaceChanged: (
@@ -392,6 +397,7 @@ function collaborationModeForTurn(
 
 export function AiPanel({
   currentDocument,
+  currentDocumentPath,
   documents,
   workspaceRootPath,
   onBeforeTurnStart,
@@ -399,6 +405,11 @@ export function AiPanel({
   onOpenPlanPreview,
   onWorkspaceChanged,
 }: AiPanelProps) {
+  const {
+    confirm: confirmAction,
+    request: confirmationRequest,
+    resolve: resolveConfirmation,
+  } = useConfirmationDialog();
   const [view, setView] = React.useState<PanelView>('chat');
   const [runtimeStatus, setRuntimeStatus] =
     React.useState<RuntimeStatus>('loading');
@@ -1227,7 +1238,12 @@ export function AiPanel({
     async (thread: CodexThread, action: 'archive' | 'delete') => {
       if (
         action === 'delete' &&
-        !window.confirm('确定永久删除这条 Codex 历史记录吗？')
+        !(await confirmAction({
+          confirmLabel: '永久删除',
+          description: '删除后无法恢复这条 Codex 历史记录。',
+          title: '永久删除历史记录？',
+          variant: 'destructive',
+        }))
       ) {
         return;
       }
@@ -1240,12 +1256,14 @@ export function AiPanel({
         startNewChat();
       }
     },
-    [activeThread?.id, startNewChat],
+    [activeThread?.id, confirmAction, startNewChat],
   );
 
   const sendMessage = React.useCallback(
     async (messageOverride?: string, options: SendMessageOptions = {}) => {
       const text = (messageOverride ?? composerValue).trim();
+      const activeDocument = currentDocument;
+      const activeDocumentPath = currentDocumentPath;
       const attachments = options.planAction
         ? []
         : selectedAttachmentsRef.current;
@@ -1281,7 +1299,16 @@ export function AiPanel({
           throw new Error('请先完成 ChatGPT 登录。');
         }
 
-        const ready = await onBeforeTurnStart();
+        if (
+          activeDocumentPath &&
+          activeDocument?.absolutePath !== activeDocumentPath
+        ) {
+          throw new Error(
+            '当前标签页尚未完成加载，无法安全发送给 Codex。请稍后重试。',
+          );
+        }
+
+        const ready = await onBeforeTurnStart(activeDocumentPath);
         if (!ready) {
           throw new Error('当前文档保存失败，未发送消息。请先处理保存错误。');
         }
@@ -1297,7 +1324,7 @@ export function AiPanel({
         );
         const explicitDocuments = uniqueDocuments(documentMentions).filter(
           (document) =>
-            document.absolutePath !== currentDocument?.absolutePath,
+            document.absolutePath !== activeDocumentPath,
         );
         const userInput = createComposerAwareUserInput(
           text,
@@ -1436,10 +1463,10 @@ export function AiPanel({
               (attachment) => attachment.attachmentId,
             ),
             madoraDocumentReferences: [
-              ...(currentDocument
+              ...(activeDocumentPath
                 ? [
                     {
-                      path: currentDocument.absolutePath,
+                      path: activeDocumentPath,
                       role: 'active',
                     },
                   ]
@@ -1507,6 +1534,7 @@ export function AiPanel({
       activeThread,
       composerValue,
       currentDocument,
+      currentDocumentPath,
       models,
       onBeforeTurnStart,
       selectedMentions,
@@ -1615,9 +1643,13 @@ export function AiPanel({
       const next = permissionSettingsForMode(modeId);
       if (
         next.profileId === ':danger-full-access' &&
-        !window.confirm(
-          '完全访问权限允许 Codex 不受工作区边界限制地访问本机文件和互联网，并且不会再请求审批。确定切换吗？',
-        )
+        !(await confirmAction({
+          confirmLabel: '切换到完全访问',
+          description:
+            '完全访问权限允许 Codex 不受工作区边界限制地访问本机文件和互联网，并且不会再请求审批。',
+          title: '启用完全访问？',
+          variant: 'destructive',
+        }))
       ) {
         return;
       }
@@ -1643,6 +1675,7 @@ export function AiPanel({
     },
     [
       activeThread,
+      confirmAction,
       conversation.activeTurnId,
       conversation.approvals.length,
       permissionUpdating,
@@ -1789,6 +1822,10 @@ export function AiPanel({
           />
         </>
       )}
+      <ConfirmationDialog
+        request={confirmationRequest}
+        onResolve={resolveConfirmation}
+      />
     </section>
   );
 }
@@ -2034,10 +2071,15 @@ function PanelContent({
           <h2 className="text-sm font-medium">和你的工作区对话</h2>
           <p className="mt-2 max-w-[280px] text-xs leading-5 text-muted-foreground">
             {currentDocument
-              ? `当前已关联「${currentDocument.title || currentDocument.name}」，也可以用 @ 提及其他文档。`
+              ? `当前已关联「${getDocumentContextLabel(currentDocument)}」，也可以用 @ 提及其他文档。`
               : '提问、搜索或让 Codex 在审批后修改工作区文件。'}
           </p>
         </div>
+        {runtimeError ? (
+          <div className="mb-3 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+            {runtimeError}
+          </div>
+        ) : null}
         <div className="space-y-1.5">
           {STARTER_PROMPTS.map((prompt) => (
             <button
@@ -4124,7 +4166,8 @@ export function AiComposer({
           <div className="flex flex-wrap gap-1 px-3 pt-2.5">
             {currentDocument ? (
               <ContextChip
-                label={currentDocument.title || currentDocument.name}
+                label={getDocumentContextLabel(currentDocument)}
+                title={getDocumentContextTitle(currentDocument)}
               />
             ) : null}
             {attachments.map((attachment) => (
@@ -4935,14 +4978,19 @@ function ContextChip({
   icon,
   label,
   onDismiss,
+  title,
 }: {
   dismissible?: boolean;
   icon?: React.ReactNode;
   label: string;
   onDismiss?: () => void;
+  title?: string;
 }) {
   return (
-    <span className="inline-flex h-6 max-w-52 items-center gap-1 rounded-md border border-border/70 bg-muted/35 px-1.5 text-[10px] text-muted-foreground">
+    <span
+      className="inline-flex h-6 max-w-52 items-center gap-1 rounded-md border border-border/70 bg-muted/35 px-1.5 text-[10px] text-muted-foreground"
+      title={title}
+    >
       {icon ?? <FileText size={11} />}
       <span className="truncate">{label}</span>
       {dismissible ? (
@@ -4956,7 +5004,7 @@ function ContextChip({
 
 function createDocumentMentionElement(document: AiDocumentReference) {
   const mention = window.document.createElement('span');
-  const label = document.title || document.name;
+  const label = getDocumentContextLabel(document);
 
   mention.className = mentionLinkClassName;
   mention.contentEditable = 'false';
@@ -4969,11 +5017,23 @@ function createDocumentMentionElement(document: AiDocumentReference) {
   mention.dataset.mentionLabel = label;
   mention.setAttribute('aria-label', label);
   mention.setAttribute('role', 'link');
+  mention.title = getDocumentContextTitle(document);
   mention.tabIndex = 0;
   appendMentionImage(mention, '/icons/mentions/file-text.svg');
   mention.append(window.document.createTextNode(label));
 
   return mention;
+}
+
+function getDocumentContextLabel(document: AiDocumentReference) {
+  return document.relativePath || document.name;
+}
+
+function getDocumentContextTitle(document: AiDocumentReference) {
+  const label = getDocumentContextLabel(document);
+  return document.title && document.title !== label
+    ? `${document.title} · ${label}`
+    : label;
 }
 
 function createPluginMentionElement(plugin: AiPluginMentionOption) {

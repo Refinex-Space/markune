@@ -7,6 +7,7 @@ import {
   closeDocumentTabsToRight,
   closeOtherDocumentTabs,
   createInitialEditorLayout,
+  getActiveDocumentPath,
   openDocumentTab,
   openPlanPreviewTab,
   renameDocumentTab,
@@ -169,5 +170,26 @@ describe('document tabs model', () => {
     const closed = closeDocumentTab(layout, 'plan:thread-1:plan-1');
     expect(closed.activeTabId).toBe('/repo/a.md');
     expect(closed.tabs).toHaveLength(1);
+  });
+
+  it('uses the active document tab path as the AI document identity', () => {
+    let layout = openDocumentTab(
+      createInitialEditorLayout(),
+      doc('Test', 'Spring Boot 介绍'),
+    );
+    layout = openDocumentTab(layout, doc('Other', '另一篇文档'));
+
+    expect(getActiveDocumentPath(layout)).toBe('/repo/Other.md');
+
+    layout = selectDocumentTab(layout, '/repo/Test.md');
+    expect(getActiveDocumentPath(layout)).toBe('/repo/Test.md');
+
+    layout = openPlanPreviewTab(layout, {
+      id: 'plan-1',
+      text: '# 计划',
+      threadId: 'thread-1',
+    });
+    expect(getActiveDocumentPath(layout)).toBeNull();
+    expect(getActiveDocumentPath(createInitialEditorLayout())).toBeNull();
   });
 });

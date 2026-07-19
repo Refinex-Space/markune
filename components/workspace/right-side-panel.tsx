@@ -44,13 +44,14 @@ export interface DocumentPanelData {
 
 interface RightSidePanelProps {
   currentDocument: WorkspaceNode | null;
+  currentDocumentPath: string | null;
   documentPanelData: DocumentPanelData | null;
   documents: WorkspaceSearchResult[];
   documentReadOnly: boolean;
   mode: RightPanelMode;
   width: number;
   workspaceRootPath: string | null;
-  onBeforeTurnStart: () => Promise<boolean>;
+  onBeforeTurnStart: (documentPath: string | null) => Promise<boolean>;
   onOpenDocument: (documentPath: string) => void;
   onOpenPlanPreview: (plan: AiProposedPlan, threadId: string) => void;
   onWorkspaceChanged: (
@@ -69,6 +70,7 @@ interface RightToolRailProps {
 
 export function RightSidePanel({
   currentDocument,
+  currentDocumentPath,
   documentPanelData,
   documents,
   documentReadOnly,
@@ -95,6 +97,7 @@ export function RightSidePanel({
       >
         <AiPanel
           currentDocument={currentDocument}
+          currentDocumentPath={currentDocumentPath}
           documents={documents}
           visible={mode === 'ai'}
           workspaceRootPath={workspaceRootPath}

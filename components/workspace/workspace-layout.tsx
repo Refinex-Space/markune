@@ -36,6 +36,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import {
+  ConfirmationDialog,
+  useConfirmationDialog,
+} from '@/components/ui/confirmation-dialog';
 import { cn } from '@/lib/utils';
 
 import {
@@ -59,6 +63,7 @@ import {
   closeDocumentTabsToRight,
   closeOtherDocumentTabs,
   createInitialEditorLayout,
+  getActiveDocumentPath,
   getActiveTab,
   openDocumentTab,
   openPlanPreviewTab,
@@ -273,6 +278,11 @@ function toRecentDocument(node: WorkspaceNode): RecentWorkspaceDocument {
 export function WorkspaceLayout({
   initialSnapshot = null,
 }: WorkspaceLayoutProps) {
+  const {
+    confirm: confirmAction,
+    request: confirmationRequest,
+    resolve: resolveConfirmation,
+  } = useConfirmationDialog();
   const workspace = useWorkspace(initialSnapshot);
   const refreshWorkspaceTree = workspace.refreshWorkspaceTree;
   const [leftSidebarWidth, setLeftSidebarWidth] = useStoredPanelWidth(
@@ -338,8 +348,6 @@ export function WorkspaceLayout({
   const aiWorkspaceRefreshQueueRef = React.useRef<Promise<void>>(
     Promise.resolve(),
   );
-  const [activeEditorDocumentPath, setActiveEditorDocumentPath] =
-    React.useState<string | null>(null);
   const [documentEditorLayout, setDocumentEditorLayout] =
     React.useState<DocumentEditorLayout>(() => createInitialEditorLayout());
   const [recentDocuments, setRecentDocuments] = React.useState<
@@ -403,17 +411,16 @@ export function WorkspaceLayout({
   const setActiveRightPanelWidth =
     workspace.rightPanelMode === 'ai' ? setAiPanelWidth : setMetaPanelWidth;
   const saveCurrentDocumentNow = workspace.saveCurrentDocumentNow;
-  const activePanelDocumentPath =
-    activeEditorDocumentPath ?? currentDocumentPath;
+  const activeEditorTab = getActiveTab(documentEditorLayout);
+  const activePanelDocumentPath = getActiveDocumentPath(documentEditorLayout);
   const activePanelDocument =
     activePanelDocumentPath && workspace.snapshot
       ? findWorkspaceDocumentByPath(
           workspace.snapshot.nodes,
           activePanelDocumentPath,
         )
-      : workspace.currentDocument;
+      : null;
   const hasOpenDocumentTabs = documentEditorLayout.tabs.length > 0;
-  const activeEditorTab = getActiveTab(documentEditorLayout);
   const dailyContentDates = React.useMemo(
     () => getDailyContentDates(dailyNoteEntries),
     [dailyNoteEntries],
@@ -1573,7 +1580,6 @@ export function WorkspaceLayout({
     clearPendingDocumentOpen();
     const timer = window.setTimeout(() => {
       setDocumentEditorLayout(closeAllDocumentTabs());
-      setActiveEditorDocumentPath(null);
       setEditorSessions({});
       if (!workspaceRootPath) {
         setRecentDocuments([]);
@@ -1633,7 +1639,6 @@ export function WorkspaceLayout({
       setSystemPage(null);
       clearPendingDocumentOpen();
       setDocumentEditorLayout((current) => openDocumentTab(current, node));
-      setActiveEditorDocumentPath(node.absolutePath);
       rememberRecentDocument(node);
       const draft = await workspace.openDocument(node);
 
@@ -1755,7 +1760,6 @@ export function WorkspaceLayout({
 
       if (created) {
         setDocumentEditorLayout((current) => openDocumentTab(current, created));
-        setActiveEditorDocumentPath(created.absolutePath);
         rememberRecentDocument(created);
       }
 
@@ -1774,9 +1778,6 @@ export function WorkspaceLayout({
 
       setDocumentEditorLayout((current) =>
         renameDocumentTab(current, node.absolutePath, renamed),
-      );
-      setActiveEditorDocumentPath((current) =>
-        current === node.absolutePath ? renamed.absolutePath : current,
       );
       setEditorSessions((current) => {
         const session = current[node.absolutePath];
@@ -1967,18 +1968,15 @@ export function WorkspaceLayout({
 
       if (!activeTab) {
         clearPendingDocumentOpen();
-        setActiveEditorDocumentPath(null);
         workspace.clearCurrentDocument();
         return;
       }
 
       if (activeTab.kind === 'plan') {
         clearPendingDocumentOpen();
-        setActiveEditorDocumentPath(null);
         return;
       }
 
-      setActiveEditorDocumentPath(activeTab.absolutePath);
       rememberRecentDocumentByPath(activeTab.absolutePath);
       scheduleDocumentOpen(activeTab.absolutePath);
     },
@@ -2183,7 +2181,19 @@ export function WorkspaceLayout({
   );
 
   const handleBeforeAiTurnStart = React.useCallback(
-    () => workspace.prepareCurrentDocumentForAi(),
+    (expectedDocumentPath: string | null) => {
+      if (!expectedDocumentPath) {
+        return Promise.resolve(true);
+      }
+
+      if (currentDocumentPathRef.current !== expectedDocumentPath) {
+        throw new Error(
+          '当前标签页尚未完成加载，无法安全发送给 Codex。请稍后重试。',
+        );
+      }
+
+      return workspace.prepareCurrentDocumentForAi();
+    },
     [workspace],
   );
 
@@ -2192,11 +2202,17 @@ export function WorkspaceLayout({
       const conflict = workspace.externalDocumentConflict;
       const localDraft = workspace.draftDocument;
       if (!conflict) return;
-      const confirmed = window.confirm(
-        resolution === 'external'
-          ? '加载 Codex 写入的磁盘版本会丢弃当前未保存草稿，是否继续？'
-          : '用当前草稿覆盖 Codex 写入的磁盘版本，是否继续？',
-      );
+      const confirmed = await confirmAction({
+        confirmLabel:
+          resolution === 'external' ? '加载 AI 版本' : '覆盖 AI 版本',
+        description:
+          resolution === 'external'
+            ? '加载 Codex 写入的磁盘版本会丢弃当前未保存草稿。'
+            : '当前草稿将覆盖 Codex 写入的磁盘版本。',
+        title:
+          resolution === 'external' ? '放弃当前草稿？' : '覆盖 AI 版本？',
+        variant: 'destructive',
+      });
       if (!confirmed) return;
       const resolved = await workspace.resolveExternalDocumentConflict(resolution);
       if (!resolved) return;
@@ -2216,7 +2232,7 @@ export function WorkspaceLayout({
         },
       }));
     },
-    [workspace],
+    [confirmAction, workspace],
   );
 
   React.useEffect(
@@ -2764,6 +2780,7 @@ export function WorkspaceLayout({
 
                   <RightSidePanel
                     currentDocument={activePanelDocument}
+                    currentDocumentPath={activePanelDocumentPath}
                     documentPanelData={documentPanelData}
                     documents={
                       workspace.snapshot
@@ -2900,6 +2917,10 @@ export function WorkspaceLayout({
       </div>
       {documentExport.renderer}
       {documentImport.reportDialog}
+      <ConfirmationDialog
+        request={confirmationRequest}
+        onResolve={resolveConfirmation}
+      />
     </main>
   );
 }

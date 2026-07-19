@@ -197,6 +197,11 @@ export function getActiveTab(layout: DocumentEditorLayout) {
   return layout.tabs.find((tab) => tab.id === layout.activeTabId) ?? null;
 }
 
+export function getActiveDocumentPath(layout: DocumentEditorLayout) {
+  const activeTab = getActiveTab(layout);
+  return activeTab?.kind === 'document' ? activeTab.absolutePath : null;
+}
+
 function createDocumentTab(document: WorkspaceNode): DocumentEditorDocumentTab {
   return {
     absolutePath: document.absolutePath,

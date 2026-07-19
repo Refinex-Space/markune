@@ -584,8 +584,9 @@ describe('AI message rendering', () => {
     await user.type(editor, '请阅读 @READ');
     await user.click(screen.getByRole('option', { name: /README/ }));
 
-    const mention = screen.getByRole('link', { name: 'README' });
+    const mention = screen.getByRole('link', { name: 'README.md' });
     expect(editor.contains(mention)).toBe(true);
+    expect(mention.getAttribute('title')).toBe('README · README.md');
     expect(mention.querySelector('img')?.getAttribute('src')).toBe(
       '/icons/mentions/file-text.svg',
     );
@@ -647,7 +648,9 @@ describe('AI message rendering', () => {
       expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
 
       await user.keyboard('{Enter}');
-      expect(screen.getByRole('link', { name: 'Release Notes' })).toBeTruthy();
+      expect(
+        screen.getByRole('link', { name: 'Docs/Release Notes.md' }),
+      ).toBeTruthy();
       expect(screen.queryByRole('listbox')).toBeNull();
     } finally {
       Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
@@ -766,10 +769,10 @@ describe('AI message rendering', () => {
     await user.type(editor, '@READ');
     await user.click(screen.getByRole('option', { name: /README/ }));
 
-    expect(screen.getByRole('link', { name: 'README' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'README.md' })).toBeTruthy();
     await user.keyboard('{Backspace}');
 
-    expect(screen.queryByRole('link', { name: 'README' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'README.md' })).toBeNull();
     expect(screen.getByTestId('selected-mention-count').textContent).toBe('0');
   });
 

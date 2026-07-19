@@ -41,11 +41,11 @@ import { AiPanel } from '../ai-panel';
 import type { CodexProtocolMessage } from '../codex-app-server';
 
 const activeDocument = {
-  absolutePath: '/workspace/Guides/Spring Boot 介绍.md',
+  absolutePath: '/workspace/Test.md',
   id: 'spring-boot-intro',
   kind: 'document' as const,
-  name: 'Spring Boot 介绍.md',
-  relativePath: 'Guides/Spring Boot 介绍.md',
+  name: 'Test.md',
+  relativePath: 'Test.md',
   title: 'Spring Boot 介绍',
 };
 
@@ -168,10 +168,12 @@ function deferred<T>() {
 function renderPanel(
   onBeforeTurnStart = vi.fn().mockResolvedValue(true),
   currentDocument = null as typeof activeDocument | null,
+  currentDocumentPath = currentDocument?.absolutePath ?? null,
 ) {
   return render(
     <AiPanel
       currentDocument={currentDocument}
+      currentDocumentPath={currentDocumentPath}
       documents={[]}
       workspaceRootPath="/workspace"
       onBeforeTurnStart={onBeforeTurnStart}
@@ -550,7 +552,7 @@ describe('AI panel startup lifecycle', () => {
       }
       return Promise.resolve(defaultResponse(method));
     });
-    renderPanel();
+    renderPanel(vi.fn().mockResolvedValue(true), activeDocument);
 
     await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
     await user.click(screen.getByRole('button', { name: '添加上下文与工具' }));
@@ -591,6 +593,12 @@ describe('AI panel startup lifecycle', () => {
         },
       },
       input: [expect.objectContaining({ text: 'Implement the plan.' })],
+      madoraDocumentReferences: [
+        {
+          path: '/workspace/Test.md',
+          role: 'active',
+        },
+      ],
       threadId: 'thread-1',
     });
   });
@@ -658,9 +666,11 @@ describe('AI panel startup lifecycle', () => {
 
   it('每个 turn 把编辑器活跃文档标记为独立上下文角色', async () => {
     const user = userEvent.setup();
-    renderPanel(vi.fn().mockResolvedValue(true), activeDocument);
+    const onBeforeTurnStart = vi.fn().mockResolvedValue(true);
+    renderPanel(onBeforeTurnStart, activeDocument);
 
     await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    expect(screen.getAllByText('Test.md').length).toBeGreaterThan(0);
     const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
     await user.click(editor);
     await user.type(editor, '当前文档是什么？');
@@ -675,13 +685,36 @@ describe('AI panel startup lifecycle', () => {
           ],
           madoraDocumentReferences: [
             {
-              path: '/workspace/Guides/Spring Boot 介绍.md',
+              path: '/workspace/Test.md',
               role: 'active',
             },
           ],
         }),
       ),
     );
+    expect(onBeforeTurnStart).toHaveBeenCalledWith('/workspace/Test.md');
+  });
+
+  it('活动标签路径与已加载文档不一致时阻止发送', async () => {
+    const user = userEvent.setup();
+    const onBeforeTurnStart = vi.fn().mockResolvedValue(true);
+    renderPanel(onBeforeTurnStart, null, '/workspace/Test.md');
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '修改当前文档');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    expect(
+      await screen.findByText(
+        '当前标签页尚未完成加载，无法安全发送给 Codex。请稍后重试。',
+      ),
+    ).toBeTruthy();
+    expect(onBeforeTurnStart).not.toHaveBeenCalled();
+    expect(
+      bridge.request.mock.calls.filter(([method]) => method === 'turn/start'),
+    ).toHaveLength(0);
   });
 
   it('切换工作区后忽略旧工作区晚到的后台历史响应', async () => {
@@ -723,6 +756,7 @@ describe('AI panel startup lifecycle', () => {
     view.rerender(
       <AiPanel
         currentDocument={null}
+        currentDocumentPath={null}
         documents={[]}
         workspaceRootPath="/workspace-2"
         onBeforeTurnStart={vi.fn().mockResolvedValue(true)}

@@ -93,6 +93,7 @@ describe('right AI panel integration', () => {
     render(
       <RightSidePanel
         currentDocument={null}
+        currentDocumentPath={null}
         documentPanelData={null}
         documentReadOnly={false}
         documents={[]}
@@ -121,6 +122,7 @@ describe('right AI panel integration', () => {
   it('折叠或切换元信息面板时仍保持 AI 运行时挂载', () => {
     const props = {
       currentDocument: null,
+      currentDocumentPath: null,
       documentPanelData: null,
       documentReadOnly: false,
       documents: [],
