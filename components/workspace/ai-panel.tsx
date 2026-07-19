@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { Openai } from '@thesvg/react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import { Collapsible } from 'radix-ui';
 import remarkGfm from 'remark-gfm';
@@ -17,6 +18,7 @@ import {
   ChevronRight,
   Circle,
   CircleX,
+  Copy,
   Eye,
   File,
   FolderOpen,
@@ -26,9 +28,9 @@ import {
   Goal,
   Hand,
   History,
+  Lightbulb,
   LoaderCircle,
-  ListChecks,
-  MessageSquareText,
+  Maximize2,
   MoreHorizontal,
   Paperclip,
   Plus,
@@ -64,6 +66,10 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from '@/components/ui/hover-card';
+import {
+  ConfirmationDialog,
+  useConfirmationDialog,
+} from '@/components/ui/confirmation-dialog';
 import { cn } from '@/lib/utils';
 
 import {
@@ -72,12 +78,17 @@ import {
   readCodexPluginIcon,
   releaseCodexContextAttachments,
   respondToCodexApproval,
+  respondToCodexUserInput,
   selectCodexContextAttachments,
   startCodexRuntime,
   type CodexAccountResponse,
   type CodexApprovalPolicy,
   type CodexApprovalsReviewer,
   type CodexConfigRequirementsResponse,
+  type CodexCollaborationMode,
+  type CodexCollaborationModeKind,
+  type CodexCollaborationModeListResponse,
+  type CodexCollaborationModeMask,
   type CodexContextAttachment,
   type CodexExperimentalFeatureListResponse,
   type CodexModel,
@@ -91,6 +102,7 @@ import {
   type CodexThread,
   type CodexThreadListResponse,
   type CodexThreadPermissionSettings,
+  type CodexUserInputAnswer,
 } from './codex-app-server';
 import {
   conversationFromThread,
@@ -112,9 +124,11 @@ import {
   type AiMessageAttachment,
   type AiMessageMention,
   type AiPluginInputMention,
+  type AiProposedPlan,
   type AiSkillInputMention,
   type AiTraceBlock,
   type AiTimelineItem,
+  type AiUserInputRequest,
   type AiWorkspaceChangeEvent,
 } from './ai-panel-state';
 import {
@@ -131,10 +145,12 @@ import type { WorkspaceNode } from './workspace-types';
 
 interface AiPanelProps {
   currentDocument: WorkspaceNode | null;
+  currentDocumentPath: string | null;
   documents: AiDocumentReference[];
   workspaceRootPath: string | null;
-  onBeforeTurnStart: () => Promise<boolean>;
+  onBeforeTurnStart: (documentPath: string | null) => Promise<boolean>;
   onOpenDocument: (documentPath: string) => void;
+  onOpenPlanPreview: (plan: AiProposedPlan, threadId: string) => void;
   onWorkspaceChanged: (
     event: AiWorkspaceChangeEvent,
   ) => void | Promise<void>;
@@ -222,15 +238,97 @@ interface LoginResponse {
   verificationUrl?: string;
 }
 
-const STARTER_PROMPTS = [
-  '总结当前文档并指出信息缺口',
-  '把当前文档改写得更清晰、专业',
-  '基于当前内容新建一篇关联文档',
+interface SendMessageOptions {
+  forceNewThread?: boolean;
+  mode?: CodexCollaborationModeKind;
+  planAction?: boolean;
+  restorePlan?: AiProposedPlan;
+}
+
+interface StarterAction {
+  description: string;
+  icon: React.ComponentType<{
+    className?: string;
+    size?: number;
+    strokeWidth?: number;
+  }>;
+  iconClassName: string;
+  prompt: string;
+  title: string;
+}
+
+const DOCUMENT_STARTER_ACTIONS: StarterAction[] = [
+  {
+    description: '梳理重点、摘要与信息缺口',
+    icon: SearchCode,
+    iconClassName: 'text-blue-500 dark:text-blue-400',
+    prompt: '总结当前文档并指出信息缺口',
+    title: '阅读并理解',
+  },
+  {
+    description: '优化结构、表达与专业度',
+    icon: FilePenLine,
+    iconClassName: 'text-violet-500 dark:text-violet-400',
+    prompt: '把当前文档改写得更清晰、专业',
+    title: '改写和完善',
+  },
+  {
+    description: '基于当前主题创建关联文档',
+    icon: Blocks,
+    iconClassName: 'text-emerald-600 dark:text-emerald-400',
+    prompt: '基于当前内容新建一篇关联文档',
+    title: '扩展关联内容',
+  },
+  {
+    description: '查找矛盾、遗漏与可改进之处',
+    icon: AlertCircle,
+    iconClassName: 'text-orange-500 dark:text-orange-400',
+    prompt: '检查当前文档中的事实矛盾、结构问题和表达缺陷，并给出修改建议',
+    title: '检查潜在问题',
+  },
+];
+
+const WORKSPACE_STARTER_ACTIONS: StarterAction[] = [
+  {
+    description: '梳理目录、主题与关键文档',
+    icon: SearchCode,
+    iconClassName: 'text-blue-500 dark:text-blue-400',
+    prompt: '梳理当前工作区的文档结构，并指出最值得先了解的内容',
+    title: '了解工作区',
+  },
+  {
+    description: '从想法生成清晰的文档框架',
+    icon: FilePenLine,
+    iconClassName: 'text-violet-500 dark:text-violet-400',
+    prompt: '根据当前工作区的主题，规划并起草一篇新文档',
+    title: '起草新文档',
+  },
+  {
+    description: '发现关联并提出组织建议',
+    icon: Blocks,
+    iconClassName: 'text-emerald-600 dark:text-emerald-400',
+    prompt: '分析当前工作区的知识结构，找出可以建立的文档关联和整理建议',
+    title: '整理知识结构',
+  },
+  {
+    description: '检查缺口、冲突与过时信息',
+    icon: AlertCircle,
+    iconClassName: 'text-orange-500 dark:text-orange-400',
+    prompt: '检查当前工作区中可能存在的信息缺口、内容冲突和过时内容，并给出处理建议',
+    title: '查找内容问题',
+  },
 ];
 
 const SCROLL_BOTTOM_THRESHOLD = 64;
 
 const DEVELOPER_INSTRUCTIONS = `你运行在 Madora 的工作区级 AI 面板中。默认只在当前工作区内读取和修改文件；仅当当前命名权限配置明确允许、且用户请求确实需要时，才可访问工作区外路径。Madora 以 Markdown 为唯一持久化文档格式，请保持现有 frontmatter 和目录约定。Madora 会为每个 turn 提供编辑器活跃文档和显式文档引用；“当前文档”“本文”“这篇文档”等表述只指向该 turn 的 madora_active_document，不得根据日期、最近文件或工作区惯例猜测。请求依赖文档内容时，必须先使用工作区工具读取相关文件，并让读取动作通过正常工具事件返回；不得在尝试读取前声称缺少路径。与文档无关的请求不必读取活跃文档。严格遵循当前线程的 Codex 权限配置和审批结果，不得绕过权限边界。删除文档前必须明确说明将删除的路径和影响，并等待用户确认。不要读取、输出或记录密钥、Token、Cookie、连接串或其他敏感信息。完成文件变更后简要列出实际修改和验证结果。`;
+
+const PLAN_IMPLEMENTATION_MESSAGE = 'Implement the plan.';
+const PLAN_IMPLEMENTATION_FRESH_PREFIX =
+  "A previous agent produced the plan below to accomplish the user's task. " +
+  'Implement the plan in a fresh context. Treat the plan as the source of ' +
+  'user intent, re-read files as needed, and carry the work through ' +
+  'implementation and verification.';
 
 type PermissionModeId = 'ask' | 'auto' | 'full' | 'readOnly' | `profile:${string}`;
 
@@ -343,14 +441,43 @@ function permissionModeLabel(mode: PermissionModeId) {
   return mode.slice('profile:'.length);
 }
 
+function collaborationModeForTurn(
+  mode: CodexCollaborationModeKind,
+  model: string,
+  effort: CodexReasoningEffort,
+  availableModes: CodexCollaborationModeMask[],
+): CodexCollaborationMode | null {
+  if (
+    !model ||
+    !availableModes.some((candidate) => candidate.mode === mode)
+  ) {
+    return null;
+  }
+  return {
+    mode,
+    settings: {
+      developer_instructions: null,
+      model,
+      reasoning_effort: mode === 'plan' ? 'medium' : effort,
+    },
+  };
+}
+
 export function AiPanel({
   currentDocument,
+  currentDocumentPath,
   documents,
   workspaceRootPath,
   onBeforeTurnStart,
   onOpenDocument,
+  onOpenPlanPreview,
   onWorkspaceChanged,
 }: AiPanelProps) {
+  const {
+    confirm: confirmAction,
+    request: confirmationRequest,
+    resolve: resolveConfirmation,
+  } = useConfirmationDialog();
   const [view, setView] = React.useState<PanelView>('chat');
   const [runtimeStatus, setRuntimeStatus] =
     React.useState<RuntimeStatus>('loading');
@@ -362,6 +489,15 @@ export function AiPanel({
     React.useState<ControlLoadStatus>('idle');
   const [selectedModel, setSelectedModel] = React.useState<string>('');
   const [effort, setEffort] = React.useState<CodexReasoningEffort>('medium');
+  const [collaborationModeStatus, setCollaborationModeStatus] =
+    React.useState<ControlLoadStatus>('idle');
+  const [collaborationModes, setCollaborationModes] = React.useState<
+    CodexCollaborationModeMask[]
+  >([]);
+  const [collaborationMode, setCollaborationMode] =
+    React.useState<CodexCollaborationModeKind>('default');
+  const [planImplementation, setPlanImplementation] =
+    React.useState<AiProposedPlan | null>(null);
   const [threads, setThreads] = React.useState<CodexThread[]>([]);
   const [threadListStatus, setThreadListStatus] =
     React.useState<ControlLoadStatus>('idle');
@@ -406,6 +542,7 @@ export function AiPanel({
   const [submitting, setSubmitting] = React.useState(false);
   const [signingIn, setSigningIn] = React.useState(false);
   const [followLatestRequest, setFollowLatestRequest] = React.useState(0);
+  const [composerFocusRequest, setComposerFocusRequest] = React.useState(0);
   const modelSelectionInitializedRef = React.useRef(false);
   const activeThreadIdRef = React.useRef<string | null>(null);
   const onWorkspaceChangedRef = React.useRef(onWorkspaceChanged);
@@ -414,6 +551,13 @@ export function AiPanel({
   const authRequiredRef = React.useRef(false);
   const selectedModelRef = React.useRef('');
   const effortRef = React.useRef<CodexReasoningEffort>('medium');
+  const collaborationModeRef =
+    React.useRef<CodexCollaborationModeKind>('default');
+  const collaborationModesRef = React.useRef<CodexCollaborationModeMask[]>([]);
+  const previousDefaultEffortRef = React.useRef<CodexReasoningEffort>('medium');
+  const turnModesRef = React.useRef(new Map<string, CodexCollaborationModeKind>());
+  const completedPlansRef = React.useRef(new Map<string, AiProposedPlan>());
+  const conversationRef = React.useRef<AiConversationState>(createEmptyConversation());
   const permissionSettingsRef = React.useRef(DEFAULT_PERMISSION_SETTINGS);
   const submittingRef = React.useRef(false);
   const runtimeGenerationRef = React.useRef(0);
@@ -440,6 +584,14 @@ export function AiPanel({
   React.useEffect(() => {
     effortRef.current = effort;
   }, [effort]);
+
+  React.useEffect(() => {
+    collaborationModeRef.current = collaborationMode;
+  }, [collaborationMode]);
+
+  React.useEffect(() => {
+    conversationRef.current = conversation;
+  }, [conversation]);
 
   React.useEffect(() => {
     permissionSettingsRef.current = permissionSettings;
@@ -492,6 +644,85 @@ export function AiPanel({
     () => models.find((model) => model.model === selectedModel) ?? null,
     [models, selectedModel],
   );
+  const planModeAvailable = React.useMemo(
+    () =>
+      collaborationModeStatus === 'ready' &&
+      collaborationModes.some((mode) => mode.mode === 'plan') &&
+      collaborationModes.some((mode) => mode.mode === 'default') &&
+      Boolean(
+        selectedModelInfo?.supportedReasoningEfforts.some(
+          (option) => option.reasoningEffort === 'medium',
+        ),
+      ),
+    [collaborationModeStatus, collaborationModes, selectedModelInfo],
+  );
+  const planModeUnavailableReason =
+    collaborationModeStatus === 'loading'
+      ? '正在加载计划模式'
+      : collaborationModeStatus === 'error' ||
+          !collaborationModes.some((mode) => mode.mode === 'plan') ||
+          !collaborationModes.some((mode) => mode.mode === 'default')
+        ? '当前 Codex 不支持计划模式'
+        : modelCatalogStatus === 'loading'
+          ? '正在加载模型'
+          : !selectedModelInfo?.supportedReasoningEfforts.some(
+                (option) => option.reasoningEffort === 'medium',
+              )
+            ? '当前模型不支持中等推理'
+            : null;
+  const modeSwitchDisabled =
+    Boolean(conversation.activeTurnId) ||
+    conversation.approvals.length > 0 ||
+    conversation.userInputRequests.length > 0 ||
+    submitting;
+
+  const changeCollaborationMode = React.useCallback(
+    (nextMode: CodexCollaborationModeKind) => {
+      if (modeSwitchDisabled || nextMode === collaborationModeRef.current) return;
+      if (nextMode === 'plan') {
+        if (!planModeAvailable) return;
+        previousDefaultEffortRef.current = effortRef.current;
+        effortRef.current = 'medium';
+        setEffort('medium');
+      } else {
+        const selected = models.find(
+          (model) => model.model === selectedModelRef.current,
+        );
+        const previous = previousDefaultEffortRef.current;
+        const restored = selected?.supportedReasoningEfforts.some(
+          (option) => option.reasoningEffort === previous,
+        )
+          ? previous
+          : selected?.defaultReasoningEffort ?? 'medium';
+        effortRef.current = restored;
+        setEffort(restored);
+        setPlanImplementation(null);
+      }
+      collaborationModeRef.current = nextMode;
+      setCollaborationMode(nextMode);
+    }, [modeSwitchDisabled, models, planModeAvailable],
+  );
+
+  const resetToDefaultMode = React.useCallback(() => {
+    if (collaborationModeRef.current === 'plan') {
+      const selected = models.find(
+        (model) => model.model === selectedModelRef.current,
+      );
+      const previous = previousDefaultEffortRef.current;
+      const restored = selected?.supportedReasoningEfforts.some(
+        (option) => option.reasoningEffort === previous,
+      )
+        ? previous
+        : selected?.defaultReasoningEffort ?? 'medium';
+      effortRef.current = restored;
+      setEffort(restored);
+    }
+    collaborationModeRef.current = 'default';
+    setCollaborationMode('default');
+    setPlanImplementation(null);
+    turnModesRef.current.clear();
+    completedPlansRef.current.clear();
+  }, [models]);
 
   const loadCoreControlData = React.useCallback(async (
     generation = runtimeGenerationRef.current,
@@ -593,6 +824,30 @@ export function AiPanel({
     } catch {
       if (generation !== runtimeGenerationRef.current) return;
       setModelCatalogStatus('error');
+    }
+  }, []);
+
+  const loadCollaborationModes = React.useCallback(async (
+    generation = runtimeGenerationRef.current,
+  ) => {
+    if (generation !== runtimeGenerationRef.current) return;
+    setCollaborationModeStatus('loading');
+    try {
+      const response =
+        await codexAppServerClient.request<CodexCollaborationModeListResponse>(
+          'collaborationMode/list',
+        );
+      if (generation !== runtimeGenerationRef.current) return;
+      collaborationModesRef.current = response.data.filter(
+        (mode) => mode.mode === 'default' || mode.mode === 'plan',
+      );
+      setCollaborationModes(collaborationModesRef.current);
+      setCollaborationModeStatus('ready');
+    } catch {
+      if (generation !== runtimeGenerationRef.current) return;
+      collaborationModesRef.current = [];
+      setCollaborationModes([]);
+      setCollaborationModeStatus('error');
     }
   }, []);
 
@@ -805,6 +1060,14 @@ export function AiPanel({
       permissionSettingsRef.current = DEFAULT_PERMISSION_SETTINGS;
       setPermissionSettings(DEFAULT_PERMISSION_SETTINGS);
       setModelCatalogStatus('idle');
+      collaborationModesRef.current = [];
+      setCollaborationModes([]);
+      setCollaborationModeStatus('idle');
+      collaborationModeRef.current = 'default';
+      setCollaborationMode('default');
+      setPlanImplementation(null);
+      turnModesRef.current.clear();
+      completedPlansRef.current.clear();
       setThreadListStatus('idle');
       setPluginStatus('idle');
       setPluginOptions([]);
@@ -825,6 +1088,52 @@ export function AiPanel({
         return;
       }
 
+      if (message.method === 'item/completed') {
+        const item = message.params?.item;
+        const turnId = message.params?.turnId;
+        if (
+          item &&
+          typeof item === 'object' &&
+          !Array.isArray(item) &&
+          (item as Record<string, unknown>).type === 'plan' &&
+          typeof (item as Record<string, unknown>).id === 'string' &&
+          typeof (item as Record<string, unknown>).text === 'string' &&
+          typeof turnId === 'string'
+        ) {
+          completedPlansRef.current.set(turnId, {
+            historical: false,
+            id: (item as Record<string, unknown>).id as string,
+            status: 'completed',
+            text: (item as Record<string, unknown>).text as string,
+            turnId,
+          });
+        }
+      }
+
+      if (message.method === 'turn/completed') {
+        const turn = message.params?.turn;
+        const turnId =
+          turn && typeof turn === 'object' && !Array.isArray(turn)
+            ? (turn as Record<string, unknown>).id
+            : message.params?.turnId;
+        const turnStatus =
+          turn && typeof turn === 'object' && !Array.isArray(turn)
+            ? (turn as Record<string, unknown>).status
+            : null;
+        if (typeof turnId === 'string') {
+          const plan = completedPlansRef.current.get(turnId);
+          if (
+            turnStatus === 'completed' &&
+            turnModesRef.current.get(turnId) === 'plan' &&
+            plan
+          ) {
+            setPlanImplementation(plan);
+            setFollowLatestRequest((current) => current + 1);
+          }
+          turnModesRef.current.delete(turnId);
+        }
+      }
+
       setConversation((current) =>
         reduceCodexProtocolMessage(current, message, workspaceRootPath),
       );
@@ -835,6 +1144,7 @@ export function AiPanel({
       }
 
       if (message.method === 'madora/runtime/exited') {
+        setPlanImplementation(null);
         codexAppServerClient.rejectPending(
           new Error('Codex App Server 已停止'),
         );
@@ -851,6 +1161,7 @@ export function AiPanel({
           .then(() =>
             Promise.allSettled([
               loadModelCatalog(generation),
+              loadCollaborationModes(generation),
               loadThreadHistory(generation),
               detectInstalledPlugins(generation),
               loadSkills(generation),
@@ -899,6 +1210,7 @@ export function AiPanel({
       runtimeStatusRef.current = 'ready';
       setRuntimeStatus('ready');
       void loadModelCatalog(generation);
+      void loadCollaborationModes(generation);
       void loadThreadHistory(generation);
       void detectInstalledPlugins(generation);
       void loadSkills(generation);
@@ -928,6 +1240,7 @@ export function AiPanel({
   }, [
     applyThreadName,
     detectInstalledPlugins,
+    loadCollaborationModes,
     loadCoreControlData,
     loadModelCatalog,
     loadSkills,
@@ -950,8 +1263,9 @@ export function AiPanel({
     setComposerValue('');
     permissionSettingsRef.current = DEFAULT_PERMISSION_SETTINGS;
     setPermissionSettings(DEFAULT_PERMISSION_SETTINGS);
+    resetToDefaultMode();
     setView('chat');
-  }, []);
+  }, [resetToDefaultMode]);
 
   const openThread = React.useCallback(async (thread: CodexThread) => {
     void releaseCodexContextAttachments(
@@ -964,6 +1278,7 @@ export function AiPanel({
     setSelectedMentions([]);
     setComposerValue('');
     setRuntimeError(null);
+    resetToDefaultMode();
     setView('chat');
     try {
       const response = await codexAppServerClient.request<ThreadReadResponse>(
@@ -985,13 +1300,18 @@ export function AiPanel({
     } catch (error) {
       setRuntimeError(getErrorMessage(error));
     }
-  }, [workspaceRootPath]);
+  }, [resetToDefaultMode, workspaceRootPath]);
 
   const removeThread = React.useCallback(
     async (thread: CodexThread, action: 'archive' | 'delete') => {
       if (
         action === 'delete' &&
-        !window.confirm('确定永久删除这条 Codex 历史记录吗？')
+        !(await confirmAction({
+          confirmLabel: '永久删除',
+          description: '删除后无法恢复这条 Codex 历史记录。',
+          title: '永久删除历史记录？',
+          variant: 'destructive',
+        }))
       ) {
         return;
       }
@@ -1004,14 +1324,23 @@ export function AiPanel({
         startNewChat();
       }
     },
-    [activeThread?.id, startNewChat],
+    [activeThread?.id, confirmAction, startNewChat],
   );
 
   const sendMessage = React.useCallback(
-    async (messageOverride?: string) => {
+    async (messageOverride?: string, options: SendMessageOptions = {}) => {
       const text = (messageOverride ?? composerValue).trim();
-      const attachments = selectedAttachmentsRef.current;
+      const activeDocument = currentDocument;
+      const activeDocumentPath = currentDocumentPath;
+      const attachments = options.planAction
+        ? []
+        : selectedAttachmentsRef.current;
+      const composerMentions = options.planAction ? [] : selectedMentions;
+      const previousConversation = conversationRef.current;
+      const previousThread = activeThread;
       let attachmentGrantsDetached = false;
+      let createdThread: CodexThread | null = null;
+      let createdThreadTitle: string | null = null;
       if (
         (!text && attachments.length === 0) ||
         !workspaceRootPath ||
@@ -1038,23 +1367,32 @@ export function AiPanel({
           throw new Error('请先完成 ChatGPT 登录。');
         }
 
-        const ready = await onBeforeTurnStart();
+        if (
+          activeDocumentPath &&
+          activeDocument?.absolutePath !== activeDocumentPath
+        ) {
+          throw new Error(
+            '当前标签页尚未完成加载，无法安全发送给 Codex。请稍后重试。',
+          );
+        }
+
+        const ready = await onBeforeTurnStart(activeDocumentPath);
         if (!ready) {
           throw new Error('当前文档保存失败，未发送消息。请先处理保存错误。');
         }
 
-        const documentMentions = selectedMentions.filter(
+        const documentMentions = composerMentions.filter(
           isDocumentComposerMention,
         );
-        const pluginMentions = selectedMentions.filter(
+        const pluginMentions = composerMentions.filter(
           isPluginComposerMention,
         );
-        const skillMentions = selectedMentions.filter(
+        const skillMentions = composerMentions.filter(
           isSkillComposerMention,
         );
         const explicitDocuments = uniqueDocuments(documentMentions).filter(
           (document) =>
-            document.absolutePath !== currentDocument?.absolutePath,
+            document.absolutePath !== activeDocumentPath,
         );
         const userInput = createComposerAwareUserInput(
           text,
@@ -1064,19 +1402,40 @@ export function AiPanel({
         );
         const currentPermissionSettings = permissionSettingsRef.current;
         const currentModel = selectedModelRef.current;
-        const currentEffort = effortRef.current;
-        setComposerValue('');
-        setSelectedMentions([]);
-        selectedAttachmentsRef.current = [];
-        setSelectedAttachments([]);
-        attachmentGrantsDetached = true;
-        setMentionQuery(null);
+        const requestedMode = options.mode ?? collaborationModeRef.current;
+        const selectedModelRecord = models.find(
+          (model) => model.model === currentModel,
+        );
+        const previousEffort = previousDefaultEffortRef.current;
+        const restoredDefaultEffort =
+          selectedModelRecord?.supportedReasoningEfforts.some(
+            (option) => option.reasoningEffort === previousEffort,
+          )
+            ? previousEffort
+            : selectedModelRecord?.defaultReasoningEffort ?? effortRef.current;
+        const currentEffort =
+          requestedMode === 'plan'
+            ? 'medium'
+            : collaborationModeRef.current === 'plan'
+              ? restoredDefaultEffort
+              : effortRef.current;
+        if (!options.planAction) {
+          setComposerValue('');
+          setSelectedMentions([]);
+          selectedAttachmentsRef.current = [];
+          setSelectedAttachments([]);
+          attachmentGrantsDetached = true;
+          setMentionQuery(null);
+        }
+        setPlanImplementation(null);
         setFollowLatestRequest((current) => current + 1);
         const clientMessageId = `madora-${Date.now()}`;
-        setConversation((current) => ({
-          ...current,
-          entries: [
-            ...current.entries,
+        setConversation((current) => {
+          const base = options.forceNewThread ? createEmptyConversation() : current;
+          return {
+            ...base,
+            entries: [
+            ...base.entries,
             {
               attachments: attachments.map((attachment) => ({
                 kind: attachment.isImage ? 'image' : attachment.kind,
@@ -1084,7 +1443,7 @@ export function AiPanel({
               })),
               type: 'message',
               id: clientMessageId,
-              mentions: selectedMentions.map(({ end, kind, label, path, start }) => ({
+              mentions: composerMentions.map(({ end, kind, label, path, start }) => ({
                 end,
                 kind,
                 label,
@@ -1094,10 +1453,11 @@ export function AiPanel({
               role: 'user',
               text,
             },
-          ],
-        }));
+            ],
+          };
+        });
 
-        let thread = activeThread;
+        let thread = options.forceNewThread ? null : activeThread;
         if (!thread) {
           const response =
             await codexAppServerClient.request<ThreadStartResponse>(
@@ -1117,20 +1477,30 @@ export function AiPanel({
             text || attachments.map((attachment) => attachment.name).join('、'),
           );
           thread = { ...response.thread, name: threadTitle };
-          setActiveThread(thread);
-          activeThreadIdRef.current = thread.id;
+          createdThread = thread;
+          createdThreadTitle = threadTitle;
           const nextPermissionSettings = permissionSettingsFromResponse(response);
           permissionSettingsRef.current = nextPermissionSettings;
           setPermissionSettings(nextPermissionSettings);
-          setThreads((current) => [thread!, ...current]);
-          void codexAppServerClient
-            .request('thread/name/set', {
-              threadId: thread.id,
-              name: threadTitle,
-            })
-            .catch(() => undefined);
+          if (!options.forceNewThread) {
+            setActiveThread(thread);
+            activeThreadIdRef.current = thread.id;
+            setThreads((current) => [thread!, ...current]);
+            void codexAppServerClient
+              .request('thread/name/set', {
+                threadId: thread.id,
+                name: threadTitle,
+              })
+              .catch(() => undefined);
+          }
         }
 
+        const requestedCollaborationMode = collaborationModeForTurn(
+          requestedMode,
+          currentModel,
+          currentEffort,
+          collaborationModesRef.current,
+        );
         const response = await codexAppServerClient.request<TurnStartResponse>(
           'turn/start',
           {
@@ -1161,10 +1531,10 @@ export function AiPanel({
               (attachment) => attachment.attachmentId,
             ),
             madoraDocumentReferences: [
-              ...(currentDocument
+              ...(activeDocumentPath
                 ? [
                     {
-                      path: currentDocument.absolutePath,
+                      path: activeDocumentPath,
                       role: 'active',
                     },
                   ]
@@ -1175,17 +1545,48 @@ export function AiPanel({
               })),
             ],
             cwd: workspaceRootPath,
-            ...(currentModel
-              ? { effort: currentEffort, model: currentModel }
-              : {}),
+            ...(requestedCollaborationMode
+              ? { collaborationMode: requestedCollaborationMode }
+              : currentModel
+                ? { effort: currentEffort, model: currentModel }
+                : {}),
             summary: 'concise',
           },
         );
+        turnModesRef.current.set(response.turn.id, requestedMode);
+        if (options.forceNewThread && createdThread && createdThreadTitle) {
+          setActiveThread(createdThread);
+          activeThreadIdRef.current = createdThread.id;
+          setThreads((current) => [createdThread!, ...current]);
+          void codexAppServerClient
+            .request('thread/name/set', {
+              threadId: createdThread.id,
+              name: createdThreadTitle,
+            })
+            .catch(() => undefined);
+        }
+        if (options.mode) {
+          collaborationModeRef.current = requestedMode;
+          setCollaborationMode(requestedMode);
+          effortRef.current = currentEffort;
+          setEffort(currentEffort);
+        }
         setConversation((current) => ({
           ...current,
           activeTurnId: response.turn.id,
         }));
       } catch (error) {
+        if (options.planAction) {
+          if (options.forceNewThread && createdThread) {
+            await codexAppServerClient
+              .request('thread/delete', { threadId: createdThread.id })
+              .catch(() => undefined);
+          }
+          setConversation(previousConversation);
+          setActiveThread(previousThread);
+          activeThreadIdRef.current = previousThread?.id ?? null;
+          setPlanImplementation(options.restorePlan ?? null);
+        }
         setRuntimeError(getErrorMessage(error));
       } finally {
         if (attachmentGrantsDetached) {
@@ -1201,6 +1602,8 @@ export function AiPanel({
       activeThread,
       composerValue,
       currentDocument,
+      currentDocumentPath,
+      models,
       onBeforeTurnStart,
       selectedMentions,
       workspaceRootPath,
@@ -1265,6 +1668,37 @@ export function AiPanel({
     [],
   );
 
+  const answerUserInput = React.useCallback(
+    async (request: AiUserInputRequest, answers: CodexUserInputAnswer[]) => {
+      try {
+        await respondToCodexUserInput(request.id, answers);
+        setConversation((current) => ({
+          ...current,
+          userInputRequests: current.userInputRequests.filter(
+            (candidate) => String(candidate.id) !== String(request.id),
+          ),
+        }));
+      } catch (error) {
+        setRuntimeError(getErrorMessage(error));
+      }
+    },
+    [],
+  );
+
+  const implementPlan = React.useCallback(
+    (freshContext: boolean) => {
+      if (!planImplementation) return;
+      const message = freshContext
+        ? `${PLAN_IMPLEMENTATION_FRESH_PREFIX}\n\n${planImplementation.text}`
+        : PLAN_IMPLEMENTATION_MESSAGE;
+      void sendMessage(message, {
+        forceNewThread: freshContext,
+        mode: 'default',
+        planAction: true,
+        restorePlan: planImplementation,
+      });
+    }, [planImplementation, sendMessage]);
+
   const changePermissionMode = React.useCallback(
     async (modeId: PermissionModeId) => {
       if (
@@ -1277,9 +1711,13 @@ export function AiPanel({
       const next = permissionSettingsForMode(modeId);
       if (
         next.profileId === ':danger-full-access' &&
-        !window.confirm(
-          '完全访问权限允许 Codex 不受工作区边界限制地访问本机文件和互联网，并且不会再请求审批。确定切换吗？',
-        )
+        !(await confirmAction({
+          confirmLabel: '切换到完全访问',
+          description:
+            '完全访问权限允许 Codex 不受工作区边界限制地访问本机文件和互联网，并且不会再请求审批。',
+          title: '启用完全访问？',
+          variant: 'destructive',
+        }))
       ) {
         return;
       }
@@ -1305,6 +1743,7 @@ export function AiPanel({
     },
     [
       activeThread,
+      confirmAction,
       conversation.activeTurnId,
       conversation.approvals.length,
       permissionUpdating,
@@ -1347,15 +1786,44 @@ export function AiPanel({
               signingIn={signingIn}
               onApprove={approve}
               onOpenDocument={onOpenDocument}
+              onOpenPlanPreview={(plan) =>
+                onOpenPlanPreview(
+                  plan,
+                  activeThread?.id ?? plan.turnId ?? 'unscoped',
+                )
+              }
               onPrompt={(prompt) => void sendMessage(prompt)}
               onSignIn={() => void signIn()}
             />
           </AiConversationViewport>
 
+          {conversation.userInputRequests[0] ? (
+            <UserInputDecisionCard
+              key={String(conversation.userInputRequests[0].id)}
+              request={conversation.userInputRequests[0]}
+              onSubmit={(answers) =>
+                answerUserInput(conversation.userInputRequests[0], answers)
+              }
+            />
+          ) : planImplementation ? (
+            <PlanImplementationCard
+              plan={planImplementation}
+              submitting={submitting}
+              onFreshContext={() => implementPlan(true)}
+              onImplement={() => implementPlan(false)}
+              onStay={() => {
+                setPlanImplementation(null);
+                setComposerFocusRequest((current) => current + 1);
+              }}
+            />
+          ) : null}
+
           <AiComposer
             active={Boolean(conversation.activeTurnId)}
+            collaborationMode={collaborationMode}
             currentDocument={currentDocument}
             effort={effort}
+            focusRequest={composerFocusRequest}
             attachments={selectedAttachments}
             mentionDocuments={filteredMentionDocuments}
             mentionQuery={mentionQuery}
@@ -1380,19 +1848,37 @@ export function AiPanel({
               conversation.approvals.length > 0 ||
               permissionUpdating
             }
+            inputBlocked={conversation.userInputRequests.length > 0}
+            modeSwitchDisabled={modeSwitchDisabled}
+            planModeAvailable={planModeAvailable}
+            planModeUnavailableReason={planModeUnavailableReason}
             value={composerValue}
             onAttachmentRemove={removeContextAttachment}
             onAttachmentSelect={(kind) => void selectContextAttachments(kind)}
             onDetectPlugins={() => void detectInstalledPlugins()}
             onEffortChange={setEffort}
             onInterrupt={() => void interruptTurn()}
+            onCollaborationModeChange={changeCollaborationMode}
             onMentionQueryChange={setMentionQuery}
             onMentionsChange={setSelectedMentions}
             onModelChange={(model) => {
-              setSelectedModel(model);
               const next = models.find((candidate) => candidate.model === model);
+              if (
+                collaborationModeRef.current === 'plan' &&
+                !next?.supportedReasoningEfforts.some(
+                  (option) => option.reasoningEffort === 'medium',
+                )
+              ) {
+                return;
+              }
+              setSelectedModel(model);
               if (next) {
-                setEffort(next.defaultReasoningEffort);
+                const nextEffort =
+                  collaborationModeRef.current === 'plan'
+                    ? 'medium'
+                    : next.defaultReasoningEffort;
+                effortRef.current = nextEffort;
+                setEffort(nextEffort);
               }
             }}
             onPermissionModeChange={(mode) => void changePermissionMode(mode)}
@@ -1404,6 +1890,10 @@ export function AiPanel({
           />
         </>
       )}
+      <ConfirmationDialog
+        request={confirmationRequest}
+        onResolve={resolveConfirmation}
+      />
     </section>
   );
 }
@@ -1499,7 +1989,7 @@ export function AiConversationViewport({
         ref={viewportRef}
         onScroll={updateScrollState}
       >
-        <div className="min-h-full" ref={contentRef}>
+        <div className="flex min-h-full flex-col" ref={contentRef}>
           {children}
         </div>
       </div>
@@ -1580,6 +2070,7 @@ function PanelContent({
   signingIn,
   onApprove,
   onOpenDocument,
+  onOpenPlanPreview,
   onPrompt,
   onSignIn,
 }: {
@@ -1595,6 +2086,7 @@ function PanelContent({
     choiceId: string,
   ) => void;
   onOpenDocument: (documentPath: string) => void;
+  onOpenPlanPreview: (plan: AiProposedPlan) => void;
   onPrompt: (prompt: string) => void;
   onSignIn: () => void;
 }) {
@@ -1638,30 +2130,81 @@ function PanelContent({
     conversation.entries.length === 0 &&
     conversation.approvals.length === 0
   ) {
+    const currentDocumentLabel = currentDocument
+      ? getDocumentContextLabel(currentDocument)
+      : null;
+    const starterActions = currentDocument
+      ? DOCUMENT_STARTER_ACTIONS
+      : WORKSPACE_STARTER_ACTIONS;
+
     return (
-      <div className="flex min-h-full flex-col justify-end px-5 pb-7 pt-16">
-        <div className="mb-auto flex flex-1 flex-col items-center justify-center text-center">
-          <div className="mb-4 flex size-9 items-center justify-center rounded-full border border-border/80 bg-muted/35">
-            <MessageSquareText size={17} />
-          </div>
-          <h2 className="text-sm font-medium">和你的工作区对话</h2>
-          <p className="mt-2 max-w-[280px] text-xs leading-5 text-muted-foreground">
-            {currentDocument
-              ? `当前已关联「${currentDocument.title || currentDocument.name}」，也可以用 @ 提及其他文档。`
-              : '提问、搜索或让 Codex 在审批后修改工作区文件。'}
-          </p>
-        </div>
-        <div className="space-y-1.5">
-          {STARTER_PROMPTS.map((prompt) => (
-            <button
-              className="flex w-full items-center rounded-lg border border-border/70 px-3 py-2 text-left text-xs transition-colors hover:bg-accent/70"
-              key={prompt}
-              type="button"
-              onClick={() => onPrompt(prompt)}
+      <div className="flex flex-1 items-center px-5 py-10">
+        <div className="mx-auto w-full max-w-[560px]">
+          <div className="flex flex-col items-center text-center">
+            <Openai
+              aria-hidden="true"
+              className="size-7 text-muted-foreground/45"
+              variant="light"
+            />
+            <h2
+              className="mt-5 max-w-full text-[17px] font-medium leading-6 tracking-[-0.01em]"
+              title={currentDocumentLabel ?? undefined}
             >
-              {prompt}
-            </button>
-          ))}
+              {currentDocumentLabel ? (
+                <>
+                  想如何处理
+                  <span className="break-all underline decoration-border underline-offset-4">
+                    「{currentDocumentLabel}」
+                  </span>
+                  ？
+                </>
+              ) : (
+                '今天想在工作区里做什么？'
+              )}
+            </h2>
+            <p className="mt-2 max-w-[360px] text-xs leading-5 text-muted-foreground">
+              {currentDocumentLabel
+                ? '当前文档已关联，也可以在输入框中用 @ 提及其他文档。'
+                : '从下面的任务开始，或直接告诉 Codex 你想完成什么。'}
+            </p>
+          </div>
+
+          {runtimeError ? (
+            <div className="mt-5 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+              {runtimeError}
+            </div>
+          ) : null}
+
+          <div className="mt-7 grid grid-cols-2 gap-2.5">
+            {starterActions.map((action) => {
+              const Icon = action.icon;
+
+              return (
+                <button
+                  aria-label={action.title}
+                  className="group flex min-h-28 min-w-0 flex-col justify-between rounded-xl border border-border/70 bg-background px-3 py-3 text-left shadow-[0_1px_2px_rgba(15,23,42,0.05)] outline-none transition-[background-color,border-color,box-shadow] hover:border-border hover:bg-accent/35 hover:shadow-[0_5px_16px_-12px_rgba(15,23,42,0.32)] focus-visible:ring-2 focus-visible:ring-ring/35 dark:shadow-none"
+                  key={action.title}
+                  title={action.description}
+                  type="button"
+                  onClick={() => onPrompt(action.prompt)}
+                >
+                  <Icon
+                    className={cn('shrink-0', action.iconClassName)}
+                    size={17}
+                    strokeWidth={1.9}
+                  />
+                  <span className="mt-5 min-w-0">
+                    <span className="block text-[13px] font-medium leading-5 text-foreground">
+                      {action.title}
+                    </span>
+                    <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">
+                      {action.description}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
     );
@@ -1686,11 +2229,18 @@ function PanelContent({
               summary={block}
               onOpenDocument={onOpenDocument}
             />
+          ) : block.type === 'proposedPlan' ? (
+            <ProposedPlanCard
+              key={block.id}
+              plan={block}
+              onOpen={onOpenPlanPreview}
+            />
           ) : (
             <ConversationEntryRow
               entry={block}
               key={`${block.type}-${block.id}`}
               onOpenDocument={onOpenDocument}
+              onOpenPlanPreview={onOpenPlanPreview}
               previous={previousConversationEntry(blocks[index - 1])}
             />
           ),
@@ -1709,6 +2259,102 @@ function PanelContent({
 
 function previousConversationEntry(block: AiConversationBlock | undefined) {
   return block?.type === 'message' ? block : null;
+}
+
+export function ProposedPlanCard({
+  plan,
+  onOpen = () => undefined,
+}: {
+  plan: AiProposedPlan;
+  onOpen?: (plan: AiProposedPlan) => void;
+}) {
+  const [copied, setCopied] = React.useState(false);
+  const canOpen = plan.status === 'completed' && Boolean(plan.text.trim());
+
+  const copyPlan = async () => {
+    if (!plan.text.trim()) return;
+    try {
+      await navigator.clipboard.writeText(plan.text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1_500);
+    } catch (error) {
+      console.warn('复制计划失败', error);
+    }
+  };
+
+  const openPlan = () => {
+    if (canOpen) onOpen(plan);
+  };
+
+  return (
+    <section
+      className="my-4 overflow-hidden rounded-xl border border-border/70 bg-background"
+      data-testid="proposed-plan"
+    >
+      <header className="flex items-center gap-2 border-b border-border/60 px-3 py-2.5">
+        <span className="flex size-7 items-center justify-center rounded-lg bg-muted/45 text-muted-foreground">
+          <Lightbulb size={15} />
+        </span>
+        <div className="min-w-0 flex-1 text-[13px] font-medium">
+          {plan.status === 'inProgress' ? '正在生成计划' : '计划'}
+        </div>
+        {plan.status === 'inProgress' ? (
+          <LoaderCircle className="animate-spin text-muted-foreground" size={14} />
+        ) : (
+          <div className="flex shrink-0 items-center gap-0.5">
+            <button
+              aria-label={copied ? '已复制计划' : '复制计划'}
+              className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/55 hover:text-foreground"
+              disabled={!plan.text.trim()}
+              title={copied ? '已复制' : '复制'}
+              type="button"
+              onClick={() => void copyPlan()}
+            >
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+            </button>
+            <button
+              aria-label="在编辑器中查看完整计划"
+              className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/55 hover:text-foreground"
+              disabled={!plan.text.trim()}
+              title="查看完整计划"
+              type="button"
+              onClick={openPlan}
+            >
+              <Maximize2 size={14} />
+            </button>
+          </div>
+        )}
+      </header>
+      <div
+        aria-label="查看完整计划"
+        className={cn(
+          'group relative max-h-56 overflow-hidden px-3 py-3 text-[13px] leading-6',
+          canOpen && 'cursor-pointer',
+        )}
+        role={canOpen ? 'button' : undefined}
+        tabIndex={canOpen ? 0 : undefined}
+        onClick={openPlan}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openPlan();
+          }
+        }}
+      >
+        {plan.text ? (
+          <AiMessageContent markdown={plan.text} />
+        ) : (
+          <span className="text-muted-foreground">正在整理完整方案…</span>
+        )}
+        {plan.text ? (
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-b from-transparent via-background/85 to-background"
+          />
+        ) : null}
+      </div>
+    </section>
+  );
 }
 
 export function ChangeSummaryCard({
@@ -1859,7 +2505,7 @@ function ChangeDiffPreview({ change }: { change: AiFileChange }) {
           <span className="text-red-500">-{change.deletions}</span>
         </div>
       </header>
-      <div className="max-h-[min(420px,65vh)] overflow-auto overscroll-contain py-1 font-mono text-[11px] leading-5">
+      <div className="madora-thin-scrollarea max-h-[min(420px,65vh)] overflow-auto overscroll-contain py-1 font-mono text-[11px] leading-5">
         {lines.map((line, index) =>
           line.kind === 'omitted' ? (
             <div
@@ -1971,12 +2617,17 @@ function isDiffHeaderLine(line: string) {
 export function ConversationEntryRow({
   entry,
   onOpenDocument,
+  onOpenPlanPreview = () => undefined,
   previous,
 }: {
   entry: AiConversationEntry;
   onOpenDocument: (documentPath: string) => void;
+  onOpenPlanPreview?: (plan: AiProposedPlan) => void;
   previous: AiConversationEntry | null;
 }) {
+  if (entry.type === 'proposedPlan') {
+    return <ProposedPlanCard plan={entry} onOpen={onOpenPlanPreview} />;
+  }
   if (entry.type === 'timeline') {
     return (
       <div className={cn(previous ? 'mt-3' : null)}>
@@ -2976,21 +3627,275 @@ function PluginIcon({ plugin }: { plugin: AiPluginMentionOption }) {
   );
 }
 
+export function UserInputDecisionCard({
+  request,
+  onSubmit,
+}: {
+  request: AiUserInputRequest;
+  onSubmit: (answers: CodexUserInputAnswer[]) => Promise<void>;
+}) {
+  const [activeIndex, setActiveIndex] = React.useState(0);
+  const [answers, setAnswers] = React.useState<
+    Record<string, { note: string; optionId: string | null }>
+  >({});
+  const [submitting, setSubmitting] = React.useState(false);
+
+  const question = request.questions[activeIndex];
+  const answer = answers[question.id] ?? { note: '', optionId: null };
+  const selectedOption = question.options.find(
+    (option) => option.id === answer.optionId,
+  );
+  const freeform = question.options.length === 0;
+  const answered = freeform
+    ? Boolean(answer.note.trim())
+    : Boolean(
+        answer.optionId && (!selectedOption?.isOther || answer.note.trim()),
+      );
+  const allAnswered = request.questions.every((candidate) => {
+    const candidateAnswer = answers[candidate.id];
+    if (candidate.options.length === 0) {
+      return Boolean(candidateAnswer?.note.trim());
+    }
+    const candidateOption = candidate.options.find(
+      (option) => option.id === candidateAnswer?.optionId,
+    );
+    return Boolean(
+      candidateAnswer?.optionId &&
+        (!candidateOption?.isOther || candidateAnswer.note.trim()),
+    );
+  });
+  const selectOption = (optionId: string) => {
+    setAnswers((current) => ({
+      ...current,
+      [question.id]: {
+        note: current[question.id]?.note ?? '',
+        optionId,
+      },
+    }));
+  };
+
+  const submit = async () => {
+    if (!allAnswered || submitting) return;
+    setSubmitting(true);
+    try {
+      await onSubmit(
+        request.questions.map((candidate) => ({
+          note: answers[candidate.id]?.note.trim() || null,
+          optionId: answers[candidate.id]?.optionId ?? null,
+          questionId: candidate.id,
+        })),
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <section className="mx-3 mb-2 shrink-0 rounded-xl border border-border/70 bg-background p-3 shadow-[0_1px_4px_rgba(15,23,42,0.06)]">
+      <div className="min-w-0">
+        <div className="flex items-center justify-between gap-3">
+          <span className="flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+            <Lightbulb className="shrink-0" size={13} />
+            <span className="truncate">{question.header}</span>
+          </span>
+          <span className="text-[10px] tabular-nums text-muted-foreground">
+            {activeIndex + 1}/{request.questions.length}
+          </span>
+        </div>
+        <p className="mt-1 text-[13px] leading-5">{question.question}</p>
+        <div className="mt-2 space-y-1">
+          {question.options.map((option, optionIndex) => (
+            <button
+              aria-pressed={answer.optionId === option.id}
+              className={cn(
+                'flex w-full items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors',
+                answer.optionId === option.id
+                  ? 'border-foreground/25 bg-muted/60'
+                  : 'border-transparent hover:bg-muted/40',
+              )}
+              disabled={submitting}
+              data-option-index={optionIndex}
+              key={option.id}
+              type="button"
+              onClick={() => selectOption(option.id)}
+              onKeyDown={(event) => {
+                if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+                  return;
+                }
+                event.preventDefault();
+                const nextIndex =
+                  event.key === 'Home'
+                    ? 0
+                    : event.key === 'End'
+                      ? question.options.length - 1
+                      : (optionIndex +
+                          (event.key === 'ArrowDown' ? 1 : -1) +
+                          question.options.length) %
+                        question.options.length;
+                selectOption(question.options[nextIndex].id);
+                const next = event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(
+                  `[data-option-index="${nextIndex}"]`,
+                );
+                next?.focus();
+              }}
+            >
+              <span
+                className={cn(
+                  'mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border',
+                  answer.optionId === option.id &&
+                    'border-foreground bg-foreground text-background',
+                )}
+              >
+                {answer.optionId === option.id ? <Check size={10} /> : null}
+              </span>
+              <span className="min-w-0">
+                <span className="block text-xs font-medium">{option.label}</span>
+                <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
+                  {option.description}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+        {answer.optionId || freeform ? (
+          <input
+            aria-label={
+              freeform
+                ? '回答'
+                : selectedOption?.isOther
+                  ? '其他答案'
+                  : '补充说明'
+            }
+            autoComplete="off"
+            className="mt-2 h-8 w-full rounded-lg border border-border/70 bg-transparent px-2.5 text-xs outline-none placeholder:text-muted-foreground/60 focus:border-ring"
+            disabled={submitting}
+            placeholder={
+              freeform
+                ? '请输入回答'
+                : selectedOption?.isOther
+                  ? '请输入其他答案'
+                  : '补充说明（可选）'
+            }
+            type={question.isSecret ? 'password' : 'text'}
+            value={answer.note}
+            onChange={(event) =>
+              setAnswers((current) => ({
+                ...current,
+                [question.id]: {
+                  note: event.target.value,
+                  optionId: freeform ? null : answer.optionId,
+                },
+              }))
+            }
+          />
+        ) : null}
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <button
+            className="h-7 rounded-md px-2 text-[11px] text-muted-foreground hover:bg-accent disabled:opacity-40"
+            disabled={activeIndex === 0 || submitting}
+            type="button"
+            onClick={() => setActiveIndex((current) => current - 1)}
+          >
+            上一步
+          </button>
+          {activeIndex < request.questions.length - 1 ? (
+            <button
+              className="h-7 rounded-md bg-foreground px-3 text-[11px] font-medium text-background disabled:opacity-40"
+              disabled={!answered || submitting}
+              type="button"
+              onClick={() => setActiveIndex((current) => current + 1)}
+            >
+              下一步
+            </button>
+          ) : (
+            <button
+              className="h-7 rounded-md bg-foreground px-3 text-[11px] font-medium text-background disabled:opacity-40"
+              disabled={!allAnswered || submitting}
+              type="button"
+              onClick={() => void submit()}
+            >
+              {submitting ? '正在提交…' : '提交回答'}
+            </button>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export function PlanImplementationCard({
+  plan,
+  submitting,
+  onFreshContext,
+  onImplement,
+  onStay,
+}: {
+  plan: AiProposedPlan;
+  submitting: boolean;
+  onFreshContext: () => void;
+  onImplement: () => void;
+  onStay: () => void;
+}) {
+  return (
+    <section className="mx-3 mb-2 shrink-0 rounded-xl border border-border/70 bg-background p-3 shadow-[0_1px_4px_rgba(15,23,42,0.06)]">
+      <div className="flex items-center gap-2 text-[13px] font-medium">
+        <Lightbulb size={15} />
+        是否实施这份计划？
+      </div>
+      <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+        计划已保存到当前 Codex 任务。可在原上下文实施，也可创建干净任务。
+      </p>
+      <div className="mt-2 grid gap-1 sm:grid-cols-3">
+        <button
+          className="rounded-lg bg-foreground px-2 py-2 text-[11px] font-medium text-background disabled:opacity-40"
+          disabled={submitting || !plan.text.trim()}
+          type="button"
+          onClick={onImplement}
+        >
+          实施此计划
+        </button>
+        <button
+          className="rounded-lg border border-border/70 px-2 py-2 text-[11px] hover:bg-accent disabled:opacity-40"
+          disabled={submitting || !plan.text.trim()}
+          type="button"
+          onClick={onFreshContext}
+        >
+          清空上下文后实施
+        </button>
+        <button
+          className="rounded-lg px-2 py-2 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+          disabled={submitting}
+          type="button"
+          onClick={onStay}
+        >
+          留在计划模式
+        </button>
+      </div>
+    </section>
+  );
+}
+
 export function AiComposer({
   active,
   approvalPolicyAvailability,
   attachments = [],
   authRequired = false,
   autoReviewAvailable,
+  collaborationMode = 'default',
   currentDocument,
   effort,
+  focusRequest = 0,
   mentionDocuments,
   mentionQuery,
+  modeSwitchDisabled = false,
   modelCatalogStatus = 'ready',
   models,
   permissionMode,
   permissionProfiles,
   permissionSwitchDisabled,
+  inputBlocked = false,
+  planModeAvailable = false,
+  planModeUnavailableReason = null,
   pluginLoadWarning = null,
   pluginOptions = [],
   pluginStatus = 'idle',
@@ -3004,6 +3909,7 @@ export function AiComposer({
   onAttachmentRemove = () => undefined,
   onAttachmentSelect = () => undefined,
   onDetectPlugins = () => undefined,
+  onCollaborationModeChange = () => undefined,
   onEffortChange,
   onInterrupt,
   onMentionQueryChange,
@@ -3019,15 +3925,21 @@ export function AiComposer({
   attachments?: CodexContextAttachment[];
   authRequired?: boolean;
   autoReviewAvailable: boolean;
+  collaborationMode?: CodexCollaborationModeKind;
   currentDocument: WorkspaceNode | null;
   effort: CodexReasoningEffort;
+  focusRequest?: number;
   mentionDocuments: AiDocumentReference[];
   mentionQuery: string | null;
+  modeSwitchDisabled?: boolean;
   modelCatalogStatus?: ControlLoadStatus;
   models: CodexModel[];
   permissionMode: PermissionModeId;
   permissionProfiles: CodexPermissionProfileSummary[];
   permissionSwitchDisabled: boolean;
+  inputBlocked?: boolean;
+  planModeAvailable?: boolean;
+  planModeUnavailableReason?: string | null;
   pluginLoadWarning?: string | null;
   pluginOptions?: AiPluginMentionOption[];
   pluginStatus?: ControlLoadStatus;
@@ -3041,6 +3953,7 @@ export function AiComposer({
   onAttachmentRemove?: (attachmentId: string) => void;
   onAttachmentSelect?: (kind: CodexContextAttachment['kind']) => void;
   onDetectPlugins?: () => void;
+  onCollaborationModeChange?: (mode: CodexCollaborationModeKind) => void;
   onEffortChange: (effort: CodexReasoningEffort) => void;
   onInterrupt: () => void;
   onMentionQueryChange: (query: string | null) => void;
@@ -3053,9 +3966,10 @@ export function AiComposer({
 }) {
   const runtimeUnavailable = runtimeStatus === 'error' || runtimeStatus === 'web';
   const preparing = runtimeStatus === 'loading';
-  const editorDisabled = runtimeUnavailable || authRequired || submitting;
+  const editorDisabled =
+    runtimeUnavailable || authRequired || submitting || inputBlocked;
   const controlsDisabled =
-    runtimeStatus !== 'ready' || authRequired || submitting;
+    runtimeStatus !== 'ready' || authRequired || submitting || inputBlocked;
   const effortOptions = selectedModelInfo?.supportedReasoningEfforts ?? [];
   const profileAllowed = (profileId: string) =>
     permissionProfiles.find((profile) => profile.id === profileId)?.allowed ?? true;
@@ -3085,11 +3999,19 @@ export function AiComposer({
     sideOffset: number;
     width: number;
   } | null>(null);
-  const placeholder = authRequired
+  const placeholder = inputBlocked
+    ? '请先回答 Codex 的问题'
+    : authRequired
     ? '登录 ChatGPT 后可用'
     : runtimeUnavailable
     ? '桌面端连接 Codex 后可用'
     : '要求后续变更，使用 @ 提及文档，/ 选择 Skill';
+
+  React.useEffect(() => {
+    if (focusRequest > 0 && !editorDisabled) {
+      editorRef.current?.focus();
+    }
+  }, [editorDisabled, focusRequest]);
 
   const saveSelection = React.useCallback(() => {
     const editor = editorRef.current;
@@ -3358,7 +4280,8 @@ export function AiComposer({
           <div className="flex flex-wrap gap-1 px-3 pt-2.5">
             {currentDocument ? (
               <ContextChip
-                label={currentDocument.title || currentDocument.name}
+                label={getDocumentContextLabel(currentDocument)}
+                title={getDocumentContextTitle(currentDocument)}
               />
             ) : null}
             {attachments.map((attachment) => (
@@ -3607,16 +4530,28 @@ export function AiComposer({
                 </span>
               </DropdownMenuItem>
               <DropdownMenuItem
-                disabled
+                disabled={modeSwitchDisabled || !planModeAvailable}
                 className="min-h-9 gap-2 rounded-lg px-2 py-1.5 data-[disabled]:opacity-60"
+                onSelect={() =>
+                  onCollaborationModeChange(
+                    collaborationMode === 'plan' ? 'default' : 'plan',
+                  )
+                }
               >
-                <ListChecks className="text-muted-foreground" size={16} />
+                <Lightbulb className="text-muted-foreground" size={16} />
                 <span className="flex min-w-0 items-baseline gap-2">
                   <span className="shrink-0 text-[13px] font-medium">计划模式</span>
                   <span className="truncate text-[11px] text-muted-foreground">
-                    开启计划模式
+                    {collaborationMode === 'plan'
+                      ? '已开启计划模式'
+                      : planModeAvailable
+                        ? '开启计划模式'
+                        : planModeUnavailableReason || '当前模型不可用'}
                   </span>
                 </span>
+                {collaborationMode === 'plan' ? (
+                  <Check className="ml-auto" size={14} />
+                ) : null}
               </DropdownMenuItem>
               <DropdownMenuSeparator className="my-0.5" />
               <DropdownMenuLabel className="px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
@@ -3791,6 +4726,23 @@ export function AiComposer({
             </DropdownMenuContent>
           </DropdownMenu>
 
+          {collaborationMode === 'plan' ? (
+            <>
+              <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
+              <button
+                aria-label="退出计划模式"
+                className="inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
+                disabled={modeSwitchDisabled}
+                title="退出计划模式"
+                type="button"
+                onClick={() => onCollaborationModeChange('default')}
+              >
+                <Lightbulb size={14} />
+                计划
+              </button>
+            </>
+          ) : null}
+
           <div className="ml-auto flex min-w-0 items-center gap-0.5">
             {preparing ? (
               <span
@@ -3821,7 +4773,16 @@ export function AiComposer({
                 <DropdownMenuLabel>模型</DropdownMenuLabel>
                 <DropdownMenuRadioGroup value={selectedModel} onValueChange={onModelChange}>
                   {models.map((model) => (
-                    <DropdownMenuRadioItem key={model.model} value={model.model}>
+                    <DropdownMenuRadioItem
+                      disabled={
+                        collaborationMode === 'plan' &&
+                        !model.supportedReasoningEfforts.some(
+                          (option) => option.reasoningEffort === 'medium',
+                        )
+                      }
+                      key={model.model}
+                      value={model.model}
+                    >
                       <div className="min-w-0">
                         <div className="text-xs">{model.displayName}</div>
                         <div className="mt-0.5 line-clamp-2 text-[10px] text-muted-foreground">
@@ -3838,7 +4799,11 @@ export function AiComposer({
               <DropdownMenuTrigger asChild>
                 <button
                   className="flex h-7 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                  disabled={controlsDisabled || effortOptions.length === 0}
+                  disabled={
+                    controlsDisabled ||
+                    collaborationMode === 'plan' ||
+                    effortOptions.length === 0
+                  }
                   type="button"
                 >
                   {formatEffort(effort)}
@@ -3880,7 +4845,9 @@ export function AiComposer({
               <button
                 aria-label="发送"
                 className="ml-1 flex size-8 items-center justify-center rounded-full bg-foreground text-background disabled:opacity-30"
-                disabled={runtimeUnavailable || submitting || !value.trim()}
+                disabled={
+                  runtimeUnavailable || submitting || inputBlocked || !value.trim()
+                }
                 type="button"
                 onClick={onSend}
               >
@@ -4125,14 +5092,19 @@ function ContextChip({
   icon,
   label,
   onDismiss,
+  title,
 }: {
   dismissible?: boolean;
   icon?: React.ReactNode;
   label: string;
   onDismiss?: () => void;
+  title?: string;
 }) {
   return (
-    <span className="inline-flex h-6 max-w-52 items-center gap-1 rounded-md border border-border/70 bg-muted/35 px-1.5 text-[10px] text-muted-foreground">
+    <span
+      className="inline-flex h-6 max-w-52 items-center gap-1 rounded-md border border-border/70 bg-muted/35 px-1.5 text-[10px] text-muted-foreground"
+      title={title}
+    >
       {icon ?? <FileText size={11} />}
       <span className="truncate">{label}</span>
       {dismissible ? (
@@ -4146,7 +5118,7 @@ function ContextChip({
 
 function createDocumentMentionElement(document: AiDocumentReference) {
   const mention = window.document.createElement('span');
-  const label = document.title || document.name;
+  const label = getDocumentContextLabel(document);
 
   mention.className = mentionLinkClassName;
   mention.contentEditable = 'false';
@@ -4159,11 +5131,23 @@ function createDocumentMentionElement(document: AiDocumentReference) {
   mention.dataset.mentionLabel = label;
   mention.setAttribute('aria-label', label);
   mention.setAttribute('role', 'link');
+  mention.title = getDocumentContextTitle(document);
   mention.tabIndex = 0;
   appendMentionImage(mention, '/icons/mentions/file-text.svg');
   mention.append(window.document.createTextNode(label));
 
   return mention;
+}
+
+function getDocumentContextLabel(document: AiDocumentReference) {
+  return document.relativePath || document.name;
+}
+
+function getDocumentContextTitle(document: AiDocumentReference) {
+  const label = getDocumentContextLabel(document);
+  return document.title && document.title !== label
+    ? `${document.title} · ${label}`
+    : label;
 }
 
 function createPluginMentionElement(plugin: AiPluginMentionOption) {
@@ -4751,6 +5735,8 @@ function formatEffort(effort: CodexReasoningEffort) {
     medium: '中',
     high: '高',
     xhigh: '极高',
+    max: '最高',
+    ultra: '超级',
   };
   return labels[effort] ?? effort;
 }

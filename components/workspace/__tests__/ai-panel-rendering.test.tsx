@@ -10,7 +10,10 @@ import {
   AiPanelHeader,
   ChangeSummaryCard,
   ConversationEntryRow,
+  PlanImplementationCard,
   ProcessingTrace,
+  ProposedPlanCard,
+  UserInputDecisionCard,
   UserMessageContent,
 } from '../ai-panel';
 import {
@@ -62,6 +65,225 @@ function change(
 }
 
 describe('AI message rendering', () => {
+  it('正式计划展示渐隐摘要，并支持复制与打开完整预览', async () => {
+    const user = userEvent.setup();
+    const onOpen = vi.fn();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const plan = {
+      historical: false,
+      id: 'plan-1',
+      status: 'completed' as const,
+      text: '# 实施计划\n\n1. 完成协议桥接',
+      turnId: 'turn-1',
+    };
+    render(
+      <ProposedPlanCard
+        plan={plan}
+        onOpen={onOpen}
+      />,
+    );
+
+    expect(screen.getByRole('heading', { name: '实施计划' })).toBeTruthy();
+    expect(screen.getByText('完成协议桥接')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '查看完整计划' }).className).toContain(
+      'max-h-56',
+    );
+
+    await user.click(screen.getByRole('button', { name: '复制计划' }));
+    await user.click(screen.getByRole('button', { name: '在编辑器中查看完整计划' }));
+
+    expect(writeText).toHaveBeenCalledWith(plan.text);
+    expect(onOpen).toHaveBeenCalledWith(plan);
+  });
+
+  it('用户决策不会因协议建议时间到期而自动消失', () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <UserInputDecisionCard
+          request={{
+            autoResolutionMs: 60_000,
+            id: 'request-persistent',
+            itemId: 'item-persistent',
+            questions: [{
+              header: '范围',
+              id: 'question-persistent',
+              isSecret: false,
+              options: [
+                { description: '选择 A', id: 'a', isOther: false, label: 'A' },
+                { description: '选择 B', id: 'b', isOther: false, label: 'B' },
+              ],
+              question: '请选择',
+            }],
+            turnId: 'turn-1',
+          }}
+          onSubmit={vi.fn().mockResolvedValue(undefined)}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: /选择 A/ }));
+      vi.advanceTimersByTime(5 * 60_000);
+
+      expect(screen.getByText('请选择')).toBeTruthy();
+      expect(
+        screen.getByRole<HTMLButtonElement>('button', { name: '提交回答' })
+          .disabled,
+      ).toBe(false);
+      expect(screen.queryByText(/默认判断继续/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('用户决策卡支持多问题、其他答案和秘密输入', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn(async () => undefined);
+    render(
+      <UserInputDecisionCard
+        request={{
+          autoResolutionMs: 120_000,
+          id: 'request-1',
+          itemId: 'item-1',
+          questions: [
+            {
+              header: '范围',
+              id: 'question-1',
+              isSecret: false,
+              options: [
+                {
+                  description: '仅修改当前模块',
+                  id: 'option-1',
+                  isOther: false,
+                  label: '最小改动',
+                },
+                {
+                  description: '覆盖所有相关模块',
+                  id: 'option-2',
+                  isOther: false,
+                  label: '完整实现',
+                },
+              ],
+              question: '选择实施范围',
+            },
+            {
+              header: '凭据',
+              id: 'question-2',
+              isSecret: true,
+              options: [
+                {
+                  description: '输入自定义值',
+                  id: 'option-other',
+                  isOther: true,
+                  label: '其他',
+                },
+              ],
+              question: '提供临时值',
+            },
+          ],
+          turnId: 'turn-1',
+        }}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    const minimalOption = screen.getByRole('button', { name: /最小改动/ });
+    minimalOption.focus();
+    await user.keyboard('{ArrowDown}');
+    expect(
+      screen.getByRole('button', { name: /完整实现/ }).getAttribute(
+        'aria-pressed',
+      ),
+    ).toBe('true');
+    await user.click(minimalOption);
+    await user.click(screen.getByRole('button', { name: '下一步' }));
+    await user.click(screen.getByRole('button', { name: /其他/ }));
+    const secretInput = screen.getByLabelText('其他答案');
+    expect(secretInput.getAttribute('type')).toBe('password');
+    await user.type(secretInput, 'masked-value');
+    await user.click(screen.getByRole('button', { name: '提交回答' }));
+
+    expect(onSubmit).toHaveBeenCalledWith([
+      { note: null, optionId: 'option-1', questionId: 'question-1' },
+      {
+        note: 'masked-value',
+        optionId: 'option-other',
+        questionId: 'question-2',
+      },
+    ]);
+  });
+
+  it('用户决策卡支持无预设选项的自由输入', async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn(async () => undefined);
+    render(
+      <UserInputDecisionCard
+        request={{
+          autoResolutionMs: null,
+          id: 'request-freeform',
+          itemId: 'item-freeform',
+          questions: [
+            {
+              header: '说明',
+              id: 'question-freeform',
+              isSecret: false,
+              options: [],
+              question: '请补充约束',
+            },
+          ],
+          turnId: 'turn-1',
+        }}
+        onSubmit={onSubmit}
+      />,
+    );
+
+    await user.type(screen.getByRole('textbox', { name: '回答' }), '保持兼容');
+    await user.click(screen.getByRole('button', { name: '提交回答' }));
+
+    expect(onSubmit).toHaveBeenCalledWith([
+      {
+        note: '保持兼容',
+        optionId: null,
+        questionId: 'question-freeform',
+      },
+    ]);
+  });
+
+  it('计划完成卡提供三种实施选择', async () => {
+    const user = userEvent.setup();
+    const onFreshContext = vi.fn();
+    const onImplement = vi.fn();
+    const onStay = vi.fn();
+    render(
+      <PlanImplementationCard
+        plan={{
+          historical: false,
+          id: 'plan-1',
+          status: 'completed',
+          text: '实施计划正文',
+          turnId: 'turn-1',
+        }}
+        submitting={false}
+        onFreshContext={onFreshContext}
+        onImplement={onImplement}
+        onStay={onStay}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '实施此计划' }));
+    await user.click(
+      screen.getByRole('button', { name: '清空上下文后实施' }),
+    );
+    await user.click(screen.getByRole('button', { name: '留在计划模式' }));
+
+    expect(onImplement).toHaveBeenCalledTimes(1);
+    expect(onFreshContext).toHaveBeenCalledTimes(1);
+    expect(onStay).toHaveBeenCalledTimes(1);
+  });
+
   it('用户消息按内容宽度收缩并保留长消息最大宽度', () => {
     render(
       <ConversationEntryRow
@@ -161,7 +383,7 @@ describe('AI message rendering', () => {
     expect(screen.getByText('目标')).toBeTruthy();
     expect(screen.getByText('设置要持续追求的目标')).toBeTruthy();
     expect(screen.getByText('计划模式')).toBeTruthy();
-    expect(screen.getByText('开启计划模式')).toBeTruthy();
+    expect(screen.getByText('当前模型不可用')).toBeTruthy();
     expect(screen.getByText('插件')).toBeTruthy();
     expect(screen.getByText('正在加载插件…')).toBeTruthy();
     expect(screen.queryByText('检测安装的插件')).toBeNull();
@@ -170,6 +392,33 @@ describe('AI message rendering', () => {
     expect(screen.queryByText('提及工作区文档')).toBeNull();
     expect(screen.getByText('目标').closest('[role="menuitem"]')?.getAttribute('aria-disabled')).toBe('true');
     expect(screen.getByText('计划模式').closest('[role="menuitem"]')?.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('计划模式可用时允许切换并在输入框底栏显示状态', async () => {
+    const user = userEvent.setup();
+    const onCollaborationModeChange = vi.fn();
+    const { rerender } = render(
+      <ComposerHarness
+        collaborationMode="default"
+        onCollaborationModeChange={onCollaborationModeChange}
+        onOpenMention={vi.fn()}
+        planModeAvailable
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '添加上下文与工具' }));
+    await user.click(screen.getByText('计划模式'));
+    expect(onCollaborationModeChange).toHaveBeenCalledWith('plan');
+
+    rerender(
+      <ComposerHarness
+        collaborationMode="plan"
+        onCollaborationModeChange={onCollaborationModeChange}
+        onOpenMention={vi.fn()}
+        planModeAvailable
+      />,
+    );
+    expect(screen.getByRole('button', { name: '退出计划模式' })).toBeTruthy();
   });
 
   it('文件子菜单区分文件与文件夹选择', async () => {
@@ -335,8 +584,9 @@ describe('AI message rendering', () => {
     await user.type(editor, '请阅读 @READ');
     await user.click(screen.getByRole('option', { name: /README/ }));
 
-    const mention = screen.getByRole('link', { name: 'README' });
+    const mention = screen.getByRole('link', { name: 'README.md' });
     expect(editor.contains(mention)).toBe(true);
+    expect(mention.getAttribute('title')).toBe('README · README.md');
     expect(mention.querySelector('img')?.getAttribute('src')).toBe(
       '/icons/mentions/file-text.svg',
     );
@@ -398,7 +648,9 @@ describe('AI message rendering', () => {
       expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
 
       await user.keyboard('{Enter}');
-      expect(screen.getByRole('link', { name: 'Release Notes' })).toBeTruthy();
+      expect(
+        screen.getByRole('link', { name: 'Docs/Release Notes.md' }),
+      ).toBeTruthy();
       expect(screen.queryByRole('listbox')).toBeNull();
     } finally {
       Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
@@ -517,10 +769,10 @@ describe('AI message rendering', () => {
     await user.type(editor, '@READ');
     await user.click(screen.getByRole('option', { name: /README/ }));
 
-    expect(screen.getByRole('link', { name: 'README' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'README.md' })).toBeTruthy();
     await user.keyboard('{Backspace}');
 
-    expect(screen.queryByRole('link', { name: 'README' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'README.md' })).toBeNull();
     expect(screen.getByTestId('selected-mention-count').textContent).toBe('0');
   });
 
@@ -867,6 +1119,7 @@ describe('AI message rendering', () => {
     expect(within(preview).getByText('新内容')).toBeTruthy();
     expect(within(preview).getByText('+5')).toBeTruthy();
     expect(within(preview).getByText('-1')).toBeTruthy();
+    expect(preview.querySelector('.madora-thin-scrollarea')).toBeTruthy();
 
     await user.click(screen.getByRole('button', { name: '再显示 1 个文件' }));
     expect(screen.getByText('package.json')).toBeTruthy();
@@ -1120,14 +1373,17 @@ function createTrace({
 
 function ComposerHarness({
   attachments = [],
+  collaborationMode = 'default',
   mentionDocuments = [mentionedDocument],
   onAttachmentRemove = vi.fn(),
   onAttachmentSelect = vi.fn(),
   onDetectPlugins = vi.fn(),
+  onCollaborationModeChange = vi.fn(),
   onOpenMention,
   onSend = vi.fn(),
   pluginOptions = [],
   pluginStatus = 'idle',
+  planModeAvailable = false,
   skillOptions = [],
   skillStatus = 'idle',
 }: {
@@ -1137,10 +1393,12 @@ function ComposerHarness({
     kind: 'file' | 'folder';
     name: string;
   }>;
+  collaborationMode?: 'default' | 'plan';
   mentionDocuments?: Array<typeof mentionedDocument>;
   onAttachmentRemove?: (attachmentId: string) => void;
   onAttachmentSelect?: (kind: 'file' | 'folder') => void;
   onDetectPlugins?: () => void;
+  onCollaborationModeChange?: (mode: 'default' | 'plan') => void;
   onOpenMention: (path: string) => void;
   onSend?: () => void;
   pluginOptions?: Array<{
@@ -1152,6 +1410,7 @@ function ComposerHarness({
     mentionPath: string;
   }>;
   pluginStatus?: 'error' | 'idle' | 'loading' | 'ready';
+  planModeAvailable?: boolean;
   skillOptions?: Array<{
     description: string;
     displayName: string;
@@ -1172,6 +1431,7 @@ function ComposerHarness({
         approvalPolicyAvailability={{ never: true, onRequest: true }}
         attachments={attachments}
         autoReviewAvailable
+        collaborationMode={collaborationMode}
         currentDocument={null}
         effort="medium"
         mentionDocuments={mentionDocuments}
@@ -1180,6 +1440,7 @@ function ComposerHarness({
         permissionMode="ask"
         permissionProfiles={[]}
         permissionSwitchDisabled={false}
+        planModeAvailable={planModeAvailable}
         pluginOptions={pluginOptions}
         pluginStatus={pluginStatus}
         runtimeStatus="ready"
@@ -1192,6 +1453,7 @@ function ComposerHarness({
         onAttachmentRemove={onAttachmentRemove}
         onAttachmentSelect={onAttachmentSelect}
         onDetectPlugins={onDetectPlugins}
+        onCollaborationModeChange={onCollaborationModeChange}
         onEffortChange={vi.fn()}
         onInterrupt={vi.fn()}
         onMentionQueryChange={setMentionQuery}

@@ -11,10 +11,15 @@ vi.mock('next-themes', () => ({
 vi.mock('../ai-panel', () => ({
   AiPanel: ({
     onOpenDocument,
+    onOpenPlanPreview,
     visible,
     workspaceRootPath,
   }: {
     onOpenDocument: (path: string) => void;
+    onOpenPlanPreview: (
+      plan: { id: string; text: string },
+      threadId: string,
+    ) => void;
     visible: boolean;
     workspaceRootPath: string | null;
   }) => (
@@ -22,6 +27,17 @@ vi.mock('../ai-panel', () => ({
       AI:{workspaceRootPath}
       <button type="button" onClick={() => onOpenDocument('/workspace/README.md')}>
         打开提及文档
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          onOpenPlanPreview(
+            { id: 'plan-1', text: '# 计划' },
+            'thread-1',
+          )
+        }
+      >
+        打开计划
       </button>
     </div>
   ),
@@ -54,6 +70,12 @@ describe('right AI panel integration', () => {
       />,
     );
 
+    const aiPanelButton = screen.getByTestId('ai-panel-icon-button');
+    const aiPanelIcon = aiPanelButton.querySelector('svg');
+    expect(aiPanelIcon?.getAttribute('viewBox')).toBe('0 0 256 260');
+    expect(aiPanelIcon?.getAttribute('class')).toContain('size-[17px]');
+    expect(aiPanelIcon?.getAttribute('fill')).toBe('currentColor');
+
     await user.click(screen.getByRole('button', { name: '展开 AI 面板' }));
     expect(onModeChange).toHaveBeenLastCalledWith('ai');
 
@@ -67,15 +89,22 @@ describe('right AI panel integration', () => {
         onOpenSettings={vi.fn()}
       />,
     );
+    const activeAiButtonClasses = screen
+      .getByTestId('ai-panel-icon-button')
+      .className.split(/\s+/);
+    expect(activeAiButtonClasses).not.toContain('bg-accent');
+    expect(activeAiButtonClasses).not.toContain('text-foreground');
     await user.click(screen.getByRole('button', { name: '折叠 AI 面板' }));
     expect(onModeChange).toHaveBeenLastCalledWith(null);
   });
 
   it('AI 模式渲染工作区级面板而不是元信息面板', () => {
     const onOpenDocument = vi.fn();
+    const onOpenPlanPreview = vi.fn();
     render(
       <RightSidePanel
         currentDocument={null}
+        currentDocumentPath={null}
         documentPanelData={null}
         documentReadOnly={false}
         documents={[]}
@@ -84,6 +113,7 @@ describe('right AI panel integration', () => {
         workspaceRootPath="/workspace"
         onBeforeTurnStart={vi.fn().mockResolvedValue(true)}
         onOpenDocument={onOpenDocument}
+        onOpenPlanPreview={onOpenPlanPreview}
         onWorkspaceChanged={vi.fn()}
       />,
     );
@@ -93,11 +123,17 @@ describe('right AI panel integration', () => {
     expect(screen.queryByTestId('document-meta-panel')).toBeNull();
     screen.getByRole('button', { name: '打开提及文档' }).click();
     expect(onOpenDocument).toHaveBeenCalledWith('/workspace/README.md');
+    screen.getByRole('button', { name: '打开计划' }).click();
+    expect(onOpenPlanPreview).toHaveBeenCalledWith(
+      { id: 'plan-1', text: '# 计划' },
+      'thread-1',
+    );
   });
 
   it('折叠或切换元信息面板时仍保持 AI 运行时挂载', () => {
     const props = {
       currentDocument: null,
+      currentDocumentPath: null,
       documentPanelData: null,
       documentReadOnly: false,
       documents: [],
@@ -105,6 +141,7 @@ describe('right AI panel integration', () => {
       workspaceRootPath: '/workspace',
       onBeforeTurnStart: vi.fn().mockResolvedValue(true),
       onOpenDocument: vi.fn(),
+      onOpenPlanPreview: vi.fn(),
       onWorkspaceChanged: vi.fn(),
     };
     const { rerender } = render(<RightSidePanel {...props} mode={null} />);

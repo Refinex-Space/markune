@@ -46,7 +46,9 @@ export type CodexReasoningEffort =
   | 'low'
   | 'medium'
   | 'high'
-  | 'xhigh';
+  | 'xhigh'
+  | 'max'
+  | 'ultra';
 
 export interface CodexThread {
   id: string;
@@ -85,6 +87,54 @@ export interface CodexAccountResponse {
 export interface CodexModelListResponse {
   data: CodexModel[];
   nextCursor: string | null;
+}
+
+export type CodexCollaborationModeKind = 'default' | 'plan';
+
+export interface CodexCollaborationModeMask {
+  mode: CodexCollaborationModeKind | null;
+  model: string | null;
+  name: string;
+  reasoning_effort: CodexReasoningEffort | null;
+}
+
+export interface CodexCollaborationModeListResponse {
+  data: CodexCollaborationModeMask[];
+}
+
+export interface CodexCollaborationMode {
+  mode: CodexCollaborationModeKind;
+  settings: {
+    developer_instructions: null;
+    model: string;
+    reasoning_effort: CodexReasoningEffort;
+  };
+}
+
+export interface CodexUserInputOption {
+  description: string;
+  id: string;
+  isOther: boolean;
+  label: string;
+}
+
+export interface CodexUserInputQuestion {
+  header: string;
+  id: string;
+  isSecret: boolean;
+  options: CodexUserInputOption[];
+  question: string;
+}
+
+export interface CodexUserInputRequest {
+  autoResolutionMs: number | null;
+  questions: CodexUserInputQuestion[];
+}
+
+export interface CodexUserInputAnswer {
+  note: string | null;
+  optionId: string | null;
+  questionId: string;
 }
 
 export interface CodexThreadListResponse {
@@ -329,6 +379,17 @@ export async function respondToCodexApproval(
   return invoke<void>('codex_app_server_respond', {
     requestId,
     decision: choiceId,
+  });
+}
+
+export async function respondToCodexUserInput(
+  requestId: CodexRequestId,
+  answers: CodexUserInputAnswer[],
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<void>('codex_app_server_respond_user_input', {
+    requestId,
+    answers,
   });
 }
 

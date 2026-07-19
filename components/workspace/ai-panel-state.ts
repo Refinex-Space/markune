@@ -2,6 +2,7 @@ import type {
   CodexProtocolMessage,
   CodexThread,
   CodexThreadItem,
+  CodexUserInputRequest,
 } from './codex-app-server';
 
 export type AiTimelineKind =
@@ -150,8 +151,19 @@ export type AiTimelineItem =
 
 type AiMessageEntry = { type: 'message' } & AiChatMessage;
 type AiTimelineEntry = { type: 'timeline' } & AiTimelineItem;
+export interface AiProposedPlan {
+  historical: boolean;
+  id: string;
+  status: 'completed' | 'inProgress';
+  text: string;
+  turnId: string | null;
+}
+export type AiProposedPlanEntry = { type: 'proposedPlan' } & AiProposedPlan;
 
-export type AiConversationEntry = AiMessageEntry | AiTimelineEntry;
+export type AiConversationEntry =
+  | AiMessageEntry
+  | AiTimelineEntry
+  | AiProposedPlanEntry;
 
 export type AiApprovalChoiceKind =
   | 'accept'
@@ -182,6 +194,12 @@ export interface AiApprovalRequest {
   turnId: string | null;
 }
 
+export interface AiUserInputRequest extends CodexUserInputRequest {
+  id: number | string;
+  itemId: string | null;
+  turnId: string | null;
+}
+
 export interface AiTurnState {
   completedAtMs: number | null;
   durationMs: number | null;
@@ -197,6 +215,7 @@ export interface AiConversationState {
   approvals: AiApprovalRequest[];
   entries: AiConversationEntry[];
   turns: Record<string, AiTurnState>;
+  userInputRequests: AiUserInputRequest[];
 }
 
 export type AiWorkspaceChangeEvent =
@@ -213,6 +232,7 @@ export function createEmptyConversation(): AiConversationState {
     approvals: [],
     entries: [],
     turns: {},
+    userInputRequests: [],
   };
 }
 
@@ -242,6 +262,7 @@ export function reduceCodexProtocolMessage(
     approvals: [...state.approvals],
     entries: [...state.entries],
     turns: { ...state.turns },
+    userInputRequests: [...state.userInputRequests],
   };
   const params = message.params ?? {};
 
@@ -269,6 +290,12 @@ export function reduceCodexProtocolMessage(
     } else {
       next.activeTurnId = null;
     }
+    const completedTurnId = turnState?.id ?? getString(params, 'turnId');
+    if (completedTurnId) {
+      next.userInputRequests = next.userInputRequests.filter(
+        (request) => request.turnId !== completedTurnId,
+      );
+    }
     return next;
   }
 
@@ -294,6 +321,25 @@ export function reduceCodexProtocolMessage(
         role: 'assistant',
         text: delta,
         ...(turnId ? { turnId } : {}),
+      });
+    }
+    return next;
+  }
+
+  if (message.method === 'item/plan/delta') {
+    const itemId = getString(params, 'itemId');
+    const turnId = getString(params, 'turnId');
+    if (itemId) {
+      const existing = next.entries.find(
+        (entry): entry is AiProposedPlanEntry =>
+          entry.type === 'proposedPlan' && entry.id === itemId,
+      );
+      upsertProposedPlan(next, {
+        historical: false,
+        id: itemId,
+        status: 'inProgress',
+        text: (existing?.text ?? '') + (getString(params, 'delta') ?? ''),
+        turnId: turnId ?? existing?.turnId ?? null,
       });
     }
     return next;
@@ -486,16 +532,39 @@ export function reduceCodexProtocolMessage(
     return next;
   }
 
+  if (
+    message.method === 'item/tool/requestUserInput' &&
+    message.id !== undefined
+  ) {
+    const request = parseUserInputRequest(params.madoraUserInput);
+    if (request) {
+      next.userInputRequests = next.userInputRequests.filter(
+        (candidate) => String(candidate.id) !== String(message.id),
+      );
+      next.userInputRequests.push({
+        ...request,
+        id: message.id,
+        itemId: getString(params, 'itemId'),
+        turnId: getString(params, 'turnId'),
+      });
+    }
+    return next;
+  }
+
   if (message.method === 'serverRequest/resolved') {
     const requestId = params.requestId;
     next.approvals = next.approvals.filter(
       (approval) => String(approval.id) !== String(requestId),
+    );
+    next.userInputRequests = next.userInputRequests.filter(
+      (request) => String(request.id) !== String(requestId),
     );
     return next;
   }
 
   if (message.method === 'madora/runtime/exited') {
     next.activeTurnId = null;
+    next.userInputRequests = [];
     next.entries.push({
       type: 'timeline',
       completedAtMs: null,
@@ -564,6 +633,17 @@ function appendStartedItem(
     return;
   }
 
+  if (item.type === 'plan') {
+    upsertProposedPlan(state, {
+      historical: Boolean(turnId && state.turns[turnId]?.historical),
+      id,
+      status: 'inProgress',
+      text: typeof item.text === 'string' ? item.text : '',
+      turnId: turnId ?? null,
+    });
+    return;
+  }
+
   const timeline = timelineFromItem(
     item,
     'inProgress',
@@ -609,6 +689,17 @@ function appendCompletedItem(
       phase: parseMessagePhase(item.phase),
       role: 'assistant',
       text,
+      turnId: turnId ?? null,
+    });
+    return;
+  }
+
+  if (type === 'plan') {
+    upsertProposedPlan(state, {
+      historical: Boolean(turnId && state.turns[turnId]?.historical),
+      id,
+      status: 'completed',
+      text: typeof item.text === 'string' ? item.text : '',
       turnId: turnId ?? null,
     });
     return;
@@ -704,16 +795,6 @@ function timelineFromItem(
         label: webSearchLabel(item),
         query: typeof item.query === 'string' ? item.query : null,
       };
-    case 'plan':
-      return {
-        ...common,
-        explanation: null,
-        id: `plan-${turnId ?? id}`,
-        kind: 'plan',
-        label: common.status === 'inProgress' ? '正在更新计划' : '已更新计划',
-        steps: [],
-        text: typeof item.text === 'string' ? item.text : null,
-      };
     case 'collabAgentToolCall':
     case 'subAgentActivity':
       return {
@@ -782,6 +863,28 @@ function upsertMessage(state: AiConversationState, message: AiChatMessage) {
     };
   } else {
     state.entries.push({ type: 'message', ...message });
+  }
+}
+
+function upsertProposedPlan(
+  state: AiConversationState,
+  plan: AiProposedPlan,
+) {
+  const index = state.entries.findIndex(
+    (entry) => entry.type === 'proposedPlan' && entry.id === plan.id,
+  );
+  if (index >= 0) {
+    const existing = state.entries[index] as AiProposedPlanEntry;
+    state.entries[index] = {
+      ...existing,
+      ...plan,
+      text:
+        plan.status === 'completed' ? plan.text : plan.text || existing.text,
+      turnId: plan.turnId ?? existing.turnId,
+      type: 'proposedPlan',
+    };
+  } else {
+    state.entries.push({ type: 'proposedPlan', ...plan });
   }
 }
 
@@ -904,6 +1007,7 @@ export interface AiChangeSummaryBlock {
 
 export type AiConversationBlock =
   | AiMessageEntry
+  | AiProposedPlanEntry
   | AiTraceBlock
   | AiChangeSummaryBlock;
 
@@ -933,6 +1037,8 @@ export function buildConversationBlocks(
             consumedChangeSummaries.add(turnId);
           }
         }
+      } else if (entry.type === 'proposedPlan') {
+        blocks.push(entry);
       }
       index += 1;
       continue;
@@ -1155,6 +1261,9 @@ function createTraceBlock(
   };
 
   for (const entry of entries) {
+    if (entry.type === 'proposedPlan') {
+      continue;
+    }
     if (entry.type === 'message') {
       flushActivities();
       if (entry.text) {
@@ -2238,6 +2347,46 @@ function webSearchLabel(item: CodexThreadItem) {
   if (action === 'open_page') return '打开网页';
   if (action === 'find_in_page') return '在网页中查找';
   return '搜索网页';
+}
+
+function parseUserInputRequest(value: unknown): CodexUserInputRequest | null {
+  if (!isRecord(value) || !Array.isArray(value.questions)) return null;
+  if (value.questions.length < 1 || value.questions.length > 3) return null;
+  const questions = value.questions.flatMap((candidate) => {
+    if (!isRecord(candidate) || !Array.isArray(candidate.options)) return [];
+    const id = getString(candidate, 'id');
+    const header = getString(candidate, 'header');
+    const question = getString(candidate, 'question');
+    if (!id || !header || !question) return [];
+    const options = candidate.options.flatMap((option) => {
+      if (!isRecord(option)) return [];
+      const optionId = getString(option, 'id');
+      const label = getString(option, 'label');
+      const description = getString(option, 'description');
+      if (!optionId || !label || description === null) return [];
+      return [{
+        description,
+        id: optionId,
+        isOther: option.isOther === true,
+        label,
+      }];
+    });
+    if (options.length === 1) return [];
+    return [{
+      header,
+      id,
+      isSecret: candidate.isSecret === true,
+      options,
+      question,
+    }];
+  });
+  if (questions.length !== value.questions.length) return null;
+  const autoResolutionMs =
+    typeof value.autoResolutionMs === 'number' &&
+    Number.isFinite(value.autoResolutionMs)
+      ? value.autoResolutionMs
+      : null;
+  return { autoResolutionMs, questions };
 }
 
 function isApprovalMethod(method: string | undefined): method is string {

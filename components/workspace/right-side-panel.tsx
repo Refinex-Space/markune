@@ -1,7 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import { Info, Palette, Settings, Sparkles } from 'lucide-react';
+import { Openai } from '@thesvg/react';
+import { Info, Palette, Settings } from 'lucide-react';
 import { useTheme } from 'next-themes';
 
 import {
@@ -26,7 +27,10 @@ import { cn } from '@/lib/utils';
 
 import { DocumentMetaPanel } from './document-meta-panel';
 import { AiPanel } from './ai-panel';
-import type { AiWorkspaceChangeEvent } from './ai-panel-state';
+import type {
+  AiProposedPlan,
+  AiWorkspaceChangeEvent,
+} from './ai-panel-state';
 import type {
   RightPanelMode,
   WorkspaceNode,
@@ -41,14 +45,16 @@ export interface DocumentPanelData {
 
 interface RightSidePanelProps {
   currentDocument: WorkspaceNode | null;
+  currentDocumentPath: string | null;
   documentPanelData: DocumentPanelData | null;
   documents: WorkspaceSearchResult[];
   documentReadOnly: boolean;
   mode: RightPanelMode;
   width: number;
   workspaceRootPath: string | null;
-  onBeforeTurnStart: () => Promise<boolean>;
+  onBeforeTurnStart: (documentPath: string | null) => Promise<boolean>;
   onOpenDocument: (documentPath: string) => void;
+  onOpenPlanPreview: (plan: AiProposedPlan, threadId: string) => void;
   onWorkspaceChanged: (
     event: AiWorkspaceChangeEvent,
   ) => void | Promise<void>;
@@ -65,6 +71,7 @@ interface RightToolRailProps {
 
 export function RightSidePanel({
   currentDocument,
+  currentDocumentPath,
   documentPanelData,
   documents,
   documentReadOnly,
@@ -73,6 +80,7 @@ export function RightSidePanel({
   workspaceRootPath,
   onBeforeTurnStart,
   onOpenDocument,
+  onOpenPlanPreview,
   onWorkspaceChanged,
   onToggleDocumentReadOnly,
 }: RightSidePanelProps) {
@@ -90,11 +98,13 @@ export function RightSidePanel({
       >
         <AiPanel
           currentDocument={currentDocument}
+          currentDocumentPath={currentDocumentPath}
           documents={documents}
           visible={mode === 'ai'}
           workspaceRootPath={workspaceRootPath}
           onBeforeTurnStart={onBeforeTurnStart}
           onOpenDocument={onOpenDocument}
+          onOpenPlanPreview={onOpenPlanPreview}
           onWorkspaceChanged={onWorkspaceChanged}
         />
       </aside>
@@ -143,15 +153,12 @@ export function RightToolRail({
           <TooltipTrigger asChild>
             <button
               aria-label={mode === 'ai' ? '折叠 AI 面板' : '展开 AI 面板'}
-              className={cn(
-                rightToolButtonClassName(),
-                mode === 'ai' && 'bg-accent text-foreground',
-              )}
+              className={rightToolButtonClassName()}
               data-testid="ai-panel-icon-button"
               type="button"
               onClick={() => onModeChange(nextAiMode)}
             >
-              <Sparkles size={17} />
+              <Openai className="size-[17px]" variant="light" />
             </button>
           </TooltipTrigger>
           <TooltipContent side={orientation === 'header' ? 'bottom' : 'left'} sideOffset={8}>

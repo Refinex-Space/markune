@@ -43,6 +43,7 @@ pub fn run() {
             codex::codex_runtime_stop,
             codex::codex_app_server_request,
             codex::codex_app_server_respond,
+            codex::codex_app_server_respond_user_input,
             codex::read_codex_plugin_icon,
             codex::select_codex_context_attachments,
             codex::release_codex_context_attachments,

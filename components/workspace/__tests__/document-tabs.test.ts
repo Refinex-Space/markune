@@ -7,7 +7,9 @@ import {
   closeDocumentTabsToRight,
   closeOtherDocumentTabs,
   createInitialEditorLayout,
+  getActiveDocumentPath,
   openDocumentTab,
+  openPlanPreviewTab,
   renameDocumentTab,
   selectDocumentTab,
 } from '../document-tabs';
@@ -31,12 +33,12 @@ describe('document tabs model', () => {
     layout = openDocumentTab(layout, doc('b', 'B'));
     layout = openDocumentTab(layout, doc('a', 'A updated'));
 
-    expect(layout.tabs.map((tab) => tab.absolutePath)).toEqual([
+    expect(layout.tabs.map((tab) => tab.id)).toEqual([
       '/repo/a.md',
       '/repo/b.md',
     ]);
     expect(layout.tabs[0].title).toBe('A updated');
-    expect(layout.activeTabPath).toBe('/repo/a.md');
+    expect(layout.activeTabId).toBe('/repo/a.md');
   });
 
   it('closes active tabs and selects the nearest neighbor', () => {
@@ -47,11 +49,11 @@ describe('document tabs model', () => {
 
     layout = closeDocumentTab(layout, '/repo/b.md');
 
-    expect(layout.tabs.map((tab) => tab.absolutePath)).toEqual([
+    expect(layout.tabs.map((tab) => tab.id)).toEqual([
       '/repo/a.md',
       '/repo/c.md',
     ]);
-    expect(layout.activeTabPath).toBe('/repo/c.md');
+    expect(layout.activeTabId).toBe('/repo/c.md');
   });
 
   it('clears the active tab when the last open document is closed', () => {
@@ -60,7 +62,7 @@ describe('document tabs model', () => {
 
     layout = closeDocumentTab(layout, '/repo/a.md');
 
-    expect(layout).toEqual({ activeTabPath: null, tabs: [] });
+    expect(layout).toEqual({ activeTabId: null, tabs: [] });
   });
 
   it('selects a tab', () => {
@@ -70,7 +72,7 @@ describe('document tabs model', () => {
 
     layout = selectDocumentTab(layout, '/repo/a.md');
 
-    expect(layout.activeTabPath).toBe('/repo/a.md');
+    expect(layout.activeTabId).toBe('/repo/a.md');
   });
 
   it('updates the active tab path and title after renaming a document', () => {
@@ -84,11 +86,19 @@ describe('document tabs model', () => {
       doc('renamed', '测试新增'),
     );
 
-    expect(layout.activeTabPath).toBe('/repo/renamed.md');
+    expect(layout.activeTabId).toBe('/repo/renamed.md');
     expect(layout.tabs).toEqual([
-      { absolutePath: '/repo/a.md', name: 'a.md', title: 'A' },
+      {
+        absolutePath: '/repo/a.md',
+        id: '/repo/a.md',
+        kind: 'document',
+        name: 'a.md',
+        title: 'A',
+      },
       {
         absolutePath: '/repo/renamed.md',
+        id: '/repo/renamed.md',
+        kind: 'document',
         name: 'renamed.md',
         title: '测试新增',
       },
@@ -113,25 +123,73 @@ describe('document tabs model', () => {
 
     expect(
       closeOtherDocumentTabs(layout, '/repo/c.md').tabs.map(
-        (tab) => tab.absolutePath,
+        (tab) => tab.id,
       ),
     ).toEqual(['/repo/c.md']);
 
     expect(
       closeDocumentTabsToLeft(layout, '/repo/c.md').tabs.map(
-        (tab) => tab.absolutePath,
+        (tab) => tab.id,
       ),
     ).toEqual(['/repo/c.md', '/repo/d.md']);
 
     expect(
       closeDocumentTabsToRight(layout, '/repo/b.md').tabs.map(
-        (tab) => tab.absolutePath,
+        (tab) => tab.id,
       ),
     ).toEqual(['/repo/a.md', '/repo/b.md']);
 
     expect(closeAllDocumentTabs()).toEqual({
-      activeTabPath: null,
+      activeTabId: null,
       tabs: [],
     });
+  });
+
+  it('opens plan previews as reusable in-memory tabs', () => {
+    let layout = openDocumentTab(createInitialEditorLayout(), doc('a'));
+    layout = openPlanPreviewTab(layout, {
+      id: 'plan-1',
+      text: '# Madora 计划\n\n第一版',
+      threadId: 'thread-1',
+    });
+    layout = openPlanPreviewTab(layout, {
+      id: 'plan-1',
+      text: '# Madora 计划\n\n更新后的完整正文',
+      threadId: 'thread-1',
+    });
+
+    expect(layout.tabs).toHaveLength(2);
+    expect(layout.activeTabId).toBe('plan:thread-1:plan-1');
+    expect(layout.tabs[1]).toMatchObject({
+      id: 'plan:thread-1:plan-1',
+      kind: 'plan',
+      markdown: '# Madora 计划\n\n更新后的完整正文',
+      title: 'Madora 计划',
+    });
+
+    const closed = closeDocumentTab(layout, 'plan:thread-1:plan-1');
+    expect(closed.activeTabId).toBe('/repo/a.md');
+    expect(closed.tabs).toHaveLength(1);
+  });
+
+  it('uses the active document tab path as the AI document identity', () => {
+    let layout = openDocumentTab(
+      createInitialEditorLayout(),
+      doc('Test', 'Spring Boot 介绍'),
+    );
+    layout = openDocumentTab(layout, doc('Other', '另一篇文档'));
+
+    expect(getActiveDocumentPath(layout)).toBe('/repo/Other.md');
+
+    layout = selectDocumentTab(layout, '/repo/Test.md');
+    expect(getActiveDocumentPath(layout)).toBe('/repo/Test.md');
+
+    layout = openPlanPreviewTab(layout, {
+      id: 'plan-1',
+      text: '# 计划',
+      threadId: 'thread-1',
+    });
+    expect(getActiveDocumentPath(layout)).toBeNull();
+    expect(getActiveDocumentPath(createInitialEditorLayout())).toBeNull();
   });
 });
