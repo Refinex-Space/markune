@@ -17,6 +17,9 @@ export default function createNextConfig(phase: string): NextConfig {
             unoptimized: true,
           },
           output: "export" as const,
+          typescript: {
+            tsconfigPath: "tsconfig.desktop.json",
+          },
         }
       : {}),
   };
