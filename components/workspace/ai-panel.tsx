@@ -67,6 +67,11 @@ import {
   HoverCardTrigger,
 } from '@/components/ui/hover-card';
 import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from '@/components/ui/popover';
+import {
   ConfirmationDialog,
   useConfirmationDialog,
 } from '@/components/ui/confirmation-dialog';
@@ -112,6 +117,7 @@ import {
   createEmptyConversation,
   getOutputPreviewLines,
   reduceCodexProtocolMessage,
+  selectActiveTaskProgress,
   threadNameUpdateFromMessage,
   workspaceChangeEventFromProtocolMessage,
   type AiActivityGroup,
@@ -128,6 +134,7 @@ import {
   type AiSkillInputMention,
   type AiTraceBlock,
   type AiTimelineItem,
+  type AiTaskProgress,
   type AiUserInputRequest,
   type AiWorkspaceChangeEvent,
 } from './ai-panel-state';
@@ -643,6 +650,10 @@ export function AiPanel({
   const selectedModelInfo = React.useMemo(
     () => models.find((model) => model.model === selectedModel) ?? null,
     [models, selectedModel],
+  );
+  const activeTaskProgress = React.useMemo(
+    () => selectActiveTaskProgress(conversation, workspaceRootPath),
+    [conversation, workspaceRootPath],
   );
   const planModeAvailable = React.useMemo(
     () =>
@@ -1818,6 +1829,13 @@ export function AiPanel({
             />
           ) : null}
 
+          {activeTaskProgress ? (
+            <TaskProgressIndicator
+              key={activeTaskProgress.turnId}
+              progress={activeTaskProgress}
+            />
+          ) : null}
+
           <AiComposer
             active={Boolean(conversation.activeTurnId)}
             collaborationMode={collaborationMode}
@@ -2354,6 +2372,172 @@ export function ProposedPlanCard({
         ) : null}
       </div>
     </section>
+  );
+}
+
+export function TaskProgressIndicator({
+  progress,
+}: {
+  progress: AiTaskProgress;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [pinned, setPinned] = React.useState(false);
+  const closeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelClose = React.useCallback(() => {
+    if (closeTimerRef.current === null) return;
+    clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = null;
+  }, []);
+
+  const showPreview = React.useCallback(() => {
+    cancelClose();
+    setOpen(true);
+  }, [cancelClose]);
+
+  const scheduleClose = React.useCallback(() => {
+    if (pinned) return;
+    cancelClose();
+    closeTimerRef.current = setTimeout(() => {
+      closeTimerRef.current = null;
+      setOpen(false);
+    }, 120);
+  }, [cancelClose, pinned]);
+
+  React.useEffect(
+    () => () => {
+      cancelClose();
+    },
+    [cancelClose],
+  );
+
+  const hasFileChanges = progress.fileCount > 0;
+  const summaryLabel = [
+    `第 ${progress.currentStepNumber} / ${progress.totalSteps} 步`,
+    hasFileChanges ? `${progress.fileCount} 个文件已更改` : null,
+    hasFileChanges ? `新增 ${progress.additions} 行` : null,
+    hasFileChanges ? `删除 ${progress.deletions} 行` : null,
+  ]
+    .filter(Boolean)
+    .join('，');
+
+  return (
+    <div
+      className="flex shrink-0 justify-center px-3 pb-1 pt-0.5"
+      data-testid="task-progress"
+    >
+      <Popover
+        open={open}
+        onOpenChange={(nextOpen) => {
+          setOpen(nextOpen);
+          if (!nextOpen) setPinned(false);
+        }}
+      >
+        <PopoverAnchor asChild>
+          <button
+            aria-expanded={open}
+            aria-haspopup="dialog"
+            aria-label={summaryLabel}
+            className="inline-flex h-8 max-w-full items-center gap-1.5 rounded-full border border-border/70 bg-background px-2.5 text-xs text-muted-foreground shadow-[0_1px_3px_rgba(15,23,42,0.06)] outline-none transition-colors hover:bg-muted/25 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/35"
+            type="button"
+            onBlur={scheduleClose}
+            onClick={() => {
+              cancelClose();
+              setPinned((current) => {
+                const next = !current;
+                setOpen(next);
+                return next;
+              });
+            }}
+            onFocus={showPreview}
+            onPointerEnter={showPreview}
+            onPointerLeave={scheduleClose}
+          >
+            <LoaderCircle
+              aria-hidden="true"
+              className="shrink-0 animate-spin text-primary/70"
+              size={14}
+            />
+            <span className="truncate font-medium tabular-nums">
+              第 {progress.currentStepNumber} / {progress.totalSteps} 步
+            </span>
+            {hasFileChanges ? (
+              <>
+                <span aria-hidden="true" className="text-border">
+                  ·
+                </span>
+                <span className="truncate">
+                  {progress.fileCount} 个文件已更改
+                </span>
+                <span className="shrink-0 tabular-nums text-emerald-600 dark:text-emerald-400">
+                  +{progress.additions}
+                </span>
+                <span className="shrink-0 tabular-nums text-red-600 dark:text-red-400">
+                  -{progress.deletions}
+                </span>
+              </>
+            ) : null}
+          </button>
+        </PopoverAnchor>
+        <PopoverContent
+          align="center"
+          aria-label="任务列表"
+          className="w-[min(400px,calc(100vw-2rem))] gap-0 rounded-xl p-1.5 shadow-lg"
+          collisionPadding={12}
+          role="region"
+          side="top"
+          sideOffset={6}
+          onPointerEnter={cancelClose}
+          onPointerLeave={scheduleClose}
+        >
+          <ol aria-label="任务步骤" className="space-y-px">
+            {progress.steps.map((step, index) => {
+              const completed = step.status === 'completed';
+              const current = step.status === 'inProgress';
+              return (
+                <li
+                  aria-current={current ? 'step' : undefined}
+                  className={cn(
+                    'flex min-h-8 items-start gap-2 rounded-md px-2 py-1.5 text-[12px] leading-5',
+                    current && 'text-foreground',
+                    !current && 'text-muted-foreground',
+                  )}
+                  key={`${index}-${step.step}`}
+                >
+                  <span
+                    className={cn(
+                      'mt-0.5 flex size-3.5 shrink-0 items-center justify-center',
+                      completed && 'text-muted-foreground/80',
+                      current && 'text-primary',
+                      !completed && !current && 'text-muted-foreground/65',
+                    )}
+                  >
+                    {completed ? (
+                      <Check aria-hidden="true" size={13} strokeWidth={2.2} />
+                    ) : (
+                      <Circle
+                        aria-hidden="true"
+                        size={12}
+                        strokeWidth={current ? 2.1 : 1.8}
+                      />
+                    )}
+                  </span>
+                  <span
+                    className={cn(
+                      'min-w-0 flex-1 break-words',
+                      completed && 'line-through decoration-border',
+                      current && 'font-medium',
+                    )}
+                  >
+                    {step.step}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }
 

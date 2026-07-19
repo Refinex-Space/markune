@@ -11,6 +11,7 @@ import {
   createEmptyConversation,
   getOutputPreviewLines,
   reduceCodexProtocolMessage,
+  selectActiveTaskProgress,
   stripShellWrapper,
   summarizeActivityGroup,
   threadNameUpdateFromMessage,
@@ -144,6 +145,105 @@ describe('AI panel event reducer', () => {
       text: '历史计划',
       turnId: 'turn-plan',
     }]);
+  });
+
+  it('从活跃 turn 的执行清单和聚合 diff 派生任务进度', () => {
+    let state = reduceCodexProtocolMessage(createEmptyConversation(), {
+      method: 'turn/started',
+      params: { turn: { id: 'turn-task', status: 'inProgress' } },
+    });
+    state = reduceCodexProtocolMessage(state, {
+      method: 'turn/plan/updated',
+      params: {
+        turnId: 'turn-task',
+        explanation: '先完成状态投影，再实现交互。',
+        plan: [
+          { step: '核对协议事件', status: 'completed' },
+          { step: '实现状态选择器', status: 'inProgress' },
+          { step: '补充交互测试', status: 'pending' },
+        ],
+      },
+    });
+    state = reduceCodexProtocolMessage(state, {
+      method: 'turn/diff/updated',
+      params: {
+        turnId: 'turn-task',
+        diff: [
+          'diff --git a/components/a.tsx b/components/a.tsx',
+          '--- a/components/a.tsx',
+          '+++ b/components/a.tsx',
+          '@@ -1 +1,2 @@',
+          '-旧内容',
+          '+新内容',
+          '+补充内容',
+          'diff --git a/components/b.ts b/components/b.ts',
+          '--- /dev/null',
+          '+++ b/components/b.ts',
+          '@@ -0,0 +1 @@',
+          '+新增文件',
+        ].join('\n'),
+      },
+    });
+
+    expect(selectActiveTaskProgress(state, '/workspace')).toEqual({
+      additions: 3,
+      completedSteps: 1,
+      currentStepNumber: 2,
+      deletions: 1,
+      explanation: '先完成状态投影，再实现交互。',
+      fileCount: 2,
+      steps: [
+        { step: '核对协议事件', status: 'completed' },
+        { step: '实现状态选择器', status: 'inProgress' },
+        { step: '补充交互测试', status: 'pending' },
+      ],
+      totalSteps: 3,
+      turnId: 'turn-task',
+    });
+  });
+
+  it('执行清单使用最新完整快照，并在 turn 结束后停止展示', () => {
+    let state = reduceCodexProtocolMessage(createEmptyConversation(), {
+      method: 'turn/started',
+      params: { turn: { id: 'turn-task', status: 'inProgress' } },
+    });
+    state = reduceCodexProtocolMessage(state, {
+      method: 'turn/plan/updated',
+      params: {
+        turnId: 'turn-task',
+        plan: [
+          { step: '旧步骤', status: 'inProgress' },
+          { step: '旧待办', status: 'pending' },
+        ],
+      },
+    });
+    state = reduceCodexProtocolMessage(state, {
+      method: 'turn/plan/updated',
+      params: {
+        turnId: 'turn-task',
+        plan: [
+          { step: '新步骤一', status: 'completed' },
+          { step: '新步骤二', status: 'completed' },
+        ],
+      },
+    });
+
+    expect(selectActiveTaskProgress(state)).toMatchObject({
+      completedSteps: 2,
+      currentStepNumber: 2,
+      steps: [
+        { step: '新步骤一', status: 'completed' },
+        { step: '新步骤二', status: 'completed' },
+      ],
+      totalSteps: 2,
+    });
+
+    state = reduceCodexProtocolMessage(state, {
+      method: 'turn/completed',
+      params: { turn: { id: 'turn-task', status: 'completed' } },
+    });
+
+    expect(selectActiveTaskProgress(state)).toBeNull();
   });
 
   it('接收安全化用户问题并在服务端确认后清理', () => {

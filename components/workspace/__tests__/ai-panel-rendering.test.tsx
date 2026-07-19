@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -13,12 +13,14 @@ import {
   PlanImplementationCard,
   ProcessingTrace,
   ProposedPlanCard,
+  TaskProgressIndicator,
   UserInputDecisionCard,
   UserMessageContent,
 } from '../ai-panel';
 import {
   createOutputPreview,
   type AiChangeSummaryBlock,
+  type AiTaskProgress,
   type AiTraceBlock,
 } from '../ai-panel-state';
 
@@ -65,6 +67,66 @@ function change(
 }
 
 describe('AI message rendering', () => {
+  it('任务进度支持 Hover 预览、点击固定和 Escape 关闭', async () => {
+    const user = userEvent.setup();
+    const progress: AiTaskProgress = {
+      additions: 12,
+      completedSteps: 1,
+      currentStepNumber: 2,
+      deletions: 3,
+      explanation: null,
+      fileCount: 2,
+      steps: [
+        { step: '核对协议事件', status: 'completed' },
+        { step: '实现状态选择器', status: 'inProgress' },
+        { step: '补充交互测试', status: 'pending' },
+      ],
+      totalSteps: 3,
+      turnId: 'turn-task',
+    };
+
+    render(<TaskProgressIndicator progress={progress} />);
+
+    const trigger = screen.getByRole('button', {
+      name: '第 2 / 3 步，2 个文件已更改，新增 12 行，删除 3 行',
+    });
+    expect(screen.getByTestId('task-progress').className).toContain('pb-1');
+    expect(trigger.className).toContain('h-8');
+    expect(trigger.className).toContain('gap-1.5');
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+
+    fireEvent.pointerEnter(trigger);
+    const preview = await screen.findByRole('region', { name: '任务列表' });
+    expect(preview.className).toContain('p-1.5');
+    expect(preview.className).toContain('w-[min(400px,calc(100vw-2rem))]');
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    expect(within(preview).getByRole('list', { name: '任务步骤' })).toBeTruthy();
+    expect(within(preview).getByText('核对协议事件').className).toContain(
+      'line-through',
+    );
+    expect(
+      within(preview).getByText('实现状态选择器').closest('[aria-current="step"]'),
+    ).toBeTruthy();
+    expect(
+      within(preview).getByText('实现状态选择器').closest('li')?.className,
+    ).toContain('min-h-8');
+
+    fireEvent.pointerLeave(trigger);
+    await waitFor(() => {
+      expect(screen.queryByRole('region', { name: '任务列表' })).toBeNull();
+    });
+
+    await user.click(trigger);
+    expect(await screen.findByRole('region', { name: '任务列表' })).toBeTruthy();
+    fireEvent.pointerLeave(trigger);
+    expect(screen.getByRole('region', { name: '任务列表' })).toBeTruthy();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(screen.queryByRole('region', { name: '任务列表' })).toBeNull();
+    });
+  });
+
   it('正式计划展示渐隐摘要，并支持复制与打开完整预览', async () => {
     const user = userEvent.setup();
     const onOpen = vi.fn();
