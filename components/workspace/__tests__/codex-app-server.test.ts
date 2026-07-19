@@ -7,6 +7,7 @@ import {
   probeCodexRuntime,
   respondToCodexUserInput,
   startCodexRuntime,
+  threadGoalUpdateFromMessage,
   threadTokenUsageUpdateFromMessage,
   type CodexProtocolMessage,
   type CodexRuntimeInfo,
@@ -87,6 +88,70 @@ describe('CodexAppServerClient', () => {
       },
     ]) {
       expect(threadTokenUsageUpdateFromMessage(message)).toBeNull();
+    }
+  });
+
+  it('解析 Goal 更新与清除通知', () => {
+    const goal = {
+      createdAt: 100,
+      objective: '持续修复问题直到全部测试通过',
+      status: 'active',
+      threadId: 'thread-1',
+      timeUsedSeconds: 12,
+      tokenBudget: null,
+      tokensUsed: 345,
+      updatedAt: 110,
+    };
+
+    expect(
+      threadGoalUpdateFromMessage({
+        method: 'thread/goal/updated',
+        params: { goal, threadId: 'thread-1', turnId: 'turn-1' },
+      }),
+    ).toEqual({
+      goal,
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      type: 'updated',
+    });
+    expect(
+      threadGoalUpdateFromMessage({
+        method: 'thread/goal/cleared',
+        params: { threadId: 'thread-1' },
+      }),
+    ).toEqual({ threadId: 'thread-1', type: 'cleared' });
+  });
+
+  it('拒绝 Goal 线程不一致、非法状态与伪造 turn id', () => {
+    const goal = {
+      createdAt: 100,
+      objective: '目标',
+      status: 'active',
+      threadId: 'thread-1',
+      timeUsedSeconds: 0,
+      tokenBudget: null,
+      tokensUsed: 0,
+      updatedAt: 100,
+    };
+    for (const message of [
+      {
+        method: 'thread/goal/updated',
+        params: { goal, threadId: 'thread-2', turnId: null },
+      },
+      {
+        method: 'thread/goal/updated',
+        params: {
+          goal: { ...goal, status: 'unknown' },
+          threadId: 'thread-1',
+          turnId: null,
+        },
+      },
+      {
+        method: 'thread/goal/updated',
+        params: { goal, threadId: 'thread-1', turnId: 42 },
+      },
+    ]) {
+      expect(threadGoalUpdateFromMessage(message)).toBeNull();
     }
   });
 

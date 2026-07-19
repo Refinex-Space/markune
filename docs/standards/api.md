@@ -50,6 +50,7 @@ referenced_by: AGENTS.md#knowledge-map
 - “当前文档”“本文”“这篇文档”“current document”与“active file”只能解析为当前 turn 的 `madora_active_document`；不得根据日期、最近文件、线程历史或工作区惯例猜测。只有请求依赖正文时才读取活跃文档，普通问候不得强制产生无意义工具调用。
 - 会话历史恢复只能依据 `text_elements` 的精确区间解析受控的带引号相对路径，并用当前工作区根目录恢复可点击绝对路径；绝对路径、空路径和包含父目录段的标记必须被拒绝。旧版 `mention + text_elements` 仅保留读取兼容，不得继续生成。
 - `turn/start.additionalContext` 是随固定 Codex sidecar 使用的实验协议。升级 Codex 时必须重新生成带 `--experimental` 的 App Server Schema，并运行前端与 Rust 契约测试。
+- 线程 Goal 只允许调用 `thread/goal/set`、`thread/goal/get` 与 `thread/goal/clear`。渲染器可提交的 `set` 字段仅为 `threadId`、不超过 4,000 字符的非空 `objective` 和用户生命周期状态 `active | paused`；不得提交 `tokenBudget`、自定义续跑提示或模型拥有的 `blocked | usageLimited | budgetLimited | complete` 状态。`thread/goal/updated` 与 `thread/goal/cleared` 必须按 `threadId` 校验后更新当前 UI，重新打开任务时通过 `thread/goal/get` 恢复。
 - 命令、文件修改与权限升级审批只能响应 App Server 已登记的 server request id。未知 server request 必须由 Rust 返回 `-32601`，格式无效的已知请求返回 `-32602`，不能转发成可操作 UI 或留在 pending 状态。
 - `item/tool/requestUserInput` 只接受 1–3 个问题、每题 2–3 个互斥选项或一个自由输入，并把协议 question/option 映射为 Rust 生成的 opaque ID。前端只能调用独立回答命令提交这些 ID 与可选补充文本；Rust 必须恢复原始 question ID 和 option label，按 `user_note:` 组合补充说明，并拒绝空答案、伪造 ID、缺题、重复回答和重复提交。`autoResolutionMs` 兼容值仍限制为 60–240 秒，但不得创建客户端定时器或发送空 answers；只有用户回答、turn 中断、App Server resolved 或运行时退出可以结束等待。
 

@@ -90,6 +90,49 @@ export interface CodexThreadTokenUsageUpdate {
   turnId: string;
 }
 
+export type CodexThreadGoalStatus =
+  | 'active'
+  | 'paused'
+  | 'blocked'
+  | 'usageLimited'
+  | 'budgetLimited'
+  | 'complete';
+
+export interface CodexThreadGoal {
+  createdAt: number;
+  objective: string;
+  status: CodexThreadGoalStatus;
+  threadId: string;
+  timeUsedSeconds: number;
+  tokenBudget: number | null;
+  tokensUsed: number;
+  updatedAt: number;
+}
+
+export interface CodexThreadGoalGetResponse {
+  goal: CodexThreadGoal | null;
+}
+
+export interface CodexThreadGoalSetResponse {
+  goal: CodexThreadGoal;
+}
+
+export interface CodexThreadGoalClearResponse {
+  cleared: boolean;
+}
+
+export type CodexThreadGoalUpdate =
+  | {
+      goal: CodexThreadGoal;
+      threadId: string;
+      turnId: string | null;
+      type: 'updated';
+    }
+  | {
+      threadId: string;
+      type: 'cleared';
+    };
+
 export type CodexThreadItem = Record<string, unknown> & {
   id?: string;
   type?: string;
@@ -382,6 +425,79 @@ export function threadTokenUsageUpdateFromMessage(
     turnId,
     tokenUsage: { last, modelContextWindow, total },
   };
+}
+
+export function threadGoalUpdateFromMessage(
+  message: CodexProtocolMessage,
+): CodexThreadGoalUpdate | null {
+  if (message.method === 'thread/goal/cleared') {
+    const threadId = nonEmptyString(message.params?.threadId);
+    return threadId ? { threadId, type: 'cleared' } : null;
+  }
+  if (message.method !== 'thread/goal/updated') return null;
+
+  const threadId = nonEmptyString(message.params?.threadId);
+  const goal = threadGoalFromValue(message.params?.goal);
+  const turnIdValue = message.params?.turnId;
+  const turnId =
+    turnIdValue === null || turnIdValue === undefined
+      ? null
+      : nonEmptyString(turnIdValue);
+  if (
+    !threadId ||
+    !goal ||
+    goal.threadId !== threadId ||
+    (turnIdValue !== null && turnIdValue !== undefined && !turnId)
+  ) {
+    return null;
+  }
+  return { goal, threadId, turnId, type: 'updated' };
+}
+
+export function threadGoalFromValue(value: unknown): CodexThreadGoal | null {
+  const record = asRecord(value);
+  if (!record) return null;
+
+  const threadId = nonEmptyString(record.threadId);
+  const objective = nonEmptyString(record.objective);
+  const status = threadGoalStatusFromValue(record.status);
+  const tokenBudget = record.tokenBudget;
+  if (
+    !threadId ||
+    !objective ||
+    !status ||
+    !(tokenBudget === null || isNonNegativeInteger(tokenBudget)) ||
+    !isNonNegativeInteger(record.tokensUsed) ||
+    !isNonNegativeInteger(record.timeUsedSeconds) ||
+    !isNonNegativeInteger(record.createdAt) ||
+    !isNonNegativeInteger(record.updatedAt)
+  ) {
+    return null;
+  }
+
+  return {
+    createdAt: record.createdAt,
+    objective,
+    status,
+    threadId,
+    timeUsedSeconds: record.timeUsedSeconds,
+    tokenBudget,
+    tokensUsed: record.tokensUsed,
+    updatedAt: record.updatedAt,
+  };
+}
+
+function threadGoalStatusFromValue(
+  value: unknown,
+): CodexThreadGoalStatus | null {
+  return value === 'active' ||
+    value === 'paused' ||
+    value === 'blocked' ||
+    value === 'usageLimited' ||
+    value === 'budgetLimited' ||
+    value === 'complete'
+    ? value
+    : null;
 }
 
 function tokenUsageBreakdownFromValue(

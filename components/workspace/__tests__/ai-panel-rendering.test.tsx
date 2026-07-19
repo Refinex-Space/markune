@@ -10,6 +10,7 @@ import {
   AiPanelHeader,
   ChangeSummaryCard,
   ConversationEntryRow,
+  GoalStatusBar,
   PlanImplementationCard,
   ProcessingTrace,
   ProposedPlanCard,
@@ -23,7 +24,10 @@ import {
   type AiTaskProgress,
   type AiTraceBlock,
 } from '../ai-panel-state';
-import type { CodexThreadTokenUsage } from '../codex-app-server';
+import type {
+  CodexThreadGoal,
+  CodexThreadTokenUsage,
+} from '../codex-app-server';
 
 const mentionedDocument = {
   absolutePath: '/workspace/README.md',
@@ -347,7 +351,9 @@ describe('AI message rendering', () => {
     expect(onStay).toHaveBeenCalledTimes(1);
   });
 
-  it('用户消息按内容宽度收缩并保留长消息最大宽度', () => {
+  it('用户消息按内容宽度收缩，并可把既有消息设为目标', async () => {
+    const user = userEvent.setup();
+    const onSetGoal = vi.fn();
     render(
       <ConversationEntryRow
         entry={{
@@ -358,18 +364,23 @@ describe('AI message rendering', () => {
         }}
         previous={null}
         onOpenDocument={vi.fn()}
+        onSetGoal={onSetGoal}
       />,
     );
 
     const content = screen.getByText('你好啊');
     const row = content.closest('article');
     const bubble = content.closest('div.w-max');
+    const wrapper = bubble?.parentElement;
 
     expect(row?.className).toContain('flex');
     expect(row?.className).toContain('justify-end');
     expect(bubble?.className).toContain('w-max');
-    expect(bubble?.className).toContain('max-w-[88%]');
+    expect(bubble?.className).toContain('max-w-full');
+    expect(wrapper?.className).toContain('max-w-[88%]');
     expect(bubble?.className).toContain('break-words');
+    await user.click(screen.getByRole('button', { name: '设为目标' }));
+    expect(onSetGoal).toHaveBeenCalledWith('你好啊');
   });
 
   it('把 GFM 列表、行内代码和链接渲染为语义化内容', () => {
@@ -453,8 +464,107 @@ describe('AI message rendering', () => {
     expect(screen.queryByText('联网搜索已启用')).toBeNull();
     expect(screen.queryByText(/MCP Server/)).toBeNull();
     expect(screen.queryByText('提及工作区文档')).toBeNull();
-    expect(screen.getByText('目标').closest('[role="menuitem"]')?.getAttribute('aria-disabled')).toBe('true');
+    expect(screen.getByText('目标').closest('[role="menuitem"]')?.getAttribute('aria-disabled')).toBeNull();
     expect(screen.getByText('计划模式').closest('[role="menuitem"]')?.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('目标模式可从加号与斜杠命令进入，并切换目标输入提示', async () => {
+    const user = userEvent.setup();
+    const onGoalModeChange = vi.fn();
+    const { rerender } = render(
+      <ComposerHarness
+        onGoalModeChange={onGoalModeChange}
+        onOpenMention={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '添加上下文与工具' }));
+    await user.click(screen.getByText('目标'));
+    expect(onGoalModeChange).toHaveBeenCalledWith(true);
+
+    rerender(
+      <ComposerHarness
+        goalDraftMode
+        onGoalModeChange={onGoalModeChange}
+        onOpenMention={vi.fn()}
+      />,
+    );
+    expect(
+      screen
+        .getByRole('textbox', { name: '向 Codex 提问' })
+        .getAttribute('data-placeholder'),
+    ).toBe('描述你的目标，定义可衡量的成果，以获得最佳效果');
+    expect(screen.getByRole('button', { name: '退出目标模式' })).toBeTruthy();
+
+    rerender(
+      <ComposerHarness
+        onGoalModeChange={onGoalModeChange}
+        onOpenMention={vi.fn()}
+      />,
+    );
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '/');
+    await user.click(
+      within(
+        screen.getByRole('listbox', { name: '选择命令或 Skill' }),
+      ).getByRole('option', { name: '目标' }),
+    );
+    expect(onGoalModeChange).toHaveBeenLastCalledWith(true);
+    expect(editor.textContent).toBe('');
+  });
+
+  it('目标状态条支持暂停、编辑、恢复和清除', async () => {
+    const user = userEvent.setup();
+    const onClear = vi.fn();
+    const onSave = vi.fn().mockResolvedValue(true);
+    const onStatusChange = vi.fn();
+    const goal: CodexThreadGoal = {
+      createdAt: 100,
+      objective: '持续优化当前项目直到测试全部通过',
+      status: 'active',
+      threadId: 'thread-1',
+      timeUsedSeconds: 6,
+      tokenBudget: null,
+      tokensUsed: 120,
+      updatedAt: 100,
+    };
+    const { rerender } = render(
+      <GoalStatusBar
+        goal={goal}
+        observedAt={Date.now()}
+        updating={false}
+        onClear={onClear}
+        onSave={onSave}
+        onStatusChange={onStatusChange}
+      />,
+    );
+
+    expect(screen.getByText('进行中的目标')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '暂停目标' }));
+    expect(onStatusChange).toHaveBeenCalledWith('paused');
+
+    await user.click(screen.getByRole('button', { name: '编辑目标' }));
+    const editor = screen.getByRole('textbox', { name: '目标内容' });
+    await user.clear(editor);
+    await user.type(editor, '更新后的目标');
+    await user.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith('更新后的目标'));
+
+    rerender(
+      <GoalStatusBar
+        goal={{ ...goal, status: 'paused' }}
+        observedAt={Date.now()}
+        updating={false}
+        onClear={onClear}
+        onSave={onSave}
+        onStatusChange={onStatusChange}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: '恢复目标' }));
+    expect(onStatusChange).toHaveBeenCalledWith('active');
+    await user.click(screen.getByRole('button', { name: '清除目标' }));
+    expect(onClear).toHaveBeenCalledOnce();
   });
 
   it('计划模式可用时允许切换并在输入框底栏显示状态', async () => {
@@ -1617,12 +1727,16 @@ function ComposerHarness({
   compactUnavailableReason = null,
   collaborationMode = 'default',
   contextUsage = null,
+  goalActive = false,
+  goalDraftMode = false,
+  goalUnavailableReason = null,
   mentionDocuments = [mentionedDocument],
   onAttachmentRemove = vi.fn(),
   onAttachmentSelect = vi.fn(),
   onDetectPlugins = vi.fn(),
   onCollaborationModeChange = vi.fn(),
   onCompact = vi.fn(),
+  onGoalModeChange = vi.fn(),
   onOpenMention,
   onSend = vi.fn(),
   pluginOptions = [],
@@ -1642,12 +1756,16 @@ function ComposerHarness({
   compactUnavailableReason?: string | null;
   collaborationMode?: 'default' | 'plan';
   contextUsage?: CodexThreadTokenUsage | null;
+  goalActive?: boolean;
+  goalDraftMode?: boolean;
+  goalUnavailableReason?: string | null;
   mentionDocuments?: Array<typeof mentionedDocument>;
   onAttachmentRemove?: (attachmentId: string) => void;
   onAttachmentSelect?: (kind: 'file' | 'folder') => void;
   onDetectPlugins?: () => void;
   onCollaborationModeChange?: (mode: 'default' | 'plan') => void;
   onCompact?: () => void;
+  onGoalModeChange?: (enabled: boolean) => void;
   onOpenMention: (path: string) => void;
   onSend?: () => void;
   pluginOptions?: Array<{
@@ -1686,6 +1804,9 @@ function ComposerHarness({
         contextUsage={contextUsage}
         currentDocument={null}
         effort="medium"
+        goalActive={goalActive}
+        goalDraftMode={goalDraftMode}
+        goalUnavailableReason={goalUnavailableReason}
         mentionDocuments={mentionDocuments}
         mentionQuery={mentionQuery}
         models={[]}
@@ -1708,6 +1829,7 @@ function ComposerHarness({
         onCollaborationModeChange={onCollaborationModeChange}
         onCompact={onCompact}
         onEffortChange={vi.fn()}
+        onGoalModeChange={onGoalModeChange}
         onInterrupt={vi.fn()}
         onMentionQueryChange={setMentionQuery}
         onMentionsChange={(mentions) => setMentionCount(mentions.length)}

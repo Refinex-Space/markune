@@ -78,7 +78,9 @@ AI 文件修改以 App Server 事件为刷新事实源。`item/fileChange/patchU
 
 插件入口在核心运行时就绪后使用固定 sidecar 的 `plugin/installed` 按当前工作区自动加载，每个运行时代际最多发起一次成功请求，只展示已安装、已启用且未被管理员禁用的插件；加载失败时只在菜单内提供重试。App Server 返回的 `composerIcon`、`logo` 与 `logoDark` 本地文件由 Rust 按响应请求 ID 建立精确路径授权，前端只能通过 `read_codex_plugin_icon` 读取当前插件清单声明的单个受支持图片；远程图标只接受 HTTPS。菜单按 composer、主题 logo、通用占位图标的顺序降级，单个资源失败不影响插件清单。授权在重新检测、运行时停止或工作区切换时失效，不扩大资源协议 scope。
 
-选择插件会在编辑器插入带真实图标、视觉上不显示触发符的原子节点；生成模型文本时恢复 `@Plugin`，并在 `turn/start` 同时发送 `plugin://{id}` 原生 mention。图标字节只存在于当前输入视图，不写入 mention、消息历史或工作区。历史恢复继续依赖该 mention 与对应 UTF-8 `text_elements` 区间。目标当前仍为不可操作的菜单占位。
+选择插件会在编辑器插入带真实图标、视觉上不显示触发符的原子节点；生成模型文本时恢复 `@Plugin`，并在 `turn/start` 同时发送 `plugin://{id}` 原生 mention。图标字节只存在于当前输入视图，不写入 mention、消息历史或工作区。历史恢复继续依赖该 mention 与对应 UTF-8 `text_elements` 区间。
+
+目标模式通过稳定功能发现结果中的 `goals` 开关启用，并完全复用 App Server 的线程 Goal：`thread/goal/set|get|clear` 负责创建、恢复、编辑、暂停、继续和清除，`thread/goal/updated|cleared` 是 UI 状态的权威来源。Madora 不复制 Goal 到工作区、local storage 或自建数据库，也不实现自动续跑循环；Codex Core 在目标处于 `active` 且线程满足空闲条件时负责继续，并在目标更新时把新 objective 注入运行中的 turn。首次创建目标仍先以普通用户消息启动 Default turn，再立即将同一文本登记为线程 Goal，因此附件、文档、插件和 Skill 输入沿用现有首轮消息协议，权限边界不变。目标状态条展示服务端 objective、生命周期和累计运行时间；编辑直接更新 objective，暂停、恢复和清除只调用对应线程接口。
 
 计划模式通过实验接口 `collaborationMode/list` 发现固定 sidecar 的 `Plan` 与 `Default` 预设；不可用时只禁用入口，不阻塞普通对话。每个 `turn/start` 显式提交内置 collaboration mode，Plan 固定当前模型与 `medium` 推理强度，Default 使用恢复后的模型与强度，二者都不改变线程权限。Plan 是 Codex 的开发者指令约束，不是只读 sandbox；活跃 turn、审批或用户问题未完成时禁止切换。新建、恢复和重新打开线程均从 Default 开始，Madora 不为协作模式建立持久化镜像。
 

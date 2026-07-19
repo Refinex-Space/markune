@@ -43,6 +43,43 @@
 
 final result: passed
 
+# Goal Mode Design QA
+
+- source visual truth paths:
+  - `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-95ab7bc5-5fdc-4379-9ec7-a4bf62380ad1.png`
+  - `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-ee79750f-388a-4117-8c7f-889c369d0696.png`
+  - `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-3d029217-bf46-44c4-ad28-a708cdd9eb70.png`
+  - `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-9f05a514-30c5-4491-b21a-077a5f05bf7a.png`
+  - `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-9bb45bbf-4963-48f2-b559-b7bdf28d6cb4.png`
+  - `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-a696d12d-eefa-43de-a286-52f581fdcf07.png`
+  - `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-02ae3019-bf89-42bd-b0fe-a0ffd10b9333.png`
+  - `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-1181359a-b0b5-4d0c-894e-61a423323f45.png`
+- runtime: `pnpm desktop:dev`, fixed sidecar `codex-cli 0.144.4`
+- implementation surface: `components/workspace/ai-panel.tsx`, `components/workspace/codex-app-server.ts`, `src-tauri/src/codex.rs`
+
+## Reference-to-implementation mapping
+
+- `+` 菜单：目标入口位于文件和文件夹之后、计划模式之前，复用现有紧凑菜单行、Goal 图标、标题、说明和选中勾选态。
+- `/` 菜单：目标命令位于压缩与 Skill 分组之前，支持查询 `goal` / `目标`、键盘上下选择、Enter/Tab 确认和 Escape 关闭。
+- 目标草稿：输入框底栏显示“Goal 图标 + 目标”，占位文案固定为“描述你的目标，定义可衡量的成果，以获得最佳效果”。
+- 运行状态：目标条贴在输入框上方，单行展示生命周期、objective、实时运行时长以及编辑、暂停/恢复、清除操作；窄面板通过 objective 截断保持按钮可达。
+- 编辑目标：居中 Dialog 使用 576px 最大宽度、大文本区、字符计数、取消和保存；保存直接更新 App Server objective，运行中由 Core 注入 steering。
+- 既有消息：用户消息下方提供复制和“设为目标”，在已有线程中直接创建 active Goal。
+
+## Interaction verification
+
+- 前端测试覆盖加号入口、斜杠入口、目标占位、状态条、编辑、暂停、恢复、清除、既有消息设为目标以及首次 `turn/start -> thread/goal/set` 顺序。
+- Rust 测试覆盖方法白名单、4,000 字符边界、非法状态、伪造字段、控制字符和 token budget 拒绝。
+- 使用临时 Codex Home 启动真实固定 sidecar，完成 `initialize -> thread/start -> goal/set(paused) -> goal/get -> goal/set(objective) -> goal/clear`，所有响应与 Schema 一致且临时数据已清理。
+- macOS 会话在本轮视觉验收时处于锁屏状态；Computer Use 无法解锁，窗口级截图也只返回受保护的黑色表面。未伪造实现截图，也未改用安装版 Madora。当前源码构建的 `pnpm desktop:dev` 已保持运行，解锁后可直接做最后的像素级复核。
+
+## Findings
+
+- 协议、生命周期、安全桥接和自动化渲染交互没有未解决的 P0/P1/P2 问题。
+- 像素级对照仍有一个非代码阻塞：macOS 锁屏阻止读取本地开发窗口。该项不影响构建、测试或真实 App Server 协议验证，但不能被表述为已完成的截图比较。
+
+final result: passed for protocol, interaction, and automated rendering; live pixel comparison pending macOS unlock
+
 # Context Usage And Compaction Design QA
 
 - source visual truth paths:

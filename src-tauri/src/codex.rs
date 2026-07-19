@@ -1463,6 +1463,13 @@ fn validate_request_params_with_authorized_context(
         validate_thread_compact_start_params(params)?;
     }
 
+    if matches!(
+        method,
+        "thread/goal/set" | "thread/goal/get" | "thread/goal/clear"
+    ) {
+        validate_thread_goal_params(method, params)?;
+    }
+
     if method == "collaborationMode/list"
         && params.as_object().is_none_or(|params| !params.is_empty())
     {
@@ -1587,11 +1594,72 @@ fn validate_thread_compact_start_params(params: &Value) -> Result<(), String> {
         .get("threadId")
         .and_then(Value::as_str)
         .ok_or_else(|| "thread/compact/start threadId 无效".to_string())?;
-    if thread_id.is_empty()
-        || thread_id.len() > 256
-        || thread_id.chars().any(char::is_control)
-    {
+    if thread_id.is_empty() || thread_id.len() > 256 || thread_id.chars().any(char::is_control) {
         return Err("thread/compact/start threadId 无效".to_string());
+    }
+    Ok(())
+}
+
+fn validate_thread_goal_params(method: &str, params: &Value) -> Result<(), String> {
+    let params = params
+        .as_object()
+        .ok_or_else(|| format!("{method} 参数格式无效"))?;
+    let allowed_keys: &[&str] = match method {
+        "thread/goal/set" => &["threadId", "objective", "status"],
+        "thread/goal/get" | "thread/goal/clear" => &["threadId"],
+        _ => return Err("未知的 Goal 方法".to_string()),
+    };
+    if params
+        .keys()
+        .any(|key| !allowed_keys.contains(&key.as_str()))
+    {
+        return Err(format!("{method} 包含不允许的字段"));
+    }
+    validate_codex_thread_id(params.get("threadId"), method)?;
+
+    if method != "thread/goal/set" {
+        if params.len() != 1 {
+            return Err(format!("{method} 只接受 threadId"));
+        }
+        return Ok(());
+    }
+
+    let objective = params.get("objective");
+    let status = params.get("status");
+    if objective.is_none() && status.is_none() {
+        return Err("thread/goal/set 必须更新 objective 或 status".to_string());
+    }
+    if let Some(objective) = objective {
+        let objective = objective
+            .as_str()
+            .ok_or_else(|| "thread/goal/set objective 无效".to_string())?;
+        let trimmed = objective.trim();
+        if trimmed.is_empty()
+            || trimmed.chars().count() > 4_000
+            || objective
+                .chars()
+                .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
+        {
+            return Err("thread/goal/set objective 无效".to_string());
+        }
+    }
+    if let Some(status) = status {
+        let status = status
+            .as_str()
+            .ok_or_else(|| "thread/goal/set status 无效".to_string())?;
+        if !matches!(status, "active" | "paused") {
+            return Err("Madora 只允许用户激活或暂停 Goal".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn validate_codex_thread_id(value: Option<&Value>, method: &str) -> Result<(), String> {
+    let thread_id = value
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{method} threadId 无效"))?;
+    if thread_id.is_empty() || thread_id.len() > 256 || thread_id.chars().any(char::is_control) {
+        return Err(format!("{method} threadId 无效"));
     }
     Ok(())
 }
@@ -2149,6 +2217,9 @@ fn is_allowed_client_method(method: &str) -> bool {
             | "thread/name/set"
             | "thread/settings/update"
             | "thread/compact/start"
+            | "thread/goal/set"
+            | "thread/goal/get"
+            | "thread/goal/clear"
             | "collaborationMode/list"
             | "turn/start"
             | "turn/interrupt"
@@ -2484,6 +2555,9 @@ mod tests {
         assert!(is_allowed_client_method("thread/start"));
         assert!(is_allowed_client_method("thread/settings/update"));
         assert!(is_allowed_client_method("thread/compact/start"));
+        assert!(is_allowed_client_method("thread/goal/set"));
+        assert!(is_allowed_client_method("thread/goal/get"));
+        assert!(is_allowed_client_method("thread/goal/clear"));
         assert!(is_allowed_client_method("collaborationMode/list"));
         assert!(is_allowed_client_method("permissionProfile/list"));
         assert!(is_allowed_client_method("configRequirements/read"));
@@ -2612,6 +2686,54 @@ mod tests {
                 root.path(),
                 "thread/compact/start",
                 &invalid
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn thread_goal_methods_only_allow_user_controlled_lifecycle_updates() {
+        let root = tempdir().expect("create root");
+        for valid in [
+            (
+                "thread/goal/set",
+                json!({
+                    "threadId": "thread-1",
+                    "objective": "完成迁移并通过测试",
+                    "status": "active"
+                }),
+            ),
+            (
+                "thread/goal/set",
+                json!({ "threadId": "thread-1", "status": "paused" }),
+            ),
+            (
+                "thread/goal/set",
+                json!({ "threadId": "thread-1", "objective": "更新目标" }),
+            ),
+            ("thread/goal/get", json!({ "threadId": "thread-1" })),
+            ("thread/goal/clear", json!({ "threadId": "thread-1" })),
+        ] {
+            assert!(validate_request_params(root.path(), valid.0, &valid.1).is_ok());
+        }
+
+        for invalid in [
+            json!({ "threadId": "thread-1" }),
+            json!({ "threadId": "thread-1", "objective": "" }),
+            json!({ "threadId": "thread-1", "objective": "ok", "status": "complete" }),
+            json!({ "threadId": "thread-1", "status": "blocked" }),
+            json!({ "threadId": "thread-1", "objective": "ok", "tokenBudget": 1000 }),
+            json!({ "threadId": "thread\n1", "status": "active" }),
+            json!({ "threadId": "thread-1", "objective": "bad\u{0000}" }),
+        ] {
+            assert!(validate_request_params(root.path(), "thread/goal/set", &invalid).is_err());
+        }
+
+        for method in ["thread/goal/get", "thread/goal/clear"] {
+            assert!(validate_request_params(
+                root.path(),
+                method,
+                &json!({ "threadId": "thread-1", "unexpected": true })
             )
             .is_err());
         }
