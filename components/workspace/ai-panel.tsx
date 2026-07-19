@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { Openai } from '@thesvg/react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import { Collapsible } from 'radix-ui';
 import remarkGfm from 'remark-gfm';
@@ -30,7 +31,6 @@ import {
   Lightbulb,
   LoaderCircle,
   Maximize2,
-  MessageSquareText,
   MoreHorizontal,
   Paperclip,
   Plus,
@@ -245,10 +245,78 @@ interface SendMessageOptions {
   restorePlan?: AiProposedPlan;
 }
 
-const STARTER_PROMPTS = [
-  '总结当前文档并指出信息缺口',
-  '把当前文档改写得更清晰、专业',
-  '基于当前内容新建一篇关联文档',
+interface StarterAction {
+  description: string;
+  icon: React.ComponentType<{
+    className?: string;
+    size?: number;
+    strokeWidth?: number;
+  }>;
+  iconClassName: string;
+  prompt: string;
+  title: string;
+}
+
+const DOCUMENT_STARTER_ACTIONS: StarterAction[] = [
+  {
+    description: '梳理重点、摘要与信息缺口',
+    icon: SearchCode,
+    iconClassName: 'text-blue-500 dark:text-blue-400',
+    prompt: '总结当前文档并指出信息缺口',
+    title: '阅读并理解',
+  },
+  {
+    description: '优化结构、表达与专业度',
+    icon: FilePenLine,
+    iconClassName: 'text-violet-500 dark:text-violet-400',
+    prompt: '把当前文档改写得更清晰、专业',
+    title: '改写和完善',
+  },
+  {
+    description: '基于当前主题创建关联文档',
+    icon: Blocks,
+    iconClassName: 'text-emerald-600 dark:text-emerald-400',
+    prompt: '基于当前内容新建一篇关联文档',
+    title: '扩展关联内容',
+  },
+  {
+    description: '查找矛盾、遗漏与可改进之处',
+    icon: AlertCircle,
+    iconClassName: 'text-orange-500 dark:text-orange-400',
+    prompt: '检查当前文档中的事实矛盾、结构问题和表达缺陷，并给出修改建议',
+    title: '检查潜在问题',
+  },
+];
+
+const WORKSPACE_STARTER_ACTIONS: StarterAction[] = [
+  {
+    description: '梳理目录、主题与关键文档',
+    icon: SearchCode,
+    iconClassName: 'text-blue-500 dark:text-blue-400',
+    prompt: '梳理当前工作区的文档结构，并指出最值得先了解的内容',
+    title: '了解工作区',
+  },
+  {
+    description: '从想法生成清晰的文档框架',
+    icon: FilePenLine,
+    iconClassName: 'text-violet-500 dark:text-violet-400',
+    prompt: '根据当前工作区的主题，规划并起草一篇新文档',
+    title: '起草新文档',
+  },
+  {
+    description: '发现关联并提出组织建议',
+    icon: Blocks,
+    iconClassName: 'text-emerald-600 dark:text-emerald-400',
+    prompt: '分析当前工作区的知识结构，找出可以建立的文档关联和整理建议',
+    title: '整理知识结构',
+  },
+  {
+    description: '检查缺口、冲突与过时信息',
+    icon: AlertCircle,
+    iconClassName: 'text-orange-500 dark:text-orange-400',
+    prompt: '检查当前工作区中可能存在的信息缺口、内容冲突和过时内容，并给出处理建议',
+    title: '查找内容问题',
+  },
 ];
 
 const SCROLL_BOTTOM_THRESHOLD = 64;
@@ -1921,7 +1989,7 @@ export function AiConversationViewport({
         ref={viewportRef}
         onScroll={updateScrollState}
       >
-        <div className="min-h-full" ref={contentRef}>
+        <div className="flex min-h-full flex-col" ref={contentRef}>
           {children}
         </div>
       </div>
@@ -2062,35 +2130,81 @@ function PanelContent({
     conversation.entries.length === 0 &&
     conversation.approvals.length === 0
   ) {
+    const currentDocumentLabel = currentDocument
+      ? getDocumentContextLabel(currentDocument)
+      : null;
+    const starterActions = currentDocument
+      ? DOCUMENT_STARTER_ACTIONS
+      : WORKSPACE_STARTER_ACTIONS;
+
     return (
-      <div className="flex min-h-full flex-col justify-end px-5 pb-7 pt-16">
-        <div className="mb-auto flex flex-1 flex-col items-center justify-center text-center">
-          <div className="mb-4 flex size-9 items-center justify-center rounded-full border border-border/80 bg-muted/35">
-            <MessageSquareText size={17} />
-          </div>
-          <h2 className="text-sm font-medium">和你的工作区对话</h2>
-          <p className="mt-2 max-w-[280px] text-xs leading-5 text-muted-foreground">
-            {currentDocument
-              ? `当前已关联「${getDocumentContextLabel(currentDocument)}」，也可以用 @ 提及其他文档。`
-              : '提问、搜索或让 Codex 在审批后修改工作区文件。'}
-          </p>
-        </div>
-        {runtimeError ? (
-          <div className="mb-3 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-            {runtimeError}
-          </div>
-        ) : null}
-        <div className="space-y-1.5">
-          {STARTER_PROMPTS.map((prompt) => (
-            <button
-              className="flex w-full items-center rounded-lg border border-border/70 px-3 py-2 text-left text-xs transition-colors hover:bg-accent/70"
-              key={prompt}
-              type="button"
-              onClick={() => onPrompt(prompt)}
+      <div className="flex flex-1 items-center px-5 py-10">
+        <div className="mx-auto w-full max-w-[560px]">
+          <div className="flex flex-col items-center text-center">
+            <Openai
+              aria-hidden="true"
+              className="size-7 text-muted-foreground/45"
+              variant="light"
+            />
+            <h2
+              className="mt-5 max-w-full text-[17px] font-medium leading-6 tracking-[-0.01em]"
+              title={currentDocumentLabel ?? undefined}
             >
-              {prompt}
-            </button>
-          ))}
+              {currentDocumentLabel ? (
+                <>
+                  想如何处理
+                  <span className="break-all underline decoration-border underline-offset-4">
+                    「{currentDocumentLabel}」
+                  </span>
+                  ？
+                </>
+              ) : (
+                '今天想在工作区里做什么？'
+              )}
+            </h2>
+            <p className="mt-2 max-w-[360px] text-xs leading-5 text-muted-foreground">
+              {currentDocumentLabel
+                ? '当前文档已关联，也可以在输入框中用 @ 提及其他文档。'
+                : '从下面的任务开始，或直接告诉 Codex 你想完成什么。'}
+            </p>
+          </div>
+
+          {runtimeError ? (
+            <div className="mt-5 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+              {runtimeError}
+            </div>
+          ) : null}
+
+          <div className="mt-7 grid grid-cols-2 gap-2.5">
+            {starterActions.map((action) => {
+              const Icon = action.icon;
+
+              return (
+                <button
+                  aria-label={action.title}
+                  className="group flex min-h-28 min-w-0 flex-col justify-between rounded-xl border border-border/70 bg-background px-3 py-3 text-left shadow-[0_1px_2px_rgba(15,23,42,0.05)] outline-none transition-[background-color,border-color,box-shadow] hover:border-border hover:bg-accent/35 hover:shadow-[0_5px_16px_-12px_rgba(15,23,42,0.32)] focus-visible:ring-2 focus-visible:ring-ring/35 dark:shadow-none"
+                  key={action.title}
+                  title={action.description}
+                  type="button"
+                  onClick={() => onPrompt(action.prompt)}
+                >
+                  <Icon
+                    className={cn('shrink-0', action.iconClassName)}
+                    size={17}
+                    strokeWidth={1.9}
+                  />
+                  <span className="mt-5 min-w-0">
+                    <span className="block text-[13px] font-medium leading-5 text-foreground">
+                      {action.title}
+                    </span>
+                    <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">
+                      {action.description}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
     );

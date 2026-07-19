@@ -236,6 +236,51 @@ describe('AI panel startup lifecycle', () => {
     expect(screen.getByRole('textbox', { name: '向 Codex 提问' })).toBeTruthy();
   });
 
+  it('新会话在没有活动文档时展示工作区任务入口', async () => {
+    renderPanel();
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    expect(
+      screen.getByRole('heading', { name: '今天想在工作区里做什么？' }),
+    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: '了解工作区' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '起草新文档' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '整理知识结构' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '查找内容问题' })).toBeTruthy();
+  });
+
+  it('新会话使用活动文档物理路径生成任务入口并可直接发送', async () => {
+    const user = userEvent.setup();
+    renderPanel(vi.fn().mockResolvedValue(true), activeDocument);
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    expect(
+      screen.getByRole('heading', { name: '想如何处理「Test.md」？' }),
+    ).toBeTruthy();
+    expect(screen.queryByText('Spring Boot 介绍')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: '阅读并理解' }));
+
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith(
+        'turn/start',
+        expect.objectContaining({
+          input: [
+            expect.objectContaining({
+              text: '总结当前文档并指出信息缺口',
+            }),
+          ],
+          madoraDocumentReferences: [
+            {
+              path: '/workspace/Test.md',
+              role: 'active',
+            },
+          ],
+        }),
+      ),
+    );
+  });
+
   it('收到 skills/changed 后强制刷新当前工作区技能', async () => {
     renderPanel();
 
