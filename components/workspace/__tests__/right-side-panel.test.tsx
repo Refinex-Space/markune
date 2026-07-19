@@ -70,6 +70,12 @@ describe('right AI panel integration', () => {
       />,
     );
 
+    const aiPanelButton = screen.getByTestId('ai-panel-icon-button');
+    const aiPanelIcon = aiPanelButton.querySelector('svg');
+    expect(aiPanelIcon?.getAttribute('viewBox')).toBe('0 0 256 260');
+    expect(aiPanelIcon?.getAttribute('class')).toContain('size-[17px]');
+    expect(aiPanelIcon?.getAttribute('fill')).toBe('currentColor');
+
     await user.click(screen.getByRole('button', { name: '展开 AI 面板' }));
     expect(onModeChange).toHaveBeenLastCalledWith('ai');
 
@@ -83,6 +89,11 @@ describe('right AI panel integration', () => {
         onOpenSettings={vi.fn()}
       />,
     );
+    const activeAiButtonClasses = screen
+      .getByTestId('ai-panel-icon-button')
+      .className.split(/\s+/);
+    expect(activeAiButtonClasses).not.toContain('bg-accent');
+    expect(activeAiButtonClasses).not.toContain('text-foreground');
     await user.click(screen.getByRole('button', { name: '折叠 AI 面板' }));
     expect(onModeChange).toHaveBeenLastCalledWith(null);
   });

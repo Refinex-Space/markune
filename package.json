@@ -33,6 +33,7 @@
     "@tauri-apps/plugin-updater": "^2.10.1",
     "@tesseract.js-data/chi_sim": "1.0.0",
     "@tesseract.js-data/eng": "1.0.0",
+    "@thesvg/react": "3.2.8",
     "@uploadthing/react": "^7.3.3",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",

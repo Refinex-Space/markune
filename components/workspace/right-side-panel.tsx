@@ -1,7 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import { Info, Palette, Settings, Sparkles } from 'lucide-react';
+import { Openai } from '@thesvg/react';
+import { Info, Palette, Settings } from 'lucide-react';
 import { useTheme } from 'next-themes';
 
 import {
@@ -152,15 +153,12 @@ export function RightToolRail({
           <TooltipTrigger asChild>
             <button
               aria-label={mode === 'ai' ? '折叠 AI 面板' : '展开 AI 面板'}
-              className={cn(
-                rightToolButtonClassName(),
-                mode === 'ai' && 'bg-accent text-foreground',
-              )}
+              className={rightToolButtonClassName()}
               data-testid="ai-panel-icon-button"
               type="button"
               onClick={() => onModeChange(nextAiMode)}
             >
-              <Sparkles size={17} />
+              <Openai className="size-[17px]" variant="light" />
             </button>
           </TooltipTrigger>
           <TooltipContent side={orientation === 'header' ? 'bottom' : 'left'} sideOffset={8}>
