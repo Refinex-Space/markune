@@ -46,6 +46,7 @@ import {
   RightSidePanel,
   RightToolRail,
 } from './right-side-panel';
+import { AiDocumentPreview } from './ai-document-preview';
 import { DirectoryPage } from './directory-page';
 import { DailyNoteCalendar } from './daily-note-calendar';
 import {
@@ -174,6 +175,7 @@ import type {
   GitStatus,
   MarkdownDraft,
   PageWidthMode,
+  RightPanelMode,
   WorkspaceNode,
   WorkspaceExportFormat,
   WorkspaceGitSyncSettings,
@@ -188,7 +190,13 @@ type LeftPanelMode = 'workspace' | 'git';
 type BottomPanelMode = 'git-log' | 'terminal' | null;
 type GlobalSearchIndexStatus = 'error' | 'idle' | 'indexing' | 'ready';
 type ThemeMode = 'dark' | 'light' | 'system';
-type WorkspaceSystemPage = 'drawings' | 'inbox' | 'settings' | 'views' | null;
+type WorkspaceSystemPage =
+  | 'codex'
+  | 'drawings'
+  | 'inbox'
+  | 'settings'
+  | 'views'
+  | null;
 
 interface GlobalSearchState {
   index: WorkspaceSearchIndex | null;
@@ -217,6 +225,12 @@ const META_PANEL_WIDTH = {
 const AI_PANEL_WIDTH = {
   defaultValue: 420,
   max: 640,
+  min: 360,
+};
+
+const AI_WORKSPACE_PREVIEW_WIDTH = {
+  defaultValue: 520,
+  max: 760,
   min: 360,
 };
 
@@ -251,6 +265,7 @@ const WORKSPACE_PANEL_WIDTH_STORAGE_KEYS = {
   gitLogHeight: 'madora:workspace:git-log-height',
   left: 'madora:workspace:left-sidebar-width',
   ai: 'madora:workspace:ai-panel-width',
+  aiWorkspacePreview: 'madora:workspace:ai-workspace-preview-width',
   meta: 'madora:workspace:right-panel-width',
   terminalHeight: 'madora:workspace:terminal-height',
 };
@@ -307,6 +322,13 @@ export function WorkspaceLayout({
     AI_PANEL_WIDTH.min,
     AI_PANEL_WIDTH.max,
   );
+  const [aiWorkspacePreviewWidth, setAiWorkspacePreviewWidth] =
+    useStoredPanelWidth(
+      WORKSPACE_PANEL_WIDTH_STORAGE_KEYS.aiWorkspacePreview,
+      AI_WORKSPACE_PREVIEW_WIDTH.defaultValue,
+      AI_WORKSPACE_PREVIEW_WIDTH.min,
+      AI_WORKSPACE_PREVIEW_WIDTH.max,
+    );
   const [settingsInitialSectionId, setSettingsInitialSectionId] =
     React.useState<'appearance' | 'storage' | 'git-sync'>('appearance');
   const [settingsVersion, setSettingsVersion] = React.useState(0);
@@ -539,6 +561,40 @@ export function WorkspaceLayout({
   const [leftPanelMode, setLeftPanelMode] =
     React.useState<LeftPanelMode>('workspace');
   const [systemPage, setSystemPage] = React.useState<WorkspaceSystemPage>(null);
+  const [aiPreviewDocumentPath, setAiPreviewDocumentPath] =
+    React.useState<string | null>(null);
+  const aiPreviewDocument = React.useMemo(
+    () =>
+      aiPreviewDocumentPath
+        ? findWorkspaceDocumentByPath(
+            workspace.snapshot?.nodes ?? [],
+            aiPreviewDocumentPath,
+          )
+        : null,
+    [aiPreviewDocumentPath, workspace.snapshot?.nodes],
+  );
+  const aiPreviewMarkdownOverride = React.useMemo(() => {
+    if (!aiPreviewDocumentPath) {
+      return null;
+    }
+
+    if (
+      aiPreviewDocumentPath === currentDocumentPath &&
+      workspace.draftDocument
+    ) {
+      return workspace.draftDocument.markdown;
+    }
+
+    return editorSessions[aiPreviewDocumentPath]?.markdown ?? null;
+  }, [
+    aiPreviewDocumentPath,
+    currentDocumentPath,
+    editorSessions,
+    workspace.draftDocument,
+  ]);
+  const effectiveRightPanelMode: RightPanelMode =
+    systemPage === 'codex' ? 'ai' : workspace.rightPanelMode;
+
   const drawings = useDrawingController({
     active: systemPage === 'drawings',
     rootPath: workspaceRootPath,
@@ -1759,6 +1815,35 @@ export function WorkspaceLayout({
     [openDocumentNode, revealNodeInWorkspaceTree, workspace.snapshot?.nodes],
   );
 
+  const handleOpenAiDocument = React.useCallback(
+    (documentPath: string) => {
+      if (systemPage === 'codex') {
+        const document = findWorkspaceDocumentByPath(
+          workspace.snapshot?.nodes ?? [],
+          documentPath,
+        );
+
+        if (document) {
+          setAiPreviewDocumentPath(document.absolutePath);
+        }
+        return;
+      }
+
+      handleOpenRecentDocument(documentPath);
+    },
+    [handleOpenRecentDocument, systemPage, workspace.snapshot?.nodes],
+  );
+
+  const handleOpenAiPreviewInEditor = React.useCallback(() => {
+    if (!aiPreviewDocument) {
+      return;
+    }
+
+    setAiPreviewDocumentPath(null);
+    revealNodeInWorkspaceTree(aiPreviewDocument.absolutePath);
+    void openDocumentNode(aiPreviewDocument);
+  }, [aiPreviewDocument, openDocumentNode, revealNodeInWorkspaceTree]);
+
   const handleSelectGlobalSearchResult = React.useCallback(
     (result: WorkspaceGlobalSearchResult) => {
       if (result.document.kind === 'drawing' && result.document.drawingId) {
@@ -1872,6 +1957,22 @@ export function WorkspaceLayout({
     setSystemPage('views');
     workspace.clearCurrentDocument();
   }, [workspace]);
+
+  const handleOpenCodexPage = React.useCallback(() => {
+    setLeftPanelMode('workspace');
+    setSystemPage('codex');
+    showWorkspaceSidebar(false);
+  }, [showWorkspaceSidebar]);
+
+  const handleRightPanelModeChange = React.useCallback(
+    (mode: RightPanelMode) => {
+      if (systemPage === 'codex') {
+        setSystemPage(null);
+      }
+      workspace.setRightPanelMode(mode);
+    },
+    [systemPage, workspace],
+  );
 
   const handleOpenDrawingsPage = React.useCallback(() => {
     setLeftPanelMode('workspace');
@@ -2626,6 +2727,7 @@ export function WorkspaceLayout({
                 onOpenDailyNote={() =>
                   void handleOpenDailyNote(formatDailyDate(new Date()))
                 }
+                onOpenCodex={handleOpenCodexPage}
                 onOpenInbox={handleOpenInboxPage}
                 onOpenDrawings={handleOpenDrawingsPage}
                 onOpenViews={handleOpenViewsPage}
@@ -2663,6 +2765,7 @@ export function WorkspaceLayout({
                 }
                 systemPage={
                   systemPage === 'drawings' ||
+                  systemPage === 'codex' ||
                   systemPage === 'inbox' ||
                   systemPage === 'views'
                     ? systemPage
@@ -2732,16 +2835,21 @@ export function WorkspaceLayout({
                   onToggleTerminal={toggleTerminalPanel}
                 >
                   <RightToolRail
-                    mode={workspace.rightPanelMode}
+                    mode={effectiveRightPanelMode}
                     orientation="header"
                     showSettingsButton={false}
-                    onModeChange={workspace.setRightPanelMode}
+                    onModeChange={handleRightPanelModeChange}
                     onOpenSettings={() => openSettingsPage('appearance')}
                   />
                 </WorkspaceMainHeader>
 
                 <div className="flex min-h-0 flex-1 overflow-hidden">
-                  <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+                  <div
+                    className={cn(
+                      'min-h-0 min-w-0 flex-1 overflow-hidden',
+                      systemPage === 'codex' && 'hidden',
+                    )}
+                  >
                     {systemPage === 'drawings' && workspace.snapshot ? (
                       <DrawingWorkspacePage
                         controller={drawings}
@@ -2836,7 +2944,7 @@ export function WorkspaceLayout({
                     )}
                   </div>
 
-                  {workspace.rightPanelMode ? (
+                  {systemPage !== 'codex' && workspace.rightPanelMode ? (
                     <WorkspaceResizeHandle
                       aria-label="调整右侧面板宽度"
                       className="-mx-1"
@@ -2849,6 +2957,22 @@ export function WorkspaceLayout({
                   ) : null}
 
                   <RightSidePanel
+                    aiPresentation={
+                      systemPage === 'codex' ? 'workspace' : 'panel'
+                    }
+                    aiWorkspacePreview={
+                      systemPage === 'codex' && aiPreviewDocument ? (
+                        <AiDocumentPreview
+                          document={aiPreviewDocument}
+                          markdownOverride={aiPreviewMarkdownOverride}
+                          pageWidthMode={pageWidthMode}
+                          workspaceRootPath={workspaceRootPath}
+                          onClose={() => setAiPreviewDocumentPath(null)}
+                          onOpenInEditor={handleOpenAiPreviewInEditor}
+                        />
+                      ) : null
+                    }
+                    aiWorkspacePreviewWidth={aiWorkspacePreviewWidth}
                     currentDocument={activePanelDocument}
                     currentDocumentPath={activePanelDocumentPath}
                     documentPanelData={documentPanelData}
@@ -2862,11 +2986,12 @@ export function WorkspaceLayout({
                         ? getDocumentReadOnly(activePanelDocument.absolutePath)
                         : false
                     }
-                    mode={workspace.rightPanelMode}
+                    mode={effectiveRightPanelMode}
                     width={rightPanelWidth}
                     workspaceRootPath={workspaceRootPath}
                     onBeforeTurnStart={handleBeforeAiTurnStart}
-                    onOpenDocument={handleOpenRecentDocument}
+                    onAiWorkspacePreviewResize={setAiWorkspacePreviewWidth}
+                    onOpenDocument={handleOpenAiDocument}
                     onOpenPlanPreview={handleOpenPlanPreview}
                     onWorkspaceChanged={handleAiWorkspaceChanged}
                     onToggleDocumentReadOnly={
@@ -2897,6 +3022,7 @@ export function WorkspaceLayout({
                   saveError={workspace.saveError}
                   saveState={workspace.saveState}
                   visible={
+                    systemPage !== 'codex' &&
                     activeEditorTab?.kind !== 'plan' &&
                     Boolean(workspace.currentDocument) &&
                     workspace.documentLoadState === 'loaded'

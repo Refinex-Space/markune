@@ -36,6 +36,9 @@ import type {
   WorkspaceNode,
   WorkspaceSearchResult,
 } from './workspace-types';
+import { WorkspaceResizeHandle } from './workspace-resize-handle';
+
+export type AiPanelPresentation = 'panel' | 'workspace';
 
 export interface DocumentPanelData {
   frontmatter: Record<string, string>;
@@ -44,6 +47,9 @@ export interface DocumentPanelData {
 }
 
 interface RightSidePanelProps {
+  aiPresentation?: AiPanelPresentation;
+  aiWorkspacePreview?: React.ReactNode;
+  aiWorkspacePreviewWidth?: number;
   currentDocument: WorkspaceNode | null;
   currentDocumentPath: string | null;
   documentPanelData: DocumentPanelData | null;
@@ -53,6 +59,7 @@ interface RightSidePanelProps {
   width: number;
   workspaceRootPath: string | null;
   onBeforeTurnStart: (documentPath: string | null) => Promise<boolean>;
+  onAiWorkspacePreviewResize?: (width: number) => void;
   onOpenDocument: (documentPath: string) => void;
   onOpenPlanPreview: (plan: AiProposedPlan, threadId: string) => void;
   onWorkspaceChanged: (
@@ -70,6 +77,9 @@ interface RightToolRailProps {
 }
 
 export function RightSidePanel({
+  aiPresentation = 'panel',
+  aiWorkspacePreview,
+  aiWorkspacePreviewWidth = 520,
   currentDocument,
   currentDocumentPath,
   documentPanelData,
@@ -79,34 +89,70 @@ export function RightSidePanel({
   width,
   workspaceRootPath,
   onBeforeTurnStart,
+  onAiWorkspacePreviewResize,
   onOpenDocument,
   onOpenPlanPreview,
   onWorkspaceChanged,
   onToggleDocumentReadOnly,
 }: RightSidePanelProps) {
+  const aiVisible = mode === 'ai';
+  const workspacePresentation = aiPresentation === 'workspace';
+
   return (
     <>
       <aside
-        aria-hidden={mode !== 'ai'}
+        aria-hidden={!aiVisible}
         className={cn(
-          'h-full shrink-0 flex-col overflow-hidden border-l bg-background',
-          mode === 'ai' ? 'flex' : 'hidden',
+          'h-full min-h-0 min-w-0 overflow-hidden bg-background',
+          aiVisible ? 'flex' : 'hidden',
+          workspacePresentation
+            ? 'flex-1'
+            : 'shrink-0 border-l border-border/70',
         )}
+        data-presentation={aiPresentation}
         data-testid="ai-side-panel"
-        hidden={mode !== 'ai'}
-        style={{ width }}
+        hidden={!aiVisible}
+        style={workspacePresentation ? undefined : { width }}
       >
-        <AiPanel
-          currentDocument={currentDocument}
-          currentDocumentPath={currentDocumentPath}
-          documents={documents}
-          visible={mode === 'ai'}
-          workspaceRootPath={workspaceRootPath}
-          onBeforeTurnStart={onBeforeTurnStart}
-          onOpenDocument={onOpenDocument}
-          onOpenPlanPreview={onOpenPlanPreview}
-          onWorkspaceChanged={onWorkspaceChanged}
-        />
+        <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+          <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+            <AiPanel
+              currentDocument={currentDocument}
+              currentDocumentPath={currentDocumentPath}
+              documents={documents}
+              presentation={aiPresentation}
+              visible={aiVisible}
+              workspaceRootPath={workspaceRootPath}
+              onBeforeTurnStart={onBeforeTurnStart}
+              onOpenDocument={onOpenDocument}
+              onOpenPlanPreview={onOpenPlanPreview}
+              onWorkspaceChanged={onWorkspaceChanged}
+            />
+          </div>
+
+          {workspacePresentation && aiWorkspacePreview ? (
+            <div
+              className="absolute inset-y-0 right-0 z-30 flex max-w-[calc(100%-280px)] shrink-0 bg-background shadow-[-18px_0_42px_-32px_rgba(15,23,42,0.55)] min-[1440px]:static min-[1440px]:z-auto min-[1440px]:max-w-none min-[1440px]:shadow-none"
+              data-testid="ai-workspace-preview-shell"
+              style={{ width: aiWorkspacePreviewWidth }}
+            >
+              <WorkspaceResizeHandle
+                aria-label="调整文档预览宽度"
+                className="-mx-1"
+                direction="right"
+                max={760}
+                min={360}
+                value={aiWorkspacePreviewWidth}
+                onResize={(nextWidth) =>
+                  onAiWorkspacePreviewResize?.(nextWidth)
+                }
+              />
+              <div className="min-h-0 min-w-0 flex-1 overflow-hidden border-l border-border/70">
+                {aiWorkspacePreview}
+              </div>
+            </div>
+          ) : null}
+        </div>
       </aside>
 
       {mode === 'meta' ? (

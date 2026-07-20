@@ -11,6 +11,7 @@ import {
   ChangeSummaryCard,
   ConversationEntryRow,
   GoalStatusBar,
+  PanelContent,
   PlanImplementationCard,
   ProcessingTrace,
   ProposedPlanCard,
@@ -19,6 +20,7 @@ import {
   UserMessageContent,
 } from '../ai-panel';
 import {
+  createEmptyConversation,
   createOutputPreview,
   type AiChangeSummaryBlock,
   type AiTaskProgress,
@@ -471,19 +473,56 @@ describe('AI message rendering', () => {
     expect(screen.getByText('图片：远程图片')).toBeTruthy();
   });
 
-  it('不在面板头部重复提供折叠按钮', () => {
+  it('大屏模式的标题栏与侧栏搜索行对齐并隐藏分割线', () => {
     render(
       <AiPanelHeader
         activeThread={null}
+        presentation="workspace"
         view="chat"
         onHistory={vi.fn()}
         onNewChat={vi.fn()}
       />,
     );
 
+    const header = screen.getByRole('banner');
+    expect(header.className).toContain('-mt-1');
+    expect(header.className).toContain('h-9');
+    expect(header.className).not.toContain('border-b');
     expect(
       screen.queryByRole('button', { name: '折叠 AI 面板' }),
     ).toBeNull();
+  });
+
+  it('大屏消息区与输入框使用同一宽度和水平内边距', () => {
+    const conversation = createEmptyConversation();
+    conversation.entries.push({
+      id: 'assistant-message',
+      role: 'assistant',
+      text: '已经完成处理。',
+      type: 'message',
+    });
+
+    render(
+      <PanelContent
+        account={null}
+        authRequired={false}
+        conversation={conversation}
+        currentDocument={null}
+        presentation="workspace"
+        runtimeError={null}
+        runtimeStatus="ready"
+        signingIn={false}
+        onApprove={vi.fn()}
+        onOpenDocument={vi.fn()}
+        onOpenPlanPreview={vi.fn()}
+        onPrompt={vi.fn()}
+        onSignIn={vi.fn()}
+      />,
+    );
+
+    const content = screen.getByTestId('ai-conversation-content');
+    expect(content.className).toContain('max-w-[920px]');
+    expect(content.className).toContain('px-3');
   });
 
   it('加号菜单只展示附件、占位能力和插件入口', async () => {
@@ -1419,6 +1458,39 @@ describe('AI message rendering', () => {
     expect(screen.queryByText('/bin/zsh -lc "sed README.md"')).toBeNull();
   });
 
+  it('失败的工具组和技术详情保持默认折叠', async () => {
+    const user = userEvent.setup();
+    const trace = createTrace({ historical: false, status: 'failed' });
+    const failedGroup = trace.segments.find(
+      (segment) => segment.type === 'group',
+    );
+    if (!failedGroup || failedGroup.type !== 'group') {
+      throw new Error('缺少工具组测试数据');
+    }
+    failedGroup.status = 'failed';
+    failedGroup.activities[0].status = 'failed';
+
+    render(
+      <ProcessingTrace
+        trace={trace}
+        onApprove={vi.fn()}
+        onOpenDocument={vi.fn()}
+      />,
+    );
+
+    const group = screen.getByRole('button', {
+      name: '读取了文件，展开工具活动',
+    });
+    expect(group.getAttribute('aria-expanded')).toBe('false');
+
+    await user.click(group);
+    const activity = screen.getByRole('button', {
+      name: '读取 README.md，展开详情',
+    });
+    expect(activity.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByText('/bin/zsh -lc "sed README.md"')).toBeNull();
+  });
+
   it('用户手动展开工具组后，完成状态不会重置其选择', async () => {
     const user = userEvent.setup();
     const { rerender } = render(
@@ -1502,6 +1574,16 @@ describe('AI message rendering', () => {
       />,
     );
 
+    await user.click(
+      screen.getByRole('button', {
+        name: '编辑了文件，展开工具活动',
+      }),
+    );
+    await user.click(
+      screen.getByRole('button', {
+        name: '修改 README.md，展开详情',
+      }),
+    );
     await user.click(screen.getByRole('button', { name: 'README.md' }));
     expect(onOpenDocument).toHaveBeenCalledWith('/workspace/README.md');
     expect(

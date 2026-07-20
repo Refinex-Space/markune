@@ -185,6 +185,7 @@ interface AiPanelProps {
   onWorkspaceChanged: (
     event: AiWorkspaceChangeEvent,
   ) => void | Promise<void>;
+  presentation?: 'panel' | 'workspace';
   visible?: boolean;
 }
 
@@ -506,6 +507,7 @@ export function AiPanel({
   onOpenDocument,
   onOpenPlanPreview,
   onWorkspaceChanged,
+  presentation = 'panel',
 }: AiPanelProps) {
   const {
     confirm: confirmAction,
@@ -2172,9 +2174,14 @@ export function AiPanel({
   );
 
   return (
-    <section className="flex h-full min-h-0 flex-col bg-background" data-testid="ai-panel">
+    <section
+      className="flex h-full min-h-0 flex-col bg-background"
+      data-presentation={presentation}
+      data-testid="ai-panel"
+    >
       <AiPanelHeader
         activeThread={activeThread}
+        presentation={presentation}
         view={view}
         onHistory={() => setView('history')}
         onNewChat={startNewChat}
@@ -2202,6 +2209,7 @@ export function AiPanel({
               authRequired={authRequired}
               conversation={conversation}
               currentDocument={currentDocument}
+              presentation={presentation}
               runtimeError={runtimeError}
               runtimeStatus={runtimeStatus}
               signingIn={signingIn}
@@ -2218,123 +2226,131 @@ export function AiPanel({
             />
           </AiConversationViewport>
 
-          {conversation.userInputRequests[0] ? (
-            <UserInputDecisionCard
-              key={String(conversation.userInputRequests[0].id)}
-              request={conversation.userInputRequests[0]}
-              onSubmit={(answers) =>
-                answerUserInput(conversation.userInputRequests[0], answers)
-              }
-            />
-          ) : planImplementation ? (
-            <PlanImplementationCard
-              plan={planImplementation}
+          <div
+            className={cn(
+              'shrink-0',
+              presentation === 'workspace' &&
+                'mx-auto w-full max-w-[920px]',
+            )}
+          >
+            {conversation.userInputRequests[0] ? (
+              <UserInputDecisionCard
+                key={String(conversation.userInputRequests[0].id)}
+                request={conversation.userInputRequests[0]}
+                onSubmit={(answers) =>
+                  answerUserInput(conversation.userInputRequests[0], answers)
+                }
+              />
+            ) : planImplementation ? (
+              <PlanImplementationCard
+                plan={planImplementation}
+                submitting={submitting}
+                onFreshContext={() => implementPlan(true)}
+                onImplement={() => implementPlan(false)}
+                onStay={() => {
+                  setPlanImplementation(null);
+                  setComposerFocusRequest((current) => current + 1);
+                }}
+              />
+            ) : null}
+
+            {activeTaskProgress ? (
+              <TaskProgressIndicator
+                key={activeTaskProgress.turnId}
+                progress={activeTaskProgress}
+              />
+            ) : null}
+
+            {activeGoal ? (
+              <GoalStatusBar
+                goal={activeGoal}
+                observedAt={activeGoalObservedAt}
+                updating={goalUpdating}
+                onClear={() => void clearGoal()}
+                onSave={updateGoalObjective}
+                onStatusChange={(status) => void setGoalStatus(status)}
+              />
+            ) : null}
+
+            <AiComposer
+              active={Boolean(conversation.activeTurnId)}
+              collaborationMode={collaborationMode}
+              compacting={compactingThreadId === activeThread?.id}
+              compactUnavailableReason={compactUnavailableReason}
+              contextUsage={activeThreadTokenUsage}
+              currentDocument={currentDocument}
+              effort={effort}
+              focusRequest={composerFocusRequest}
+              goalActive={Boolean(activeGoal)}
+              goalDraftMode={goalDraftMode}
+              goalUnavailableReason={goalEntryUnavailableReason}
+              attachments={selectedAttachments}
+              mentionDocuments={filteredMentionDocuments}
+              mentionQuery={mentionQuery}
+              modelCatalogStatus={modelCatalogStatus}
+              models={models}
+              authRequired={authRequired}
+              runtimeStatus={runtimeStatus}
+              selectedModel={selectedModel}
+              selectedModelInfo={selectedModelInfo}
+              skillOptions={skillOptions}
+              skillStatus={skillStatus}
               submitting={submitting}
-              onFreshContext={() => implementPlan(true)}
-              onImplement={() => implementPlan(false)}
-              onStay={() => {
-                setPlanImplementation(null);
-                setComposerFocusRequest((current) => current + 1);
+              pluginLoadWarning={pluginLoadWarning}
+              pluginOptions={pluginOptions}
+              pluginStatus={pluginStatus}
+              autoReviewAvailable={autoReviewAvailable}
+              approvalPolicyAvailability={approvalPolicyAvailability}
+              permissionMode={permissionModeFromSettings(permissionSettings)}
+              permissionProfiles={permissionProfiles}
+              permissionSwitchDisabled={
+                Boolean(conversation.activeTurnId) ||
+                conversation.approvals.length > 0 ||
+                permissionUpdating
+              }
+              inputBlocked={conversation.userInputRequests.length > 0}
+              modeSwitchDisabled={modeSwitchDisabled}
+              planModeAvailable={planModeAvailable}
+              planModeUnavailableReason={planModeUnavailableReason}
+              value={composerValue}
+              onAttachmentRemove={removeContextAttachment}
+              onAttachmentSelect={(kind) => void selectContextAttachments(kind)}
+              onDetectPlugins={() => void detectInstalledPlugins()}
+              onEffortChange={setEffort}
+              onGoalModeChange={changeGoalMode}
+              onInterrupt={() => void interruptTurn()}
+              onCollaborationModeChange={changeCollaborationMode}
+              onCompact={() => void compactContext()}
+              onMentionQueryChange={setMentionQuery}
+              onMentionsChange={setSelectedMentions}
+              onModelChange={(model) => {
+                const next = models.find((candidate) => candidate.model === model);
+                if (
+                  collaborationModeRef.current === 'plan' &&
+                  !next?.supportedReasoningEfforts.some(
+                    (option) => option.reasoningEffort === 'medium',
+                  )
+                ) {
+                  return;
+                }
+                setSelectedModel(model);
+                if (next) {
+                  const nextEffort =
+                    collaborationModeRef.current === 'plan'
+                      ? 'medium'
+                      : next.defaultReasoningEffort;
+                  effortRef.current = nextEffort;
+                  setEffort(nextEffort);
+                }
+              }}
+              onPermissionModeChange={(mode) => void changePermissionMode(mode)}
+              onOpenMention={onOpenDocument}
+              onSend={() => void sendMessage()}
+              onValueChange={(value) => {
+                setComposerValue(value);
               }}
             />
-          ) : null}
-
-          {activeTaskProgress ? (
-            <TaskProgressIndicator
-              key={activeTaskProgress.turnId}
-              progress={activeTaskProgress}
-            />
-          ) : null}
-
-          {activeGoal ? (
-            <GoalStatusBar
-              goal={activeGoal}
-              observedAt={activeGoalObservedAt}
-              updating={goalUpdating}
-              onClear={() => void clearGoal()}
-              onSave={updateGoalObjective}
-              onStatusChange={(status) => void setGoalStatus(status)}
-            />
-          ) : null}
-
-          <AiComposer
-            active={Boolean(conversation.activeTurnId)}
-            collaborationMode={collaborationMode}
-            compacting={compactingThreadId === activeThread?.id}
-            compactUnavailableReason={compactUnavailableReason}
-            contextUsage={activeThreadTokenUsage}
-            currentDocument={currentDocument}
-            effort={effort}
-            focusRequest={composerFocusRequest}
-            goalActive={Boolean(activeGoal)}
-            goalDraftMode={goalDraftMode}
-            goalUnavailableReason={goalEntryUnavailableReason}
-            attachments={selectedAttachments}
-            mentionDocuments={filteredMentionDocuments}
-            mentionQuery={mentionQuery}
-            modelCatalogStatus={modelCatalogStatus}
-            models={models}
-            authRequired={authRequired}
-            runtimeStatus={runtimeStatus}
-            selectedModel={selectedModel}
-            selectedModelInfo={selectedModelInfo}
-            skillOptions={skillOptions}
-            skillStatus={skillStatus}
-            submitting={submitting}
-            pluginLoadWarning={pluginLoadWarning}
-            pluginOptions={pluginOptions}
-            pluginStatus={pluginStatus}
-            autoReviewAvailable={autoReviewAvailable}
-            approvalPolicyAvailability={approvalPolicyAvailability}
-            permissionMode={permissionModeFromSettings(permissionSettings)}
-            permissionProfiles={permissionProfiles}
-            permissionSwitchDisabled={
-              Boolean(conversation.activeTurnId) ||
-              conversation.approvals.length > 0 ||
-              permissionUpdating
-            }
-            inputBlocked={conversation.userInputRequests.length > 0}
-            modeSwitchDisabled={modeSwitchDisabled}
-            planModeAvailable={planModeAvailable}
-            planModeUnavailableReason={planModeUnavailableReason}
-            value={composerValue}
-            onAttachmentRemove={removeContextAttachment}
-            onAttachmentSelect={(kind) => void selectContextAttachments(kind)}
-            onDetectPlugins={() => void detectInstalledPlugins()}
-            onEffortChange={setEffort}
-            onGoalModeChange={changeGoalMode}
-            onInterrupt={() => void interruptTurn()}
-            onCollaborationModeChange={changeCollaborationMode}
-            onCompact={() => void compactContext()}
-            onMentionQueryChange={setMentionQuery}
-            onMentionsChange={setSelectedMentions}
-            onModelChange={(model) => {
-              const next = models.find((candidate) => candidate.model === model);
-              if (
-                collaborationModeRef.current === 'plan' &&
-                !next?.supportedReasoningEfforts.some(
-                  (option) => option.reasoningEffort === 'medium',
-                )
-              ) {
-                return;
-              }
-              setSelectedModel(model);
-              if (next) {
-                const nextEffort =
-                  collaborationModeRef.current === 'plan'
-                    ? 'medium'
-                    : next.defaultReasoningEffort;
-                effortRef.current = nextEffort;
-                setEffort(nextEffort);
-              }
-            }}
-            onPermissionModeChange={(mode) => void changePermissionMode(mode)}
-            onOpenMention={onOpenDocument}
-            onSend={() => void sendMessage()}
-            onValueChange={(value) => {
-              setComposerValue(value);
-            }}
-          />
+          </div>
         </>
       )}
       <ConfirmationDialog
@@ -2461,17 +2477,26 @@ function isViewportNearBottom(viewport: HTMLElement) {
 
 export function AiPanelHeader({
   activeThread,
+  presentation = 'panel',
   view,
   onHistory,
   onNewChat,
 }: {
   activeThread: CodexThread | null;
+  presentation?: 'panel' | 'workspace';
   view: PanelView;
   onHistory: () => void;
   onNewChat: () => void;
 }) {
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/70 px-3">
+    <header
+      className={cn(
+        'flex shrink-0 items-center gap-2 px-3',
+        presentation === 'workspace'
+          ? '-mt-1 h-9'
+          : 'h-12 border-b border-border/70',
+      )}
+    >
       <div className="min-w-0 flex-1">
         <div className="truncate text-[13px] font-medium">
           {view === 'history'
@@ -2507,11 +2532,12 @@ function HeaderButton({
   );
 }
 
-function PanelContent({
+export function PanelContent({
   account,
   authRequired,
   conversation,
   currentDocument,
+  presentation = 'panel',
   runtimeError,
   runtimeStatus,
   signingIn,
@@ -2525,6 +2551,7 @@ function PanelContent({
   authRequired: boolean;
   conversation: AiConversationState;
   currentDocument: WorkspaceNode | null;
+  presentation?: 'panel' | 'workspace';
   runtimeError: string | null;
   runtimeStatus: RuntimeStatus;
   signingIn: boolean;
@@ -2660,7 +2687,15 @@ function PanelContent({
   const blocks = buildConversationBlocks(conversation);
 
   return (
-    <div className="mx-auto w-full max-w-[680px] px-5 py-5">
+    <div
+      className={cn(
+        'mx-auto w-full py-5',
+        presentation === 'workspace'
+          ? 'max-w-[920px] px-3'
+          : 'max-w-[680px] px-5',
+      )}
+      data-testid="ai-conversation-content"
+    >
       <div>
         {blocks.map((block, index) =>
           block.type === 'trace' ? (
@@ -3719,9 +3754,7 @@ function ActivityGroupRow({
   ) => void;
   onOpenDocument: (documentPath: string) => void;
 }) {
-  const forceOpen = ['declined', 'failed', 'waitingApproval'].includes(
-    group.status,
-  );
+  const forceOpen = ['declined', 'waitingApproval'].includes(group.status);
   const [open, onOpenChange] = useAttentionDisclosure(forceOpen);
 
   return (
@@ -3786,7 +3819,6 @@ function ActivityItemRow({
   onOpenDocument: (documentPath: string) => void;
 }) {
   const forceOpen =
-    activity.status === 'failed' ||
     activity.status === 'declined' ||
     approvals.length > 0;
   const [open, onOpenChange] = useAttentionDisclosure(forceOpen);

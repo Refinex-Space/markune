@@ -7,6 +7,7 @@ import {
   Settings,
   Sheet,
 } from 'lucide-react';
+import { Openai } from '@thesvg/react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -39,6 +40,7 @@ interface WorkspaceSidebarProps {
     format: WorkspaceImportFormat,
   ) => Promise<void> | void;
   onOpenDailyNote?: () => void;
+  onOpenCodex?: () => void;
   onOpenDrawings?: () => void;
   onOpenInbox?: () => void;
   onOpenInFileManager?: (node: WorkspaceNode) => void;
@@ -60,7 +62,7 @@ interface WorkspaceSidebarProps {
   searchPlaceholder?: string;
   searchQuery?: string;
   onSearchQueryChange?: (query: string) => void;
-  systemPage?: 'drawings' | 'inbox' | 'views' | null;
+  systemPage?: 'codex' | 'drawings' | 'inbox' | 'views' | null;
 }
 
 export function WorkspaceSidebar({
@@ -74,6 +76,7 @@ export function WorkspaceSidebar({
   onExportNode,
   onImportDocuments,
   onOpenDailyNote,
+  onOpenCodex,
   onOpenDrawings,
   onOpenInbox,
   onOpenInFileManager,
@@ -206,6 +209,21 @@ export function WorkspaceSidebar({
             >
               <Sheet size={15} strokeWidth={1.75} />
               <span className="truncate">视图</span>
+            </button>
+            <button
+              aria-current={systemPage === 'codex' ? 'page' : undefined}
+              className={cn(
+                'mt-1 flex h-8 w-[calc(100%-0.75rem)] items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors',
+                systemPage === 'codex'
+                  ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                  : 'text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-accent-foreground',
+              )}
+              data-testid="codex-workspace-entry"
+              type="button"
+              onClick={onOpenCodex}
+            >
+              <Openai className="size-[15px]" variant="light" />
+              <span className="truncate">Codex</span>
             </button>
           </div>
         ) : null}
