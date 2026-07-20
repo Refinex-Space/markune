@@ -77,6 +77,15 @@ export interface DrawingDocumentDescriptor {
   hasPreview: boolean;
 }
 
+export interface AiDrawingReference {
+  albumPath: string;
+  elementCount: number;
+  hasPreview: boolean;
+  id: string;
+  revision: number;
+  title: string;
+}
+
 export interface DrawingSaveSession {
   sessionId: string;
   nextRevision: number;

@@ -7,12 +7,19 @@ import type {
   CodexDynamicToolResponse,
 } from './codex-app-server';
 import { compileMermaidDrawing } from './ai-drawing-compiler';
+import {
+  drawingPreviewDataUrl,
+  inspectDrawingScene,
+} from './ai-drawing-inspector';
 import { AiDrawingPreviewCache } from './ai-drawing-preview-cache';
 import type { DrawingController } from './use-drawing-controller';
 import {
   beginGeneratedDrawingCreate,
   cancelGeneratedDrawingCreate,
   commitGeneratedDrawingCreate,
+  readDrawingMeta,
+  readDrawingPreview,
+  readDrawingScene,
   stageDrawingPreview,
   stageDrawingScene,
 } from './workspace-api';
@@ -67,6 +74,38 @@ export function useAiDrawingTools({
       }
       if (request.namespace !== 'madora_drawing') {
         return { success: false, text: 'Madora 拒绝未知动态工具命名空间。' };
+      }
+      if (request.tool === 'inspect_drawing') {
+        const drawingId = request.arguments.drawingId;
+        if (typeof drawingId !== 'string') {
+          return { success: false, text: 'inspect_drawing 参数无效。' };
+        }
+        try {
+          const descriptor = await readDrawingMeta(workspaceRootPath, drawingId);
+          const scene = await readDrawingScene(workspaceRootPath, drawingId);
+          let text = inspectDrawingScene(
+            descriptor,
+            new TextDecoder().decode(scene),
+          );
+          let imageDataUrl: string | undefined;
+          if (descriptor.hasPreview) {
+            try {
+              imageDataUrl = drawingPreviewDataUrl(
+                await readDrawingPreview(workspaceRootPath, drawingId),
+              );
+            } catch {
+              const inspection = JSON.parse(text) as { warnings: string[] };
+              inspection.warnings.push('图稿预览暂时无法读取，已返回场景结构摘要。');
+              text = JSON.stringify(inspection);
+            }
+          }
+          return { imageDataUrl, success: true, text };
+        } catch (error) {
+          return {
+            success: false,
+            text: error instanceof Error ? error.message : String(error),
+          };
+        }
       }
       if (request.tool === 'preview_mermaid') {
         const attempts = previewAttemptsRef.current.get(request.turnId) ?? 0;

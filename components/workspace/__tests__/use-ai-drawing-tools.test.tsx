@@ -9,6 +9,9 @@ const mocks = vi.hoisted(() => ({
   cancel: vi.fn(),
   commit: vi.fn(),
   compile: vi.fn(),
+  readMeta: vi.fn(),
+  readPreview: vi.fn(),
+  readScene: vi.fn(),
   stagePreview: vi.fn(),
   stageScene: vi.fn(),
 }));
@@ -21,6 +24,9 @@ vi.mock('../workspace-api', () => ({
   beginGeneratedDrawingCreate: mocks.begin,
   cancelGeneratedDrawingCreate: mocks.cancel,
   commitGeneratedDrawingCreate: mocks.commit,
+  readDrawingMeta: mocks.readMeta,
+  readDrawingPreview: mocks.readPreview,
+  readDrawingScene: mocks.readScene,
   stageDrawingPreview: mocks.stagePreview,
   stageDrawingScene: mocks.stageScene,
 }));
@@ -125,5 +131,65 @@ describe('useAiDrawingTools', () => {
       compiled.previewBytes,
     );
     expect(onCreated).toHaveBeenCalledWith(created);
+  });
+
+  it('returns a bounded editable scene projection and preview for an inspected drawing', async () => {
+    const descriptor = {
+      ...created,
+      meta: {
+        ...created.meta,
+        createdAt: '2026-07-20T00:00:00.000Z',
+        elementCount: 2,
+        favorite: false,
+        previewRevision: 1,
+        sceneSha256: '1'.repeat(64),
+        schemaVersion: 1,
+        searchText: '网关',
+        tags: [],
+        updatedAt: '2026-07-20T00:00:00.000Z',
+      },
+    };
+    mocks.readMeta.mockResolvedValue(descriptor);
+    mocks.readScene.mockResolvedValue(
+      new TextEncoder().encode(
+        JSON.stringify({
+          type: 'excalidraw',
+          elements: [{ id: 'gateway', type: 'text', text: 'API Gateway' }],
+        }),
+      ),
+    );
+    mocks.readPreview.mockResolvedValue(
+      Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    );
+    const controller = {
+      descriptor,
+      selection: { kind: 'drawing', id: descriptor.meta.id },
+    } as unknown as DrawingController;
+    const { result } = renderHook(() =>
+      useAiDrawingTools({
+        controller,
+        onCreated: vi.fn(),
+        workspaceRootPath: '/workspace',
+      }),
+    );
+
+    const response = await result.current({
+      arguments: { drawingId: descriptor.meta.id },
+      callId: 'call-inspect',
+      namespace: 'madora_drawing',
+      threadId: 'thread-1',
+      tool: 'inspect_drawing',
+      turnId: 'turn-1',
+    });
+
+    expect(response.success).toBe(true);
+    expect(response.imageDataUrl).toMatch(/^data:image\/png;base64,/);
+    expect(JSON.parse(response.text).scene.elements).toContainEqual(
+      expect.objectContaining({ id: 'gateway', text: 'API Gateway' }),
+    );
+    expect(mocks.readScene).toHaveBeenCalledWith(
+      '/workspace',
+      descriptor.meta.id,
+    );
   });
 });

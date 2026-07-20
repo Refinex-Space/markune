@@ -38,7 +38,7 @@ export interface AiChatMessage {
 
 export interface AiMessageMention {
   end: number;
-  kind?: 'document' | 'plugin' | 'skill';
+  kind?: 'document' | 'drawing' | 'plugin' | 'skill';
   label: string;
   path: string;
   start: number;
@@ -56,6 +56,11 @@ export interface AiDocumentInputMention extends AiMessageMention {
 export interface AiPluginInputMention extends AiMessageMention {
   kind: 'plugin';
   name: string;
+}
+
+export interface AiDrawingInputMention extends AiMessageMention {
+  drawingId: string;
+  kind: 'drawing';
 }
 
 export interface AiSkillInputMention extends AiMessageMention {
@@ -1624,6 +1629,7 @@ export function createComposerAwareUserInput(
   documentMentions: AiDocumentInputMention[],
   pluginMentions: AiPluginInputMention[],
   skillMentions: AiSkillInputMention[] = [],
+  drawingMentions: AiDrawingInputMention[] = [],
 ) {
   const textElements: Array<{
     byteRange: { end: number; start: number };
@@ -1636,6 +1642,7 @@ export function createComposerAwareUserInput(
     ...documentMentions.map((mention) => ({ mention, type: 'document' as const })),
     ...pluginMentions.map((mention) => ({ mention, type: 'plugin' as const })),
     ...skillMentions.map((mention) => ({ mention, type: 'skill' as const })),
+    ...drawingMentions.map((mention) => ({ mention, type: 'drawing' as const })),
   ].sort((left, right) => left.mention.start - right.mention.start);
 
   for (const { mention, type } of mentions) {
@@ -1649,6 +1656,9 @@ export function createComposerAwareUserInput(
       (type === 'document' && !relativePath) ||
       (type === 'plugin' && !mention.path.startsWith('plugin://')) ||
       (type === 'skill' && !mention.path) ||
+      (type === 'drawing' &&
+        parseDrawingMentionPath(mention.path) !==
+          (mention as AiDrawingInputMention).drawingId) ||
       mention.start < inputCursor ||
       mention.start < 0 ||
       mention.end <= mention.start ||
@@ -1663,7 +1673,9 @@ export function createComposerAwareUserInput(
         ? JSON.stringify(relativePath)
         : type === 'plugin'
           ? `@${mention.name}`
-          : `$${mention.name}`;
+          : type === 'skill'
+            ? `$${mention.name}`
+            : mention.path;
     const start = utf8ByteLength(modelText);
     modelText += reference;
     textElements.push({
@@ -1805,6 +1817,17 @@ function messageFromUserMessage(
       }
 
       const relativePath = parseHistoricalDocumentReference(referencedText);
+      const drawingId = parseDrawingMentionPath(referencedText);
+      if (drawingId) {
+        mentions.push({
+          start: baseOffset + start,
+          end: baseOffset + end,
+          kind: 'drawing',
+          label,
+          path: createDrawingMentionPath(drawingId),
+        });
+        continue;
+      }
       const absolutePath =
         relativePath && workspaceRootPath
           ? joinWorkspacePath(workspaceRootPath, relativePath)
@@ -1827,6 +1850,17 @@ function messageFromUserMessage(
     text,
     mentions: mentions.sort((left, right) => left.start - right.start),
   };
+}
+
+export function createDrawingMentionPath(drawingId: string) {
+  return `madora-drawing://${drawingId}`;
+}
+
+export function parseDrawingMentionPath(value: string) {
+  const match = /^madora-drawing:\/\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/.exec(
+    value,
+  );
+  return match?.[1] ?? null;
 }
 
 const MADORA_ATTACHMENT_ELEMENT_PREFIX = 'madora:attachment:';

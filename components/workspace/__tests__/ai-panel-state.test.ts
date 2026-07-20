@@ -4,6 +4,7 @@ import {
   buildConversationBlocks,
   conversationFromThread,
   createComposerAwareUserInput,
+  createDrawingMentionPath,
   createOutputPreview,
   createDocumentAwareUserInput,
   createMentionTextElements,
@@ -543,6 +544,34 @@ describe('AI panel event reducer', () => {
         },
       ],
     });
+  });
+
+  it('把图稿提及编码为稳定 Drawing URI 并保留显示标题', () => {
+    const drawingId = '11111111-1111-4111-8111-111111111111';
+    const text = '分析 Spring Cloud 架构 的连线';
+    const start = text.indexOf('Spring Cloud 架构');
+    const path = createDrawingMentionPath(drawingId);
+    const result = createComposerAwareUserInput(text, [], [], [], [
+      {
+        drawingId,
+        end: start + 'Spring Cloud 架构'.length,
+        kind: 'drawing',
+        label: 'Spring Cloud 架构',
+        path,
+        start,
+      },
+    ]);
+
+    expect(result.text).toBe(`分析 ${path} 的连线`);
+    expect(result.textElements).toEqual([
+      {
+        byteRange: {
+          start: new TextEncoder().encode('分析 ').length,
+          end: new TextEncoder().encode(`分析 ${path}`).length,
+        },
+        placeholder: 'Spring Cloud 架构',
+      },
+    ]);
   });
 
   it('从历史消息隐藏原生附件头并恢复附件和插件提及', () => {

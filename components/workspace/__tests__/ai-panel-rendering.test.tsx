@@ -1080,7 +1080,9 @@ describe('AI message rendering', () => {
     await user.click(editor);
     await user.type(editor, '@READ');
 
-    const listbox = screen.getByRole('listbox', { name: '提及工作区文档' });
+    const listbox = screen.getByRole('listbox', {
+      name: '提及工作区文档或图稿',
+    });
     const menu = listbox.closest('[data-mention-menu]');
     expect(menu?.className).not.toContain('shadow-xl');
     expect(menu?.className).toContain('shadow-none');

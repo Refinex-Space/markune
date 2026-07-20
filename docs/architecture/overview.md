@@ -66,7 +66,7 @@ Markdown/HTML 相对图片只能从已授权源文档目录内读取；跨工作
 
 AI 面板是工作区级客户端，不在浏览器渲染器中运行 Node.js SDK，也不持有 OpenAI API key。Tauri 启动固定版本的 `codex app-server --listen stdio://`，账户登录、线程历史、模型目录、MCP、联网搜索、工具调用和文件变更由 App Server 提供。前端仅能调用 `src-tauri/src/codex.rs` 中的 allowlist 方法，并把消息、计划、命令、文件修改与 MCP 事件按协议到达顺序写入统一会话流；助手消息使用禁用原始 HTML 的 GFM 渲染。
 
-AI 画图是宿主内的受控 Codex 能力，不接入远程 Excalidraw MCP UI。随应用打包的 `madora-diagram` Skill 只负责图型选择、Mermaid 编排和最多两轮视觉修复；Rust 在新线程中固定注入 `madora_drawing.preview_mermaid` 与 `madora_drawing.create_from_preview`，渲染器不能提供其他 dynamic tools。预览按工作区保存在前端内存中，最多 3 个且 10 分钟有效；创建只能提交对应 opaque `previewId` 的已编译场景，不能替换定义。Mermaid 编译器只在工具调用时动态加载，成功结果必须是可编辑 Excalidraw 元素，SVG/image fallback 会作为失败返回。
+AI 画图是宿主内的受控 Codex 能力，不接入远程 Excalidraw MCP UI。随应用打包的 `madora-diagram` Skill 负责检查当前或显式提及图稿、图型选择、Mermaid 编排和最多两轮视觉修复；Rust 在新线程中固定注入 `madora_drawing.inspect_drawing`、`madora_drawing.preview_mermaid` 与 `madora_drawing.create_from_preview`，渲染器不能提供其他 dynamic tools。`inspect_drawing` 只接受当前 turn 已授权的 Drawing UUID，返回去除 files/blob 的有界元素结构和可选 PNG/WebP 预览；预览与创建流程不变。Mermaid 预览按工作区保存在前端内存中，最多 3 个且 10 分钟有效；创建只能提交对应 opaque `previewId` 的已编译场景，不能替换定义。Mermaid 编译器只在工具调用时动态加载，成功结果必须是可编辑 Excalidraw 元素，SVG/image fallback 会作为失败返回。
 
 生成图稿继续复用 Drawing Raw IPC，但使用独立 generated-create session。场景与 PNG/WebP 预览完整暂存并通过 Rust 校验后，revision 1 bundle 才从 `.staging` 原子 rename 到当前普通图集或未归类根目录；任何失败都不创建空白 bundle。成功后前端刷新图稿库、切换到 Drawings system page 并打开结果，后续保存、备份、冲突和导出完全复用普通图稿流程。
 
@@ -91,6 +91,8 @@ AI 文件修改以 App Server 事件为刷新事实源。`item/fileChange/patchU
 权限目录、企业要求和实验能力分别通过只读的 `permissionProfile/list`、`configRequirements/read` 与 `experimentalFeature/list` 发现。渲染器不能调用 App Server 的通用 `fs/*`、`command/exec`、`thread/shellCommand` 或通用配置读取/写入接口。命令、文件与权限升级 server request 由 Rust 保存服务端原始候选，前端只接收可展示的 opaque choice id；响应时 Rust 再映射回原候选，防止渲染器伪造 execpolicy、network policy、文件范围或权限对象。未知交互请求必须返回 JSON-RPC 错误并失败关闭，不能悬挂 turn。
 
 文档上下文采用路径引用，不复制文档正文。活动文档身份只取自当前编辑器文档标签保存的物理绝对路径；frontmatter `title` 只作为可读元数据，不参与身份解析，输入框和欢迎提示展示工作区相对路径。发送前必须确认该标签路径已经成为工作区当前加载文档，否则阻止 turn，避免快速切换标签时保存或引用上一份文档。前端把显式 `@` 文档在模型文本中编码为带引号的工作区相对路径，并用 `text_elements.placeholder` 保留文档链接；同时把编辑器当前活跃文档标为 `active`、显式提及标为 `mention`，只通过 Madora 私有字段提交给 Tauri。Rust canonicalize 并验证路径后，将固定语义策略写入 `madora_document_context_policy`（`application`），将活跃文档写入 `madora_active_document`、其他显式引用写入 `madora_explicit_document_references`（均为 `untrusted`）。因此“当前文档/本文”只解析为该 turn 的活跃文档，不从 frontmatter 标题、日期、最近文件或会话历史猜测；没有活跃文档时显式发送 `null` 以清除 App Server 的粘性上下文。Codex 仅在请求依赖文档内容时通过正常工作区工具读取，因此读取动作仍进入原生工具时间线。
+
+图稿上下文采用稳定 UUID，不复制原始 bundle。只有 Drawings system page 当前已加载的 descriptor 才能成为 `active`；发送 turn 前先 flush 画布，失败或 revision 冲突会阻止发送。`@` 菜单把图稿编码为 `madora-drawing://<uuid>` 文本并以 placeholder 保留标题，同时通过私有 `madoraDrawingReferences` 提交 active/mention 角色。Rust 从当前工作区重新解析非回收站 bundle，忽略前端标题和 revision，并将权威元数据分别写入 `madora_active_drawing` 与 `madora_explicit_drawing_references`（`untrusted`）。当前 turn 的 UUID 集合同时形成 `inspect_drawing` 临时授权；turn 完成、运行时退出、工作区切换或下一 turn 空引用都会清理。v1 只读理解来源图稿并创建新图稿，不增量覆盖当前场景。
 
 文档树重命名以用户确认的新名称为统一显示身份：原生层移动物理 `.md` 文件并更新已有 frontmatter `title` 与首个 H1，前端随后刷新树节点、迁移已打开 Tab、编辑器 session 和最近文档路径。若展示标题已经等于目标名称、但物理文件 stem 仍不一致，仍必须执行重命名；只有物理 stem 与文档标题均已一致时才视为无操作。没有 frontmatter `title` 的外部 Markdown 不因重命名新增该字段。
 

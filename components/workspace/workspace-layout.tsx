@@ -89,6 +89,7 @@ import type {
 } from './ai-panel-state';
 import { useWorkspace } from './use-workspace';
 import { useAiDrawingTools } from './use-ai-drawing-tools';
+import { drawingReferenceFromDescriptor } from './ai-drawing-inspector';
 import { useDrawingController } from './use-drawing-controller';
 import { useInboxController } from './use-inbox-controller';
 import { WorkspaceGlobalSearchDialog } from './workspace-global-search-dialog';
@@ -597,7 +598,7 @@ export function WorkspaceLayout({
     systemPage === 'codex' ? 'ai' : workspace.rightPanelMode;
 
   const drawings = useDrawingController({
-    active: systemPage === 'drawings',
+    active: systemPage === 'drawings' || effectiveRightPanelMode === 'ai',
     rootPath: workspaceRootPath,
   });
   const openDrawingFromLibrary = drawings.openDrawing;
@@ -617,6 +618,25 @@ export function WorkspaceLayout({
     onCreated: handleAiDrawingCreated,
     workspaceRootPath,
   });
+  const activeAiDrawing = React.useMemo(
+    () =>
+      systemPage === 'drawings' && drawings.descriptor
+        ? drawingReferenceFromDescriptor(drawings.descriptor)
+        : null,
+    [drawings.descriptor, systemPage],
+  );
+  const aiDrawingReferences = React.useMemo(
+    () =>
+      drawings.snapshot.drawings.map((drawing) => ({
+        albumPath: drawing.albumPath,
+        elementCount: drawing.elementCount,
+        hasPreview: drawing.hasPreview,
+        id: drawing.id,
+        revision: drawing.revision,
+        title: drawing.title,
+      })),
+    [drawings.snapshot.drawings],
+  );
 
   React.useEffect(() => {
     const handleOpenDrawing = (event: Event) => {
@@ -2347,20 +2367,33 @@ export function WorkspaceLayout({
   );
 
   const handleBeforeAiTurnStart = React.useCallback(
-    (expectedDocumentPath: string | null) => {
-      if (!expectedDocumentPath) {
-        return Promise.resolve(true);
+    async (
+      expectedDocumentPath: string | null,
+      expectedDrawingId: string | null,
+    ) => {
+      if (expectedDocumentPath) {
+        if (currentDocumentPathRef.current !== expectedDocumentPath) {
+          throw new Error(
+            '当前标签页尚未完成加载，无法安全发送给 Codex。请稍后重试。',
+          );
+        }
+        if (!(await workspace.prepareCurrentDocumentForAi())) return false;
       }
 
-      if (currentDocumentPathRef.current !== expectedDocumentPath) {
-        throw new Error(
-          '当前标签页尚未完成加载，无法安全发送给 Codex。请稍后重试。',
-        );
+      if (expectedDrawingId) {
+        if (
+          systemPage !== 'drawings' ||
+          drawings.descriptor?.meta.id !== expectedDrawingId
+        ) {
+          throw new Error(
+            '当前图稿尚未完成加载，无法安全发送给 Codex。请稍后重试。',
+          );
+        }
+        await drawings.flush();
       }
-
-      return workspace.prepareCurrentDocumentForAi();
+      return true;
     },
-    [workspace],
+    [drawings, systemPage, workspace],
   );
 
   const handleResolveAiDocumentConflict = React.useCallback(
@@ -2974,6 +3007,7 @@ export function WorkspaceLayout({
                   ) : null}
 
                   <RightSidePanel
+                    activeDrawing={activeAiDrawing}
                     aiPresentation={
                       systemPage === 'codex' ? 'workspace' : 'panel'
                     }
@@ -2998,6 +3032,7 @@ export function WorkspaceLayout({
                         ? flattenDocuments(workspace.snapshot.nodes)
                         : []
                     }
+                    drawings={aiDrawingReferences}
                     documentReadOnly={
                       activePanelDocument
                         ? getDocumentReadOnly(activePanelDocument.absolutePath)

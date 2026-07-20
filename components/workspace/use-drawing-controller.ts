@@ -573,6 +573,11 @@ export function useDrawingController({
     flushRef.current = flush;
   }, []);
 
+  const flush = React.useCallback(async () => {
+    await flushRef.current?.();
+    await saveQueueRef.current;
+  }, []);
+
   const recordViewport = React.useCallback(
     (viewport: DrawingViewport) => {
       if (!descriptor) return;
@@ -625,6 +630,7 @@ export function useDrawingController({
     descriptor,
     duplicate,
     error,
+    flush,
     importFiles,
     library,
     loading,

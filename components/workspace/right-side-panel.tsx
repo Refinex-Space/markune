@@ -36,6 +36,7 @@ import type {
   AiWorkspaceChangeEvent,
 } from './ai-panel-state';
 import type {
+  AiDrawingReference,
   RightPanelMode,
   WorkspaceNode,
   WorkspaceSearchResult,
@@ -51,6 +52,7 @@ export interface DocumentPanelData {
 }
 
 interface RightSidePanelProps {
+  activeDrawing?: AiDrawingReference | null;
   aiPresentation?: AiPanelPresentation;
   aiWorkspacePreview?: React.ReactNode;
   aiWorkspacePreviewWidth?: number;
@@ -58,11 +60,15 @@ interface RightSidePanelProps {
   currentDocumentPath: string | null;
   documentPanelData: DocumentPanelData | null;
   documents: WorkspaceSearchResult[];
+  drawings?: AiDrawingReference[];
   documentReadOnly: boolean;
   mode: RightPanelMode;
   width: number;
   workspaceRootPath: string | null;
-  onBeforeTurnStart: (documentPath: string | null) => Promise<boolean>;
+  onBeforeTurnStart: (
+    documentPath: string | null,
+    drawingId: string | null,
+  ) => Promise<boolean>;
   onDrawingToolCall?: (
     request: CodexDynamicToolRequest,
   ) => Promise<CodexDynamicToolResponse>;
@@ -84,6 +90,7 @@ interface RightToolRailProps {
 }
 
 export function RightSidePanel({
+  activeDrawing = null,
   aiPresentation = 'panel',
   aiWorkspacePreview,
   aiWorkspacePreviewWidth = 720,
@@ -91,6 +98,7 @@ export function RightSidePanel({
   currentDocumentPath,
   documentPanelData,
   documents,
+  drawings = [],
   documentReadOnly,
   mode,
   width,
@@ -125,9 +133,11 @@ export function RightSidePanel({
         <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
           <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
             <AiPanel
+              activeDrawing={activeDrawing}
               currentDocument={currentDocument}
               currentDocumentPath={currentDocumentPath}
               documents={documents}
+              drawings={drawings}
               presentation={aiPresentation}
               visible={aiVisible}
               workspaceRootPath={workspaceRootPath}

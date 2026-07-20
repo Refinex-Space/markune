@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-19
+updated: 2026-07-20
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -26,6 +26,7 @@ referenced_by: AGENTS.md#knowledge-map
 - Drawing save session: an opaque Rust-side staging transaction that receives scene and preview bytes through Raw IPC, validates revision and SHA-256, then atomically commits a new bundle revision.
 - Drawing snapshot: a content-addressed static WebP workspace asset used by Markdown references; later edits to the source drawing do not mutate the snapshot.
 - Drawing back-link: a stable `madora-drawing://{drawing-id}` link that opens the source drawing without depending on its title or album path.
+- Drawing context reference: a turn-scoped active or explicit `@` reference identified only by a stable Drawing UUID; Rust resolves authoritative metadata and authorizes bounded `inspect_drawing` access without exposing the bundle path.
 - Inbox: the workspace capture and triage center for Markdown fragments that are not yet formal notes, Daily entries, or tasks. Inbox search is separate from global document search.
 - Capture: one lightweight Markdown fragment stored under `.madora/inbox`, identified by its file name and carrying triage metadata in camelCase frontmatter.
 - Triage: deciding whether a Capture should remain open, be processed, be promoted to a Note, be appended to Daily, be completed, archived, or deleted. Legacy snoozed Captures remain recoverable as open items.

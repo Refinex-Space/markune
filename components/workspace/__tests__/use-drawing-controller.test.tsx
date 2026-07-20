@@ -65,6 +65,19 @@ afterEach(() => {
 });
 
 describe('useDrawingController', () => {
+  it('flushes the registered editor and waits for it to finish', async () => {
+    const { result, unmount } = renderHook(() =>
+      useDrawingController({ active: false, rootPath: null }),
+    );
+    const flush = vi.fn().mockResolvedValue(undefined);
+
+    act(() => result.current.registerFlush(flush));
+    await act(async () => result.current.flush());
+
+    expect(flush).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
   it('keeps repeated dirty notifications idempotent', () => {
     const { result, unmount } = renderHook(() =>
       useDrawingController({ active: false, rootPath: null }),

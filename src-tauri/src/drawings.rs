@@ -250,6 +250,17 @@ pub struct DrawingDocumentDescriptor {
     has_preview: bool,
 }
 
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AiDrawingReferenceMetadata {
+    drawing_id: String,
+    title: String,
+    album_path: String,
+    revision: u64,
+    element_count: usize,
+    has_preview: bool,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DrawingSaveSession {
@@ -319,6 +330,22 @@ pub fn read_drawing_meta(
     let root = canonical_workspace_root(&root_path)?;
     let bundle = locate_active_bundle(&root, &drawing_id)?;
     descriptor_for_bundle(&root, &bundle)
+}
+
+pub(crate) fn resolve_ai_drawing_reference(
+    root: &Path,
+    drawing_id: &str,
+) -> Result<AiDrawingReferenceMetadata, String> {
+    let bundle = locate_active_bundle(root, drawing_id)?;
+    let descriptor = descriptor_for_bundle(root, &bundle)?;
+    Ok(AiDrawingReferenceMetadata {
+        drawing_id: descriptor.meta.id,
+        title: descriptor.meta.title,
+        album_path: descriptor.album_path,
+        revision: descriptor.meta.revision,
+        element_count: descriptor.meta.element_count,
+        has_preview: descriptor.has_preview,
+    })
 }
 
 #[tauri::command]

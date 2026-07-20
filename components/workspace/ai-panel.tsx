@@ -140,6 +140,7 @@ import {
   conversationFromThread,
   buildConversationBlocks,
   createComposerAwareUserInput,
+  createDrawingMentionPath,
   createThreadTitle,
   createEmptyConversation,
   getOutputPreviewLines,
@@ -147,6 +148,7 @@ import {
   selectActiveTaskProgress,
   threadNameUpdateFromMessage,
   workspaceChangeEventFromProtocolMessage,
+  parseDrawingMentionPath,
   type AiActivityGroup,
   type AiApprovalRequest,
   type AiChangeSummaryBlock,
@@ -154,6 +156,7 @@ import {
   type AiConversationEntry,
   type AiConversationState,
   type AiFileChange,
+  type AiDrawingInputMention,
   type AiMessageAttachment,
   type AiMessageMention,
   type AiPluginInputMention,
@@ -175,14 +178,19 @@ import {
   isTauriRuntime,
   openUrlInDefaultBrowser,
 } from './workspace-api';
-import type { WorkspaceNode } from './workspace-types';
+import type { AiDrawingReference, WorkspaceNode } from './workspace-types';
 
 interface AiPanelProps {
+  activeDrawing?: AiDrawingReference | null;
   currentDocument: WorkspaceNode | null;
   currentDocumentPath: string | null;
   documents: AiDocumentReference[];
+  drawings?: AiDrawingReference[];
   workspaceRootPath: string | null;
-  onBeforeTurnStart: (documentPath: string | null) => Promise<boolean>;
+  onBeforeTurnStart: (
+    documentPath: string | null,
+    drawingId: string | null,
+  ) => Promise<boolean>;
   onDrawingToolCall?: (
     request: CodexDynamicToolRequest,
   ) => Promise<CodexDynamicToolResponse>;
@@ -203,6 +211,8 @@ type AiDocumentReference = Pick<
 type AiComposerDocumentMention = AiDocumentReference &
   AiMessageMention & { kind: 'document' };
 
+type AiComposerDrawingMention = AiDrawingReference & AiDrawingInputMention;
+
 type AiComposerPluginMention = AiPluginInputMention & {
   description: string | null;
   id: string;
@@ -216,6 +226,7 @@ type AiComposerSkillMention = AiSkillInputMention & {
 
 type AiComposerMention =
   | AiComposerDocumentMention
+  | AiComposerDrawingMention
   | AiComposerPluginMention
   | AiComposerSkillMention;
 
@@ -236,6 +247,11 @@ interface AiSkillMentionOption {
   scope: CodexSkillScope;
 }
 
+interface ComposerSkillInsertRequest {
+  id: number;
+  skill: AiSkillMentionOption;
+}
+
 type CodexPluginInterface = NonNullable<
   CodexPluginInstalledResponse['marketplaces'][number]['plugins'][number]['interface']
 >;
@@ -249,6 +265,10 @@ interface ComposerMentionTarget {
 
 const mentionLinkClassName =
   'mx-0.5 inline cursor-pointer select-none rounded-sm border-0 bg-transparent p-0 [font:inherit] leading-[inherit] text-left text-[#3574f0] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3574f0]/35';
+const composerMentionClassName = cn(
+  mentionLinkClassName,
+  'inline-flex items-center gap-1 whitespace-nowrap align-middle',
+);
 const GOAL_COMMAND_SELECTION = 'madora:goal-mode';
 const COMPACT_COMMAND_SELECTION = 'madora:compact-context';
 const GOAL_OBJECTIVE_MAX_LENGTH = 4_000;
@@ -505,9 +525,11 @@ function collaborationModeForTurn(
 }
 
 export function AiPanel({
+  activeDrawing = null,
   currentDocument,
   currentDocumentPath,
   documents,
+  drawings = [],
   workspaceRootPath,
   onBeforeTurnStart,
   onDrawingToolCall,
@@ -591,6 +613,8 @@ export function AiPanel({
   const [skillOptions, setSkillOptions] = React.useState<
     AiSkillMentionOption[]
   >([]);
+  const [composerSkillInsertRequest, setComposerSkillInsertRequest] =
+    React.useState<ComposerSkillInsertRequest | null>(null);
   const [mentionQuery, setMentionQuery] = React.useState<string | null>(null);
   const [historyQuery, setHistoryQuery] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
@@ -623,7 +647,12 @@ export function AiPanel({
   const submittingRef = React.useRef(false);
   const runtimeGenerationRef = React.useRef(0);
   const pluginLoadGenerationRef = React.useRef<number | null>(null);
+  const skillRootRegistrationRef = React.useRef<{
+    generation: number;
+    promise: Promise<void>;
+  } | null>(null);
   const skillLoadRequestRef = React.useRef(0);
+  const composerSkillInsertRequestIdRef = React.useRef(0);
   const selectedAttachmentsRef = React.useRef<CodexContextAttachment[]>([]);
   const threadTokenUsageRef = React.useRef<
     Record<string, CodexThreadTokenUsage>
@@ -735,6 +764,50 @@ export function AiPanel({
       preferredPath: currentDocument?.absolutePath,
     });
   }, [currentDocument, documents, mentionQuery, selectedMentions]);
+
+  const filteredMentionDrawings = React.useMemo(() => {
+    const excludedPaths = new Set(
+      selectedMentions
+        .filter(isDrawingComposerMention)
+        .map((drawing) => drawing.path),
+    );
+    return rankMentionDocuments(
+      drawings.map((drawing) => ({
+        ...drawing,
+        absolutePath: createDrawingMentionPath(drawing.id),
+        name: drawing.title,
+        relativePath: drawing.albumPath || '未归类',
+      })),
+      mentionQuery ?? '',
+      {
+        excludedPaths,
+        preferredPath: activeDrawing
+          ? createDrawingMentionPath(activeDrawing.id)
+          : null,
+      },
+    ).map((drawing) => ({
+      albumPath: drawing.albumPath,
+      elementCount: drawing.elementCount,
+      hasPreview: drawing.hasPreview,
+      id: drawing.id,
+      revision: drawing.revision,
+      title: drawing.title,
+    }));
+  }, [activeDrawing, drawings, mentionQuery, selectedMentions]);
+
+  const openMention = React.useCallback(
+    (path: string) => {
+      const drawingId = parseDrawingMentionPath(path);
+      if (drawingId) {
+        window.dispatchEvent(
+          new CustomEvent('madora:open-drawing', { detail: { drawingId } }),
+        );
+        return;
+      }
+      onOpenDocument(path);
+    },
+    [onOpenDocument],
+  );
 
   const visibleThreads = React.useMemo(() => {
     const query = historyQuery.trim().toLocaleLowerCase();
@@ -1214,13 +1287,27 @@ export function AiPanel({
       runtimeStatusRef.current !== 'ready' ||
       generation !== runtimeGenerationRef.current
     ) {
-      return;
+      return null;
     }
     const requestId = skillLoadRequestRef.current + 1;
     skillLoadRequestRef.current = requestId;
     setSkillStatus('loading');
     try {
-      await codexAppServerClient.request('skills/extraRoots/set', {});
+      let registration = skillRootRegistrationRef.current;
+      if (!registration || registration.generation !== generation) {
+        const promise = Promise.resolve()
+          .then(() => codexAppServerClient.request('skills/extraRoots/set', {}))
+          .then(() => undefined);
+        const nextRegistration = { generation, promise };
+        skillRootRegistrationRef.current = nextRegistration;
+        void promise.catch(() => {
+          if (skillRootRegistrationRef.current === nextRegistration) {
+            skillRootRegistrationRef.current = null;
+          }
+        });
+        registration = nextRegistration;
+      }
+      await registration.promise;
       const response = await codexAppServerClient.request<CodexSkillsListResponse>(
         'skills/list',
         { cwds: [workspaceRootPath], forceReload },
@@ -1229,29 +1316,29 @@ export function AiPanel({
         generation !== runtimeGenerationRef.current ||
         requestId !== skillLoadRequestRef.current
       ) {
-        return;
+        return null;
       }
-      setSkillOptions(
-        uniqueSkillOptions(
-          response.data.flatMap((entry) =>
-            entry.skills
-              .filter((skill) => skill.enabled)
-              .map((skill) => ({
-                description:
-                  skill.interface?.shortDescription?.trim() ||
-                  skill.shortDescription?.trim() ||
-                  skill.description,
-                displayName:
-                  skill.interface?.displayName?.trim() ||
-                  formatSkillDisplayName(skill.name),
-                name: skill.name,
-                path: skill.path,
-                scope: skill.scope,
-              })),
-          ),
+      const options = uniqueSkillOptions(
+        response.data.flatMap((entry) =>
+          entry.skills
+            .filter((skill) => skill.enabled)
+            .map((skill) => ({
+              description:
+                skill.interface?.shortDescription?.trim() ||
+                skill.shortDescription?.trim() ||
+                skill.description,
+              displayName:
+                skill.interface?.displayName?.trim() ||
+                formatSkillDisplayName(skill.name),
+              name: skill.name,
+              path: skill.path,
+              scope: skill.scope,
+            })),
         ),
       );
+      setSkillOptions(options);
       setSkillStatus('ready');
+      return options;
     } catch {
       if (
         generation !== runtimeGenerationRef.current ||
@@ -1260,6 +1347,7 @@ export function AiPanel({
         return;
       }
       setSkillStatus('error');
+      return null;
     }
   }, [workspaceRootPath]);
 
@@ -1336,6 +1424,7 @@ export function AiPanel({
     const generation = runtimeGenerationRef.current + 1;
     runtimeGenerationRef.current = generation;
     pluginLoadGenerationRef.current = null;
+    skillRootRegistrationRef.current = null;
     skillLoadRequestRef.current += 1;
     const nextRuntimeStatus: RuntimeStatus = !workspaceRootPath
       ? 'error'
@@ -1362,6 +1451,7 @@ export function AiPanel({
       selectedAttachmentsRef.current = [];
       setSelectedAttachments([]);
       setComposerValue('');
+      setComposerSkillInsertRequest(null);
       permissionSettingsRef.current = DEFAULT_PERMISSION_SETTINGS;
       setPermissionSettings(DEFAULT_PERMISSION_SETTINGS);
       setModelCatalogStatus('idle');
@@ -1671,6 +1761,8 @@ export function AiPanel({
     setConversation(createEmptyConversation());
     setSelectedMentions([]);
     setComposerValue('');
+    composerSkillInsertRequestIdRef.current += 1;
+    setComposerSkillInsertRequest(null);
     goalDraftModeRef.current = false;
     setGoalDraftMode(false);
     permissionSettingsRef.current = DEFAULT_PERMISSION_SETTINGS;
@@ -1681,28 +1773,37 @@ export function AiPanel({
 
   const startNewDiagram = React.useCallback(() => {
     startNewChat();
-    const skill = skillOptions.find((candidate) => candidate.name === 'madora-diagram');
-    if (!skill) {
-      setRuntimeError('AI 画图 Skill 尚未加载，请稍后重试。');
-      return;
-    }
-    const label = '$madora-diagram';
-    setComposerValue(`${label} `);
-    setSelectedMentions([
-      {
-        description: skill.description,
-        displayName: skill.displayName,
-        end: label.length,
-        kind: 'skill',
-        label,
-        name: skill.name,
-        path: skill.path,
-        scope: skill.scope,
-        start: 0,
-      },
-    ]);
-    setComposerFocusRequest((current) => current + 1);
-  }, [skillOptions, startNewChat]);
+    setRuntimeError(null);
+    const requestId = composerSkillInsertRequestIdRef.current;
+    void (async () => {
+      let skill = skillOptions.find(
+        (candidate) => candidate.name === 'madora-diagram',
+      );
+      if (!skill) {
+        try {
+          await runtimeReadyPromiseRef.current;
+        } catch (error) {
+          if (requestId === composerSkillInsertRequestIdRef.current) {
+            setRuntimeError(getErrorMessage(error));
+          }
+          return;
+        }
+        const options = await loadSkills(runtimeGenerationRef.current, true);
+        skill = options?.find(
+          (candidate) => candidate.name === 'madora-diagram',
+        );
+      }
+      if (requestId !== composerSkillInsertRequestIdRef.current) {
+        return;
+      }
+      if (!skill) {
+        setRuntimeError('AI 画图 Skill 加载失败，请重试或重启 Madora。');
+        return;
+      }
+      setComposerSkillInsertRequest({ id: requestId, skill });
+      setComposerFocusRequest((current) => current + 1);
+    })();
+  }, [loadSkills, skillOptions, startNewChat]);
 
   const openThread = React.useCallback(async (thread: CodexThread) => {
     void releaseCodexContextAttachments(
@@ -1784,16 +1885,21 @@ export function AiPanel({
       const text = (messageOverride ?? composerValue).trim();
       const activeDocument = currentDocument;
       const activeDocumentPath = currentDocumentPath;
+      const currentDrawing = activeDrawing;
       const attachments = options.planAction
         ? []
         : selectedAttachmentsRef.current;
       const composerMentions = options.planAction ? [] : selectedMentions;
+      const needsDrawingTools =
+        Boolean(currentDrawing) ||
+        composerMentions.some(isDrawingComposerMention);
       const forceNewThread =
         Boolean(options.forceNewThread) ||
         composerMentions.some(
           (mention) =>
             isSkillComposerMention(mention) && mention.name === 'madora-diagram',
-        );
+        ) ||
+        (needsDrawingTools && Boolean(activeThread) && !activeThreadSupportsDrawing);
       const previousConversation = conversationRef.current;
       const previousThread = activeThread;
       const startingGoal =
@@ -1852,9 +1958,12 @@ export function AiPanel({
           );
         }
 
-        const ready = await onBeforeTurnStart(activeDocumentPath);
+        const ready = await onBeforeTurnStart(
+          activeDocumentPath,
+          currentDrawing?.id ?? null,
+        );
         if (!ready) {
-          throw new Error('当前文档保存失败，未发送消息。请先处理保存错误。');
+          throw new Error('当前内容保存失败，未发送消息。请先处理保存错误。');
         }
 
         const documentMentions = composerMentions.filter(
@@ -1866,15 +1975,22 @@ export function AiPanel({
         const skillMentions = composerMentions.filter(
           isSkillComposerMention,
         );
+        const drawingMentions = composerMentions.filter(
+          isDrawingComposerMention,
+        );
         const explicitDocuments = uniqueDocuments(documentMentions).filter(
           (document) =>
             document.absolutePath !== activeDocumentPath,
+        );
+        const explicitDrawings = uniqueDrawings(drawingMentions).filter(
+          (drawing) => drawing.id !== currentDrawing?.id,
         );
         const userInput = createComposerAwareUserInput(
           text,
           documentMentions,
           pluginMentions,
           skillMentions,
+          drawingMentions,
         );
         const currentPermissionSettings = permissionSettingsRef.current;
         const currentModel = selectedModelRef.current;
@@ -2023,6 +2139,15 @@ export function AiPanel({
                 role: 'mention',
               })),
             ],
+            madoraDrawingReferences: [
+              ...(currentDrawing
+                ? [{ drawingId: currentDrawing.id, role: 'active' }]
+                : []),
+              ...explicitDrawings.map((drawing) => ({
+                drawingId: drawing.id,
+                role: 'mention',
+              })),
+            ],
             cwd: workspaceRootPath,
             ...(requestedCollaborationMode
               ? { collaborationMode: requestedCollaborationMode }
@@ -2099,9 +2224,11 @@ export function AiPanel({
     },
     [
       activeThread,
+      activeThreadSupportsDrawing,
       composerValue,
       currentDocument,
       currentDocumentPath,
+      activeDrawing,
       models,
       onBeforeTurnStart,
       selectedMentions,
@@ -2302,7 +2429,7 @@ export function AiPanel({
               runtimeStatus={runtimeStatus}
               signingIn={signingIn}
               onApprove={approve}
-              onOpenDocument={onOpenDocument}
+              onOpenDocument={openMention}
               onOpenPlanPreview={(plan) =>
                 onOpenPlanPreview(
                   plan,
@@ -2362,6 +2489,7 @@ export function AiPanel({
 
             <AiComposer
               active={Boolean(conversation.activeTurnId)}
+              currentDrawing={activeDrawing}
               collaborationMode={collaborationMode}
               compacting={compactingThreadId === activeThread?.id}
               compactUnavailableReason={compactUnavailableReason}
@@ -2369,11 +2497,13 @@ export function AiPanel({
               currentDocument={currentDocument}
               effort={effort}
               focusRequest={composerFocusRequest}
+              skillInsertRequest={composerSkillInsertRequest}
               goalActive={Boolean(activeGoal)}
               goalDraftMode={goalDraftMode}
               goalUnavailableReason={goalEntryUnavailableReason}
               attachments={selectedAttachments}
               mentionDocuments={filteredMentionDocuments}
+              mentionDrawings={filteredMentionDrawings}
               mentionQuery={mentionQuery}
               modelCatalogStatus={modelCatalogStatus}
               models={models}
@@ -2432,7 +2562,7 @@ export function AiPanel({
                 }
               }}
               onPermissionModeChange={(mode) => void changePermissionMode(mode)}
-              onOpenMention={onOpenDocument}
+              onOpenMention={openMention}
               onSend={() => void sendMessage()}
               onValueChange={(value) => {
                 setComposerValue(value);
@@ -3676,6 +3806,8 @@ function MessageMentionIcon({
         src={
           mention.kind === 'skill'
             ? '/icons/mentions/box.svg'
+            : mention.kind === 'drawing'
+              ? '/icons/mentions/box.svg'
             : '/icons/mentions/file-text.svg'
         }
       />
@@ -5079,12 +5211,14 @@ export function AiComposer({
   compactUnavailableReason = null,
   contextUsage = null,
   currentDocument,
+  currentDrawing = null,
   effort,
   focusRequest = 0,
   goalActive = false,
   goalDraftMode = false,
   goalUnavailableReason = null,
   mentionDocuments,
+  mentionDrawings = [],
   mentionQuery,
   modeSwitchDisabled = false,
   modelCatalogStatus = 'ready',
@@ -5101,6 +5235,7 @@ export function AiComposer({
   runtimeStatus,
   selectedModel,
   selectedModelInfo,
+  skillInsertRequest = null,
   skillOptions = [],
   skillStatus = 'idle',
   submitting,
@@ -5131,12 +5266,14 @@ export function AiComposer({
   compactUnavailableReason?: string | null;
   contextUsage?: CodexThreadTokenUsage | null;
   currentDocument: WorkspaceNode | null;
+  currentDrawing?: AiDrawingReference | null;
   effort: CodexReasoningEffort;
   focusRequest?: number;
   goalActive?: boolean;
   goalDraftMode?: boolean;
   goalUnavailableReason?: string | null;
   mentionDocuments: AiDocumentReference[];
+  mentionDrawings?: AiDrawingReference[];
   mentionQuery: string | null;
   modeSwitchDisabled?: boolean;
   modelCatalogStatus?: ControlLoadStatus;
@@ -5153,6 +5290,7 @@ export function AiComposer({
   runtimeStatus: RuntimeStatus;
   selectedModel: string;
   selectedModelInfo: CodexModel | null;
+  skillInsertRequest?: ComposerSkillInsertRequest | null;
   skillOptions?: AiSkillMentionOption[];
   skillStatus?: ControlLoadStatus;
   submitting: boolean;
@@ -5190,6 +5328,7 @@ export function AiComposer({
   const mentionTargetRef = React.useRef<ComposerMentionTarget | null>(null);
   const dismissedMentionKeyRef = React.useRef<string | null>(null);
   const mentionPathsRef = React.useRef<string[]>([]);
+  const appliedSkillInsertRequestIdRef = React.useRef<number | null>(null);
   const [composerMentionPaths, setComposerMentionPaths] = React.useState<
     string[]
   >([]);
@@ -5216,7 +5355,7 @@ export function AiComposer({
     ? '桌面端连接 Codex 后可用'
     : goalDraftMode
     ? '描述你的目标，定义可衡量的成果，以获得最佳效果'
-    : '要求后续变更，使用 @ 提及文档，/ 选择 Skill';
+    : '要求后续变更，使用 @ 提及文档或图稿，/ 选择 Skill';
 
   React.useEffect(() => {
     if (focusRequest > 0 && !editorDisabled) {
@@ -5304,7 +5443,7 @@ export function AiComposer({
   }, [value]);
 
   const insertMention = React.useCallback(
-    (document: AiDocumentReference) => {
+    (reference: AiDocumentReference | AiDrawingReference) => {
       const editor = editorRef.current;
       if (!editor) {
         return;
@@ -5318,7 +5457,9 @@ export function AiComposer({
           : getComposerRange(editor, savedRangeRef.current);
       range.deleteContents();
 
-      const mention = createDocumentMentionElement(document);
+      const mention = isDrawingReference(reference)
+        ? createDrawingMentionElement(reference)
+        : createDocumentMentionElement(reference);
       const trailingSpace = window.document.createTextNode('\u00a0');
       range.insertNode(mention);
       mention.after(trailingSpace);
@@ -5398,6 +5539,25 @@ export function AiComposer({
     [onMentionQueryChange, syncEditorState],
   );
 
+  React.useLayoutEffect(() => {
+    const editor = editorRef.current;
+    if (
+      !editor ||
+      !skillInsertRequest ||
+      appliedSkillInsertRequestIdRef.current === skillInsertRequest.id
+    ) {
+      return;
+    }
+    appliedSkillInsertRequestIdRef.current = skillInsertRequest.id;
+    editor.replaceChildren();
+    savedRangeRef.current = null;
+    mentionTargetRef.current = null;
+    dismissedMentionKeyRef.current = null;
+    mentionPathsRef.current = [];
+    setComposerMentionPaths([]);
+    insertSkillMention(skillInsertRequest.skill);
+  }, [insertSkillMention, skillInsertRequest]);
+
   const runCompactCommand = React.useCallback(() => {
     if (compactUnavailableReason) return;
     const editor = editorRef.current;
@@ -5461,26 +5621,41 @@ export function AiComposer({
     setSkillQuery(null);
   }, [onMentionQueryChange]);
 
+  const mentionOptions = React.useMemo(
+    () => [
+      ...mentionDocuments.map((reference) => ({
+        kind: 'document' as const,
+        path: reference.absolutePath,
+        reference,
+      })),
+      ...mentionDrawings.map((reference) => ({
+        kind: 'drawing' as const,
+        path: createDrawingMentionPath(reference.id),
+        reference,
+      })),
+    ],
+    [mentionDocuments, mentionDrawings],
+  );
   const selectedMentionIndex =
     mentionSelection.query === mentionQuery
-      ? mentionDocuments.findIndex(
-          (document) => document.absolutePath === mentionSelection.path,
+      ? mentionOptions.findIndex(
+          (option) => option.path === mentionSelection.path,
         )
       : -1;
   const activeMentionIndex =
-    mentionDocuments.length === 0 ? -1 : Math.max(0, selectedMentionIndex);
+    mentionOptions.length === 0 ? -1 : Math.max(0, selectedMentionIndex);
   const activeMention =
     activeMentionIndex >= 0
-      ? (mentionDocuments[activeMentionIndex] ?? null)
+      ? (mentionOptions[activeMentionIndex]?.reference ?? null)
       : null;
   const selectMentionIndex = React.useCallback(
     (index: number) => {
       setMentionSelection({
-        path: mentionDocuments[index]?.absolutePath ?? null,
+        path: mentionOptions[index]?.path ?? null,
         query: mentionQuery,
       });
     },
-    [mentionDocuments, mentionQuery],
+    [mentionOptions, mentionQuery],
   );
   const visibleSkills = React.useMemo(
     () =>
@@ -5569,7 +5744,9 @@ export function AiComposer({
           <MentionMenu
             activeIndex={activeMentionIndex}
             currentDocumentPath={currentDocument?.absolutePath ?? null}
+            currentDrawingId={currentDrawing?.id ?? null}
             documents={mentionDocuments}
+            drawings={mentionDrawings}
             listboxId={mentionListboxId}
             query={mentionQuery}
             onActiveIndexChange={selectMentionIndex}
@@ -5578,12 +5755,23 @@ export function AiComposer({
           />
         ) : null}
 
-        {currentDocument || attachments.length > 0 ? (
+        {currentDocument || currentDrawing || attachments.length > 0 ? (
           <div className="flex flex-wrap gap-1 px-3 pt-2.5">
             {currentDocument ? (
               <ContextChip
                 label={getDocumentContextLabel(currentDocument)}
                 title={getDocumentContextTitle(currentDocument)}
+              />
+            ) : null}
+            {currentDrawing ? (
+              <ContextChip
+                icon={<Blocks size={11} />}
+                label={currentDrawing.title}
+                title={
+                  currentDrawing.albumPath
+                    ? `${currentDrawing.title} · ${currentDrawing.albumPath}`
+                    : currentDrawing.title
+                }
               />
             ) : null}
             {attachments.map((attachment) => (
@@ -5635,7 +5823,10 @@ export function AiComposer({
             const mention = findMentionElement(event.target);
             if (mention) {
               event.preventDefault();
-              if (mention.dataset.mentionKind === 'document') {
+              if (
+                mention.dataset.mentionKind === 'document' ||
+                mention.dataset.mentionKind === 'drawing'
+              ) {
                 onOpenMention(mention.dataset.mentionPath ?? '');
               }
               return;
@@ -5653,7 +5844,10 @@ export function AiComposer({
             const mention = findMentionElement(event.target);
             if (mention && (event.key === 'Enter' || event.key === ' ')) {
               event.preventDefault();
-              if (mention.dataset.mentionKind === 'document') {
+              if (
+                mention.dataset.mentionKind === 'document' ||
+                mention.dataset.mentionKind === 'drawing'
+              ) {
                 onOpenMention(mention.dataset.mentionPath ?? '');
               }
               return;
@@ -5671,12 +5865,12 @@ export function AiComposer({
                     (activeMenuIndex + direction + menuOptionCount) %
                       menuOptionCount,
                   );
-                } else if (mentionDocuments.length > 0) {
+                } else if (mentionOptions.length > 0) {
                   selectMentionIndex(
                     (activeMentionIndex +
                       direction +
-                      mentionDocuments.length) %
-                      mentionDocuments.length,
+                      mentionOptions.length) %
+                      mentionOptions.length,
                   );
                 }
                 return;
@@ -6309,7 +6503,9 @@ function ContextUsageProgress({
 function MentionMenu({
   activeIndex,
   currentDocumentPath,
+  currentDrawingId,
   documents,
+  drawings,
   listboxId,
   query,
   onActiveIndexChange,
@@ -6318,12 +6514,14 @@ function MentionMenu({
 }: {
   activeIndex: number;
   currentDocumentPath: string | null;
+  currentDrawingId: string | null;
   documents: AiDocumentReference[];
+  drawings: AiDrawingReference[];
   listboxId: string;
   query: string;
   onActiveIndexChange: (index: number) => void;
   onClose: () => void;
-  onSelect: (document: AiDocumentReference) => void;
+  onSelect: (reference: AiDocumentReference | AiDrawingReference) => void;
 }) {
   const optionRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
 
@@ -6340,7 +6538,7 @@ function MentionMenu({
       data-mention-menu
     >
       <div className="flex items-center justify-between px-2 py-1.5 text-[11px] text-muted-foreground">
-        <span>@ 提及文档{query ? ` · ${query}` : ''}</span>
+        <span>@ 提及文档或图稿{query ? ` · ${query}` : ''}</span>
         <button
           aria-label="关闭提及列表"
           className="rounded-sm p-0.5 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -6352,66 +6550,127 @@ function MentionMenu({
         </button>
       </div>
       <div
-        aria-label="提及工作区文档"
+        aria-label="提及工作区文档或图稿"
         className="scrollbar-thin max-h-56 overflow-y-auto"
         id={listboxId}
         role="listbox"
       >
-        {documents.length === 0 ? (
+        {documents.length === 0 && drawings.length === 0 ? (
           <div className="px-2 py-5 text-center text-xs text-muted-foreground">
-            没有匹配的文档
+            没有匹配的文档或图稿
           </div>
         ) : (
-          documents.map((document, index) => {
-            const isCurrentDocument =
-              document.absolutePath === currentDocumentPath;
-            return (
-              <button
-                aria-label={`提及 ${document.title || document.name}${isCurrentDocument ? '，当前文档' : ''}`}
-                aria-selected={index === activeIndex}
-                className={cn(
-                  'flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left outline-none',
-                  index === activeIndex
-                    ? 'bg-accent text-accent-foreground'
-                    : 'hover:bg-accent/60',
-                )}
-                id={mentionOptionId(listboxId, index)}
-                key={document.absolutePath}
-                ref={(element) => {
-                  optionRefs.current[index] = element;
-                }}
-                role="option"
-                type="button"
-                onMouseDown={(event) => event.preventDefault()}
-                onMouseMove={() => onActiveIndexChange(index)}
-                onClick={() => onSelect(document)}
-              >
-                <FileText className="shrink-0 text-muted-foreground" size={14} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex min-w-0 items-center gap-1.5 text-xs">
-                    <span className="truncate">
-                      <MentionMatchedText
-                        query={query}
-                        text={document.title || document.name}
-                      />
-                    </span>
-                    {isCurrentDocument ? (
-                      <span className="shrink-0 rounded border border-border/70 bg-muted/45 px-1 py-0.5 text-[9px] leading-none text-muted-foreground">
-                        当前文档
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="truncate text-[10px] text-muted-foreground">
-                    <MentionMatchedText
-                      query={query}
-                      text={document.relativePath}
-                    />
-                  </div>
-                </div>
-              </button>
-            );
-          })
+          <>
+            {documents.length > 0 ? (
+              <div className="px-2 pb-1 pt-1.5 text-[10px] font-medium text-muted-foreground">
+                文档
+              </div>
+            ) : null}
+            {documents.map((document, index) => {
+              const isCurrentDocument =
+                document.absolutePath === currentDocumentPath;
+              return (
+                <button
+                  aria-label={`提及 ${document.title || document.name}${isCurrentDocument ? '，当前文档' : ''}`}
+                  aria-selected={index === activeIndex}
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left outline-none',
+                    index === activeIndex
+                      ? 'bg-accent text-accent-foreground'
+                      : 'hover:bg-accent/60',
+                  )}
+                  id={mentionOptionId(listboxId, index)}
+                  key={document.absolutePath}
+                  ref={(element) => {
+                    optionRefs.current[index] = element;
+                  }}
+                  role="option"
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onMouseMove={() => onActiveIndexChange(index)}
+                  onClick={() => onSelect(document)}
+                >
+                  <FileText className="shrink-0 text-muted-foreground" size={14} />
+                  <MentionOptionText
+                    badge={isCurrentDocument ? '当前文档' : null}
+                    detail={document.relativePath}
+                    label={document.title || document.name}
+                    query={query}
+                  />
+                </button>
+              );
+            })}
+            {drawings.length > 0 ? (
+              <div className="px-2 pb-1 pt-2 text-[10px] font-medium text-muted-foreground">
+                图稿
+              </div>
+            ) : null}
+            {drawings.map((drawing, drawingIndex) => {
+              const index = documents.length + drawingIndex;
+              const isCurrentDrawing = drawing.id === currentDrawingId;
+              return (
+                <button
+                  aria-label={`提及 ${drawing.title}${isCurrentDrawing ? '，当前图稿' : ''}`}
+                  aria-selected={index === activeIndex}
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left outline-none',
+                    index === activeIndex
+                      ? 'bg-accent text-accent-foreground'
+                      : 'hover:bg-accent/60',
+                  )}
+                  id={mentionOptionId(listboxId, index)}
+                  key={drawing.id}
+                  ref={(element) => {
+                    optionRefs.current[index] = element;
+                  }}
+                  role="option"
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onMouseMove={() => onActiveIndexChange(index)}
+                  onClick={() => onSelect(drawing)}
+                >
+                  <Blocks className="shrink-0 text-muted-foreground" size={14} />
+                  <MentionOptionText
+                    badge={isCurrentDrawing ? '当前图稿' : null}
+                    detail={drawing.albumPath || '未归类'}
+                    label={drawing.title}
+                    query={query}
+                  />
+                </button>
+              );
+            })}
+          </>
         )}
+      </div>
+    </div>
+  );
+}
+
+function MentionOptionText({
+  badge,
+  detail,
+  label,
+  query,
+}: {
+  badge: string | null;
+  detail: string;
+  label: string;
+  query: string;
+}) {
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 items-center gap-1.5 text-xs">
+        <span className="truncate">
+          <MentionMatchedText query={query} text={label} />
+        </span>
+        {badge ? (
+          <span className="shrink-0 rounded border border-border/70 bg-muted/45 px-1 py-0.5 text-[9px] leading-none text-muted-foreground">
+            {badge}
+          </span>
+        ) : null}
+      </div>
+      <div className="truncate text-[10px] text-muted-foreground">
+        <MentionMatchedText query={query} text={detail} />
       </div>
     </div>
   );
@@ -6712,7 +6971,7 @@ function createDocumentMentionElement(document: AiDocumentReference) {
   const mention = window.document.createElement('span');
   const label = getDocumentContextLabel(document);
 
-  mention.className = mentionLinkClassName;
+  mention.className = composerMentionClassName;
   mention.contentEditable = 'false';
   mention.dataset.mentionId = document.id;
   mention.dataset.mentionKind = 'document';
@@ -6727,6 +6986,32 @@ function createDocumentMentionElement(document: AiDocumentReference) {
   mention.tabIndex = 0;
   appendMentionImage(mention, '/icons/mentions/file-text.svg');
   mention.append(window.document.createTextNode(label));
+
+  return mention;
+}
+
+function createDrawingMentionElement(drawing: AiDrawingReference) {
+  const mention = window.document.createElement('span');
+
+  mention.className = composerMentionClassName;
+  mention.contentEditable = 'false';
+  mention.dataset.mentionAlbumPath = drawing.albumPath;
+  mention.dataset.mentionElementCount = String(drawing.elementCount);
+  mention.dataset.mentionHasPreview = String(drawing.hasPreview);
+  mention.dataset.mentionId = drawing.id;
+  mention.dataset.mentionKind = 'drawing';
+  mention.dataset.mentionLabel = drawing.title;
+  mention.dataset.mentionName = drawing.title;
+  mention.dataset.mentionPath = createDrawingMentionPath(drawing.id);
+  mention.dataset.mentionRevision = String(drawing.revision);
+  mention.setAttribute('aria-label', drawing.title);
+  mention.setAttribute('role', 'link');
+  mention.title = drawing.albumPath
+    ? `${drawing.title} · ${drawing.albumPath}`
+    : drawing.title;
+  mention.tabIndex = 0;
+  appendMentionImage(mention, '/icons/mentions/box.svg');
+  mention.append(window.document.createTextNode(drawing.title));
 
   return mention;
 }
@@ -6746,7 +7031,7 @@ function createPluginMentionElement(plugin: AiPluginMentionOption) {
   const mention = window.document.createElement('span');
   const label = plugin.displayName;
 
-  mention.className = cn(mentionLinkClassName, 'cursor-default no-underline');
+  mention.className = cn(composerMentionClassName, 'cursor-default no-underline');
   mention.contentEditable = 'false';
   mention.dataset.mentionDescription = plugin.description ?? '';
   mention.dataset.mentionId = plugin.id;
@@ -6782,7 +7067,7 @@ function createPluginMentionElement(plugin: AiPluginMentionOption) {
 function createSkillMentionElement(skill: AiSkillMentionOption) {
   const mention = window.document.createElement('span');
 
-  mention.className = cn(mentionLinkClassName, 'cursor-default no-underline');
+  mention.className = cn(composerMentionClassName, 'cursor-default no-underline');
   mention.contentEditable = 'false';
   mention.dataset.mentionDescription = skill.description;
   mention.dataset.mentionKind = 'skill';
@@ -6945,7 +7230,25 @@ function readComposerSnapshot(editor: HTMLElement) {
       const label = node.dataset.mentionLabel ?? node.textContent ?? '';
       const start = value.length;
       value += label;
-      if (node.dataset.mentionKind === 'plugin') {
+      if (node.dataset.mentionKind === 'drawing') {
+        const drawingId = parseDrawingMentionPath(node.dataset.mentionPath);
+        if (drawingId) {
+          mentions.push({
+            albumPath: node.dataset.mentionAlbumPath ?? '',
+            drawingId,
+            elementCount: Number(node.dataset.mentionElementCount ?? 0),
+            end: value.length,
+            hasPreview: node.dataset.mentionHasPreview === 'true',
+            id: drawingId,
+            kind: 'drawing',
+            label,
+            path: node.dataset.mentionPath,
+            revision: Number(node.dataset.mentionRevision ?? 0),
+            start,
+            title: node.dataset.mentionName || label,
+          });
+        }
+      } else if (node.dataset.mentionKind === 'plugin') {
         mentions.push({
           description: node.dataset.mentionDescription || null,
           end: value.length,
@@ -7141,6 +7444,21 @@ function uniqueDocuments(documents: AiDocumentReference[]) {
   });
 }
 
+function uniqueDrawings(drawings: AiComposerDrawingMention[]) {
+  const seen = new Set<string>();
+  return drawings.filter((drawing) => {
+    if (seen.has(drawing.id)) return false;
+    seen.add(drawing.id);
+    return true;
+  });
+}
+
+function isDrawingReference(
+  reference: AiDocumentReference | AiDrawingReference,
+): reference is AiDrawingReference {
+  return 'albumPath' in reference && !('absolutePath' in reference);
+}
+
 function isDocumentComposerMention(
   mention: AiComposerMention,
 ): mention is AiComposerDocumentMention {
@@ -7151,6 +7469,12 @@ function isPluginComposerMention(
   mention: AiComposerMention,
 ): mention is AiComposerPluginMention {
   return mention.kind === 'plugin';
+}
+
+function isDrawingComposerMention(
+  mention: AiComposerMention,
+): mention is AiComposerDrawingMention {
+  return mention.kind === 'drawing';
 }
 
 function isSkillComposerMention(

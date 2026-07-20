@@ -31,7 +31,7 @@ export interface CodexDynamicToolRequest {
   callId: string;
   namespace: 'madora_drawing';
   threadId: string;
-  tool: 'create_from_preview' | 'preview_mermaid';
+  tool: 'create_from_preview' | 'inspect_drawing' | 'preview_mermaid';
   turnId: string;
 }
 

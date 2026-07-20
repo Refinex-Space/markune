@@ -49,6 +49,15 @@ const activeDocument = {
   title: 'Spring Boot 介绍',
 };
 
+const activeDrawing = {
+  albumPath: '架构',
+  elementCount: 24,
+  hasPreview: true,
+  id: '11111111-1111-4111-8111-111111111111',
+  revision: 3,
+  title: 'Spring Cloud 微服务架构',
+};
+
 const runtime = {
   available: true,
   running: true,
@@ -173,12 +182,16 @@ function renderPanel(
   currentDocument = null as typeof activeDocument | null,
   currentDocumentPath = currentDocument?.absolutePath ?? null,
   documents: Array<Omit<typeof activeDocument, 'kind'>> = [],
+  drawing = null as typeof activeDrawing | null,
+  drawings: Array<typeof activeDrawing> = [],
 ) {
   return render(
     <AiPanel
+      activeDrawing={drawing}
       currentDocument={currentDocument}
       currentDocumentPath={currentDocumentPath}
       documents={documents}
+      drawings={drawings}
       workspaceRootPath="/workspace"
       onBeforeTurnStart={onBeforeTurnStart}
       onOpenDocument={vi.fn()}
@@ -208,6 +221,74 @@ beforeEach(() => {
 });
 
 describe('AI panel startup lifecycle', () => {
+  it('每个 turn 感知当前活跃图稿并在发送前刷新保存', async () => {
+    const user = userEvent.setup();
+    const onBeforeTurnStart = vi.fn().mockResolvedValue(true);
+    renderPanel(onBeforeTurnStart, null, null, [], activeDrawing, [activeDrawing]);
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    expect(screen.getAllByText(activeDrawing.title).length).toBeGreaterThan(0);
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '分析当前图稿的连线');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith(
+        'turn/start',
+        expect.objectContaining({
+          madoraDrawingReferences: [
+            { drawingId: activeDrawing.id, role: 'active' },
+          ],
+        }),
+      ),
+    );
+    expect(onBeforeTurnStart).toHaveBeenCalledWith(null, activeDrawing.id);
+  });
+
+  it('通过 @ 搜索并提及图稿，发送稳定 Drawing URI 和结构化引用', async () => {
+    const user = userEvent.setup();
+    const openDrawing = vi.fn();
+    window.addEventListener('madora:open-drawing', openDrawing, { once: true });
+    renderPanel(vi.fn().mockResolvedValue(true), null, null, [], null, [activeDrawing]);
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '@SpringCloud');
+    const option = screen.getByRole('option', {
+      name: `提及 ${activeDrawing.title}`,
+    });
+    expect(within(option).getByText('架构')).toBeTruthy();
+    await user.click(option);
+    await user.type(editor, '检查连线');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith(
+        'turn/start',
+        expect.objectContaining({
+          input: [
+            expect.objectContaining({
+              text: `madora-drawing://${activeDrawing.id} 检查连线`,
+            }),
+          ],
+          madoraDrawingReferences: [
+            { drawingId: activeDrawing.id, role: 'mention' },
+          ],
+        }),
+      ),
+    );
+    await user.click(
+      screen.getByRole('link', { name: activeDrawing.title }),
+    );
+    expect(openDrawing).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: { drawingId: activeDrawing.id },
+      }),
+    );
+  });
+
   it('当前文档会进入 @ 候选并在同等匹配中优先', async () => {
     const user = userEvent.setup();
     const competingDocument = {
@@ -349,6 +430,92 @@ describe('AI panel startup lifecycle', () => {
         cwds: ['/workspace'],
         forceReload: true,
       }),
+    );
+  });
+
+  it('注册内置 Skill 触发 skills/changed 时不会形成重复注册循环', async () => {
+    const user = userEvent.setup();
+    let extraRootsCalls = 0;
+    bridge.request.mockImplementation((method: string) => {
+      if (method === 'skills/extraRoots/set') {
+        extraRootsCalls += 1;
+        if (extraRootsCalls <= 3) {
+          queueMicrotask(() => protocolSubscriber?.({ method: 'skills/changed' }));
+        }
+        return Promise.resolve({});
+      }
+      if (method === 'skills/list') {
+        return Promise.resolve({
+          data: [
+            {
+              cwd: '/workspace',
+              errors: [],
+              skills: [
+                {
+                  description: 'Create editable Madora technical diagrams',
+                  enabled: true,
+                  interface: {
+                    displayName: 'Madora AI 画图',
+                    shortDescription: '创建可编辑技术图稿',
+                  },
+                  name: 'madora-diagram',
+                  path: '/Applications/Madora.app/skills/madora-diagram/SKILL.md',
+                  scope: 'user',
+                  shortDescription: null,
+                },
+              ],
+            },
+          ],
+        });
+      }
+      return Promise.resolve(defaultResponse(method));
+    });
+
+    renderPanel();
+
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith('skills/list', {
+        cwds: ['/workspace'],
+        forceReload: true,
+      }),
+    );
+    expect(
+      bridge.request.mock.calls.filter(
+        ([method]) => method === 'skills/extraRoots/set',
+      ),
+    ).toHaveLength(1);
+
+    await user.click(screen.getByRole('button', { name: 'AI 画图' }));
+    const diagramSkillMention = await screen.findByRole('note', {
+      name: 'Madora AI 画图',
+    });
+    expect(diagramSkillMention.classList.contains('inline-flex')).toBe(true);
+    expect(diagramSkillMention.classList.contains('whitespace-nowrap')).toBe(true);
+    expect(
+      screen.queryByText('AI 画图 Skill 加载失败，请重试或重启 Madora。'),
+    ).toBeNull();
+
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '画 Spring Cloud 架构');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith(
+        'turn/start',
+        expect.objectContaining({
+          input: [
+            expect.objectContaining({
+              type: 'text',
+              text: '$madora-diagram 画 Spring Cloud 架构',
+            }),
+            {
+              type: 'skill',
+              name: 'madora-diagram',
+              path: '/Applications/Madora.app/skills/madora-diagram/SKILL.md',
+            },
+          ],
+        }),
+      ),
     );
   });
 
@@ -846,7 +1013,7 @@ describe('AI panel startup lifecycle', () => {
         }),
       ),
     );
-    expect(onBeforeTurnStart).toHaveBeenCalledWith('/workspace/Test.md');
+    expect(onBeforeTurnStart).toHaveBeenCalledWith('/workspace/Test.md', null);
   });
 
   it('活动标签路径与已加载文档不一致时阻止发送', async () => {
