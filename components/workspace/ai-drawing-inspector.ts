@@ -51,20 +51,33 @@ export function inspectDrawingScene(
     warnings,
   };
 
+  let sizeLimited = false;
   while (
     inspection.scene.elements.length > 0 &&
-    new TextEncoder().encode(JSON.stringify(inspection)).length >
-      MAX_INSPECTION_BYTES
+    inspectionByteLength(inspection) > MAX_INSPECTION_BYTES
   ) {
     inspection.scene.elements.pop();
+    sizeLimited = true;
   }
-  if (inspection.scene.elements.length < Math.min(sourceElements.length, MAX_PROJECTED_ELEMENTS)) {
+  if (sizeLimited) {
     inspection.warnings.push(
       `为满足 15 KiB 响应限制，结构摘要缩减为 ${inspection.scene.elements.length} 个元素。`,
     );
+    while (
+      inspection.scene.elements.length > 0 &&
+      inspectionByteLength(inspection) > MAX_INSPECTION_BYTES
+    ) {
+      inspection.scene.elements.pop();
+      inspection.warnings[inspection.warnings.length - 1] =
+        `为满足 15 KiB 响应限制，结构摘要缩减为 ${inspection.scene.elements.length} 个元素。`;
+    }
   }
 
   return JSON.stringify(inspection);
+}
+
+function inspectionByteLength(inspection: DrawingInspection) {
+  return new TextEncoder().encode(JSON.stringify(inspection)).length;
 }
 
 export function drawingPreviewDataUrl(bytes: Uint8Array) {

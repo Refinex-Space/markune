@@ -78,6 +78,45 @@ describe('useDrawingController', () => {
     unmount();
   });
 
+  it('refuses to flush an unresolved drawing conflict into AI context', async () => {
+    apiMocks.loadDrawingLibrary.mockResolvedValue(emptySnapshot);
+    apiMocks.readDrawingMeta.mockResolvedValue(descriptor(1));
+    apiMocks.readDrawingScene.mockResolvedValue(
+      new TextEncoder().encode('{"type":"excalidraw","version":2,"elements":[]}'),
+    );
+    apiMocks.readDrawingLibrary.mockResolvedValue(new Uint8Array());
+    apiMocks.beginDrawingSave.mockRejectedValue(
+      new Error('DRAWING_CONFLICT: revision changed'),
+    );
+    const { result, unmount } = renderHook(() =>
+      useDrawingController({ active: false, rootPath: '/workspace' }),
+    );
+
+    await settleRootReset();
+    await act(async () => result.current.openDrawing(descriptor(1).meta.id));
+    await expect(
+      act(async () =>
+        result.current.save({
+          manifest: {
+            elementCount: 0,
+            favorite: false,
+            searchText: '',
+            tags: [],
+            title: '串行保存',
+          },
+          preview: null,
+          scene: new TextEncoder().encode(
+            '{"type":"excalidraw","version":2,"elements":[]}',
+          ),
+        }),
+      ),
+    ).rejects.toThrow('DRAWING_CONFLICT');
+
+    expect(result.current.saveState.status).toBe('conflict');
+    await expect(result.current.flush()).rejects.toThrow('DRAWING_CONFLICT');
+    unmount();
+  });
+
   it('keeps repeated dirty notifications idempotent', () => {
     const { result, unmount } = renderHook(() =>
       useDrawingController({ active: false, rootPath: null }),

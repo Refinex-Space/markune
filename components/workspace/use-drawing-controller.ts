@@ -574,9 +574,14 @@ export function useDrawingController({
   }, []);
 
   const flush = React.useCallback(async () => {
+    if (saveState.status === 'conflict') {
+      throw new Error(
+        saveState.message || 'DRAWING_CONFLICT：当前图稿存在未解决的版本冲突。',
+      );
+    }
     await flushRef.current?.();
     await saveQueueRef.current;
-  }, []);
+  }, [saveState]);
 
   const recordViewport = React.useCallback(
     (viewport: DrawingViewport) => {
