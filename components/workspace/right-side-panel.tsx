@@ -79,7 +79,7 @@ interface RightToolRailProps {
 export function RightSidePanel({
   aiPresentation = 'panel',
   aiWorkspacePreview,
-  aiWorkspacePreviewWidth = 520,
+  aiWorkspacePreviewWidth = 720,
   currentDocument,
   currentDocumentPath,
   documentPanelData,
@@ -132,22 +132,24 @@ export function RightSidePanel({
 
           {workspacePresentation && aiWorkspacePreview ? (
             <div
-              className="absolute inset-y-0 right-0 z-30 flex max-w-[calc(100%-280px)] shrink-0 bg-background shadow-[-18px_0_42px_-32px_rgba(15,23,42,0.55)] min-[1440px]:static min-[1440px]:z-auto min-[1440px]:max-w-none min-[1440px]:shadow-none"
+              aria-label="文档预览"
+              className="absolute bottom-1 right-2 top-1 z-40 flex max-w-[calc(100%-320px)] shrink-0 animate-in overflow-hidden rounded-lg border border-border/60 bg-background shadow-[0_8px_24px_-18px_rgba(15,23,42,0.28)] duration-200 fade-in-0 slide-in-from-right-4 motion-reduce:animate-none"
               data-testid="ai-workspace-preview-shell"
+              role="complementary"
               style={{ width: aiWorkspacePreviewWidth }}
             >
               <WorkspaceResizeHandle
                 aria-label="调整文档预览宽度"
-                className="-mx-1"
+                className="absolute! inset-y-0 left-0 h-auto! [&>span]:hidden"
                 direction="right"
-                max={760}
-                min={360}
+                max={960}
+                min={520}
                 value={aiWorkspacePreviewWidth}
                 onResize={(nextWidth) =>
                   onAiWorkspacePreviewResize?.(nextWidth)
                 }
               />
-              <div className="min-h-0 min-w-0 flex-1 overflow-hidden border-l border-border/70">
+              <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
                 {aiWorkspacePreview}
               </div>
             </div>

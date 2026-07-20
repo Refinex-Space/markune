@@ -229,9 +229,9 @@ const AI_PANEL_WIDTH = {
 };
 
 const AI_WORKSPACE_PREVIEW_WIDTH = {
-  defaultValue: 520,
-  max: 760,
-  min: 360,
+  defaultValue: 720,
+  max: 960,
+  min: 520,
 };
 
 const GIT_LOG_DETAIL_WIDTH = {
@@ -265,7 +265,7 @@ const WORKSPACE_PANEL_WIDTH_STORAGE_KEYS = {
   gitLogHeight: 'madora:workspace:git-log-height',
   left: 'madora:workspace:left-sidebar-width',
   ai: 'madora:workspace:ai-panel-width',
-  aiWorkspacePreview: 'madora:workspace:ai-workspace-preview-width',
+  aiWorkspacePreview: 'madora:workspace:ai-workspace-preview-width:v2',
   meta: 'madora:workspace:right-panel-width',
   terminalHeight: 'madora:workspace:terminal-height',
 };

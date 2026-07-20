@@ -196,7 +196,7 @@ describe('right AI panel integration', () => {
         {...props}
         aiPresentation="workspace"
         aiWorkspacePreview={<div>文档预览</div>}
-        aiWorkspacePreviewWidth={520}
+        aiWorkspacePreviewWidth={720}
         onAiWorkspacePreviewResize={vi.fn()}
       />,
     );
@@ -207,8 +207,32 @@ describe('right AI panel integration', () => {
       screen.getByTestId('ai-side-panel').getAttribute('data-presentation'),
     ).toBe('workspace');
     expect(screen.getByText('文档预览')).toBeTruthy();
-    expect(
-      screen.getByRole('separator', { name: '调整文档预览宽度' }),
-    ).toBeTruthy();
+    const previewShell = screen.getByRole('complementary', {
+      name: '文档预览',
+    });
+    expect(previewShell.style.width).toBe('720px');
+    expect(previewShell.className).toContain('absolute');
+    expect(previewShell.className).toContain('top-1');
+    expect(previewShell.className).toContain('bottom-1');
+    expect(previewShell.className).toContain('right-2');
+    expect(previewShell.className).toContain('z-40');
+    expect(previewShell.className).toContain('rounded-lg');
+    expect(previewShell.className).toContain(
+      'shadow-[0_8px_24px_-18px_rgba(15,23,42,0.28)]',
+    );
+    expect(previewShell.className).toContain('slide-in-from-right-4');
+    expect(previewShell.className).not.toContain('min-[1440px]:static');
+
+    const resizeHandle = screen.getByRole('separator', {
+      name: '调整文档预览宽度',
+    });
+    expect(resizeHandle.getAttribute('aria-valuemin')).toBe('520');
+    expect(resizeHandle.getAttribute('aria-valuemax')).toBe('960');
+    expect(resizeHandle.getAttribute('aria-valuenow')).toBe('720');
+    expect(resizeHandle.className).toContain('absolute!');
+    expect(resizeHandle.className).toContain('[&>span]:hidden');
+    expect(screen.getByText('文档预览').parentElement?.className).not.toContain(
+      'border-l',
+    );
   });
 });
