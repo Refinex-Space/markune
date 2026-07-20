@@ -405,7 +405,7 @@ describe('AI message rendering', () => {
     expect(row?.getAttribute('tabindex')).toBe('0');
     expect(bubble?.className).toContain('w-max');
     expect(bubble?.className).toContain('max-w-full');
-    expect(wrapper?.className).toContain('max-w-[88%]');
+    expect(wrapper?.className).toContain('max-w-[96%]');
     expect(bubble?.className).toContain('break-words');
     const metadata = screen.getByTestId('user-message-metadata');
     expect(row?.className).toContain('ai-message-entry');
@@ -473,8 +473,8 @@ describe('AI message rendering', () => {
     expect(screen.getByText('图片：远程图片')).toBeTruthy();
   });
 
-  it('大屏模式的标题栏与侧栏搜索行对齐并隐藏分割线', () => {
-    render(
+  it('两种展示模式的标题栏均隐藏分割线', () => {
+    const { rerender } = render(
       <AiPanelHeader
         activeThread={null}
         presentation="workspace"
@@ -493,6 +493,20 @@ describe('AI message rendering', () => {
     expect(
       screen.queryByRole('button', { name: '折叠 AI 面板' }),
     ).toBeNull();
+
+    rerender(
+      <AiPanelHeader
+        activeThread={null}
+        presentation="panel"
+        view="chat"
+        onHistory={vi.fn()}
+        onNewChat={vi.fn()}
+      />,
+    );
+
+    const panelHeader = screen.getByRole('banner');
+    expect(panelHeader.className).toContain('h-12');
+    expect(panelHeader.className).not.toContain('border-b');
   });
 
   it('大屏消息区与输入框使用同一宽度和水平内边距', () => {
@@ -1205,10 +1219,14 @@ describe('AI message rendering', () => {
 
     const mention = screen.getByRole('link', { name: 'README' });
     expect(mention.textContent).toBe('README');
+    expect(mention.tagName).toBe('A');
+    expect(mention.getAttribute('href')).toBe('/workspace/README.md');
     expect(mention.className.split(/\s+/)).toContain('inline');
     expect(mention.className.split(/\s+/)).not.toContain('inline-flex');
     expect(mention.className).toContain('[font:inherit]');
     expect(mention.className).toContain('leading-[inherit]');
+    expect(mention.className).toContain('text-left');
+    expect(mention.parentElement?.className).not.toContain('text-pretty');
     expect(mention.querySelector('img')?.getAttribute('src')).toBe(
       '/icons/mentions/file-text.svg',
     );

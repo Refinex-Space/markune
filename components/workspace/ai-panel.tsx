@@ -242,7 +242,7 @@ interface ComposerMentionTarget {
 }
 
 const mentionLinkClassName =
-  'mx-0.5 inline cursor-pointer select-none rounded-sm border-0 bg-transparent p-0 [font:inherit] leading-[inherit] text-[#3574f0] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3574f0]/35';
+  'mx-0.5 inline cursor-pointer select-none rounded-sm border-0 bg-transparent p-0 [font:inherit] leading-[inherit] text-left text-[#3574f0] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3574f0]/35';
 const GOAL_COMMAND_SELECTION = 'madora:goal-mode';
 const COMPACT_COMMAND_SELECTION = 'madora:compact-context';
 const GOAL_OBJECTIVE_MAX_LENGTH = 4_000;
@@ -2493,9 +2493,7 @@ export function AiPanelHeader({
     <header
       className={cn(
         'flex shrink-0 items-center gap-2 px-3',
-        presentation === 'workspace'
-          ? '-mt-1 h-9'
-          : 'h-12 border-b border-border/70',
+        presentation === 'workspace' ? '-mt-1 h-9' : 'h-12',
       )}
     >
       <div className="min-w-0 flex-1">
@@ -3369,7 +3367,7 @@ function UserMessageBubble({
   onOpenMention: (path: string) => void;
 }) {
   return (
-    <div className="flex max-w-[88%] flex-col items-end">
+    <div className="flex max-w-[96%] flex-col items-end">
       <div className="w-max max-w-full break-words rounded-xl bg-muted/70 px-3 py-2">
         <UserMessageContent
           attachments={attachments}
@@ -3507,20 +3505,22 @@ export function UserMessageContent({
           {label}
         </span>
       ) : (
-        <button
+        <a
           aria-label={label}
           className={mentionLinkClassName}
+          href={mention.path}
           key={`${mention.path}-${mention.start}-${mention.end}`}
-          role="link"
-          type="button"
-          onClick={() => onOpenMention(mention.path)}
+          onClick={(event) => {
+            event.preventDefault();
+            onOpenMention(mention.path);
+          }}
         >
           <MessageMentionIcon
             mention={mention}
             pluginOptions={pluginOptions}
           />
           {label}
-        </button>
+        </a>
       ),
     );
     cursor = mention.end;
