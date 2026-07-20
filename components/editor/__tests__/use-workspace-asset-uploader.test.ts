@@ -228,6 +228,44 @@ describe('useWorkspaceAssetUploader', () => {
     );
   });
 
+  it('正文更新时同步复用已解析的显示地址且不重复读取同一资产', async () => {
+    vi.mocked(resolveWorkspaceAsset).mockResolvedValue({
+      absolutePath: '/ws/.madora/assets/files/aa/hash.png',
+      id: 'hash',
+      mediaType: 'image/png',
+      name: 'hash.png',
+      size: 10,
+    });
+    const initialMarkdown =
+      '![图](madora-asset://hash)\n\n1. 第一项\n2. 第二项';
+    const nextMarkdown = `${initialMarkdown}\n3. `;
+    const { result, rerender } = renderHook(
+      ({ markdown }) => useWorkspaceAssetUploader('/ws/root', markdown),
+      {
+        initialProps: { markdown: initialMarkdown },
+      },
+    );
+
+    await waitFor(() => {
+      expect(result.current.editorMarkdown).toContain(
+        'asset:///ws/.madora/assets/files/aa/hash.png',
+      );
+    });
+    expect(resolveWorkspaceAsset).toHaveBeenCalledTimes(1);
+
+    rerender({ markdown: nextMarkdown });
+
+    expect(result.current.editorMarkdown).toBe(
+      nextMarkdown.replace(
+        'madora-asset://hash',
+        'asset:///ws/.madora/assets/files/aa/hash.png',
+      ),
+    );
+    await waitFor(() => {
+      expect(resolveWorkspaceAsset).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('旧相对路径解析失败时保留原文，不执行破坏性规范化', async () => {
     vi.mocked(resolveWorkspaceAsset).mockRejectedValueOnce(
       new Error('资产不存在'),

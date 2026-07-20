@@ -1,6 +1,10 @@
 import * as React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MarkweaveEditor, type MarkweaveSlashCommandUploadHandler } from '@markweave/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  MarkweaveEditor,
+  type MarkweaveEditorUpdatePayload,
+  type MarkweaveSlashCommandUploadHandler,
+} from '@markweave/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createDrawingMarkdownReferenceHtml } from '@/components/editor/drawing-markdown-reference';
@@ -16,7 +20,10 @@ vi.mock('@/components/workspace/workspace-api', () => ({
 }));
 
 import { useWorkspaceAssetUploader } from '@/components/editor/use-workspace-asset-uploader';
-import { resolveWorkspaceAsset } from '@/components/workspace/workspace-api';
+import {
+  resolveWorkspaceAsset,
+  uploadWorkspaceAsset,
+} from '@/components/workspace/workspace-api';
 
 function WorkspaceAssetEditor({
   documentKey,
@@ -48,6 +55,33 @@ function DrawingReferenceEditor({ markdown }: { markdown: string }) {
         onMarkdownChange={setValue}
       />
       <output data-testid="drawing-reference-storage">{value}</output>
+    </>
+  );
+}
+
+function ControlledWorkspaceAssetEditor({
+  markdown,
+  onEditor,
+}: {
+  markdown: string;
+  onEditor?: (editor: MarkweaveEditorUpdatePayload['editor']) => void;
+}) {
+  const [value, setValue] = React.useState(markdown);
+  const { editorMarkdown, onSlashCommandUpload, toStorageMarkdown } =
+    useWorkspaceAssetUploader('/ws/root', value);
+
+  return (
+    <>
+      <MarkweaveEditor
+        content={editorMarkdown}
+        contentFormat="markdown"
+        onSlashCommandUpload={onSlashCommandUpload}
+        onUpdate={(payload) => {
+          onEditor?.(payload.editor);
+          setValue(toStorageMarkdown(payload.markdown));
+        }}
+      />
+      <output data-testid="workspace-asset-storage">{value}</output>
     </>
   );
 }
@@ -99,6 +133,119 @@ describe('Markweave image integration', () => {
       expect(surface.querySelector('img')?.getAttribute('src')).toBe(
         'asset://workspace/.madora/assets/files/ab/hash.png',
       );
+    });
+  });
+
+  it('已有本地图片的受控文档一次粘贴即可保留新图片', async () => {
+    const existingAssetId = 'a'.repeat(64);
+    const uploadedAssetId = 'b'.repeat(64);
+    const existingMarkdown =
+      `![旧图](madora-asset://${existingAssetId})\n\n继续编辑`;
+    vi.mocked(resolveWorkspaceAsset).mockResolvedValue({
+      absolutePath: `/ws/.madora/assets/files/aa/${existingAssetId}.png`,
+      id: existingAssetId,
+      mediaType: 'image/png',
+      name: 'existing.png',
+      size: 10,
+    });
+    vi.mocked(uploadWorkspaceAsset).mockResolvedValue({
+      absolutePath: `/ws/.madora/assets/files/bb/${uploadedAssetId}.png`,
+      id: uploadedAssetId,
+      mediaType: 'image/png',
+      name: 'clipboard.png',
+      relativePath: `.madora/assets/files/bb/${uploadedAssetId}.png`,
+      size: 3,
+      url: `madora-asset://${uploadedAssetId}`,
+    });
+    let editor: MarkweaveEditorUpdatePayload['editor'] | null = null;
+
+    render(
+      <ControlledWorkspaceAssetEditor
+        markdown={existingMarkdown}
+        onEditor={(nextEditor) => {
+          editor = nextEditor;
+        }}
+      />,
+    );
+    const surface = screen.getByTestId('markweave-editor-surface');
+    await waitFor(() => {
+      expect(surface.querySelectorAll('img')).toHaveLength(1);
+      expect(editor).not.toBeNull();
+    });
+    act(() => {
+      editor!.commands.setTextSelection(editor!.state.doc.content.size - 1);
+    });
+    const file = new File([new Uint8Array([1, 2, 3])], 'clipboard.png', {
+      type: 'image/png',
+    });
+
+    fireEvent.paste(surface, {
+      clipboardData: {
+        files: [file],
+        getData: () => '',
+      },
+    });
+
+    await waitFor(() => {
+      expect(uploadWorkspaceAsset).toHaveBeenCalledTimes(1);
+      expect(surface.querySelectorAll('img')).toHaveLength(2);
+    });
+    expect(
+      screen.getByTestId('workspace-asset-storage').textContent,
+    ).toContain(`madora-asset://${uploadedAssetId}`);
+  });
+
+  it('含本地图片的有序列表连续回车只新增一项并正常退出', async () => {
+    const assetId = 'c'.repeat(64);
+    const markdown =
+      `![图](madora-asset://${assetId})\n\n` +
+      '1. 一\n2. 二\n3. 三\n4. 四\n5. 五\n6. 六\n7. 七';
+    vi.mocked(resolveWorkspaceAsset).mockResolvedValue({
+      absolutePath: `/ws/.madora/assets/files/cc/${assetId}.png`,
+      id: assetId,
+      mediaType: 'image/png',
+      name: 'list.png',
+      size: 10,
+    });
+    let editor: MarkweaveEditorUpdatePayload['editor'] | null = null;
+
+    render(
+      <ControlledWorkspaceAssetEditor
+        markdown={markdown}
+        onEditor={(nextEditor) => {
+          editor = nextEditor;
+        }}
+      />,
+    );
+    const surface = screen.getByTestId('markweave-editor-surface');
+    await waitFor(() => {
+      expect(surface.querySelector('img')?.getAttribute('src')).toContain(
+        assetId,
+      );
+      expect(editor).not.toBeNull();
+    });
+
+    let listEnd = 0;
+    editor!.state.doc.descendants((node, pos) => {
+      if (node.isText && node.text === '七') {
+        listEnd = pos + node.nodeSize;
+      }
+    });
+    act(() => {
+      editor!.commands.setTextSelection(listEnd);
+    });
+
+    fireEvent.keyDown(surface, { code: 'Enter', key: 'Enter' });
+
+    await waitFor(() => {
+      expect(surface.querySelectorAll('ol > li')).toHaveLength(8);
+    });
+    fireEvent.keyDown(surface, { code: 'Enter', key: 'Enter' });
+
+    await waitFor(() => {
+      expect(surface.querySelectorAll('ol > li')).toHaveLength(7);
+      expect(editor!.state.selection.$from.parent.type.name).toBe('paragraph');
+      expect(editor!.isActive('orderedList')).toBe(false);
     });
   });
 
