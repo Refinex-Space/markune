@@ -94,9 +94,10 @@ describe('useDrawingController', () => {
 
     await settleRootReset();
     await act(async () => result.current.openDrawing(descriptor(1).meta.id));
-    await expect(
-      act(async () =>
-        result.current.save({
+    let saveError: unknown;
+    await act(async () => {
+      try {
+        await result.current.save({
           manifest: {
             elementCount: 0,
             favorite: false,
@@ -108,10 +109,15 @@ describe('useDrawingController', () => {
           scene: new TextEncoder().encode(
             '{"type":"excalidraw","version":2,"elements":[]}',
           ),
-        }),
-      ),
-    ).rejects.toThrow('DRAWING_CONFLICT');
+        });
+      } catch (error) {
+        saveError = error;
+      }
+    });
 
+    expect(saveError).toEqual(
+      expect.objectContaining({ message: 'DRAWING_CONFLICT: revision changed' }),
+    );
     expect(result.current.saveState.status).toBe('conflict');
     await expect(result.current.flush()).rejects.toThrow('DRAWING_CONFLICT');
     unmount();
