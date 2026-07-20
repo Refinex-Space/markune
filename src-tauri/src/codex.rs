@@ -25,6 +25,10 @@ const MAX_DOCUMENT_REFERENCES: usize = 32;
 const MAX_CONTEXT_ATTACHMENTS: usize = 20;
 const MAX_PLUGIN_ICON_BYTES: usize = 1024 * 1024;
 const MAX_USER_INPUT_NOTE_BYTES: usize = 16 * 1024;
+const MAX_DYNAMIC_TOOL_TEXT_BYTES: usize = 16 * 1024;
+const MAX_DYNAMIC_TOOL_IMAGE_BYTES: usize = 2 * 1024 * 1024;
+const MAX_MERMAID_DEFINITION_CHARS: usize = 50_000;
+const MADORA_DRAWING_NAMESPACE: &str = "madora_drawing";
 const MIN_USER_INPUT_AUTO_RESOLUTION_MS: u64 = 60_000;
 const MAX_USER_INPUT_AUTO_RESOLUTION_MS: u64 = 240_000;
 const CONTEXT_ATTACHMENT_TTL: Duration = Duration::from_secs(15 * 60);
@@ -50,6 +54,7 @@ impl Drop for CodexState {
 }
 
 struct CodexSession {
+    built_in_skill_root: PathBuf,
     root: PathBuf,
     storage_root: PathBuf,
     binary_source: String,
@@ -77,6 +82,9 @@ enum PendingServerRequestKind {
     UserInput {
         questions: HashMap<String, PendingUserInputQuestion>,
     },
+    DynamicTool {
+        tool: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -89,7 +97,8 @@ impl PendingServerRequest {
     fn approval_choices(&self) -> Option<&HashMap<String, Value>> {
         match &self.kind {
             PendingServerRequestKind::Approval { choices } => Some(choices),
-            PendingServerRequestKind::UserInput { .. } => None,
+            PendingServerRequestKind::UserInput { .. }
+            | PendingServerRequestKind::DynamicTool { .. } => None,
         }
     }
 }
@@ -107,6 +116,14 @@ pub struct CodexUserInputAnswer {
     question_id: String,
     option_id: Option<String>,
     note: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexDynamicToolResponse {
+    success: bool,
+    text: String,
+    image_data_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -324,6 +341,7 @@ pub fn codex_runtime_start(
 ) -> Result<CodexRuntimeInfo, String> {
     let root = validate_workspace_root(&root_path)?;
     let storage = resolve_codex_storage(&app, Some(&root))?;
+    let built_in_skill_root = resolve_built_in_skill_root(&app)?;
     let mut session_guard = state
         .session
         .lock()
@@ -436,6 +454,7 @@ pub fn codex_runtime_start(
     );
 
     let session = CodexSession {
+        built_in_skill_root,
         root,
         storage_root: storage.root,
         binary_source: binary.source,
@@ -492,6 +511,13 @@ pub fn codex_app_server_request(
     let session = session_guard
         .as_ref()
         .ok_or_else(|| "Codex App Server 尚未启动".to_string())?;
+
+    if method == "skills/extraRoots/set" {
+        inject_built_in_skill_root(&mut params, &session.built_in_skill_root)?;
+    }
+    if method == "thread/start" {
+        inject_madora_dynamic_tools(&mut params)?;
+    }
 
     let security = prepare_request_params_with_attachments(
         &session.root,
@@ -655,6 +681,57 @@ pub fn codex_app_server_respond_user_input(
         &json!({
             "id": request_id,
             "result": result,
+        }),
+    )
+}
+
+#[tauri::command]
+pub fn codex_app_server_respond_dynamic_tool(
+    state: State<'_, CodexState>,
+    request_id: Value,
+    response: CodexDynamicToolResponse,
+) -> Result<(), String> {
+    if response.text.len() > MAX_DYNAMIC_TOOL_TEXT_BYTES
+        || response.text.chars().any(|character| character == '\0')
+    {
+        return Err("Codex 动态工具文本响应无效或超过 16 KiB".to_string());
+    }
+    let session_guard = state
+        .session
+        .lock()
+        .map_err(|_| "Codex 运行时状态锁已损坏".to_string())?;
+    let session = session_guard
+        .as_ref()
+        .ok_or_else(|| "Codex App Server 尚未启动".to_string())?;
+    let request_key = request_id_key(&request_id)?;
+    let mut pending_requests = session
+        .pending_server_requests
+        .lock()
+        .map_err(|_| "Codex 动态工具状态锁已损坏".to_string())?;
+    let pending = pending_requests
+        .get(&request_key)
+        .ok_or_else(|| "Codex 动态工具请求不存在或已处理".to_string())?;
+    let PendingServerRequestKind::DynamicTool { tool } = &pending.kind else {
+        return Err("当前 Codex 请求不是 Madora 动态工具请求".to_string());
+    };
+    let mut content_items = vec![json!({ "type": "inputText", "text": response.text })];
+    if let Some(image_data_url) = response.image_data_url {
+        if tool != "preview_mermaid" || !response.success {
+            return Err("只有成功的 Mermaid 预览工具可以返回图片".to_string());
+        }
+        validate_dynamic_tool_image_data_url(&image_data_url)?;
+        content_items.push(json!({ "type": "inputImage", "imageUrl": image_data_url }));
+    }
+    pending_requests.remove(&request_key);
+    drop(pending_requests);
+    write_json_line(
+        &session.writer,
+        &json!({
+            "id": request_id,
+            "result": {
+                "contentItems": content_items,
+                "success": response.success,
+            },
         }),
     )
 }
@@ -938,6 +1015,9 @@ fn prepare_pending_server_request(payload: &mut Value) -> Result<PendingServerRe
         .get_mut("params")
         .and_then(Value::as_object_mut)
         .ok_or_else(|| "Codex server request 缺少 params".to_string())?;
+    if method == "item/tool/call" {
+        return prepare_dynamic_tool_request(&method, params);
+    }
     if method == "item/tool/requestUserInput" {
         return prepare_user_input_request(&method, params);
     }
@@ -1201,6 +1281,126 @@ fn prepare_user_input_request(
     })
 }
 
+fn prepare_dynamic_tool_request(
+    method: &str,
+    params: &mut serde_json::Map<String, Value>,
+) -> Result<PendingServerRequest, String> {
+    if params.keys().any(|key| {
+        !matches!(
+            key.as_str(),
+            "threadId" | "turnId" | "callId" | "namespace" | "tool" | "arguments"
+        )
+    }) {
+        return Err("Madora 动态工具请求包含未知字段".to_string());
+    }
+    let thread_id = required_bounded_text(
+        params.get("threadId"),
+        "Madora 动态工具请求缺少 threadId",
+        256,
+    )?;
+    let turn_id =
+        required_bounded_text(params.get("turnId"), "Madora 动态工具请求缺少 turnId", 256)?;
+    let call_id =
+        required_bounded_text(params.get("callId"), "Madora 动态工具请求缺少 callId", 256)?;
+    if params.get("namespace").and_then(Value::as_str) != Some(MADORA_DRAWING_NAMESPACE) {
+        return Err("Madora 拒绝未知动态工具命名空间".to_string());
+    }
+    let tool = params
+        .get("tool")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "Madora 动态工具请求缺少 tool".to_string())?
+        .to_string();
+    let raw_arguments = params
+        .get("arguments")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "Madora 动态工具 arguments 必须是对象".to_string())?;
+    let arguments = match tool.as_str() {
+        "preview_mermaid" => {
+            if raw_arguments
+                .keys()
+                .any(|key| !matches!(key.as_str(), "title" | "definition"))
+            {
+                return Err("preview_mermaid 只接受 title 和 definition".to_string());
+            }
+            let title = required_bounded_text(
+                raw_arguments.get("title"),
+                "preview_mermaid 缺少 title",
+                1024,
+            )?;
+            if title.chars().count() > 120 {
+                return Err("preview_mermaid title 超过 120 个字符".to_string());
+            }
+            let definition = required_bounded_text(
+                raw_arguments.get("definition"),
+                "preview_mermaid 缺少 definition",
+                200_000,
+            )?;
+            if definition.chars().count() > MAX_MERMAID_DEFINITION_CHARS {
+                return Err("preview_mermaid definition 超过 50,000 个字符".to_string());
+            }
+            json!({ "title": title.trim(), "definition": definition })
+        }
+        "create_from_preview" => {
+            if raw_arguments.len() != 1 || !raw_arguments.contains_key("previewId") {
+                return Err("create_from_preview 只接受 previewId".to_string());
+            }
+            let preview_id = required_bounded_text(
+                raw_arguments.get("previewId"),
+                "create_from_preview 缺少 previewId",
+                64,
+            )?;
+            Uuid::parse_str(&preview_id)
+                .map_err(|_| "create_from_preview previewId 无效".to_string())?;
+            json!({ "previewId": preview_id })
+        }
+        _ => return Err("Madora 拒绝未知动态工具".to_string()),
+    };
+    *params = json!({
+        "threadId": thread_id,
+        "turnId": turn_id,
+        "callId": call_id,
+        "namespace": MADORA_DRAWING_NAMESPACE,
+        "tool": tool,
+        "arguments": arguments,
+    })
+    .as_object()
+    .cloned()
+    .expect("动态工具参数必须是对象");
+    Ok(PendingServerRequest {
+        kind: PendingServerRequestKind::DynamicTool { tool },
+        method: method.to_string(),
+    })
+}
+
+fn validate_dynamic_tool_image_data_url(value: &str) -> Result<(), String> {
+    let (media_type, encoded) = if let Some(encoded) = value.strip_prefix("data:image/webp;base64,")
+    {
+        ("image/webp", encoded)
+    } else if let Some(encoded) = value.strip_prefix("data:image/png;base64,") {
+        ("image/png", encoded)
+    } else {
+        return Err("动态工具图片只允许 PNG 或 WebP Data URL".to_string());
+    };
+    if encoded.len() > (MAX_DYNAMIC_TOOL_IMAGE_BYTES * 4 / 3) + 8 {
+        return Err("动态工具图片超过 2 MiB".to_string());
+    }
+    let bytes = STANDARD
+        .decode(encoded)
+        .map_err(|_| "动态工具图片 Base64 无效".to_string())?;
+    if bytes.len() > MAX_DYNAMIC_TOOL_IMAGE_BYTES {
+        return Err("动态工具图片超过 2 MiB".to_string());
+    }
+    let valid = match media_type {
+        "image/png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
+        "image/webp" => bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP",
+        _ => false,
+    };
+    if !valid {
+        return Err("动态工具图片签名无效".to_string());
+    }
+    Ok(())
+}
+
 fn required_bounded_text(
     value: Option<&Value>,
     missing_message: &str,
@@ -1457,6 +1657,10 @@ fn validate_request_params_with_authorized_context(
 
     if method == "skills/list" {
         validate_skill_list_params(root, params)?;
+    }
+
+    if method == "skills/extraRoots/set" {
+        validate_built_in_skill_root_params(params)?;
     }
 
     if method == "thread/compact/start" {
@@ -1960,6 +2164,81 @@ fn prepare_request_params_with_attachments(
     Ok(security)
 }
 
+fn inject_built_in_skill_root(params: &mut Value, root: &Path) -> Result<(), String> {
+    let params = params
+        .as_object_mut()
+        .ok_or_else(|| "skills/extraRoots/set 参数必须是对象".to_string())?;
+    if !params.is_empty() {
+        return Err("渲染器不得提交任意 Codex Skill 根目录".to_string());
+    }
+    params.insert(
+        "extraRoots".to_string(),
+        json!([root.to_string_lossy().into_owned()]),
+    );
+    Ok(())
+}
+
+fn validate_built_in_skill_root_params(params: &Value) -> Result<(), String> {
+    let params = params
+        .as_object()
+        .ok_or_else(|| "skills/extraRoots/set 参数必须是对象".to_string())?;
+    let roots = params
+        .get("extraRoots")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "skills/extraRoots/set 缺少 extraRoots".to_string())?;
+    if params.len() != 1 || roots.len() != 1 || roots[0].as_str().is_none() {
+        return Err("Madora 只允许注册一个内置 Skill 根目录".to_string());
+    }
+    Ok(())
+}
+
+fn inject_madora_dynamic_tools(params: &mut Value) -> Result<(), String> {
+    let params = params
+        .as_object_mut()
+        .ok_or_else(|| "thread/start 参数必须是对象".to_string())?;
+    if params.contains_key("dynamicTools") {
+        return Err("渲染器不得提交 Codex dynamicTools".to_string());
+    }
+    params.insert(
+        "dynamicTools".to_string(),
+        json!([{
+            "type": "namespace",
+            "name": MADORA_DRAWING_NAMESPACE,
+            "description": "Preview validated Mermaid as editable Excalidraw elements, then atomically create the exact preview in Madora Drawings.",
+            "tools": [
+                {
+                    "type": "function",
+                    "name": "preview_mermaid",
+                    "description": "Compile supported Mermaid into an editable Madora Drawing preview. Inspect the returned image and warnings before creation.",
+                    "inputSchema": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                            "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+                            "definition": { "type": "string", "minLength": 1, "maxLength": MAX_MERMAID_DEFINITION_CHARS }
+                        },
+                        "required": ["title", "definition"]
+                    }
+                },
+                {
+                    "type": "function",
+                    "name": "create_from_preview",
+                    "description": "Atomically create the exact cached preview as a new editable Madora Drawing and open it.",
+                    "inputSchema": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                            "previewId": { "type": "string", "format": "uuid" }
+                        },
+                        "required": ["previewId"]
+                    }
+                }
+            ]
+        }]),
+    );
+    Ok(())
+}
+
 fn resolve_context_attachments(
     attachment_ids: Value,
     attachment_store: Option<&Mutex<HashMap<String, CodexContextAttachmentGrant>>>,
@@ -2230,6 +2509,7 @@ fn is_allowed_client_method(method: &str) -> bool {
             | "mcpServer/oauth/login"
             | "config/mcpServer/reload"
             | "plugin/installed"
+            | "skills/extraRoots/set"
             | "skills/list"
     )
 }
@@ -2241,6 +2521,7 @@ fn is_supported_server_request(method: &str) -> bool {
             | "item/fileChange/requestApproval"
             | "item/permissions/requestApproval"
             | "item/tool/requestUserInput"
+            | "item/tool/call"
             | "execCommandApproval"
             | "applyPatchApproval"
     )
@@ -2405,6 +2686,26 @@ fn resolve_codex_binary(app: &AppHandle) -> Result<CodexBinary, String> {
     }
 
     Err("未找到可用的 Codex App Server；请安装 Codex 或配置 MADORA_CODEX_BIN".to_string())
+}
+
+fn resolve_built_in_skill_root(app: &AppHandle) -> Result<PathBuf, String> {
+    let mut candidates = Vec::new();
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        candidates.push(resource_dir.join("resources").join("skills"));
+    }
+    candidates.push(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("resources")
+            .join("skills"),
+    );
+    for candidate in candidates {
+        if candidate.join("madora-diagram").join("SKILL.md").is_file() {
+            return candidate
+                .canonicalize()
+                .map_err(|error| format!("无法解析 Madora 内置 Skill 根目录: {error}"));
+        }
+    }
+    Err("Madora 内置 Skill 资源缺失，请重新安装应用".to_string())
 }
 
 fn probe_binary(path: PathBuf, source: &str) -> Option<CodexBinary> {
@@ -2682,12 +2983,9 @@ mod tests {
             json!({ "threadId": "thread-1", "unexpected": true }),
             json!({ "threadId": "thread\n1" }),
         ] {
-            assert!(validate_request_params(
-                root.path(),
-                "thread/compact/start",
-                &invalid
-            )
-            .is_err());
+            assert!(
+                validate_request_params(root.path(), "thread/compact/start", &invalid).is_err()
+            );
         }
     }
 
@@ -3202,6 +3500,66 @@ mod tests {
         ));
         assert!(!is_supported_server_request("tool/requestUserInput"));
         assert!(!is_supported_server_request("dynamicToolCall"));
+        assert!(is_supported_server_request("item/tool/call"));
+    }
+
+    #[test]
+    fn drawing_dynamic_tools_are_injected_and_renderer_cannot_override_them() {
+        let mut params = json!({
+            "cwd": "/workspace",
+            "permissions": ":workspace",
+            "approvalPolicy": "on-request",
+            "approvalsReviewer": "user",
+            "runtimeWorkspaceRoots": ["/workspace"]
+        });
+        inject_madora_dynamic_tools(&mut params).expect("inject drawing tools");
+        let tools = params["dynamicTools"].as_array().expect("dynamic tools");
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["name"], MADORA_DRAWING_NAMESPACE);
+        assert_eq!(tools[0]["tools"].as_array().expect("tools").len(), 2);
+
+        let mut unsafe_params = json!({ "dynamicTools": [] });
+        assert!(inject_madora_dynamic_tools(&mut unsafe_params).is_err());
+    }
+
+    #[test]
+    fn drawing_dynamic_tool_request_is_strictly_sanitized() {
+        let mut payload = json!({
+            "id": "tool-1",
+            "method": "item/tool/call",
+            "params": {
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "callId": "call-1",
+                "namespace": "madora_drawing",
+                "tool": "preview_mermaid",
+                "arguments": {
+                    "title": " Spring Cloud ",
+                    "definition": "flowchart TB\nA-->B"
+                }
+            }
+        });
+        let pending = prepare_pending_server_request(&mut payload).expect("prepare dynamic tool");
+        let PendingServerRequestKind::DynamicTool { tool } = pending.kind else {
+            panic!("expected dynamic tool");
+        };
+        assert_eq!(tool, "preview_mermaid");
+        assert_eq!(payload["params"]["arguments"]["title"], "Spring Cloud");
+
+        payload["params"]["arguments"]["unknown"] = json!(true);
+        assert!(prepare_pending_server_request(&mut payload).is_err());
+    }
+
+    #[test]
+    fn drawing_dynamic_tool_image_requires_png_or_webp_signature() {
+        let png = format!(
+            "data:image/png;base64,{}",
+            STANDARD.encode(b"\x89PNG\r\n\x1a\npreview")
+        );
+        assert!(validate_dynamic_tool_image_data_url(&png).is_ok());
+        let fake = format!("data:image/png;base64,{}", STANDARD.encode(b"not-png"));
+        assert!(validate_dynamic_tool_image_data_url(&fake).is_err());
+        assert!(validate_dynamic_tool_image_data_url("https://example.com/image.png").is_err());
     }
 
     #[test]

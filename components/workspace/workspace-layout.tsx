@@ -88,6 +88,7 @@ import type {
   AiWorkspaceChangeEvent,
 } from './ai-panel-state';
 import { useWorkspace } from './use-workspace';
+import { useAiDrawingTools } from './use-ai-drawing-tools';
 import { useDrawingController } from './use-drawing-controller';
 import { useInboxController } from './use-inbox-controller';
 import { WorkspaceGlobalSearchDialog } from './workspace-global-search-dialog';
@@ -600,6 +601,22 @@ export function WorkspaceLayout({
     rootPath: workspaceRootPath,
   });
   const openDrawingFromLibrary = drawings.openDrawing;
+  const handleAiDrawingCreated = React.useCallback(
+    async (drawing: { meta: { id: string } }) => {
+      setLeftPanelMode('workspace');
+      setSystemPage('drawings');
+      showWorkspaceSidebar(false);
+      clearCurrentDocument();
+      await drawings.refresh();
+      await drawings.openDrawing(drawing.meta.id);
+    },
+    [clearCurrentDocument, drawings, showWorkspaceSidebar],
+  );
+  const handleAiDrawingToolCall = useAiDrawingTools({
+    controller: drawings,
+    onCreated: handleAiDrawingCreated,
+    workspaceRootPath,
+  });
 
   React.useEffect(() => {
     const handleOpenDrawing = (event: Event) => {
@@ -2990,6 +3007,7 @@ export function WorkspaceLayout({
                     width={rightPanelWidth}
                     workspaceRootPath={workspaceRootPath}
                     onBeforeTurnStart={handleBeforeAiTurnStart}
+                    onDrawingToolCall={handleAiDrawingToolCall}
                     onAiWorkspacePreviewResize={setAiWorkspacePreviewWidth}
                     onOpenDocument={handleOpenAiDocument}
                     onOpenPlanPreview={handleOpenPlanPreview}

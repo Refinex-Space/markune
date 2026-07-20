@@ -100,6 +100,7 @@ import {
   readCodexPluginIcon,
   releaseCodexContextAttachments,
   respondToCodexApproval,
+  respondToCodexDynamicTool,
   respondToCodexUserInput,
   selectCodexContextAttachments,
   startCodexRuntime,
@@ -114,6 +115,8 @@ import {
   type CodexCollaborationModeListResponse,
   type CodexCollaborationModeMask,
   type CodexContextAttachment,
+  type CodexDynamicToolRequest,
+  type CodexDynamicToolResponse,
   type CodexExperimentalFeatureListResponse,
   type CodexModel,
   type CodexModelListResponse,
@@ -180,6 +183,9 @@ interface AiPanelProps {
   documents: AiDocumentReference[];
   workspaceRootPath: string | null;
   onBeforeTurnStart: (documentPath: string | null) => Promise<boolean>;
+  onDrawingToolCall?: (
+    request: CodexDynamicToolRequest,
+  ) => Promise<CodexDynamicToolResponse>;
   onOpenDocument: (documentPath: string) => void;
   onOpenPlanPreview: (plan: AiProposedPlan, threadId: string) => void;
   onWorkspaceChanged: (
@@ -356,7 +362,7 @@ const WORKSPACE_STARTER_ACTIONS: StarterAction[] = [
 
 const SCROLL_BOTTOM_THRESHOLD = 64;
 
-const DEVELOPER_INSTRUCTIONS = `你运行在 Madora 的工作区级 AI 面板中。默认只在当前工作区内读取和修改文件；仅当当前命名权限配置明确允许、且用户请求确实需要时，才可访问工作区外路径。Madora 以 Markdown 为唯一持久化文档格式，请保持现有 frontmatter 和目录约定。Madora 会为每个 turn 提供编辑器活跃文档和显式文档引用；“当前文档”“本文”“这篇文档”等表述只指向该 turn 的 madora_active_document，不得根据日期、最近文件或工作区惯例猜测。请求依赖文档内容时，必须先使用工作区工具读取相关文件，并让读取动作通过正常工具事件返回；不得在尝试读取前声称缺少路径。与文档无关的请求不必读取活跃文档。严格遵循当前线程的 Codex 权限配置和审批结果，不得绕过权限边界。删除文档前必须明确说明将删除的路径和影响，并等待用户确认。不要读取、输出或记录密钥、Token、Cookie、连接串或其他敏感信息。完成文件变更后简要列出实际修改和验证结果。`;
+const DEVELOPER_INSTRUCTIONS = `你运行在 Madora 的工作区级 AI 面板中。默认只在当前工作区内读取和修改文件；仅当当前命名权限配置明确允许、且用户请求确实需要时，才可访问工作区外路径。Madora 以 Markdown 为唯一持久化文档格式，请保持现有 frontmatter 和目录约定。Madora 会为每个 turn 提供编辑器活跃文档和显式文档引用；“当前文档”“本文”“这篇文档”等表述只指向该 turn 的 madora_active_document，不得根据日期、最近文件或工作区惯例猜测。请求依赖文档内容时，必须先使用工作区工具读取相关文件，并让读取动作通过正常工具事件返回；不得在尝试读取前声称缺少路径。与文档无关的请求不必读取活跃文档。AI 画图必须使用 Madora 提供的 madora_drawing 工具，禁止直接读写 .madora/drawings 或生成待导入文件。严格遵循当前线程的 Codex 权限配置和审批结果，不得绕过权限边界。删除文档前必须明确说明将删除的路径和影响，并等待用户确认。不要读取、输出或记录密钥、Token、Cookie、连接串或其他敏感信息。完成文件变更后简要列出实际修改和验证结果。`;
 
 const PLAN_IMPLEMENTATION_MESSAGE = 'Implement the plan.';
 const PLAN_IMPLEMENTATION_FRESH_PREFIX =
@@ -504,6 +510,7 @@ export function AiPanel({
   documents,
   workspaceRootPath,
   onBeforeTurnStart,
+  onDrawingToolCall,
   onOpenDocument,
   onOpenPlanPreview,
   onWorkspaceChanged,
@@ -547,6 +554,8 @@ export function AiPanel({
   const [threadListStatus, setThreadListStatus] =
     React.useState<ControlLoadStatus>('idle');
   const [activeThread, setActiveThread] = React.useState<CodexThread | null>(null);
+  const [activeThreadSupportsDrawing, setActiveThreadSupportsDrawing] =
+    React.useState(true);
   const [conversation, setConversation] = React.useState<AiConversationState>(
     createEmptyConversation,
   );
@@ -597,6 +606,7 @@ export function AiPanel({
   const modelSelectionInitializedRef = React.useRef(false);
   const activeThreadIdRef = React.useRef<string | null>(null);
   const onWorkspaceChangedRef = React.useRef(onWorkspaceChanged);
+  const onDrawingToolCallRef = React.useRef(onDrawingToolCall);
   const runtimeReadyPromiseRef = React.useRef<Promise<void> | null>(null);
   const runtimeStatusRef = React.useRef<RuntimeStatus>('loading');
   const authRequiredRef = React.useRef(false);
@@ -621,6 +631,7 @@ export function AiPanel({
   const compactingThreadIdRef = React.useRef<string | null>(null);
   const goalDraftModeRef = React.useRef(false);
   const threadGoalsRef = React.useRef<Record<string, CodexThreadGoal>>({});
+  const dynamicToolRequestsRef = React.useRef(new Set<string>());
 
   React.useEffect(() => {
     activeThreadIdRef.current = activeThread?.id ?? null;
@@ -629,6 +640,10 @@ export function AiPanel({
   React.useEffect(() => {
     onWorkspaceChangedRef.current = onWorkspaceChanged;
   }, [onWorkspaceChanged]);
+
+  React.useEffect(() => {
+    onDrawingToolCallRef.current = onDrawingToolCall;
+  }, [onDrawingToolCall]);
 
   React.useEffect(() => {
     authRequiredRef.current = authRequired;
@@ -1205,6 +1220,7 @@ export function AiPanel({
     skillLoadRequestRef.current = requestId;
     setSkillStatus('loading');
     try {
+      await codexAppServerClient.request('skills/extraRoots/set', {});
       const response = await codexAppServerClient.request<CodexSkillsListResponse>(
         'skills/list',
         { cwds: [workspaceRootPath], forceReload },
@@ -1498,6 +1514,7 @@ export function AiPanel({
       }
 
       if (message.method === 'madora/runtime/exited') {
+        window.dispatchEvent(new Event('madora:codex-runtime-stopped'));
         setPlanImplementation(null);
         goalDraftModeRef.current = false;
         setGoalDraftMode(false);
@@ -1534,6 +1551,32 @@ export function AiPanel({
 
       if (message.method === 'skills/changed') {
         void loadSkills(generation, true);
+      }
+
+      if (message.method === 'item/tool/call' && message.id !== undefined) {
+        const requestKey = String(message.id);
+        if (!dynamicToolRequestsRef.current.has(requestKey)) {
+          dynamicToolRequestsRef.current.add(requestKey);
+          const request = message.params as unknown as CodexDynamicToolRequest;
+          void (async () => {
+            try {
+              const response = onDrawingToolCallRef.current
+                ? await onDrawingToolCallRef.current(request)
+                : {
+                    success: false,
+                    text: '当前 Madora 窗口未启用 AI 画图工具。请在新任务中重试。',
+                  };
+              await respondToCodexDynamicTool(message.id!, response);
+            } catch (error) {
+              await respondToCodexDynamicTool(message.id!, {
+                success: false,
+                text: getErrorMessage(error),
+              }).catch(() => undefined);
+            } finally {
+              dynamicToolRequestsRef.current.delete(requestKey);
+            }
+          })();
+        }
       }
 
       const workspaceChange = workspaceChangeEventFromProtocolMessage(
@@ -1621,6 +1664,7 @@ export function AiPanel({
     selectedAttachmentsRef.current = [];
     setSelectedAttachments([]);
     setActiveThread(null);
+    setActiveThreadSupportsDrawing(true);
     activeThreadIdRef.current = null;
     compactingThreadIdRef.current = null;
     setCompactingThreadId(null);
@@ -1634,6 +1678,31 @@ export function AiPanel({
     resetToDefaultMode();
     setView('chat');
   }, [resetToDefaultMode]);
+
+  const startNewDiagram = React.useCallback(() => {
+    startNewChat();
+    const skill = skillOptions.find((candidate) => candidate.name === 'madora-diagram');
+    if (!skill) {
+      setRuntimeError('AI 画图 Skill 尚未加载，请稍后重试。');
+      return;
+    }
+    const label = '$madora-diagram';
+    setComposerValue(`${label} `);
+    setSelectedMentions([
+      {
+        description: skill.description,
+        displayName: skill.displayName,
+        end: label.length,
+        kind: 'skill',
+        label,
+        name: skill.name,
+        path: skill.path,
+        scope: skill.scope,
+        start: 0,
+      },
+    ]);
+    setComposerFocusRequest((current) => current + 1);
+  }, [skillOptions, startNewChat]);
 
   const openThread = React.useCallback(async (thread: CodexThread) => {
     void releaseCodexContextAttachments(
@@ -1672,6 +1741,7 @@ export function AiPanel({
         { threadId: thread.id },
       );
       setActiveThread(response.thread);
+      setActiveThreadSupportsDrawing(false);
       activeThreadIdRef.current = response.thread.id;
       const nextPermissionSettings = permissionSettingsFromResponse(resumed);
       permissionSettingsRef.current = nextPermissionSettings;
@@ -1718,6 +1788,12 @@ export function AiPanel({
         ? []
         : selectedAttachmentsRef.current;
       const composerMentions = options.planAction ? [] : selectedMentions;
+      const forceNewThread =
+        Boolean(options.forceNewThread) ||
+        composerMentions.some(
+          (mention) =>
+            isSkillComposerMention(mention) && mention.name === 'madora-diagram',
+        );
       const previousConversation = conversationRef.current;
       const previousThread = activeThread;
       const startingGoal =
@@ -1833,7 +1909,7 @@ export function AiPanel({
         setFollowLatestRequest((current) => current + 1);
         const clientMessageId = `madora-${Date.now()}`;
         setConversation((current) => {
-          const base = options.forceNewThread ? createEmptyConversation() : current;
+          const base = forceNewThread ? createEmptyConversation() : current;
           return {
             ...base,
             entries: [
@@ -1859,7 +1935,7 @@ export function AiPanel({
           };
         });
 
-        let thread = options.forceNewThread ? null : activeThread;
+        let thread = forceNewThread ? null : activeThread;
         if (!thread) {
           const response =
             await codexAppServerClient.request<ThreadStartResponse>(
@@ -1879,6 +1955,7 @@ export function AiPanel({
             text || attachments.map((attachment) => attachment.name).join('、'),
           );
           thread = { ...response.thread, name: threadTitle };
+          setActiveThreadSupportsDrawing(true);
           createdThread = thread;
           createdThreadTitle = threadTitle;
           const nextPermissionSettings = permissionSettingsFromResponse(response);
@@ -2184,6 +2261,7 @@ export function AiPanel({
         presentation={presentation}
         view={view}
         onHistory={() => setView('history')}
+        onNewDiagram={startNewDiagram}
         onNewChat={startNewChat}
       />
 
@@ -2200,6 +2278,15 @@ export function AiPanel({
         />
       ) : (
         <>
+          {activeThread && !activeThreadSupportsDrawing ? (
+            <button
+              className="mx-3 mb-1 rounded-lg border border-border/70 bg-muted/25 px-3 py-2 text-left text-[11px] text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+              type="button"
+              onClick={startNewDiagram}
+            >
+              该历史任务可能没有 Madora 画图工具。在新任务中使用 AI 画图
+            </button>
+          ) : null}
           <AiConversationViewport
             followLatestRequest={followLatestRequest}
             key={activeThread?.id ?? 'new-task'}
@@ -2481,12 +2568,14 @@ export function AiPanelHeader({
   presentation = 'panel',
   view,
   onHistory,
+  onNewDiagram,
   onNewChat,
 }: {
   activeThread: CodexThread | null;
   presentation?: 'panel' | 'workspace';
   view: PanelView;
   onHistory: () => void;
+  onNewDiagram?: () => void;
   onNewChat: () => void;
 }) {
   return (
@@ -2507,6 +2596,11 @@ export function AiPanelHeader({
         className="flex shrink-0 items-center gap-0.5"
         data-testid="ai-header-actions"
       >
+        {onNewDiagram ? (
+          <HeaderButton label="AI 画图" onClick={onNewDiagram}>
+            <Blocks size={16} />
+          </HeaderButton>
+        ) : null}
         <HeaderButton label="新任务" onClick={onNewChat}>
           <SquarePen size={16} />
         </HeaderButton>
@@ -3999,7 +4093,7 @@ function ActivityMeta({ activity }: { activity: AiTimelineItem }) {
   return null;
 }
 
-function ActivityDetails({
+export function ActivityDetails({
   activity,
   onOpenDocument,
 }: {
@@ -4089,11 +4183,30 @@ function ActivityDetails({
   }
 
   if (activity.kind === 'mcp' || activity.kind === 'dynamic') {
+    const resultImages =
+      activity.kind === 'dynamic'
+        ? dynamicToolResultImages(activity.result)
+        : [];
+    const detailResult =
+      activity.kind === 'dynamic'
+        ? dynamicToolResultWithoutImages(activity.result)
+        : activity.result;
     return (
       <div className="mb-2 mt-1 space-y-2 rounded-lg bg-muted/25 px-3 py-2 text-[11px] text-muted-foreground">
         {activity.progress ? <div>{activity.progress}</div> : null}
         <JsonDetail label="参数" value={activity.arguments} />
-        <JsonDetail label="结果" value={activity.result} />
+        {resultImages.map((imageUrl) => (
+          // Madora-generated Data URLs are already bounded and cannot use the Next image optimizer.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            alt="AI 图稿预览"
+            className="max-h-72 w-full rounded-md border border-border/70 bg-white object-contain"
+            data-testid="ai-drawing-preview-image"
+            key={imageUrl.slice(0, 96)}
+            src={imageUrl}
+          />
+        ))}
+        <JsonDetail label="结果" value={detailResult} />
         {activity.error ? (
           <div className="whitespace-pre-wrap text-destructive">{activity.error}</div>
         ) : null}
@@ -4141,6 +4254,34 @@ function JsonDetail({ label, value }: { label: string; value: unknown }) {
       </pre>
     </div>
   );
+}
+
+function dynamicToolResultImages(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const record = item as Record<string, unknown>;
+    const imageUrl = record.imageUrl;
+    if (
+      record.type !== 'inputImage' ||
+      typeof imageUrl !== 'string' ||
+      !/^data:image\/(?:png|webp);base64,/i.test(imageUrl)
+    ) {
+      return [];
+    }
+    return [imageUrl];
+  });
+}
+
+function dynamicToolResultWithoutImages(value: unknown) {
+  if (!Array.isArray(value)) return value;
+  const filtered = value.filter(
+    (item) =>
+      !item ||
+      typeof item !== 'object' ||
+      (item as Record<string, unknown>).type !== 'inputImage',
+  );
+  return filtered.length > 0 ? filtered : null;
 }
 
 function DetailLabel({ label }: { label: string }) {

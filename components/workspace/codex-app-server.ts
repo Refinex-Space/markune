@@ -26,6 +26,21 @@ export interface CodexProtocolMessage {
   };
 }
 
+export interface CodexDynamicToolRequest {
+  arguments: Record<string, unknown>;
+  callId: string;
+  namespace: 'madora_drawing';
+  threadId: string;
+  tool: 'create_from_preview' | 'preview_mermaid';
+  turnId: string;
+}
+
+export interface CodexDynamicToolResponse {
+  imageDataUrl?: string;
+  success: boolean;
+  text: string;
+}
+
 export interface CodexModel {
   id: string;
   model: string;
@@ -598,6 +613,17 @@ export async function respondToCodexUserInput(
   return invoke<void>('codex_app_server_respond_user_input', {
     requestId,
     answers,
+  });
+}
+
+export async function respondToCodexDynamicTool(
+  requestId: CodexRequestId,
+  response: CodexDynamicToolResponse,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<void>('codex_app_server_respond_dynamic_tool', {
+    requestId,
+    response,
   });
 }
 

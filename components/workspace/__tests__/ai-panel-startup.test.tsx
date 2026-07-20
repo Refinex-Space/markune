@@ -263,11 +263,22 @@ describe('AI panel startup lifecycle', () => {
       ),
     ).toHaveLength(1);
     await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith('skills/extraRoots/set', {}),
+    );
+    await waitFor(() =>
       expect(bridge.request).toHaveBeenCalledWith('skills/list', {
         cwds: ['/workspace'],
         forceReload: false,
       }),
     );
+    const extraRootsCall = bridge.request.mock.calls.findIndex(
+      ([method]) => method === 'skills/extraRoots/set',
+    );
+    const skillsListCall = bridge.request.mock.calls.findIndex(
+      ([method]) => method === 'skills/list',
+    );
+    expect(extraRootsCall).toBeGreaterThanOrEqual(0);
+    expect(skillsListCall).toBeGreaterThan(extraRootsCall);
     expect(bridge.request).not.toHaveBeenCalledWith(
       'mcpServerStatus/list',
       expect.anything(),
@@ -287,6 +298,7 @@ describe('AI panel startup lifecycle', () => {
     expect(screen.getByRole('button', { name: '起草新文档' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '整理知识结构' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '查找内容问题' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'AI 画图' })).toBeTruthy();
   });
 
   it('新会话使用活动文档物理路径生成任务入口并可直接发送', async () => {

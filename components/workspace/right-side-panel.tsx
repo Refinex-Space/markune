@@ -28,6 +28,10 @@ import { cn } from '@/lib/utils';
 import { DocumentMetaPanel } from './document-meta-panel';
 import { AiPanel } from './ai-panel';
 import type {
+  CodexDynamicToolRequest,
+  CodexDynamicToolResponse,
+} from './codex-app-server';
+import type {
   AiProposedPlan,
   AiWorkspaceChangeEvent,
 } from './ai-panel-state';
@@ -59,6 +63,9 @@ interface RightSidePanelProps {
   width: number;
   workspaceRootPath: string | null;
   onBeforeTurnStart: (documentPath: string | null) => Promise<boolean>;
+  onDrawingToolCall?: (
+    request: CodexDynamicToolRequest,
+  ) => Promise<CodexDynamicToolResponse>;
   onAiWorkspacePreviewResize?: (width: number) => void;
   onOpenDocument: (documentPath: string) => void;
   onOpenPlanPreview: (plan: AiProposedPlan, threadId: string) => void;
@@ -89,6 +96,7 @@ export function RightSidePanel({
   width,
   workspaceRootPath,
   onBeforeTurnStart,
+  onDrawingToolCall,
   onAiWorkspacePreviewResize,
   onOpenDocument,
   onOpenPlanPreview,
@@ -124,6 +132,7 @@ export function RightSidePanel({
               visible={aiVisible}
               workspaceRootPath={workspaceRootPath}
               onBeforeTurnStart={onBeforeTurnStart}
+              onDrawingToolCall={onDrawingToolCall}
               onOpenDocument={onOpenDocument}
               onOpenPlanPreview={onOpenPlanPreview}
               onWorkspaceChanged={onWorkspaceChanged}

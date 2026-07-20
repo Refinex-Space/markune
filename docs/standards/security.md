@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-19
+updated: 2026-07-20
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -32,6 +32,7 @@ referenced_by: AGENTS.md#knowledge-map
 - 插件本地图标不是通用文件读取入口。Rust 只能授权当前运行时最近一次 `plugin/installed` 响应中声明的 `composerIcon`、`logo`、`logoDark` 精确 canonical path，并在读取时重新 canonicalize、拒绝目录、符号链接改指、超过 1 MiB 或签名不属于 PNG/JPEG/GIF/WebP/SVG 的内容。重新检测、运行时停止或工作区切换必须撤销授权；不得为图标扩大 Tauri capability、文件系统插件权限或 asset protocol scope。
 - 插件远程图标只允许 HTTPS，必须禁用 Referer。SVG 仅作为经 Rust 大小与类型检查后的 `<img>` 数据源使用，不得以内联 HTML、`dangerouslySetInnerHTML` 或脚本可执行 DOM 注入；图标数据不得写入 mention、消息历史、local storage 或工作区。
 - Skill 路径不是渲染器可自由提交的文件路径。`skills/list` 只允许查询当前工作区根目录；Rust 必须按客户端请求 ID 关联响应，只登记 enabled Skill 的精确名称与 canonical 普通文件路径。`turn/start` 的 `skill` 输入必须同时匹配名称和路径授权；列表刷新、`skills/changed`、运行时停止或工作区切换必须撤销旧授权。Skill 输入框统一使用应用内置图标，不读取 Skill 自定义图标路径，也不得扩大 Tauri capability 或资源协议范围。
+- 内置 AI 画图 Skill 根目录只能由 Tauri resource resolver 取得并经 Rust 注入；渲染器提交任意 `extraRoots` 或 `dynamicTools` 必须失败关闭。动态工具请求必须精确匹配 `madora_drawing` namespace、允许的工具名和字段，未知字段、超长 Mermaid、非 UUID previewId、重复响应、外链 Data URL 和伪造图片签名一律拒绝。
 - Madora 文档引用必须由 Rust canonicalize，并验证为当前工作区内真实存在的 Markdown 文件；必须拒绝相对路径、目录、非 Markdown 文件、工作区外路径、符号链接逃逸、未知角色、多个活跃文档和超过 32 个引用。传给 Codex 的只是不可信工作区相对路径，不得由前端预读、上传或复制文档正文。
 - 渲染器不得直接构造 `additionalContext` 或 developer 级上下文。固定读取策略只能由 Tauri 生成，活跃文档和显式引用路径必须分别使用 `untrusted` 信任级别；文件名、路径和文档内容均不得解释为指令。空活跃文档必须编码为 `null`，防止跨 turn 沿用旧文档。
 - `on-request` 审批是默认策略。命令、文件修改和 `item/permissions/requestApproval` 在用户或 auto-reviewer 决定前不得继续；“拒绝并继续”与“拒绝并停止”必须保持不同语义，“本次任务允许”只作用于当前 App Server 会话。
@@ -58,6 +59,7 @@ referenced_by: AGENTS.md#knowledge-map
 ## Drawing Storage
 
 - 渲染器只能提交已选择工作区根、UUID Drawing ID、受校验的相对图集路径以及 opaque grant/session ID；不得提交 bundle、导入源或导出目标的任意绝对路径。
+- AI 预览不得持久化到工作区或 local storage，切换工作区、运行时退出、成功创建或过期时必须清理。模型不能选择物理路径；创建只能消费当前工作区缓存的 opaque previewId，并通过 generated-create staging 原子落盘，不得直接写 `.madora/drawings`。
 - Rust 必须拒绝绝对路径、父目录段、隐藏图集、UUID 图集名、超过 8 层的图集、符号链接路径和 canonicalize 后逃出 `.madora/drawings` 的访问。扫描到单个损坏 bundle 时返回独立 issue，不得阻塞其他图稿。
 - 场景、预览和组件库分别限制为 100 MiB、2 MiB 和 20 MiB，并经 Raw IPC 传输；场景必须是受支持的 Excalidraw JSON 结构，预览优先使用 WebP，并只允许有 WebP 或 PNG 签名的 macOS WebView 兼容回退，组件库必须是 Excalidraw library JSON。
 - 保存使用 `expectedRevision` 乐观并发和 SHA-256 双重检查。begin 与 commit 都必须重新检查磁盘 revision/scene hash；普通保存不得覆盖外部修改，显式覆盖也只能覆盖 begin 之后未再次变化的磁盘版本。失败时必须保持 dirty 并清理 staging；提交中断必须恢复原文件。

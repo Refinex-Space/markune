@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-19
+updated: 2026-07-20
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -45,6 +45,7 @@ referenced_by: AGENTS.md#knowledge-map
 - `read_codex_plugin_icon(path) -> { mediaType, base64Data }` 只服务最近一次成功关联的 `plugin/installed` 响应。Rust 必须先按客户端请求 ID 关联响应，只登记其中 `composerIcon`、`logo`、`logoDark` 声明且可 canonicalize 的普通文件；命令仅接受与登记结果完全相同的 canonical path，限制 1 MiB，并按内容签名识别 PNG、JPEG、GIF、WebP 或 SVG。重新请求插件清单时先清空旧授权，运行时重启、停止或工作区切换后不得沿用。
 - 插件图标解析顺序固定为 `composerIcon` / `composerIconUrl`、当前主题 `logoDark` / `logo`、当前主题 `logoUrlDark` / `logoUrl`。本地资源读取失败后可以继续尝试下一候选；远程候选只接受 HTTPS，渲染时必须使用 `referrerPolicy="no-referrer"`，加载错误降级为通用插件图标且不得把整个插件清单标记为失败。
 - 核心运行时就绪后必须调用 `skills/list`，参数固定为当前工作区根目录的单元素 `cwds` 与 `forceReload: false`；收到 `skills/changed` 后使用相同 `cwds` 和 `forceReload: true` 刷新。只展示 enabled Skill，名称优先使用 `interface.displayName`，描述优先使用 `interface.shortDescription`，来源由 `scope` 映射。输入框选择结果必须把模型文本编码为 `$skill-name` 并带 UTF-8 `text_elements`，同时追加精确的 `{ type: "skill", name, path }` 原生输入。
+- `skills/extraRoots/set` 的客户端参数必须为空对象，由 Rust 替换为单个内置 Skill 根目录；`thread/start.dynamicTools` 同样只能由 Rust 注入固定的 `madora_drawing` namespace。`item/tool/call` 只接受 `preview_mermaid { title, definition }` 与 `create_from_preview { previewId }`，响应只允许最多 16 KiB 文本以及经过 PNG/WebP 签名校验、最多 2 MiB 的预览 Data URL。
 - `select_codex_context_attachments(kind, remaining)` 必须通过原生选择器返回最多 20 个 opaque attachment ID；`release_codex_context_attachments(ids)` 幂等释放未发送授权。前端只可在 `turn/start.madoraFileAttachments` 中提交这些 ID，Rust 必须移除私有字段、校验 15 分钟有效期和文件类型，再把图片转换为 `localImage`，把其他文件或目录编码为 `# Files mentioned by the user` 文本头。附件历史元数据只能放在受控 `text_elements.placeholder`，不得让渲染器提交原始绝对路径。
 - 当前文档与显式提及文档只可通过顶层 `madoraDocumentReferences` 传给 Tauri，每项分别标记 `role: "active" | "mention"`；缺少角色只按旧版 `mention` 兼容，每个 turn 最多一个 `active`。Rust 必须移除该私有字段、校验绝对路径与工作区边界，再生成 `madora_document_context_policy`（`application`）、`madora_active_document` 和 `madora_explicit_document_references`（后两者均为 `untrusted`）。即使当前无文档也必须写入 `null` 与空数组，以清除 App Server 上一 turn 的粘性上下文；渲染器直接提交原始 `additionalContext` 必须被拒绝。
 - “当前文档”“本文”“这篇文档”“current document”与“active file”只能解析为当前 turn 的 `madora_active_document`；不得根据日期、最近文件、线程历史或工作区惯例猜测。只有请求依赖正文时才读取活跃文档，普通问候不得强制产生无意义工具调用。
@@ -74,6 +75,7 @@ Inbox bridge 固定由 `workspace-api.ts` 调用以下命令：`list_inbox_captu
 
 - 查询命令为 `load_drawing_library`、`read_drawing_meta`、`read_drawing_scene`、`read_drawing_preview`、`read_drawing_library`、`read_drawing_ui_state`；场景、预览和组件库返回 Raw IPC response，不得转成 JSON 数字数组或 base64。
 - 保存固定使用 `begin_drawing_save`、Raw `stage_drawing_scene`、可选 Raw `stage_drawing_preview`、`commit_drawing_save` 和 `cancel_drawing_save`。begin 只接收 Drawing ID、期望 revision、受限元数据和显式冲突覆盖标记；commit 只接收 opaque session ID。
+- AI 新建固定使用 `begin_generated_drawing_create`、既有 Raw scene/preview staging、`commit_generated_drawing_create` 与 `cancel_generated_drawing_create`。begin 的图集路径只能由宿主当前选择派生；commit 必须要求场景和有效预览同时存在，并原子创建 revision 1 bundle。
 - 图稿与图集 create、rename、move、duplicate、trash、restore、permanent-delete 命令只接受 Drawing ID、图集回收站 ID 或受校验相对图集路径。删除图稿先移动整个 bundle 到 `.trash`；删除空图集不得递归，非空图集必须通过整图集回收事务移动到 `.trash/albums/<trash-id>`。复制图集必须为所有图稿生成新 Drawing ID；恢复冲突时生成唯一图集名，不得覆盖现有目录。
 - 导入选择器返回限时 opaque grant/source ID；导出选择器返回一次性目录 grant，Raw 写入不接受绝对目标路径且不得覆盖现有文件。组件库和 Markdown 快照同样采用 begin-session 加 Raw body 的两步协议。
 - `read_drawing_ui_state` / `write_drawing_ui_state` 只维护 schema v1 的最近 Drawing ID 与有限数值视口。该状态不得参与场景 revision、SHA 或 `updatedAt`。

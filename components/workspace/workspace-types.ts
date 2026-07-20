@@ -82,6 +82,10 @@ export interface DrawingSaveSession {
   nextRevision: number;
 }
 
+export interface DrawingRawSession {
+  sessionId: string;
+}
+
 export type DrawingSaveState =
   | { status: 'saved'; revision: number }
   | { status: 'dirty'; revision: number }

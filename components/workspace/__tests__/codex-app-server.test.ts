@@ -5,6 +5,7 @@ import {
   CodexAppServerClient,
   listenCodexEventsUntilDisposed,
   probeCodexRuntime,
+  respondToCodexDynamicTool,
   respondToCodexUserInput,
   startCodexRuntime,
   threadGoalUpdateFromMessage,
@@ -213,6 +214,22 @@ describe('CodexAppServerClient', () => {
           },
         ],
       },
+    );
+  });
+
+  it('通过独立 Tauri 命令提交动态工具文本和预览图片', async () => {
+    vi.mocked(invoke).mockResolvedValue(undefined);
+    const response = {
+      imageDataUrl: 'data:image/webp;base64,UklGRgAAAABXRUJQ',
+      success: true,
+      text: '{"previewId":"preview-1"}',
+    };
+
+    await respondToCodexDynamicTool('tool-1', response);
+
+    expect(invoke).toHaveBeenCalledWith(
+      'codex_app_server_respond_dynamic_tool',
+      { requestId: 'tool-1', response },
     );
   });
 

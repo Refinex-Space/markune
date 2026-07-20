@@ -39,6 +39,7 @@ pub struct DrawingState {
 #[derive(Default)]
 struct DrawingStateInner {
     save_sessions: Mutex<HashMap<String, SaveSessionEntry>>,
+    generated_create_sessions: Mutex<HashMap<String, GeneratedCreateSessionEntry>>,
     import_grants: Mutex<HashMap<String, ImportGrantEntry>>,
     export_grants: Mutex<HashMap<String, ExportGrantEntry>>,
     library_write_sessions: Mutex<HashMap<String, TimedRootEntry>>,
@@ -50,6 +51,15 @@ struct SaveSessionEntry {
     drawing_id: String,
     expected_scene_sha256: String,
     expected_revision: u64,
+    expires_at: Instant,
+    manifest: DrawingSaveManifest,
+    root_path: String,
+    staging_dir: PathBuf,
+}
+
+#[derive(Clone)]
+struct GeneratedCreateSessionEntry {
+    album_path: String,
     expires_at: Instant,
     manifest: DrawingSaveManifest,
     root_path: String,
@@ -462,18 +472,51 @@ pub fn begin_drawing_save(
 }
 
 #[tauri::command]
+pub fn begin_generated_drawing_create(
+    state: State<'_, DrawingState>,
+    root_path: String,
+    album_path: String,
+    manifest: DrawingSaveManifest,
+) -> Result<DrawingRawSession, String> {
+    validate_manifest(&manifest)?;
+    let root = canonical_workspace_root(&root_path)?;
+    resolve_album_dir(&root, &album_path, true)?;
+    let session_id = Uuid::new_v4().to_string();
+    let staging_dir = ensure_drawings_root(&root)?
+        .join(".staging")
+        .join(&session_id);
+    fs::create_dir_all(&staging_dir)
+        .map_err(|error| format!("无法创建 AI 图稿暂存目录：{error}"))?;
+    let entry = GeneratedCreateSessionEntry {
+        album_path,
+        expires_at: Instant::now() + SESSION_TTL,
+        manifest,
+        root_path,
+        staging_dir,
+    };
+    let mut sessions = state
+        .inner
+        .generated_create_sessions
+        .lock()
+        .map_err(|_| "AI 图稿创建状态不可用。".to_string())?;
+    cleanup_generated_create_sessions(&mut sessions);
+    sessions.insert(session_id.clone(), entry);
+    Ok(DrawingRawSession { session_id })
+}
+
+#[tauri::command]
 pub fn stage_drawing_scene(
     state: State<'_, DrawingState>,
     request: Request<'_>,
 ) -> Result<(), String> {
     let session_id = read_header(&request, "x-madora-drawing-session")?;
-    let session = get_save_session(&state, &session_id)?;
+    let staging_dir = get_staging_dir(&state, &session_id)?;
     let bytes = raw_body(&request, "图稿场景")?;
     if bytes.len() > MAX_SCENE_BYTES {
         return Err("图稿场景超过 100 MiB 限制。".to_string());
     }
     validate_scene(&bytes)?;
-    fs::write(session.staging_dir.join("scene.excalidraw"), bytes)
+    fs::write(staging_dir.join("scene.excalidraw"), bytes)
         .map_err(|error| format!("无法暂存图稿场景：{error}"))
 }
 
@@ -483,7 +526,7 @@ pub fn stage_drawing_preview(
     request: Request<'_>,
 ) -> Result<(), String> {
     let session_id = read_header(&request, "x-madora-drawing-session")?;
-    let session = get_save_session(&state, &session_id)?;
+    let staging_dir = get_staging_dir(&state, &session_id)?;
     let bytes = raw_body(&request, "图稿预览")?;
     if bytes.len() > MAX_PREVIEW_BYTES {
         return Err("图稿预览超过 2 MiB 限制。".to_string());
@@ -493,8 +536,8 @@ pub fn stage_drawing_preview(
         DrawingPreviewFormat::Png => PREVIEW_WEBP_FILE,
         DrawingPreviewFormat::Webp => PREVIEW_PNG_FILE,
     };
-    let _ = fs::remove_file(session.staging_dir.join(stale_file));
-    fs::write(session.staging_dir.join(format.file_name()), bytes)
+    let _ = fs::remove_file(staging_dir.join(stale_file));
+    fs::write(staging_dir.join(format.file_name()), bytes)
         .map_err(|error| format!("无法暂存图稿预览：{error}"))
 }
 
@@ -531,6 +574,46 @@ pub fn cancel_drawing_save(
         .save_sessions
         .lock()
         .map_err(|_| "图稿保存状态不可用。".to_string())?
+        .remove(&session_id);
+    if let Some(session) = session {
+        let _ = fs::remove_dir_all(session.staging_dir);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn commit_generated_drawing_create(
+    state: State<'_, DrawingState>,
+    session_id: String,
+) -> Result<DrawingDocumentDescriptor, String> {
+    validate_uuid(&session_id, "AI 图稿创建会话 ID")?;
+    let session = {
+        let mut sessions = state
+            .inner
+            .generated_create_sessions
+            .lock()
+            .map_err(|_| "AI 图稿创建状态不可用。".to_string())?;
+        cleanup_generated_create_sessions(&mut sessions);
+        sessions
+            .remove(&session_id)
+            .ok_or_else(|| "AI 图稿创建会话已使用、过期或不存在。".to_string())?
+    };
+    let result = commit_generated_create_session(&session);
+    let _ = fs::remove_dir_all(&session.staging_dir);
+    result
+}
+
+#[tauri::command]
+pub fn cancel_generated_drawing_create(
+    state: State<'_, DrawingState>,
+    session_id: String,
+) -> Result<(), String> {
+    validate_uuid(&session_id, "AI 图稿创建会话 ID")?;
+    let session = state
+        .inner
+        .generated_create_sessions
+        .lock()
+        .map_err(|_| "AI 图稿创建状态不可用。".to_string())?
         .remove(&session_id);
     if let Some(session) = session {
         let _ = fs::remove_dir_all(session.staging_dir);
@@ -1254,6 +1337,74 @@ fn commit_save_session(session: &SaveSessionEntry) -> Result<DrawingDocumentDesc
         });
     }
     descriptor_for_bundle(&root, &bundle)
+}
+
+fn commit_generated_create_session(
+    session: &GeneratedCreateSessionEntry,
+) -> Result<DrawingDocumentDescriptor, String> {
+    let root = canonical_workspace_root(&session.root_path)?;
+    let album = resolve_album_dir(&root, &session.album_path, true)?;
+    let scene = read_limited_file(
+        &session.staging_dir.join("scene.excalidraw"),
+        MAX_SCENE_BYTES,
+        "暂存 AI 图稿场景",
+    )?;
+    let scene_value = validate_scene(&scene)?;
+    let element_count = count_scene_elements(&scene_value);
+    if session.manifest.element_count != element_count {
+        return Err("AI 图稿元素数量与场景内容不一致。".to_string());
+    }
+    let preview_path = drawing_preview_path(&session.staging_dir)
+        .ok_or_else(|| "AI 图稿预览尚未完整暂存。".to_string())?;
+    let preview = read_limited_file(&preview_path, MAX_PREVIEW_BYTES, "暂存 AI 图稿预览")?;
+    let preview_format = validate_preview_image(&preview)?;
+
+    let id = Uuid::new_v4().to_string();
+    let staged_bundle = session.staging_dir.join("bundle");
+    let target_bundle = album.join(&id);
+    if target_bundle.exists() {
+        return Err("目标图集中已存在同 ID 图稿。".to_string());
+    }
+    fs::create_dir(&staged_bundle)
+        .map_err(|error| format!("无法创建 AI 图稿 bundle 暂存目录：{error}"))?;
+    let timestamp = now_iso();
+    let meta = DrawingMeta {
+        schema_version: DRAWING_SCHEMA_VERSION,
+        id,
+        title: session.manifest.title.trim().to_string(),
+        tags: normalized_tags(&session.manifest.tags)?,
+        favorite: session.manifest.favorite,
+        created_at: timestamp.clone(),
+        updated_at: timestamp,
+        revision: 1,
+        scene_sha256: hex::encode(Sha256::digest(&scene)),
+        element_count,
+        search_text: build_search_text(
+            &session.manifest.title,
+            &session.manifest.tags,
+            &format!(
+                "{} {}",
+                extract_scene_text(&scene_value),
+                session.manifest.search_text
+            ),
+        ),
+        preview_revision: Some(1),
+    };
+    let result = (|| {
+        fs::write(staged_bundle.join("scene.excalidraw"), &scene)
+            .map_err(|error| format!("无法暂存 AI 图稿场景：{error}"))?;
+        fs::write(staged_bundle.join(preview_format.file_name()), &preview)
+            .map_err(|error| format!("无法暂存 AI 图稿预览：{error}"))?;
+        write_meta_atomic(&staged_bundle, &meta)?;
+        fs::rename(&staged_bundle, &target_bundle)
+            .map_err(|error| format!("无法原子创建 AI 图稿：{error}"))?;
+        descriptor_for_bundle(&root, &target_bundle)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_dir_all(&staged_bundle);
+        let _ = fs::remove_dir_all(&target_bundle);
+    }
+    result
 }
 
 fn create_drawing_from_scene(
@@ -2187,7 +2338,36 @@ fn get_save_session(state: &DrawingState, session_id: &str) -> Result<SaveSessio
         .ok_or_else(|| "图稿保存会话已过期或不存在。".to_string())
 }
 
+fn get_staging_dir(state: &DrawingState, session_id: &str) -> Result<PathBuf, String> {
+    validate_uuid(session_id, "图稿暂存会话 ID")?;
+    if let Ok(session) = get_save_session(state, session_id) {
+        return Ok(session.staging_dir);
+    }
+    let mut sessions = state
+        .inner
+        .generated_create_sessions
+        .lock()
+        .map_err(|_| "AI 图稿创建状态不可用。".to_string())?;
+    cleanup_generated_create_sessions(&mut sessions);
+    sessions
+        .get(session_id)
+        .map(|session| session.staging_dir.clone())
+        .ok_or_else(|| "图稿暂存会话已过期或不存在。".to_string())
+}
+
 fn cleanup_save_sessions(sessions: &mut HashMap<String, SaveSessionEntry>) {
+    let expired = sessions
+        .iter()
+        .filter(|(_, session)| session.expires_at <= Instant::now())
+        .map(|(id, session)| (id.clone(), session.staging_dir.clone()))
+        .collect::<Vec<_>>();
+    for (id, directory) in expired {
+        sessions.remove(&id);
+        let _ = fs::remove_dir_all(directory);
+    }
+}
+
+fn cleanup_generated_create_sessions(sessions: &mut HashMap<String, GeneratedCreateSessionEntry>) {
     let expired = sessions
         .iter()
         .filter(|(_, session)| session.expires_at <= Instant::now())
@@ -2449,6 +2629,74 @@ mod tests {
         permanently_delete_drawing(root.path().to_string_lossy().into_owned(), id.clone())
             .expect("永久删除失败");
         assert!(trash_bundle(root.path(), &id).is_err());
+    }
+
+    #[test]
+    fn generated_drawing_create_commits_revision_one_with_preview_atomically() {
+        let root = workspace();
+        let staging_dir = ensure_drawings_root(root.path())
+            .expect("create drawings root")
+            .join(".staging")
+            .join(Uuid::new_v4().to_string());
+        fs::create_dir_all(&staging_dir).expect("create generated staging");
+        let scene = default_scene_bytes();
+        fs::write(staging_dir.join("scene.excalidraw"), &scene).expect("stage scene");
+        fs::write(
+            staging_dir.join(PREVIEW_PNG_FILE),
+            b"\x89PNG\r\n\x1a\npreview",
+        )
+        .expect("stage preview");
+        let session = GeneratedCreateSessionEntry {
+            album_path: "AI".to_string(),
+            expires_at: Instant::now() + SESSION_TTL,
+            manifest: DrawingSaveManifest {
+                element_count: 0,
+                favorite: false,
+                search_text: String::new(),
+                tags: Vec::new(),
+                title: "Spring Cloud 架构".to_string(),
+            },
+            root_path: root.path().to_string_lossy().into_owned(),
+            staging_dir: staging_dir.clone(),
+        };
+
+        let created = commit_generated_create_session(&session).expect("commit generated drawing");
+        assert_eq!(created.meta.revision, 1);
+        assert_eq!(created.meta.preview_revision, Some(1));
+        assert!(created.has_preview);
+        let bundle = locate_active_bundle(root.path(), &created.meta.id).expect("locate bundle");
+        assert!(bundle.join("scene.excalidraw").is_file());
+        assert!(bundle.join("meta.json").is_file());
+        assert!(bundle.join(PREVIEW_PNG_FILE).is_file());
+    }
+
+    #[test]
+    fn generated_drawing_create_without_preview_leaves_no_bundle() {
+        let root = workspace();
+        let staging_dir = ensure_drawings_root(root.path())
+            .expect("create drawings root")
+            .join(".staging")
+            .join(Uuid::new_v4().to_string());
+        fs::create_dir_all(&staging_dir).expect("create generated staging");
+        fs::write(staging_dir.join("scene.excalidraw"), default_scene_bytes())
+            .expect("stage scene");
+        let session = GeneratedCreateSessionEntry {
+            album_path: String::new(),
+            expires_at: Instant::now() + SESSION_TTL,
+            manifest: DrawingSaveManifest {
+                element_count: 0,
+                favorite: false,
+                search_text: String::new(),
+                tags: Vec::new(),
+                title: "不完整图稿".to_string(),
+            },
+            root_path: root.path().to_string_lossy().into_owned(),
+            staging_dir,
+        };
+        assert!(commit_generated_create_session(&session).is_err());
+        let snapshot = load_drawing_library(root.path().to_string_lossy().into_owned())
+            .expect("load drawings");
+        assert!(snapshot.drawings.is_empty());
     }
 
     #[test]
