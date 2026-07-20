@@ -242,7 +242,7 @@ interface ComposerMentionTarget {
 }
 
 const mentionLinkClassName =
-  'mx-0.5 inline-flex cursor-pointer select-none items-center gap-1.5 rounded-sm border-0 bg-transparent p-0 align-middle font-sans text-[#3574f0] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3574f0]/35';
+  'mx-0.5 inline cursor-pointer select-none rounded-sm border-0 bg-transparent p-0 [font:inherit] leading-[inherit] text-[#3574f0] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3574f0]/35';
 const GOAL_COMMAND_SELECTION = 'madora:goal-mode';
 const COMPACT_COMMAND_SELECTION = 'madora:compact-context';
 const GOAL_OBJECTIVE_MAX_LENGTH = 4_000;
@@ -2209,6 +2209,7 @@ export function AiPanel({
               authRequired={authRequired}
               conversation={conversation}
               currentDocument={currentDocument}
+              pluginOptions={pluginOptions}
               presentation={presentation}
               runtimeError={runtimeError}
               runtimeStatus={runtimeStatus}
@@ -2504,12 +2505,17 @@ export function AiPanelHeader({
             : activeThread?.name || activeThread?.preview || '新任务'}
         </div>
       </div>
-      <HeaderButton label="新任务" onClick={onNewChat}>
-        <SquarePen size={16} />
-      </HeaderButton>
-      <HeaderButton label="历史记录" onClick={onHistory}>
-        <History size={16} />
-      </HeaderButton>
+      <div
+        className="flex shrink-0 items-center gap-0.5"
+        data-testid="ai-header-actions"
+      >
+        <HeaderButton label="新任务" onClick={onNewChat}>
+          <SquarePen size={16} />
+        </HeaderButton>
+        <HeaderButton label="历史记录" onClick={onHistory}>
+          <History size={16} />
+        </HeaderButton>
+      </div>
     </header>
   );
 }
@@ -2537,6 +2543,7 @@ export function PanelContent({
   authRequired,
   conversation,
   currentDocument,
+  pluginOptions = [],
   presentation = 'panel',
   runtimeError,
   runtimeStatus,
@@ -2551,6 +2558,7 @@ export function PanelContent({
   authRequired: boolean;
   conversation: AiConversationState;
   currentDocument: WorkspaceNode | null;
+  pluginOptions?: AiPluginMentionOption[];
   presentation?: 'panel' | 'workspace';
   runtimeError: string | null;
   runtimeStatus: RuntimeStatus;
@@ -2723,6 +2731,7 @@ export function PanelContent({
               key={`${block.type}-${block.id}`}
               onOpenDocument={onOpenDocument}
               onOpenPlanPreview={onOpenPlanPreview}
+              pluginOptions={pluginOptions}
               previous={previousConversationEntry(blocks[index - 1])}
               timestampMs={messageTimestampMs(block, conversation.turns)}
             />
@@ -3282,12 +3291,14 @@ export function ConversationEntryRow({
   entry,
   onOpenDocument,
   onOpenPlanPreview = () => undefined,
+  pluginOptions = [],
   previous,
   timestampMs,
 }: {
   entry: AiConversationEntry;
   onOpenDocument: (documentPath: string) => void;
   onOpenPlanPreview?: (plan: AiProposedPlan) => void;
+  pluginOptions?: AiPluginMentionOption[];
   previous: AiConversationEntry | null;
   timestampMs?: number | null;
 }) {
@@ -3332,6 +3343,7 @@ export function ConversationEntryRow({
         <UserMessageBubble
           attachments={entry.attachments ?? []}
           mentions={entry.mentions ?? []}
+          pluginOptions={pluginOptions}
           text={entry.text}
           timestampMs={resolvedTimestampMs}
           onOpenMention={onOpenDocument}
@@ -3344,12 +3356,14 @@ export function ConversationEntryRow({
 function UserMessageBubble({
   attachments,
   mentions,
+  pluginOptions,
   text,
   timestampMs,
   onOpenMention,
 }: {
   attachments: AiMessageAttachment[];
   mentions: AiMessageMention[];
+  pluginOptions: AiPluginMentionOption[];
   text: string;
   timestampMs: number | null;
   onOpenMention: (path: string) => void;
@@ -3360,6 +3374,7 @@ function UserMessageBubble({
         <UserMessageContent
           attachments={attachments}
           mentions={mentions}
+          pluginOptions={pluginOptions}
           text={text}
           onOpenMention={onOpenMention}
         />
@@ -3445,11 +3460,13 @@ function formatMessageTimestamp(timestampMs: number | null) {
 export function UserMessageContent({
   attachments = [],
   mentions,
+  pluginOptions = [],
   text,
   onOpenMention,
 }: {
   attachments?: AiMessageAttachment[];
   mentions: AiMessageMention[];
+  pluginOptions?: AiPluginMentionOption[];
   text: string;
   onOpenMention: (path: string) => void;
 }) {
@@ -3483,6 +3500,10 @@ export function UserMessageContent({
           key={`${mention.path}-${mention.start}-${mention.end}`}
           role="note"
         >
+          <MessageMentionIcon
+            mention={mention}
+            pluginOptions={pluginOptions}
+          />
           {label}
         </span>
       ) : (
@@ -3494,6 +3515,10 @@ export function UserMessageContent({
           type="button"
           onClick={() => onOpenMention(mention.path)}
         >
+          <MessageMentionIcon
+            mention={mention}
+            pluginOptions={pluginOptions}
+          />
           {label}
         </button>
       ),
@@ -3530,6 +3555,60 @@ export function UserMessageContent({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function MessageMentionIcon({
+  mention,
+  pluginOptions,
+}: {
+  mention: AiMessageMention;
+  pluginOptions: AiPluginMentionOption[];
+}) {
+  let icon: React.ReactNode;
+
+  if (mention.kind === 'plugin' || mention.path.startsWith('plugin://')) {
+    const plugin = pluginOptions.find(
+      (option) => option.mentionPath === mention.path,
+    );
+    icon = plugin ? (
+      <PluginIcon plugin={plugin} />
+    ) : (
+      <StaticMentionIcon src="/icons/mentions/puzzle.svg" />
+    );
+  } else {
+    icon = (
+      <StaticMentionIcon
+        src={
+          mention.kind === 'skill'
+            ? '/icons/mentions/box.svg'
+            : '/icons/mentions/file-text.svg'
+        }
+      />
+    );
+  }
+
+  return (
+    <span
+      aria-hidden="true"
+      className="mr-1.5 inline-flex size-4 align-[-0.125em]"
+    >
+      {icon}
+    </span>
+  );
+}
+
+function StaticMentionIcon({ src }: { src: string }) {
+  return (
+    // Mention 图标来自 Madora 自带静态资源，不需要 Next 图片优化。
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      alt=""
+      aria-hidden="true"
+      className="size-4 shrink-0 object-contain"
+      draggable={false}
+      src={src}
+    />
   );
 }
 

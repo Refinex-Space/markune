@@ -485,9 +485,11 @@ describe('AI message rendering', () => {
     );
 
     const header = screen.getByRole('banner');
+    const actions = screen.getByTestId('ai-header-actions');
     expect(header.className).toContain('-mt-1');
     expect(header.className).toContain('h-9');
     expect(header.className).not.toContain('border-b');
+    expect(actions.className).toContain('gap-0.5');
     expect(
       screen.queryByRole('button', { name: '折叠 AI 面板' }),
     ).toBeNull();
@@ -1203,10 +1205,75 @@ describe('AI message rendering', () => {
 
     const mention = screen.getByRole('link', { name: 'README' });
     expect(mention.textContent).toBe('README');
+    expect(mention.className.split(/\s+/)).toContain('inline');
+    expect(mention.className.split(/\s+/)).not.toContain('inline-flex');
+    expect(mention.className).toContain('[font:inherit]');
+    expect(mention.className).toContain('leading-[inherit]');
+    expect(mention.querySelector('img')?.getAttribute('src')).toBe(
+      '/icons/mentions/file-text.svg',
+    );
+    expect(mention.firstElementChild?.className).toContain('align-[-0.125em]');
     expect(screen.getByText('比较 README 与')).toBeTruthy();
 
     await user.click(mention);
     expect(onOpenMention).toHaveBeenCalledWith('/workspace/README.md');
+  });
+
+  it('已发送消息保留插件真实图标和 Skill 统一图标', () => {
+    const text = '使用 OpenAI Docs 和 Design QA';
+    const pluginStart = text.indexOf('OpenAI Docs');
+    const skillStart = text.indexOf('Design QA');
+
+    render(
+      <UserMessageContent
+        mentions={[
+          {
+            end: pluginStart + 'OpenAI Docs'.length,
+            kind: 'plugin',
+            label: 'OpenAI Docs',
+            path: 'plugin://openai-docs',
+            start: pluginStart,
+          },
+          {
+            end: skillStart + 'Design QA'.length,
+            kind: 'skill',
+            label: 'Design QA',
+            path: '/Users/example/.codex/skills/design-qa/SKILL.md',
+            start: skillStart,
+          },
+        ]}
+        pluginOptions={[
+          {
+            darkIconUrl: '/icons/plugins/openai-docs-dark.png',
+            description: 'OpenAI 官方文档',
+            displayName: 'OpenAI Docs',
+            iconUrl: '/icons/plugins/openai-docs-light.png',
+            id: 'openai-docs',
+            mentionPath: 'plugin://openai-docs',
+          },
+        ]}
+        text={text}
+        onOpenMention={vi.fn()}
+      />,
+    );
+
+    const plugin = screen.getByRole('note', { name: 'OpenAI Docs' });
+    const pluginImages = plugin.querySelectorAll('img');
+    expect(plugin.className.split(/\s+/)).toContain('inline');
+    expect(plugin.className).toContain('[font:inherit]');
+    expect(plugin.firstElementChild?.className).toContain('align-[-0.125em]');
+    expect(pluginImages).toHaveLength(2);
+    expect(pluginImages[0]?.getAttribute('src')).toBe(
+      '/icons/plugins/openai-docs-light.png',
+    );
+    expect(pluginImages[1]?.getAttribute('src')).toBe(
+      '/icons/plugins/openai-docs-dark.png',
+    );
+
+    const skill = screen.getByRole('note', { name: 'Design QA' });
+    expect(skill.querySelector('img')?.getAttribute('src')).toBe(
+      '/icons/mentions/box.svg',
+    );
   });
 
   it('已发送消息隐藏模型使用的相对路径并显示文档标题', async () => {
