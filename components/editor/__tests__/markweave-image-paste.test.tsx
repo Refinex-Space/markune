@@ -14,10 +14,26 @@ vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: vi.fn((path: string) => `asset://${path}`),
 }));
 
-vi.mock('@/components/workspace/workspace-api', () => ({
-  resolveWorkspaceAsset: vi.fn(),
-  uploadWorkspaceAsset: vi.fn(),
-}));
+vi.mock('@/components/workspace/workspace-api', () => {
+  const resolveWorkspaceAsset = vi.fn();
+
+  return {
+    resolveWorkspaceAsset,
+    resolveWorkspaceAssets: vi.fn(
+      async (rootPath: string, assetIds: string[]) => ({
+        items: await Promise.all(
+          assetIds.map(async (assetId) => {
+            const asset = await resolveWorkspaceAsset(rootPath, assetId);
+            return asset
+              ? { asset, id: assetId, status: 'resolved' }
+              : { id: assetId, status: 'missing' };
+          }),
+        ),
+      }),
+    ),
+    uploadWorkspaceAsset: vi.fn(),
+  };
+});
 
 import { useWorkspaceAssetUploader } from '@/components/editor/use-workspace-asset-uploader';
 import {
@@ -32,14 +48,20 @@ function WorkspaceAssetEditor({
   documentKey: string;
   markdown: string;
 }) {
-  const { editorMarkdown } = useWorkspaceAssetUploader('/ws/root', markdown);
+  const { editorMarkdown, resolveMediaSource } = useWorkspaceAssetUploader(
+    '/ws/root',
+    markdown,
+  );
 
   return (
-    <MarkweaveEditor
-      content={editorMarkdown}
-      contentFormat="markdown"
-      key={documentKey}
-    />
+    editorMarkdown === null ? null : (
+      <MarkweaveEditor
+        content={editorMarkdown}
+        contentFormat="markdown"
+        key={documentKey}
+        {...{ resolveMediaSource }}
+      />
+    )
   );
 }
 
@@ -68,19 +90,21 @@ function ControlledWorkspaceAssetEditor({
 }) {
   const [value, setValue] = React.useState(markdown);
   const { editorMarkdown, onSlashCommandUpload, toStorageMarkdown } =
-    useWorkspaceAssetUploader('/ws/root', value);
+    useWorkspaceAssetUploader('/ws/root', markdown);
 
   return (
     <>
-      <MarkweaveEditor
-        content={editorMarkdown}
-        contentFormat="markdown"
-        onSlashCommandUpload={onSlashCommandUpload}
-        onUpdate={(payload) => {
-          onEditor?.(payload.editor);
-          setValue(toStorageMarkdown(payload.markdown));
-        }}
-      />
+      {editorMarkdown === null ? null : (
+        <MarkweaveEditor
+          content={editorMarkdown}
+          contentFormat="markdown"
+          onSlashCommandUpload={onSlashCommandUpload}
+          onUpdate={(payload) => {
+            onEditor?.(payload.editor);
+            setValue(toStorageMarkdown(payload.markdown));
+          }}
+        />
+      )}
       <output data-testid="workspace-asset-storage">{value}</output>
     </>
   );
@@ -110,7 +134,7 @@ describe('Markweave image integration', () => {
       />,
     );
 
-    const surface = screen.getByTestId('markweave-editor-surface');
+    const surface = await screen.findByTestId('markweave-editor-surface');
     fireEvent.paste(surface, {
       clipboardData: {
         files: [file],
@@ -167,7 +191,7 @@ describe('Markweave image integration', () => {
         }}
       />,
     );
-    const surface = screen.getByTestId('markweave-editor-surface');
+    const surface = await screen.findByTestId('markweave-editor-surface');
     await waitFor(() => {
       expect(surface.querySelectorAll('img')).toHaveLength(1);
       expect(editor).not.toBeNull();
@@ -217,7 +241,7 @@ describe('Markweave image integration', () => {
         }}
       />,
     );
-    const surface = screen.getByTestId('markweave-editor-surface');
+    const surface = await screen.findByTestId('markweave-editor-surface');
     await waitFor(() => {
       expect(surface.querySelector('img')?.getAttribute('src')).toContain(
         assetId,

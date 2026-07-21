@@ -24,6 +24,7 @@ import {
   replaceDocumentTextMatch,
   type DocumentFindOptions,
 } from '@/components/editor/document-find';
+import type { MarkdownSourceEditorHandle } from '@/components/editor/markdown-source-editor';
 import {
   Tooltip,
   TooltipContent,
@@ -47,7 +48,7 @@ interface DocumentFindBarProps {
   request: DocumentFindRequest;
   sourceMode: boolean;
   sourceText: string;
-  sourceTextareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  sourceEditorRef: React.RefObject<MarkdownSourceEditorHandle | null>;
 }
 
 const emptySearchState: MarkweaveSearchState = {
@@ -66,7 +67,7 @@ export function DocumentFindBar({
   request,
   sourceMode,
   sourceText,
-  sourceTextareaRef,
+  sourceEditorRef,
 }: DocumentFindBarProps) {
   const searchInputRef = React.useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = React.useState(request.initialQuery);
@@ -137,20 +138,19 @@ export function DocumentFindBar({
     }
 
     const match = sourceResult.matches[resolvedSourceActiveIndex];
-    const textarea = sourceTextareaRef.current;
+    const sourceEditor = sourceEditorRef.current;
 
-    if (!match || !textarea) {
+    if (!match || !sourceEditor) {
       return;
     }
 
-    textarea.setSelectionRange(match.from, match.to);
-    scrollTextareaMatchIntoView(textarea, sourceText, match.from);
+    sourceEditor.selectRange(match.from, match.to);
   }, [
     resolvedSourceActiveIndex,
     sourceMode,
     sourceResult.matches,
     sourceText,
-    sourceTextareaRef,
+    sourceEditorRef,
   ]);
 
   const activeMatchIndex = sourceMode
@@ -500,15 +500,4 @@ function FindIconButton({
       </TooltipContent>
     </Tooltip>
   );
-}
-
-function scrollTextareaMatchIntoView(
-  textarea: HTMLTextAreaElement,
-  text: string,
-  matchStart: number,
-) {
-  const line = text.slice(0, matchStart).split(/\r?\n/).length - 1;
-  const lineHeight = 24;
-  const targetTop = Math.max(0, line * lineHeight - textarea.clientHeight / 2);
-  textarea.scrollTop = targetTop;
 }

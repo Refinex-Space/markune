@@ -8,7 +8,7 @@ import type {
 } from '@markweave/react';
 
 import {
-  resolveWorkspaceAsset,
+  resolveWorkspaceAssets,
   uploadWorkspaceAsset,
 } from '@/components/workspace/workspace-api';
 import {
@@ -16,147 +16,304 @@ import {
   getWorkspaceAssetIdFromReference,
   LOCAL_ASSET_URL_PREFIX,
 } from '@/components/workspace/workspace-local-assets';
+import {
+  incrementWorkspacePerformanceCounter,
+  startWorkspacePerformanceMeasure,
+} from '@/components/workspace/workspace-performance';
 
 export interface WorkspaceAssetUploadBridge {
-  editorMarkdown: string;
+  editorMarkdown: string | null;
   onSlashCommandUpload: MarkweaveSlashCommandUploadHandler;
+  resolveMediaSource: WorkspaceMediaSourceResolver;
   toStorageMarkdown: (markdown: string) => string;
 }
 
-interface CachedStorageToDisplay {
-  mappings: ReadonlyMap<string, string>;
-  rootPath: string | null;
+export interface WorkspaceMediaSourceRequest {
+  kind: 'attachment' | 'image' | 'video';
+  priority: 'background' | 'nearby' | 'visible';
+  signal: AbortSignal;
+  src: string;
 }
 
-const EMPTY_ASSET_MAPPINGS = new Map<string, string>();
+export interface WorkspaceMediaSourceResult {
+  height?: number;
+  src: string;
+  width?: number;
+}
+
+export type WorkspaceMediaSourceResolver = (
+  request: WorkspaceMediaSourceRequest,
+) =>
+  | WorkspaceMediaSourceResult
+  | null
+  | Promise<WorkspaceMediaSourceResult | null>;
 
 export function useWorkspaceAssetUploader(
   rootPath: string | null,
   storageMarkdown: string,
 ): WorkspaceAssetUploadBridge {
   const displayToStorageRef = React.useRef(new Map<string, string>());
-  const storageToDisplayRef = React.useRef(new Map<string, string>());
-  const [cachedStorageToDisplay, setCachedStorageToDisplay] =
-    React.useState<CachedStorageToDisplay>(() => ({
-      mappings: EMPTY_ASSET_MAPPINGS,
+  const mediaSourceCacheRef = React.useRef(
+    new Map<string, WorkspaceMediaSourceResult | null>(),
+  );
+  const pendingMediaSourceRef = React.useRef(
+    new Map<string, Promise<WorkspaceMediaSourceResult | null>>(),
+  );
+  const attemptedAssetIdsRef = React.useRef(new Set<string>());
+  const cacheRootPathRef = React.useRef(rootPath);
+  const assetReferences = React.useMemo(
+    () => extractWorkspaceAssetReferences(storageMarkdown),
+    [storageMarkdown],
+  );
+  const assetIds = React.useMemo(
+    () =>
+      assetReferences
+        .map(getWorkspaceAssetIdFromReference)
+        .filter((assetId): assetId is string => Boolean(assetId)),
+    [assetReferences],
+  );
+  const [initialEditorProjection, setInitialEditorProjection] = React.useState(
+    () => ({
       rootPath,
-    }));
-  const [resolvedMarkdown, setResolvedMarkdown] = React.useState(() => ({
-    editorMarkdown: storageMarkdown,
-    rootPath,
-    storageMarkdown,
-  }));
-  const editorMarkdown =
-    resolvedMarkdown.rootPath === rootPath
-      ? resolvedMarkdown.storageMarkdown === storageMarkdown
-        ? resolvedMarkdown.editorMarkdown
-        : replaceMappedValues(
-            storageMarkdown,
-            cachedStorageToDisplay.rootPath === rootPath
-              ? cachedStorageToDisplay.mappings
-              : EMPTY_ASSET_MAPPINGS,
-          )
-      : storageMarkdown;
+      storageMarkdown,
+      value: rootPath && assetIds.length > 0 ? null : storageMarkdown,
+    }),
+  );
+  const initialEditorMarkdown =
+    initialEditorProjection.rootPath === rootPath &&
+    initialEditorProjection.storageMarkdown === storageMarkdown
+      ? initialEditorProjection.value
+      : rootPath && assetIds.length > 0
+        ? null
+        : storageMarkdown;
 
   React.useEffect(() => {
-    displayToStorageRef.current.clear();
-    storageToDisplayRef.current.clear();
-  }, [rootPath]);
-
-  React.useEffect(() => {
-    let cancelled = false;
-
-    async function resolveStorageMarkdown() {
-      if (!rootPath) {
-        setResolvedMarkdown({
-          editorMarkdown: storageMarkdown,
-          rootPath,
-          storageMarkdown,
-        });
-        return;
-      }
-
-      const references = extractWorkspaceAssetReferences(storageMarkdown);
-
-      if (references.length === 0) {
-        setResolvedMarkdown({
-          editorMarkdown: storageMarkdown,
-          rootPath,
-          storageMarkdown,
-        });
-        return;
-      }
-
-      const replacements = new Map<string, string>();
-      const resolvedMappings = new Map<string, string>();
-
-      await Promise.all(
-        references.map(async (reference) => {
-          const assetId = getWorkspaceAssetIdFromReference(reference);
-
-          if (!assetId) {
-            return;
-          }
-
-          const storageReference = `${LOCAL_ASSET_URL_PREFIX}${assetId}`;
-          const cachedDisplayUrl =
-            storageToDisplayRef.current.get(storageReference);
-
-          if (cachedDisplayUrl) {
-            replacements.set(reference, cachedDisplayUrl);
-            return;
-          }
-
-          try {
-            const asset = await resolveWorkspaceAsset(rootPath, assetId);
-
-            if (cancelled) {
-              return;
-            }
-
-            const displayUrl = convertFileSrc(asset.absolutePath);
-
-            replacements.set(reference, displayUrl);
-            resolvedMappings.set(storageReference, displayUrl);
-          } catch (error) {
-            console.warn('Failed to resolve workspace asset.', error);
-          }
-        }),
-      );
-
-      if (!cancelled) {
-        for (const [storageReference, displayUrl] of resolvedMappings) {
-          storageToDisplayRef.current.set(storageReference, displayUrl);
-          displayToStorageRef.current.set(displayUrl, storageReference);
-        }
-        if (resolvedMappings.size > 0) {
-          setCachedStorageToDisplay((current) => ({
-            mappings: mergeMappedValues(
-              current.rootPath === rootPath
-                ? current.mappings
-                : EMPTY_ASSET_MAPPINGS,
-              resolvedMappings,
-            ),
-            rootPath,
-          }));
-        }
-        setResolvedMarkdown({
-          editorMarkdown: replaceMappedValues(storageMarkdown, replacements),
-          rootPath,
-          storageMarkdown,
-        });
-      }
+    if (cacheRootPathRef.current === rootPath) {
+      return;
     }
 
-    void resolveStorageMarkdown();
+    cacheRootPathRef.current = rootPath;
+    displayToStorageRef.current.clear();
+    mediaSourceCacheRef.current.clear();
+    pendingMediaSourceRef.current.clear();
+    attemptedAssetIdsRef.current.clear();
+  }, [rootPath]);
+
+  const resolveAssetIds = React.useCallback(
+    (assetIds: readonly string[]) => {
+      if (!rootPath) {
+        return Promise.resolve(
+          new Map<string, WorkspaceMediaSourceResult | null>(),
+        );
+      }
+
+      const pendingAssetIds = Array.from(new Set(assetIds)).filter(
+        (assetId) => !attemptedAssetIdsRef.current.has(assetId),
+      );
+
+      if (pendingAssetIds.length === 0) {
+        return Promise.resolve(
+          new Map<string, WorkspaceMediaSourceResult | null>(),
+        );
+      }
+
+      for (const assetId of pendingAssetIds) {
+        attemptedAssetIdsRef.current.add(assetId);
+      }
+
+      const perf = startWorkspacePerformanceMeasure(
+        'workspace.assets.resolve_batch',
+      );
+      incrementWorkspacePerformanceCounter('workspace.assets.ipc_count');
+      const batchPromise = resolveWorkspaceAssets(rootPath, pendingAssetIds)
+        .then((result) => {
+          const resolved = new Map<
+            string,
+            WorkspaceMediaSourceResult | null
+          >();
+          let unreadableCount = 0;
+
+          for (const item of result.items) {
+            const storageReference = `${LOCAL_ASSET_URL_PREFIX}${item.id}`;
+
+            if (item.status !== 'resolved' || !item.asset) {
+              resolved.set(item.id, null);
+              mediaSourceCacheRef.current.set(storageReference, null);
+              if (item.status === 'unreadable') {
+                unreadableCount += 1;
+              }
+              continue;
+            }
+
+            const mediaSource = {
+              height: item.asset.height,
+              src: convertFileSrc(item.asset.absolutePath),
+              width: item.asset.width,
+            };
+
+            resolved.set(item.id, mediaSource);
+            mediaSourceCacheRef.current.set(storageReference, mediaSource);
+            displayToStorageRef.current.set(
+              mediaSource.src,
+              storageReference,
+            );
+          }
+
+          if (unreadableCount > 0) {
+            console.warn('部分工作区资产无法读取。', {
+              count: unreadableCount,
+            });
+          }
+
+          perf.finish({
+            missing: result.items.filter((item) => item.status === 'missing')
+              .length,
+            requested: pendingAssetIds.length,
+            resolved: result.items.filter((item) => item.status === 'resolved')
+              .length,
+            unreadable: unreadableCount,
+          });
+
+          return resolved;
+        })
+        .catch((error) => {
+          for (const assetId of pendingAssetIds) {
+            attemptedAssetIdsRef.current.delete(assetId);
+          }
+          perf.finish({ requested: pendingAssetIds.length, status: 'failed' });
+          throw error;
+        });
+
+      for (const assetId of pendingAssetIds) {
+        const pending = batchPromise
+          .then((resolved) => resolved.get(assetId) ?? null)
+          .finally(() => {
+            if (pendingMediaSourceRef.current.get(assetId) === pending) {
+              pendingMediaSourceRef.current.delete(assetId);
+            }
+          });
+        pendingMediaSourceRef.current.set(assetId, pending);
+      }
+
+      return batchPromise;
+    },
+    [rootPath],
+  );
+
+  React.useEffect(() => {
+    if (!rootPath || assetIds.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    void resolveAssetIds(assetIds)
+      .then(() => {
+        if (cancelled) {
+          return;
+        }
+        const replacements = new Map<string, string>();
+        for (const reference of assetReferences) {
+          const assetId = getWorkspaceAssetIdFromReference(reference);
+          const resolved = assetId
+            ? mediaSourceCacheRef.current.get(
+                `${LOCAL_ASSET_URL_PREFIX}${assetId}`,
+              )
+            : null;
+          if (resolved) {
+            replacements.set(reference, resolved.src);
+          }
+        }
+        setInitialEditorProjection({
+          rootPath,
+          storageMarkdown,
+          value: replaceMappedValues(storageMarkdown, replacements),
+        });
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.warn('批量解析工作区资产失败。', error);
+          setInitialEditorProjection({
+            rootPath,
+            storageMarkdown,
+            value: storageMarkdown,
+          });
+        }
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [rootPath, storageMarkdown]);
+  }, [assetIds, assetReferences, resolveAssetIds, rootPath, storageMarkdown]);
+
+  const resolveMediaSource = React.useCallback<WorkspaceMediaSourceResolver>(
+    async (request) => {
+      if (request.signal.aborted) {
+        return null;
+      }
+
+      const projectedStorageReference =
+        displayToStorageRef.current.get(request.src);
+      const assetId = getWorkspaceAssetIdFromReference(
+        projectedStorageReference ?? request.src,
+      );
+
+      if (!assetId) {
+        return { src: request.src };
+      }
+
+      const storageReference = `${LOCAL_ASSET_URL_PREFIX}${assetId}`;
+      const cached = mediaSourceCacheRef.current.get(storageReference);
+
+      if (
+        cached !== undefined ||
+        mediaSourceCacheRef.current.has(storageReference)
+      ) {
+        return cached ?? null;
+      }
+
+      await Promise.resolve();
+
+      const prefetched = mediaSourceCacheRef.current.get(storageReference);
+      if (
+        prefetched !== undefined ||
+        mediaSourceCacheRef.current.has(storageReference)
+      ) {
+        return request.signal.aborted ? null : prefetched ?? null;
+      }
+
+      const pending =
+        pendingMediaSourceRef.current.get(assetId) ??
+        resolveAssetIds([assetId]).then(
+          (resolved) => resolved.get(assetId) ?? null,
+        );
+      const result = await pending;
+
+      return request.signal.aborted ? null : result;
+    },
+    [resolveAssetIds],
+  );
 
   const toStorageMarkdown = React.useCallback((markdown: string) => {
-    return replaceMappedValues(markdown, displayToStorageRef.current);
+    const displayRestored = replaceMappedValues(
+      markdown,
+      displayToStorageRef.current,
+    );
+    const legacyReplacements = new Map<string, string>();
+
+    for (const reference of extractWorkspaceAssetReferences(displayRestored)) {
+      const assetId = getWorkspaceAssetIdFromReference(reference);
+
+      if (!assetId || reference.startsWith(LOCAL_ASSET_URL_PREFIX)) {
+        continue;
+      }
+
+      const storageReference = `${LOCAL_ASSET_URL_PREFIX}${assetId}`;
+      if (mediaSourceCacheRef.current.get(storageReference)) {
+        legacyReplacements.set(reference, storageReference);
+      }
+    }
+
+    return replaceMappedValues(displayRestored, legacyReplacements);
   }, []);
 
   const onSlashCommandUpload = React.useCallback<MarkweaveSlashCommandUploadHandler>(
@@ -184,16 +341,8 @@ export function useWorkspaceAssetUploader(
       const storageReference = uploaded.url;
 
       displayToStorageRef.current.set(displayUrl, storageReference);
-      storageToDisplayRef.current.set(storageReference, displayUrl);
-      setCachedStorageToDisplay((current) => ({
-        mappings: mergeMappedValues(
-          current.rootPath === rootPath
-            ? current.mappings
-            : EMPTY_ASSET_MAPPINGS,
-          new Map([[storageReference, displayUrl]]),
-        ),
-        rootPath,
-      }));
+      mediaSourceCacheRef.current.set(storageReference, { src: displayUrl });
+      attemptedAssetIdsRef.current.add(uploaded.id);
 
       return {
         src: displayUrl,
@@ -206,8 +355,9 @@ export function useWorkspaceAssetUploader(
   );
 
   return {
-    editorMarkdown,
+    editorMarkdown: initialEditorMarkdown,
     onSlashCommandUpload,
+    resolveMediaSource,
     toStorageMarkdown,
   };
 }
@@ -257,28 +407,22 @@ function replaceMappedValues(
   markdown: string,
   replacements: ReadonlyMap<string, string>,
 ) {
-  let next = markdown;
-
-  for (const [from, to] of Array.from(replacements.entries()).sort(
-    ([left], [right]) => right.length - left.length,
-  )) {
-    next = next.split(from).join(to);
+  if (replacements.size === 0) {
+    return markdown;
   }
 
-  return next;
+  const pattern = Array.from(replacements.keys())
+    .sort((left, right) => right.length - left.length)
+    .map(escapeRegExp)
+    .join('|');
+
+  return markdown.replace(new RegExp(pattern, 'gu'), (value) =>
+    replacements.get(value) ?? value,
+  );
 }
 
-function mergeMappedValues(
-  current: ReadonlyMap<string, string>,
-  additions: ReadonlyMap<string, string>,
-) {
-  const merged = new Map(current);
-
-  for (const [from, to] of additions) {
-    merged.set(from, to);
-  }
-
-  return merged;
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function fileToBase64(file: File): Promise<string> {

@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { MarkdownEditor } from '@/components/editor/markdown-editor';
 
@@ -74,6 +74,9 @@ vi.mock('@markweave/react', async () => {
 
   return {
     MarkweaveEditor: vi.fn((props: Record<string, unknown>) => {
+      const [content, setContent] = React.useState(() =>
+        String(props.defaultContent ?? props.content ?? ''),
+      );
       markweaveEditorMock(props);
       React.useEffect(() => {
         (
@@ -104,9 +107,10 @@ vi.mock('@markweave/react', async () => {
             aria-label={String(props.ariaLabel)}
             data-testid="markweave-textarea"
             readOnly={props.mode === 'view'}
-            value={String(props.content ?? '')}
+            value={content}
             onChange={(event) => {
               const markdown = event.currentTarget.value;
+              setContent(markdown);
               const payload = {
                 get html() {
                   payloadFieldReadMock('html');
@@ -132,11 +136,70 @@ vi.mock('@markweave/react', async () => {
             }}
           />
           <span data-testid="markweave-selectable-text">
-            {String(props.content ?? '')}
+            {content}
           </span>
         </div>
       );
     }),
+  };
+});
+
+vi.mock('next/dynamic', async () => {
+  const React = await import('react');
+
+  return {
+    default: () =>
+      function MockMarkdownSourceEditor(props: {
+        editorRef: React.RefObject<{
+          focus: () => void;
+          getSelectedText: () => string;
+          selectRange: (from: number, to: number) => void;
+          setValue: (value: string) => void;
+        } | null>;
+        initialValue: string;
+        onChange?: (value: string) => void;
+        readOnly: boolean;
+      }) {
+        const [value, setValue] = React.useState(props.initialValue);
+        const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
+
+        React.useEffect(() => {
+          props.editorRef.current = {
+            focus: () => textareaRef.current?.focus(),
+            getSelectedText: () => {
+              const textarea = textareaRef.current;
+              return textarea
+                ? textarea.value.slice(
+                    textarea.selectionStart,
+                    textarea.selectionEnd,
+                  )
+                : '';
+            },
+            selectRange: (from, to) =>
+              textareaRef.current?.setSelectionRange(from, to),
+            setValue: (nextValue) => {
+              setValue(nextValue);
+              props.onChange?.(nextValue);
+            },
+          };
+          return () => {
+            props.editorRef.current = null;
+          };
+        }, [props.editorRef, props.onChange]);
+
+        return (
+          <textarea
+            aria-label="Markdown 文档源码"
+            readOnly={props.readOnly}
+            ref={textareaRef}
+            value={value}
+            onChange={(event) => {
+              setValue(event.currentTarget.value);
+              props.onChange?.(event.currentTarget.value);
+            }}
+          />
+        );
+      },
   };
 });
 
@@ -150,6 +213,7 @@ vi.mock('next-themes', () => ({
 
 describe('MarkdownEditor', () => {
   beforeEach(() => {
+    vi.useFakeTimers();
     cancelAnimationFrameMock.mockClear();
     markweaveEditorMock.mockClear();
     markweaveUnmountMock.mockClear();
@@ -218,7 +282,12 @@ describe('MarkdownEditor', () => {
     vi.stubGlobal('cancelAnimationFrame', cancelAnimationFrameMock);
   });
 
-  it('渲染 Markweave 受控 Markdown 编辑器', () => {
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it('渲染 Markweave 非受控 Markdown 编辑器', () => {
     render(
       <MarkdownEditor
         documentKey="doc-1"
@@ -239,8 +308,8 @@ describe('MarkdownEditor', () => {
     ).toBe('# 标题');
     expect(markweaveEditorMock.mock.calls.at(-1)?.[0]).toMatchObject({
       canvasColor: 'var(--background)',
-      content: '# 标题',
-      contentFormat: 'markdown',
+      defaultContent: '# 标题',
+      defaultContentFormat: 'markdown',
       editable: true,
       innerToc: true,
       innerTocPlacement: 'container',
@@ -282,7 +351,7 @@ describe('MarkdownEditor', () => {
     ).toBe('false');
   });
 
-  it('保护 frontmatter，只把正文传给 Markweave，保存时再序列化完整 Markdown', () => {
+  it('保护 frontmatter，只把正文传给 Markweave，idle 时再序列化完整 Markdown', () => {
     const onMarkdownChange = vi.fn();
 
     render(
@@ -300,8 +369,13 @@ describe('MarkdownEditor', () => {
       target: { value: '# 新正文' },
     });
 
+    expect(onMarkdownChange).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(500));
+
     expect(onMarkdownChange).toHaveBeenLastCalledWith(
       '---\ntitle: 文档\n---\n\n# 新正文\n',
+      undefined,
+      'idle',
     );
   });
 
@@ -319,8 +393,12 @@ describe('MarkdownEditor', () => {
       target: { value: '# 新正文\n\n- [ ] ' },
     });
 
+    act(() => vi.advanceTimersByTime(500));
+
     expect(onMarkdownChange).toHaveBeenLastCalledWith(
       '---\ntitle: 文档\n---\n\n# 新正文\n\n- [ ] \n',
+      undefined,
+      'idle',
     );
   });
 
@@ -344,8 +422,12 @@ describe('MarkdownEditor', () => {
       },
     });
 
+    act(() => vi.advanceTimersByTime(500));
+
     expect(onMarkdownChange).toHaveBeenLastCalledWith(
       '![图](madora-asset://hash)',
+      undefined,
+      'idle',
     );
   });
 
@@ -373,21 +455,33 @@ describe('MarkdownEditor', () => {
       target: { value: `${projected}\n` },
     });
 
-    expect(onMarkdownChange).toHaveBeenLastCalledWith(`${canonical}\n`);
+    act(() => vi.advanceTimersByTime(500));
+
+    expect(onMarkdownChange).toHaveBeenLastCalledWith(
+      `${canonical}\n`,
+      undefined,
+      'idle',
+    );
   });
 
-  it('保存时只读取 Markweave 延迟序列化的 Markdown 字段', () => {
+  it('连续输入期间不读取 Markdown，idle 后只序列化一次', () => {
     render(<MarkdownEditor markdown="# 原文" onMarkdownChange={() => {}} />);
 
-    fireEvent.change(screen.getByLabelText('Markdown 正文'), {
-      target: { value: '# 新正文' },
-    });
+    for (let index = 1; index <= 100; index += 1) {
+      fireEvent.change(screen.getByLabelText('Markdown 正文'), {
+        target: { value: `# 新正文 ${index}` },
+      });
+    }
 
+    expect(payloadFieldReadMock).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(499));
+    expect(payloadFieldReadMock).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
     expect(payloadFieldReadMock).toHaveBeenCalledTimes(1);
     expect(payloadFieldReadMock).toHaveBeenCalledWith('markdown');
   });
 
-  it('拦截 Cmd/Ctrl+S 并触发保存请求', () => {
+  it('拦截 Cmd/Ctrl+S，立即序列化一次并触发保存请求', () => {
     const onSaveRequested = vi.fn();
 
     render(
@@ -400,6 +494,7 @@ describe('MarkdownEditor', () => {
     });
 
     expect(onSaveRequested).toHaveBeenCalledTimes(1);
+    expect(payloadFieldReadMock).not.toHaveBeenCalled();
   });
 
   it('通过 Ctrl/Cmd+F 打开专业查找栏并驱动 Markweave 搜索与替换', () => {
@@ -476,9 +571,12 @@ describe('MarkdownEditor', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: '替换当前匹配' }));
 
+    act(() => vi.advanceTimersByTime(500));
+
     expect(onMarkdownChange).toHaveBeenLastCalledWith(
       '---\ntitle: Beta\n---\n\n# Alpha',
       'source',
+      'idle',
     );
   });
 
@@ -503,7 +601,7 @@ describe('MarkdownEditor', () => {
     ).toBe(true);
   });
 
-  it('通过 Ctrl/Cmd+/ 切换完整可写源码且不卸载 Markweave', () => {
+  it('通过 Ctrl/Cmd+/ 切换完整可写源码，返回时只重建一次 Markweave', async () => {
     const markdown =
       '---\ntitle: 源码文档\nupdatedAt: 2026-07-14\n---\n\n# 正文\n\n- [ ] 任务\n';
     const onMarkdownChange = vi.fn();
@@ -542,12 +640,24 @@ describe('MarkdownEditor', () => {
 
     const nextMarkdown = `${markdown}\n<!-- 源码编辑 -->\n`;
     fireEvent.change(source, { target: { value: nextMarkdown } });
-    expect(onMarkdownChange).toHaveBeenLastCalledWith(nextMarkdown, 'source');
+    expect(onMarkdownChange).not.toHaveBeenCalled();
+    await act(async () => {
+      vi.advanceTimersByTime(500);
+      await Promise.resolve();
+    });
+    expect(onMarkdownChange).toHaveBeenLastCalledWith(
+      nextMarkdown,
+      'source',
+      'idle',
+    );
 
-    fireEvent.keyDown(source, {
-      code: 'Slash',
-      key: '/',
-      metaKey: true,
+    await act(async () => {
+      fireEvent.keyDown(source, {
+        code: 'Slash',
+        key: '/',
+        metaKey: true,
+      });
+      await Promise.resolve();
     });
 
     expect(screen.queryByLabelText('Markdown 文档源码')).toBeNull();
@@ -556,7 +666,7 @@ describe('MarkdownEditor', () => {
       'hidden',
     );
     expect(document.activeElement).toBe(screen.getByLabelText('Markdown 正文'));
-    expect(markweaveUnmountMock).not.toHaveBeenCalled();
+    expect(markweaveUnmountMock).toHaveBeenCalledTimes(1);
   });
 
   it('锁定文档的源码模式保持只读', () => {

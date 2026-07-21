@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-12
+updated: 2026-07-21
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -20,7 +20,8 @@ referenced_by: AGENTS.md#knowledge-map
 - Workspace UI is client-heavy and centered around `components/workspace/workspace-layout.tsx`.
 - Use existing component tests under `components/**/__tests__` as the first verification target for UI behavior.
 - Keep Markweave editor page-width behavior aligned across `settings.rs`, frontend default settings, editor wrapper classes, and settings UI.
-- Keep `MarkdownEditor` as a Markdown string boundary: parse frontmatter before passing content to Markweave and serialize it back when saving. Persist `onUpdate.markdown` only; update payload fields are lazily serialized, and supported HTML fallback in Markdown output must remain intact.
+- Keep `MarkdownEditor` as a Markdown string boundary at load/flush, not at every transaction: parse frontmatter before initial Markweave content, keep `onUpdate` payloads lazy, and read `payload.markdown` only in the shared 500 ms/manual/navigation/AI/exit flush path. Preserve supported HTML fallback and abort the caller when flush/save fails.
+- Large-document media resolution must use the editor-level `resolveMediaSource` bridge and one batched workspace IPC. Persist `madora-asset://` in nodes; never project resolved file URLs through a whole-document string replacement.
 - Pass the effective `next-themes` value to every rendered `MarkweaveEditor` as `theme` and `canvasColor="var(--background)"`; do not rely on shell CSS alone for Markweave overlays, Mermaid, link cards or canvas background.
 - Route Markweave link-card metadata only through `markweave-link-card-resolver.ts`. Keep its desktop and Web branches bounded and cancellation-aware; a failed lookup must return `null` so editing retains a normal Markdown link.
 - In live mode, leave Markweave's Ctrl/Cmd-click link-opening behavior intact; do not install a shell-level link click handler that competes with editor selection or link-card editing.

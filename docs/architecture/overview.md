@@ -12,7 +12,7 @@ Madora 是一个以本地 Markdown 文档为核心的桌面知识库，使用 Ne
 ## Runtime Shape
 
 - Web shell：Next.js App Router 与 React client components。
-- Editor：`components/editor/markdown-editor.tsx` 以受控 Markdown 字符串包装 `@markweave/react` / `markweave`。
+- Editor：`components/editor/markdown-editor.tsx` 以非受控 `defaultContent` 包装 `@markweave/react` / `markweave`；编辑事务只保留惰性 payload 和 dirty 状态，完整 Markdown 字符串边界只位于 load/flush。源码模式动态加载 CodeMirror 6，Live/Source 切换只在边界互转一次。
 - Workspace shell：`components/workspace/workspace-layout.tsx` 管理文档树、编辑器标签、全文搜索、Git、终端、设置、文档元信息与 AI 侧栏。
 - Native boundary：前端经 `components/workspace/workspace-api.ts` 调用 Tauri 命令；实现位于 `src-tauri/src`。
 - Codex runtime：`components/workspace/codex-app-server.ts` 只消费协议消息；`src-tauri/src/codex.rs` 启动随应用打包的 Codex App Server sidecar，并通过 stdio JSONL 传递允许的方法、通知与审批请求。
@@ -124,7 +124,11 @@ Codex App Server 是 AI 会话持久化的唯一所有者。Madora 默认把 sid
 
 持久化文档始终为 Markdown 文件。磁盘格式、内存草稿和编辑器输入/输出必须保持 Markdown 字符串边界，禁止重新引入富文本投影层。
 
-Markweave 只接收 frontmatter 解析后的正文；保存时必须重新序列化受保护的 frontmatter。新上传资源的物理文件写入工作区根目录下的 `.madora/assets/files/{shard}/{hash}.{ext}`，Markdown 持久化引用统一使用 `madora-asset://{assetId}`。编辑器展示前通过工作区资产索引解析为受控本地 URL；旧 `.madora/assets/files/...` 引用保持只读兼容，并在成功解析后的下一次保存中规范化为协议引用。资产存活扫描覆盖正式 Markdown 和 `.madora/inbox/*.md`，但不扫描 `.madora` 下其他私有 Markdown。
+Markweave 只接收 frontmatter 解析后的正文；保存时必须重新序列化受保护的 frontmatter。停止输入 500 ms、手动保存、切换标签/模式、导出、AI 发送和应用退出统一调用 `flushDraft(reason)`；flush 才读取一次 `payload.markdown`、恢复图稿引用、更新 `updatedAt` 并进入原子保存，失败会中止后续动作并保留草稿。新上传资源的物理文件写入工作区根目录下的 `.madora/assets/files/{shard}/{hash}.{ext}`，Markdown 持久化引用统一使用 `madora-asset://{assetId}`。打开/flush 后的资源预检按唯一 ID 调用一次 `resolve_workspace_assets`，前端按工作区缓存成功、缺失与不可读结果；NodeView 只在展示层解析 URL，不再把全部展示 URL 写回整篇 Markdown。旧 `.madora/assets/files/...` 引用保持只读兼容，并在成功解析后的下一次保存中规范化为协议引用。资产存活扫描覆盖正式 Markdown 和 `.madora/inbox/*.md`，但不扫描 `.madora` 下其他私有 Markdown。
+
+## Large-document Performance Boundary
+
+Madora 的每次按键不得读取 `payload.markdown`、复制完整草稿到父级状态或产生资产 IPC。`?madoraPerf=1` 开启脱敏诊断，`window.__MadoraPerformanceReport()` 返回仅含数量、耗时、原因和状态的 JSON；不得记录正文或路径。Markweave 0.3 在大 Markdown 上使用安全标题边界的渐进解析、增量 TOC、轻量媒体 DOM NodeView、受控 `content-visibility` 与无事务级 React 重渲染。Madora 的 0.3 集成必须先通过本地 tarball 验证，npm 发布与 Madora 依赖升级仍是独立发布动作。
 
 ## Desktop Build Boundary
 

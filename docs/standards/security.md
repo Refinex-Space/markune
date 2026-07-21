@@ -47,7 +47,7 @@ referenced_by: AGENTS.md#knowledge-map
 
 ## Uploads And Links
 
-- 上传资源必须保留在工作区资源目录内，Markdown 新写入只存储 `madora-asset://{assetId}`，不得把绝对路径、Windows 盘符或文档层级相关路径作为资产身份。协议解析必须经当前工作区资产索引，并继续对物理路径执行 canonicalize 与资源目录边界校验；只有校验成功的单个物理文件可以动态加入当前进程的资源协议范围，不得授权整个工作区、磁盘或卷。旧 `.madora/assets/files/...` 引用只读兼容。
+- 上传资源必须保留在工作区资源目录内，Markdown 新写入只存储 `madora-asset://{assetId}`，不得把绝对路径、Windows 盘符或文档层级相关路径作为资产身份。批量协议解析最多接受 2,048 个经格式校验并去重的 ID，只能复用一次工作区 canonicalize/索引读取；每个命中仍必须逐文件 canonicalize、拒绝符号链接/目录/边界逃逸，并且只有校验成功的单个物理文件可以动态加入当前进程的资源协议范围，不得授权整个工作区、磁盘或卷。缺失和不可读结果可以负缓存，但不得包含正文或扩大权限。旧 `.madora/assets/files/...` 引用只读兼容。
 - 图稿引用的剪贴板兼容只允许 64 位十六进制 `madora-asset://{assetId}` 和合法 UUID `madora-drawing://{drawingId}` 的精确组合；这只是编辑器图片粘贴解析规则，不得扩大浏览器导航协议、Tauri capability 或 `assetProtocol.scope`。
 - 链接卡片只能使用既有的受限预览 route 或 Tauri 命令；不得在渲染器直接请求任意 URL。
 

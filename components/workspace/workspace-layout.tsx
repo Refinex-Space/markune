@@ -22,6 +22,8 @@ import {
 import {
   MarkdownEditor,
   type MarkdownEditorChangeOrigin,
+  type MarkdownEditorFlushReason,
+  type MarkdownEditorHandle,
 } from '@/components/editor/markdown-editor';
 import {
   DropdownMenu,
@@ -419,6 +421,10 @@ export function WorkspaceLayout({
   );
   const workspaceRootPathRef = React.useRef(workspaceRootPath);
   const editorWorkspaceRootPathRef = React.useRef(workspaceRootPath);
+  const activeMarkdownEditorRef = React.useRef<MarkdownEditorHandle | null>(
+    null,
+  );
+  const allowAppWindowCloseRef = React.useRef(false);
 
   React.useEffect(() => {
     currentDocumentPathRef.current = currentDocumentPath;
@@ -438,7 +444,19 @@ export function WorkspaceLayout({
     workspace.rightPanelMode === 'ai' ? AI_PANEL_WIDTH : META_PANEL_WIDTH;
   const setActiveRightPanelWidth =
     workspace.rightPanelMode === 'ai' ? setAiPanelWidth : setMetaPanelWidth;
-  const saveCurrentDocumentNow = workspace.saveCurrentDocumentNow;
+  const flushActiveMarkdownEditor = React.useCallback(
+    (reason: MarkdownEditorFlushReason) =>
+      activeMarkdownEditorRef.current?.flushDraft(reason) ??
+      Promise.resolve(true),
+    [],
+  );
+  const saveCurrentDocumentNow = React.useCallback(async () => {
+    if (!(await flushActiveMarkdownEditor('manual-save'))) {
+      return false;
+    }
+
+    return workspace.saveCurrentDocumentNow();
+  }, [flushActiveMarkdownEditor, workspace]);
   const activeEditorTab = getActiveTab(documentEditorLayout);
   const activePanelDocumentPath = getActiveDocumentPath(documentEditorLayout);
   const activePanelDocument =
@@ -541,6 +559,50 @@ export function WorkspaceLayout({
   );
   const isTauriRuntime = useIsTauriRuntime();
   const isWindowsRuntime = useIsWindowsRuntime();
+
+  React.useEffect(() => {
+    if (!isTauriRuntime) {
+      return;
+    }
+
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+
+    void import('@tauri-apps/api/window').then(async ({ getCurrentWindow }) => {
+      if (disposed) {
+        return;
+      }
+      const appWindow = getCurrentWindow();
+      unlisten = await appWindow.onCloseRequested(async (event) => {
+        if (allowAppWindowCloseRef.current) {
+          return;
+        }
+
+        event.preventDefault();
+        if (!(await flushActiveMarkdownEditor('app-exit'))) {
+          return;
+        }
+
+        allowAppWindowCloseRef.current = true;
+        try {
+          await appWindow.destroy();
+        } catch (error) {
+          allowAppWindowCloseRef.current = false;
+          console.error('关闭应用窗口失败', error);
+        }
+      });
+
+      if (disposed) {
+        unlisten();
+        unlisten = null;
+      }
+    });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [flushActiveMarkdownEditor, isTauriRuntime]);
   const { resolvedTheme } = useTheme();
   const terminalThemeMode = resolvedTheme === 'dark' ? 'dark' : 'light';
   const [pageWidthMode, setPageWidthMode] = React.useState<PageWidthMode>(
@@ -1753,6 +1815,10 @@ export function WorkspaceLayout({
         return;
       }
 
+      if (!(await flushActiveMarkdownEditor('document-switch'))) {
+        return;
+      }
+
       setSystemPage(null);
       clearPendingDocumentOpen();
       setDocumentEditorLayout((current) => openDocumentTab(current, node));
@@ -1763,7 +1829,13 @@ export function WorkspaceLayout({
         cacheEditorSession(node.absolutePath, draft);
       }
     },
-    [cacheEditorSession, clearPendingDocumentOpen, rememberRecentDocument, workspace],
+    [
+      cacheEditorSession,
+      clearPendingDocumentOpen,
+      flushActiveMarkdownEditor,
+      rememberRecentDocument,
+      workspace,
+    ],
   );
 
   const handleOpenNodeInFileManager = React.useCallback(
@@ -1778,8 +1850,15 @@ export function WorkspaceLayout({
   );
 
   const handleExportDocument = React.useCallback(
-    (node: WorkspaceNode, format: WorkspaceExportFormat) =>
-      documentExport.exportDocument(
+    async (node: WorkspaceNode, format: WorkspaceExportFormat) => {
+      if (
+        node.absolutePath === currentDocumentPath &&
+        !(await flushActiveMarkdownEditor('export'))
+      ) {
+        return;
+      }
+
+      return documentExport.exportDocument(
         {
           node,
           loadMarkdown: () =>
@@ -1800,11 +1879,13 @@ export function WorkspaceLayout({
             }),
         },
         format,
-      ),
+      );
+    },
     [
       currentDocumentPath,
       documentExport,
       editorSessions,
+      flushActiveMarkdownEditor,
       workspace.draftDocument,
       workspaceRootPath,
     ],
@@ -2179,6 +2260,7 @@ export function WorkspaceLayout({
       documentPath: string,
       markdown: string,
       origin?: MarkdownEditorChangeOrigin,
+      reason?: MarkdownEditorFlushReason,
     ) => {
       const perf = startWorkspacePerformanceMeasure('workspace.editor.markdown_change');
 
@@ -2194,11 +2276,14 @@ export function WorkspaceLayout({
         };
       });
 
+      let saveResult: boolean | Promise<boolean> = true;
+
       if (documentPath === currentDocumentPath) {
         rememberRecentDocumentByPath(documentPath);
-        workspace.updateMarkdown(markdown, {
+        saveResult = workspace.updateMarkdown(markdown, {
           preserveSource: origin === 'source',
-        });
+          saveImmediately: reason !== undefined,
+        }) ?? true;
       }
 
       perf.finish({
@@ -2207,16 +2292,23 @@ export function WorkspaceLayout({
       perf.finishNextFrame({
         characters: markdown.length,
       });
+
+      return saveResult;
     },
     [currentDocumentPath, rememberRecentDocumentByPath, workspace],
   );
 
   const applyDocumentEditorLayout = React.useCallback(
-    (nextLayout: DocumentEditorLayout) => {
+    async (nextLayout: DocumentEditorLayout) => {
+      if (!(await flushActiveMarkdownEditor('document-switch'))) {
+        return false;
+      }
+
       setDocumentEditorLayout(nextLayout);
       openActiveDocumentForLayout(nextLayout);
+      return true;
     },
-    [openActiveDocumentForLayout],
+    [flushActiveMarkdownEditor, openActiveDocumentForLayout],
   );
 
   const flushAiWorkspaceChanges = React.useCallback(
@@ -2377,6 +2469,7 @@ export function WorkspaceLayout({
             '当前标签页尚未完成加载，无法安全发送给 Codex。请稍后重试。',
           );
         }
+        if (!(await flushActiveMarkdownEditor('ai-send'))) return false;
         if (!(await workspace.prepareCurrentDocumentForAi())) return false;
       }
 
@@ -2393,7 +2486,7 @@ export function WorkspaceLayout({
       }
       return true;
     },
-    [drawings, systemPage, workspace],
+    [drawings, flushActiveMarkdownEditor, systemPage, workspace],
   );
 
   const handleResolveAiDocumentConflict = React.useCallback(
@@ -2934,6 +3027,7 @@ export function WorkspaceLayout({
                       (!workspace.currentDirectory && hasOpenDocumentTabs) ? (
                       <DocumentEditorSurface
                         activeDocumentPath={activePanelDocumentPath}
+                        activeEditorRef={activeMarkdownEditorRef}
                         currentDocumentPath={currentDocumentPath}
                         documentEditorLayout={documentEditorLayout}
                         documentLoadError={workspace.documentLoadError}
@@ -2952,7 +3046,7 @@ export function WorkspaceLayout({
                         onMarkdownChange={handleEditorMarkdownChange}
                         onRetryDocument={workspace.retryCurrentDocument}
                         onSaveRequested={() =>
-                          void workspace.saveCurrentDocumentNow()
+                          void saveCurrentDocumentNow()
                         }
                         onSelectTab={handleSelectDocumentTab}
                       />
@@ -3591,6 +3685,7 @@ function headerToolButtonClassName(active: boolean) {
 
 function DocumentEditorSurface({
   activeDocumentPath,
+  activeEditorRef,
   currentDocumentPath,
   documentEditorLayout,
   documentLoadError,
@@ -3612,6 +3707,7 @@ function DocumentEditorSurface({
   onSelectTab,
 }: {
   activeDocumentPath: string | null;
+  activeEditorRef: React.RefObject<MarkdownEditorHandle | null>;
   currentDocumentPath: string | null;
   documentEditorLayout: DocumentEditorLayout;
   documentLoadError: string | null;
@@ -3631,7 +3727,8 @@ function DocumentEditorSurface({
     documentPath: string,
     markdown: string,
     origin?: MarkdownEditorChangeOrigin,
-  ) => void;
+    reason?: MarkdownEditorFlushReason,
+  ) => boolean | void | Promise<boolean | void>;
   onRetryDocument: () => void;
   onSaveRequested: () => void;
   onSelectTab: (tabPath: string) => void;
@@ -3669,6 +3766,7 @@ function DocumentEditorSurface({
       <div className="min-h-0 flex-1 overflow-hidden">
         {renderDocumentEditorContent({
           activeDocumentPath,
+          activeEditorRef,
           activeTab,
           currentDocumentPath,
           documentLoadError,
@@ -3689,6 +3787,7 @@ function DocumentEditorSurface({
 
 function renderDocumentEditorContent({
   activeDocumentPath,
+  activeEditorRef,
   activeTab,
   currentDocumentPath,
   documentLoadError,
@@ -3703,6 +3802,7 @@ function renderDocumentEditorContent({
   onSelectTab,
 }: {
   activeDocumentPath: string | null;
+  activeEditorRef: React.RefObject<MarkdownEditorHandle | null>;
   activeTab: ReturnType<typeof getActiveTab>;
   currentDocumentPath: string | null;
   documentLoadError: string | null;
@@ -3715,7 +3815,8 @@ function renderDocumentEditorContent({
     documentPath: string,
     markdown: string,
     origin?: MarkdownEditorChangeOrigin,
-  ) => void;
+    reason?: MarkdownEditorFlushReason,
+  ) => boolean | void | Promise<boolean | void>;
   onRetryDocument: () => void;
   onSaveRequested: () => void;
   onSelectTab: (tabPath: string) => void;
@@ -3796,6 +3897,7 @@ function renderDocumentEditorContent({
 
   return (
     <DocumentEditorInstance
+      activeEditorRef={activeEditorRef}
       documentPath={activeTab.absolutePath}
       editorSession={editorSession}
       pageWidthMode={pageWidthMode}
@@ -3808,6 +3910,7 @@ function renderDocumentEditorContent({
 }
 
 function DocumentEditorInstance({
+  activeEditorRef,
   documentPath,
   editorSession,
   pageWidthMode,
@@ -3816,6 +3919,7 @@ function DocumentEditorInstance({
   onMarkdownChange,
   onSaveRequested,
 }: {
+  activeEditorRef: React.RefObject<MarkdownEditorHandle | null>;
   documentPath: string;
   editorSession: DocumentEditorSession;
   pageWidthMode: PageWidthMode;
@@ -3825,21 +3929,26 @@ function DocumentEditorInstance({
     documentPath: string,
     markdown: string,
     origin?: MarkdownEditorChangeOrigin,
-  ) => void;
+    reason?: MarkdownEditorFlushReason,
+  ) => boolean | void | Promise<boolean | void>;
   onSaveRequested: () => void;
 }) {
   const handleMarkdownChange = React.useCallback(
-    (markdown: string, origin?: MarkdownEditorChangeOrigin) =>
-      onMarkdownChange(documentPath, markdown, origin),
+    (
+      markdown: string,
+      origin?: MarkdownEditorChangeOrigin,
+      reason?: MarkdownEditorFlushReason,
+    ) => onMarkdownChange(documentPath, markdown, origin, reason),
     [documentPath, onMarkdownChange],
   );
   return (
     <div className="relative h-full min-h-0">
       <MarkdownEditor
-        documentKey={`${documentPath}:${pageWidthMode}:${readOnly ? 'view' : 'live'}`}
+        documentKey={`${documentPath}:${editorSession.documentVersion}:${pageWidthMode}:${readOnly ? 'view' : 'live'}`}
         markdown={editorSession.markdown}
         pageWidthMode={pageWidthMode}
         readOnly={readOnly}
+        ref={activeEditorRef}
         workspaceRootPath={workspaceRootPath}
         onMarkdownChange={handleMarkdownChange}
         onSaveRequested={onSaveRequested}

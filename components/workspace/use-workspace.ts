@@ -67,8 +67,12 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   >(null);
   const [documentContent, setDocumentContent] =
     React.useState<MarkdownDocumentContent | null>(null);
+  const documentContentRef = React.useRef<MarkdownDocumentContent | null>(
+    documentContent,
+  );
   const [draftDocument, setDraftDocument] =
     React.useState<MarkdownDraft | null>(null);
+  const draftDocumentRef = React.useRef<MarkdownDraft | null>(draftDocument);
   const [documentLoadState, setDocumentLoadState] =
     React.useState<DocumentLoadState>('idle');
   const [documentLoadError, setDocumentLoadError] = React.useState<
@@ -117,6 +121,14 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   const aiTurnDocumentBaselinesRef = React.useRef<Map<string, string> | null>(
     null,
   );
+
+  React.useEffect(() => {
+    draftDocumentRef.current = draftDocument;
+  }, [draftDocument]);
+
+  React.useEffect(() => {
+    documentContentRef.current = documentContent;
+  }, [documentContent]);
 
   const clearPendingSave = React.useCallback(() => {
     if (pendingSaveTimerRef.current) {
@@ -198,7 +210,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         return true;
       }
 
-      const draft = draftOverride ?? draftDocument;
+      const draft = draftOverride ?? draftDocumentRef.current;
 
       if (!draft) {
         return true;
@@ -223,20 +235,24 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
             snapshot.rootPath,
             currentDocument.absolutePath,
             draft.markdown,
-            documentContent?.modifiedAt ?? null,
+            documentContentRef.current?.modifiedAt ?? null,
           );
 
           lastSavedMarkdownRef.current = draft.markdown;
-          setDocumentContent({
+          const nextContent = {
             content: draft.markdown,
             modifiedAt: meta.modifiedAt,
             path: meta.path,
-          });
-          setDraftDocument({
+          };
+          const nextDraft = {
             ...draft,
             modifiedAt: meta.modifiedAt,
             path: meta.path,
-          });
+          };
+          documentContentRef.current = nextContent;
+          draftDocumentRef.current = nextDraft;
+          setDocumentContent(nextContent);
+          setDraftDocument(nextDraft);
           setLastSavedAt(meta.modifiedAt);
           setSaveState('saved');
           return true;
@@ -262,8 +278,6 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     [
       clearPendingSave,
       currentDocument,
-      documentContent,
-      draftDocument,
       externalDocumentConflict,
       snapshot,
     ],
@@ -606,26 +620,35 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   const updateMarkdown = React.useCallback(
     (
       nextMarkdown: string,
-      options?: { readonly preserveSource?: boolean },
+      options?: {
+        readonly preserveSource?: boolean;
+        readonly saveImmediately?: boolean;
+      },
     ) => {
-      if (!draftDocument) {
+      const currentDraft = draftDocumentRef.current;
+
+      if (!currentDraft) {
         return;
       }
-      if (nextMarkdown === draftDocument.markdown) {
+      if (nextMarkdown === currentDraft.markdown) {
+        if (options?.saveImmediately) {
+          return saveCurrentDocumentNow(currentDraft);
+        }
         return;
       }
 
       const nextDraft = options?.preserveSource
         ? createSourceMarkdownDraft(
-            draftDocument,
+            currentDraft,
             nextMarkdown,
             currentDocument?.name ?? '',
           )
-        : withUpdatedMarkdown(draftDocument, nextMarkdown);
+        : withUpdatedMarkdown(currentDraft, nextMarkdown);
       const titleChanged =
-        nextDraft.metadata.title !== draftDocument.metadata.title;
+        nextDraft.metadata.title !== currentDraft.metadata.title;
       const shouldDebounceSourceRename = options?.preserveSource === true;
 
+      draftDocumentRef.current = nextDraft;
       setDraftDocument(nextDraft);
 
       if (shouldDebounceSourceRename) {
@@ -645,9 +668,14 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       if (externalDocumentConflict?.path === currentDocument?.absolutePath) {
         return;
       }
-      pendingSaveTimerRef.current = setTimeout(() => {
-        void saveCurrentDocumentNow(nextDraft);
-      }, 800);
+
+      if (options?.saveImmediately) {
+        return saveCurrentDocumentNow(nextDraft);
+      } else {
+        pendingSaveTimerRef.current = setTimeout(() => {
+          void saveCurrentDocumentNow(nextDraft);
+        }, 800);
+      }
 
       if (
         (titleChanged || shouldDebounceSourceRename) &&
@@ -676,7 +704,6 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       clearPendingSave,
       clearPendingRename,
       currentDocument,
-      draftDocument,
       externalDocumentConflict,
       renameNode,
       saveCurrentDocumentNow,
