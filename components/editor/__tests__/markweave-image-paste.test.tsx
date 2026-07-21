@@ -35,7 +35,10 @@ vi.mock('@/components/workspace/workspace-api', () => {
   };
 });
 
-import { useWorkspaceAssetUploader } from '@/components/editor/use-workspace-asset-uploader';
+import {
+  clearWorkspaceAssetResolverCache,
+  useWorkspaceAssetUploader,
+} from '@/components/editor/use-workspace-asset-uploader';
 import {
   resolveWorkspaceAsset,
   uploadWorkspaceAsset,
@@ -54,14 +57,12 @@ function WorkspaceAssetEditor({
   );
 
   return (
-    editorMarkdown === null ? null : (
-      <MarkweaveEditor
-        content={editorMarkdown}
-        contentFormat="markdown"
-        key={documentKey}
-        {...{ resolveMediaSource }}
-      />
-    )
+    <MarkweaveEditor
+      content={editorMarkdown}
+      contentFormat="markdown"
+      key={documentKey}
+      {...{ resolveMediaSource }}
+    />
   );
 }
 
@@ -94,17 +95,15 @@ function ControlledWorkspaceAssetEditor({
 
   return (
     <>
-      {editorMarkdown === null ? null : (
-        <MarkweaveEditor
-          content={editorMarkdown}
-          contentFormat="markdown"
-          onSlashCommandUpload={onSlashCommandUpload}
-          onUpdate={(payload) => {
-            onEditor?.(payload.editor);
-            setValue(toStorageMarkdown(payload.markdown));
-          }}
-        />
-      )}
+      <MarkweaveEditor
+        content={editorMarkdown}
+        contentFormat="markdown"
+        onSlashCommandUpload={onSlashCommandUpload}
+        onUpdate={(payload) => {
+          onEditor?.(payload.editor);
+          setValue(toStorageMarkdown(payload.markdown));
+        }}
+      />
       <output data-testid="workspace-asset-storage">{value}</output>
     </>
   );
@@ -113,6 +112,7 @@ function ControlledWorkspaceAssetEditor({
 describe('Markweave image integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearWorkspaceAssetResolverCache();
   });
 
   it('把剪贴板图片交给 Madora 提供的上传处理器并展示返回地址', async () => {
@@ -355,7 +355,7 @@ describe('Markweave image integration', () => {
           ?.getAttribute('src'),
       ).toBe('asset:///ws/.madora/assets/files/ab/hash.png');
     });
-    expect(resolveWorkspaceAsset).toHaveBeenCalledTimes(2);
+    expect(resolveWorkspaceAsset).toHaveBeenCalledTimes(1);
     expect(resolveWorkspaceAsset).toHaveBeenLastCalledWith('/ws/root', 'hash');
   });
 

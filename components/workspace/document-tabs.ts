@@ -32,6 +32,8 @@ export interface DocumentEditorLayout {
   tabs: DocumentEditorTab[];
 }
 
+const DOCUMENT_EDITOR_KEEP_ALIVE_LIMIT = 3;
+
 export function createInitialEditorLayout(): DocumentEditorLayout {
   return {
     activeTabId: null,
@@ -200,6 +202,31 @@ export function getActiveTab(layout: DocumentEditorLayout) {
 export function getActiveDocumentPath(layout: DocumentEditorLayout) {
   const activeTab = getActiveTab(layout);
   return activeTab?.kind === 'document' ? activeTab.absolutePath : null;
+}
+
+export function updateDocumentEditorWarmPaths(
+  currentPaths: readonly string[],
+  layout: DocumentEditorLayout,
+) {
+  const openDocumentPaths = new Set(
+    layout.tabs.flatMap((tab) =>
+      tab.kind === 'document' ? [tab.absolutePath] : [],
+    ),
+  );
+  const activeDocumentPath = getActiveDocumentPath(layout);
+  const nextPaths = Array.from(
+    new Set([
+      ...(activeDocumentPath ? [activeDocumentPath] : []),
+      ...currentPaths,
+    ]),
+  )
+    .filter((path) => openDocumentPaths.has(path))
+    .slice(0, DOCUMENT_EDITOR_KEEP_ALIVE_LIMIT);
+
+  return nextPaths.length === currentPaths.length &&
+    nextPaths.every((path, index) => path === currentPaths[index])
+    ? currentPaths
+    : nextPaths;
 }
 
 function createDocumentTab(document: WorkspaceNode): DocumentEditorDocumentTab {

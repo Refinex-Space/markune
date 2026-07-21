@@ -75,6 +75,7 @@ import {
   renameDocumentTab,
   selectDocumentTab,
   type DocumentEditorLayout,
+  updateDocumentEditorWarmPaths,
 } from './document-tabs';
 import { EditorPane, type RecentWorkspaceDocument } from './editor-pane';
 import { GitDiffView } from './git-diff-view';
@@ -3683,7 +3684,7 @@ function headerToolButtonClassName(active: boolean) {
   );
 }
 
-function DocumentEditorSurface({
+export function DocumentEditorSurface({
   activeDocumentPath,
   activeEditorRef,
   currentDocumentPath,
@@ -3742,11 +3743,44 @@ function DocumentEditorSurface({
   const liveSession =
     activeTabPath === currentDocumentPath && draftMarkdown !== null
       ? {
-          documentVersion,
+          documentVersion:
+            cachedSession?.documentVersion ?? documentVersion,
           markdown: draftMarkdown,
         }
       : null;
   const editorSession = liveSession ?? cachedSession;
+  const [warmDocumentPaths, setWarmDocumentPaths] = React.useState<
+    readonly string[]
+  >(() => updateDocumentEditorWarmPaths([], documentEditorLayout));
+  const renderedDocumentPaths = updateDocumentEditorWarmPaths(
+    warmDocumentPaths,
+    documentEditorLayout,
+  );
+  const handleSelectTab = React.useCallback(
+    (tabId: string) => {
+      const currentActiveDocumentPath = getActiveDocumentPath(
+        documentEditorLayout,
+      );
+      const nextLayout = {
+        ...documentEditorLayout,
+        activeTabId: tabId,
+      };
+      const nextActiveDocumentPath = getActiveDocumentPath(nextLayout);
+
+      setWarmDocumentPaths((current) =>
+        updateDocumentEditorWarmPaths(
+          [
+            ...(nextActiveDocumentPath ? [nextActiveDocumentPath] : []),
+            ...(currentActiveDocumentPath ? [currentActiveDocumentPath] : []),
+            ...current,
+          ],
+          nextLayout,
+        ),
+      );
+      onSelectTab(tabId);
+    },
+    [documentEditorLayout, onSelectTab],
+  );
 
   return (
     <div
@@ -3761,12 +3795,56 @@ function DocumentEditorSurface({
         onCloseTab={onCloseTab}
         onCloseTabsToLeft={onCloseTabsToLeft}
         onCloseTabsToRight={onCloseTabsToRight}
-        onSelectTab={onSelectTab}
+        onSelectTab={handleSelectTab}
       />
-      <div className="min-h-0 flex-1 overflow-hidden">
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        {renderedDocumentPaths.map((documentPath) => {
+          const isActive = activeTabPath === documentPath;
+          const cachedDocumentSession =
+            editorSessions[documentPath] ?? null;
+          const liveDocumentSession =
+            documentPath === currentDocumentPath && draftMarkdown !== null
+              ? {
+                  documentVersion:
+                    cachedDocumentSession?.documentVersion ?? documentVersion,
+                  markdown: draftMarkdown,
+                }
+              : null;
+          const documentSession =
+            liveDocumentSession ?? cachedDocumentSession;
+
+          if (!documentSession) {
+            return null;
+          }
+
+          return (
+            <div
+              aria-hidden={!isActive}
+              className={cn(
+                'absolute inset-0 min-h-0',
+                isActive
+                  ? 'visible z-10'
+                  : 'invisible z-0 pointer-events-none',
+              )}
+              data-active={isActive ? 'true' : 'false'}
+              data-document-editor-path={documentPath}
+              key={documentPath}
+            >
+              <DocumentEditorInstance
+                activeEditorRef={isActive ? activeEditorRef : undefined}
+                documentPath={documentPath}
+                editorSession={documentSession}
+                pageWidthMode={pageWidthMode}
+                readOnly={getDocumentReadOnly(documentPath)}
+                workspaceRootPath={workspaceRootPath}
+                onMarkdownChange={onMarkdownChange}
+                onSaveRequested={onSaveRequested}
+              />
+            </div>
+          );
+        })}
         {renderDocumentEditorContent({
           activeDocumentPath,
-          activeEditorRef,
           activeTab,
           currentDocumentPath,
           documentLoadError,
@@ -3774,11 +3852,8 @@ function DocumentEditorSurface({
           editorSession,
           pageWidthMode,
           workspaceRootPath,
-          getDocumentReadOnly,
-          onMarkdownChange,
           onRetryDocument,
-          onSaveRequested,
-          onSelectTab,
+          onSelectTab: handleSelectTab,
         })}
       </div>
     </div>
@@ -3787,7 +3862,6 @@ function DocumentEditorSurface({
 
 function renderDocumentEditorContent({
   activeDocumentPath,
-  activeEditorRef,
   activeTab,
   currentDocumentPath,
   documentLoadError,
@@ -3795,14 +3869,10 @@ function renderDocumentEditorContent({
   editorSession,
   pageWidthMode,
   workspaceRootPath,
-  getDocumentReadOnly,
-  onMarkdownChange,
   onRetryDocument,
-  onSaveRequested,
   onSelectTab,
 }: {
   activeDocumentPath: string | null;
-  activeEditorRef: React.RefObject<MarkdownEditorHandle | null>;
   activeTab: ReturnType<typeof getActiveTab>;
   currentDocumentPath: string | null;
   documentLoadError: string | null;
@@ -3810,15 +3880,7 @@ function renderDocumentEditorContent({
   editorSession: DocumentEditorSession | null;
   pageWidthMode: PageWidthMode;
   workspaceRootPath: string | null;
-  getDocumentReadOnly: (documentPath: string) => boolean;
-  onMarkdownChange: (
-    documentPath: string,
-    markdown: string,
-    origin?: MarkdownEditorChangeOrigin,
-    reason?: MarkdownEditorFlushReason,
-  ) => boolean | void | Promise<boolean | void>;
   onRetryDocument: () => void;
-  onSaveRequested: () => void;
   onSelectTab: (tabPath: string) => void;
 }) {
   if (!activeTab) {
@@ -3895,18 +3957,7 @@ function renderDocumentEditorContent({
     );
   }
 
-  return (
-    <DocumentEditorInstance
-      activeEditorRef={activeEditorRef}
-      documentPath={activeTab.absolutePath}
-      editorSession={editorSession}
-      pageWidthMode={pageWidthMode}
-      readOnly={getDocumentReadOnly(activeTab.absolutePath)}
-      workspaceRootPath={workspaceRootPath}
-      onMarkdownChange={onMarkdownChange}
-      onSaveRequested={onSaveRequested}
-    />
-  );
+  return null;
 }
 
 function DocumentEditorInstance({
@@ -3919,7 +3970,7 @@ function DocumentEditorInstance({
   onMarkdownChange,
   onSaveRequested,
 }: {
-  activeEditorRef: React.RefObject<MarkdownEditorHandle | null>;
+  activeEditorRef?: React.RefObject<MarkdownEditorHandle | null>;
   documentPath: string;
   editorSession: DocumentEditorSession;
   pageWidthMode: PageWidthMode;

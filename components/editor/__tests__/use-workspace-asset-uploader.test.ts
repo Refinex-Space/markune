@@ -14,11 +14,15 @@ import {
   resolveWorkspaceAssets,
   uploadWorkspaceAsset,
 } from '@/components/workspace/workspace-api';
-import { useWorkspaceAssetUploader } from '@/components/editor/use-workspace-asset-uploader';
+import {
+  clearWorkspaceAssetResolverCache,
+  useWorkspaceAssetUploader,
+} from '@/components/editor/use-workspace-asset-uploader';
 
 describe('useWorkspaceAssetUploader', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearWorkspaceAssetResolverCache();
   });
 
   it('上传 File 后返回 Markweave 可显示 URL，并在入库前还原资产协议引用', async () => {
@@ -192,7 +196,7 @@ describe('useWorkspaceAssetUploader', () => {
     );
   });
 
-  it('保留存储引用，通过展示层 resolver 解析媒体，并在保存时规范化旧路径', async () => {
+  it('首帧立即返回存储 Markdown，并通过展示层 resolver 单批解析全部媒体', async () => {
     vi.mocked(resolveWorkspaceAssets).mockImplementation(
       async (_rootPath, assetIds) => ({
         items: assetIds.map((assetId) => ({
@@ -220,7 +224,7 @@ describe('useWorkspaceAssetUploader', () => {
       useWorkspaceAssetUploader('/ws/root', markdown),
     );
 
-    expect(result.current.editorMarkdown).toBeNull();
+    expect(result.current.editorMarkdown).toBe(markdown);
     const signal = new AbortController().signal;
     await expect(
       result.current.resolveMediaSource({
@@ -248,11 +252,7 @@ describe('useWorkspaceAssetUploader', () => {
       '/ws/root',
       expect.arrayContaining(['legacy', 'new']),
     );
-    await waitFor(() => {
-      expect(result.current.editorMarkdown).toContain(
-        'asset:///ws/.madora/assets/files/le/legacy.png',
-      );
-    });
+    expect(result.current.editorMarkdown).toBe(markdown);
     await expect(
       result.current.resolveMediaSource({
         kind: 'image',
@@ -273,7 +273,7 @@ describe('useWorkspaceAssetUploader', () => {
         src: 'https://example.com/remote.png',
       }),
     ).resolves.toEqual({ src: 'https://example.com/remote.png' });
-    expect(result.current.toStorageMarkdown(result.current.editorMarkdown!)).toBe(
+    expect(result.current.toStorageMarkdown(result.current.editorMarkdown)).toBe(
       '![旧](madora-asset://legacy)\n![新](madora-asset://new)',
     );
   });
@@ -315,12 +315,7 @@ describe('useWorkspaceAssetUploader', () => {
 
     rerender({ markdown: nextMarkdown });
 
-    await waitFor(() => {
-      expect(result.current.editorMarkdown).toContain(
-        'asset:///ws/.madora/assets/files/aa/hash.png',
-      );
-      expect(result.current.editorMarkdown).toContain('3. ');
-    });
+    expect(result.current.editorMarkdown).toBe(nextMarkdown);
     await expect(result.current.resolveMediaSource(request)).resolves.toMatchObject({
       src: 'asset:///ws/.madora/assets/files/aa/hash.png',
     });
@@ -362,7 +357,7 @@ describe('useWorkspaceAssetUploader', () => {
   });
 
   it('切换文档时首帧立即返回新文档内容', () => {
-    const renderedMarkdown: Array<string | null> = [];
+    const renderedMarkdown: string[] = [];
     const { rerender } = renderHook(
       ({ markdown }) => {
         const bridge = useWorkspaceAssetUploader('/ws/root', markdown);
@@ -379,5 +374,243 @@ describe('useWorkspaceAssetUploader', () => {
     rerender({ markdown: '# 新文档' });
 
     expect(renderedMarkdown[0]).toBe('# 新文档');
+  });
+
+  it('资源批量解析未完成时也立即返回正文', () => {
+    vi.mocked(resolveWorkspaceAssets).mockImplementation(
+      () => new Promise(() => {}),
+    );
+    const assetIds = Array.from(
+      { length: 421 },
+      (_, index) => `slow-${index}`,
+    );
+    const markdown = assetIds
+      .map((assetId) => `![图](madora-asset://${assetId})`)
+      .join('\n');
+    const { result } = renderHook(() =>
+      useWorkspaceAssetUploader('/ws/root', markdown),
+    );
+
+    expect(result.current.editorMarkdown).toBe(markdown);
+    expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(1);
+    expect(resolveWorkspaceAssets).toHaveBeenCalledWith(
+      '/ws/root',
+      assetIds,
+    );
+  });
+
+  it('卸载后再次挂载同一文档时复用成功和缺失资源缓存', async () => {
+    vi.mocked(resolveWorkspaceAssets).mockResolvedValue({
+      items: [
+        {
+          asset: {
+            absolutePath: '/ws/.madora/assets/files/aa/cached.png',
+            id: 'cached',
+            mediaType: 'image/png',
+            name: 'cached.png',
+            size: 10,
+          },
+          id: 'cached',
+          status: 'resolved',
+        },
+        { id: 'missing', status: 'missing' },
+      ],
+    });
+    const markdown =
+      '![有效](madora-asset://cached)\n![缺失](madora-asset://missing)';
+    const request = (src: string) => ({
+      kind: 'image' as const,
+      priority: 'visible' as const,
+      signal: new AbortController().signal,
+      src,
+    });
+    const first = renderHook(() =>
+      useWorkspaceAssetUploader('/ws/root', markdown),
+    );
+
+    await expect(
+      first.result.current.resolveMediaSource(
+        request('madora-asset://cached'),
+      ),
+    ).resolves.toMatchObject({
+      src: 'asset:///ws/.madora/assets/files/aa/cached.png',
+    });
+    await expect(
+      first.result.current.resolveMediaSource(
+        request('madora-asset://missing'),
+      ),
+    ).resolves.toBeNull();
+    first.unmount();
+
+    const second = renderHook(() =>
+      useWorkspaceAssetUploader('/ws/root', markdown),
+    );
+    await expect(
+      second.result.current.resolveMediaSource(
+        request('madora-asset://cached'),
+      ),
+    ).resolves.toMatchObject({
+      src: 'asset:///ws/.madora/assets/files/aa/cached.png',
+    });
+    await expect(
+      second.result.current.resolveMediaSource(
+        request('madora-asset://missing'),
+      ),
+    ).resolves.toBeNull();
+
+    expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(1);
+  });
+
+  it('资源仍在解析时快速卸载并重挂载只复用同一个批量请求', async () => {
+    let finishResolution:
+      | ((value: {
+          items: Array<{
+            asset: {
+              absolutePath: string;
+              id: string;
+              mediaType: string;
+              name: string;
+              size: number;
+            };
+            id: string;
+            status: 'resolved';
+          }>;
+        }) => void)
+      | undefined;
+    vi.mocked(resolveWorkspaceAssets).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishResolution = resolve;
+        }),
+    );
+    const markdown = '![图](madora-asset://pending)';
+    const first = renderHook(() =>
+      useWorkspaceAssetUploader('/ws/root', markdown),
+    );
+    first.unmount();
+    const second = renderHook(() =>
+      useWorkspaceAssetUploader('/ws/root', markdown),
+    );
+
+    expect(second.result.current.editorMarkdown).toBe(markdown);
+    expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finishResolution?.({
+        items: [
+          {
+            asset: {
+              absolutePath: '/ws/.madora/assets/files/aa/pending.png',
+              id: 'pending',
+              mediaType: 'image/png',
+              name: 'pending.png',
+              size: 10,
+            },
+            id: 'pending',
+            status: 'resolved',
+          },
+        ],
+      });
+    });
+
+    await expect(
+      second.result.current.resolveMediaSource({
+        kind: 'image',
+        priority: 'visible',
+        signal: new AbortController().signal,
+        src: 'madora-asset://pending',
+      }),
+    ).resolves.toMatchObject({
+      src: 'asset:///ws/.madora/assets/files/aa/pending.png',
+    });
+  });
+
+  it('相同资产 ID 在不同工作区使用隔离缓存', async () => {
+    vi.mocked(resolveWorkspaceAssets).mockImplementation(
+      async (rootPath, assetIds) => ({
+        items: assetIds.map((assetId) => ({
+          asset: {
+            absolutePath: `${rootPath}/.madora/assets/files/aa/${assetId}.png`,
+            id: assetId,
+            mediaType: 'image/png',
+            name: `${assetId}.png`,
+            size: 10,
+          },
+          id: assetId,
+          status: 'resolved' as const,
+        })),
+      }),
+    );
+    const markdown = '![图](madora-asset://shared)';
+    const { result, rerender } = renderHook(
+      ({ rootPath }) => useWorkspaceAssetUploader(rootPath, markdown),
+      { initialProps: { rootPath: '/ws/one' } },
+    );
+    const createRequest = () => ({
+      kind: 'image' as const,
+      priority: 'visible' as const,
+      signal: new AbortController().signal,
+      src: 'madora-asset://shared',
+    });
+
+    await expect(
+      result.current.resolveMediaSource(createRequest()),
+    ).resolves.toMatchObject({
+      src: 'asset:///ws/one/.madora/assets/files/aa/shared.png',
+    });
+
+    rerender({ rootPath: '/ws/two' });
+
+    await expect(
+      result.current.resolveMediaSource(createRequest()),
+    ).resolves.toMatchObject({
+      src: 'asset:///ws/two/.madora/assets/files/aa/shared.png',
+    });
+    expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(2);
+  });
+
+  it('批量解析失败后允许媒体 resolver 重试', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.mocked(resolveWorkspaceAssets)
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockResolvedValueOnce({
+        items: [
+          {
+            asset: {
+              absolutePath: '/ws/.madora/assets/files/aa/retry.png',
+              id: 'retry',
+              mediaType: 'image/png',
+              name: 'retry.png',
+              size: 10,
+            },
+            id: 'retry',
+            status: 'resolved',
+          },
+        ],
+      });
+    const { result } = renderHook(() =>
+      useWorkspaceAssetUploader(
+        '/ws/root',
+        '![图](madora-asset://retry)',
+      ),
+    );
+
+    await waitFor(() => {
+      expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalled();
+    });
+
+    await expect(
+      result.current.resolveMediaSource({
+        kind: 'image',
+        priority: 'visible',
+        signal: new AbortController().signal,
+        src: 'madora-asset://retry',
+      }),
+    ).resolves.toMatchObject({
+      src: 'asset:///ws/.madora/assets/files/aa/retry.png',
+    });
+    expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
   });
 });

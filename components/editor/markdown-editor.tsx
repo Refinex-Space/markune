@@ -474,107 +474,6 @@ export const MarkdownEditor = React.forwardRef<
     return () => cancelAnimationFrame(frameId);
   }, [sourceMode]);
 
-  React.useEffect(() => {
-    const root = markweaveModeRef.current;
-
-    if (!root || editorMarkdown === null) {
-      return;
-    }
-
-    const controllers = new Set<AbortController>();
-    const resolvingImages = new WeakSet<HTMLImageElement>();
-
-    const resolveImage = (image: HTMLImageElement) => {
-      const src = image.getAttribute('src');
-
-      if (!src?.startsWith('madora-asset://') || resolvingImages.has(image)) {
-        return;
-      }
-
-      resolvingImages.add(image);
-      const controller = new AbortController();
-      controllers.add(controller);
-      image.loading = 'lazy';
-      image.decoding = 'async';
-
-      void Promise.resolve(
-        resolveMediaSource({
-          kind: 'image',
-          priority: 'visible',
-          signal: controller.signal,
-          src,
-        }),
-      )
-        .then((result) => {
-          if (!result || controller.signal.aborted) {
-            return;
-          }
-
-          const editor = activeEditorRef.current;
-
-          if (!editor || editor.isDestroyed) {
-            return;
-          }
-
-          let transaction = editor.state.tr;
-          editor.state.doc.descendants((node, position) => {
-            if (node.type.name !== 'image' || node.attrs.src !== src) {
-              return;
-            }
-
-            transaction = transaction.setNodeMarkup(position, undefined, {
-              ...node.attrs,
-              src: result.src,
-            });
-          });
-
-          if (transaction.docChanged) {
-            transaction.setMeta('addToHistory', false);
-            editor.view.dispatch(transaction);
-          }
-        })
-        .finally(() => {
-          controllers.delete(controller);
-          resolvingImages.delete(image);
-        });
-    };
-
-    const scanImages = (node: Node) => {
-      if (node instanceof HTMLImageElement) {
-        resolveImage(node);
-        return;
-      }
-
-      if (node instanceof Element) {
-        node
-          .querySelectorAll<HTMLImageElement>('img[src^="madora-asset://"]')
-          .forEach(resolveImage);
-      }
-    };
-
-    scanImages(root);
-    const observer = new MutationObserver((records) => {
-      for (const record of records) {
-        if (record.type === 'attributes') {
-          scanImages(record.target);
-          continue;
-        }
-        record.addedNodes.forEach(scanImages);
-      }
-    });
-    observer.observe(root, {
-      attributeFilter: ['src'],
-      attributes: true,
-      childList: true,
-      subtree: true,
-    });
-
-    return () => {
-      observer.disconnect();
-      controllers.forEach((controller) => controller.abort());
-    };
-  }, [editorMarkdown, resolveMediaSource]);
-
   const handleBackToTop = React.useCallback(() => {
     const scroller = scrollAreaRef.current;
 
@@ -704,38 +603,28 @@ export const MarkdownEditor = React.forwardRef<
           data-testid="markweave-editor-mode"
           ref={markweaveModeRef}
         >
-          {editorMarkdown === null ? (
-            <div
-              aria-busy="true"
-              className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground"
-              data-testid="markdown-editor-assets-loading"
-            >
-              正在解析文档资源...
-            </div>
-          ) : (
-            <MarkweaveEditor
-              ariaLabel="Markdown 正文"
-              canvasColor="var(--background)"
-              className="madora-markweave-editor"
-              defaultContent={editorMarkdown}
-              defaultContentFormat="markdown"
-              editable={!readOnly}
-              innerToc
-              innerTocPlacement="container"
-              key={`${documentKey ?? 'document'}:${liveEditorRevisionRef.current}`}
-              lang="zh"
-              mode={readOnly ? 'view' : 'live'}
-              onSlashCommandUpload={onSlashCommandUpload}
-              {...{ resolveMediaSource }}
-              onSearchControllerChange={handleSearchControllerChange}
-              onTocChange={handleTocChange}
-              onUpdate={handleEditorUpdate}
-              linkCardResolver={resolveMarkweaveLinkCard}
-              theme={
-                themeOverride ?? (resolvedTheme === 'dark' ? 'dark' : 'light')
-              }
-            />
-          )}
+          <MarkweaveEditor
+            ariaLabel="Markdown 正文"
+            canvasColor="var(--background)"
+            className="madora-markweave-editor"
+            defaultContent={editorMarkdown}
+            defaultContentFormat="markdown"
+            editable={!readOnly}
+            innerToc
+            innerTocPlacement="container"
+            key={`${documentKey ?? 'document'}:${liveEditorRevisionRef.current}`}
+            lang="zh"
+            mode={readOnly ? 'view' : 'live'}
+            onSlashCommandUpload={onSlashCommandUpload}
+            {...{ resolveMediaSource }}
+            onSearchControllerChange={handleSearchControllerChange}
+            onTocChange={handleTocChange}
+            onUpdate={handleEditorUpdate}
+            linkCardResolver={resolveMarkweaveLinkCard}
+            theme={
+              themeOverride ?? (resolvedTheme === 'dark' ? 'dark' : 'light')
+            }
+          />
         </div>
 
         {sourceMode ? (
