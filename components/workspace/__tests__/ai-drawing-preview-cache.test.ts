@@ -11,6 +11,33 @@ function drawing(title: string): CompiledAiDrawing {
     previewBytes: new Uint8Array(),
     previewDataUrl: 'data:image/png;base64,',
     previewMediaType: 'image/png',
+    profile: 'architecture',
+    quality: {
+      blockers: [],
+      creatable: true,
+      grade: 'A',
+      metrics: {
+        arrowCrossings: 0,
+        backwardEdgeRatio: 0,
+        canvasAspectRatio: 1,
+        dashedEdgeCount: 0,
+        edgeCount: 1,
+        edgeNodeIntersections: 0,
+        extraBends: 0,
+        groupCount: 0,
+        literalEscapedNewlineCount: 0,
+        maxFanIn: 1,
+        maxFanOut: 1,
+        maxPointsPerEdge: 2,
+        nodeCount: 2,
+        overlappingNodePairs: 0,
+        textOverflowCount: 0,
+        totalSegments: 1,
+      },
+      score: 100,
+      suggestions: [],
+      warnings: [],
+    },
     sceneBytes: new Uint8Array(),
     title,
     warnings: [],
@@ -45,6 +72,28 @@ describe('AiDrawingPreviewCache', () => {
     const cache = new AiDrawingPreviewCache();
     const previewId = cache.put(drawing('过期'), '/workspace', 100);
     expect(() => cache.get(previewId, '/workspace', 600_100)).toThrow('过期');
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps blocked previews inspectable but rejects them for creation', () => {
+    vi.stubGlobal('crypto', {
+      randomUUID: () => '00000000-0000-4000-8000-000000000006',
+    });
+    const cache = new AiDrawingPreviewCache();
+    const blocked = drawing('待修复');
+    blocked.quality = {
+      ...blocked.quality,
+      blockers: ['检测到箭头交叉。'],
+      creatable: false,
+      grade: 'C',
+      score: 60,
+    };
+    const previewId = cache.put(blocked, '/workspace', 100);
+
+    expect(cache.get(previewId, '/workspace', 100).title).toBe('待修复');
+    expect(() => cache.getForCreate(previewId, '/workspace', 100)).toThrow(
+      '质量门禁',
+    );
     vi.unstubAllGlobals();
   });
 });

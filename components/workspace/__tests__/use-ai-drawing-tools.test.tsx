@@ -38,6 +38,33 @@ const compiled = {
   previewBytes: new Uint8Array([4, 5]),
   previewDataUrl: 'data:image/webp;base64,UklGRgAAAABXRUJQ',
   previewMediaType: 'image/webp',
+  profile: 'architecture' as const,
+  quality: {
+    blockers: [],
+    creatable: true,
+    grade: 'A' as const,
+    metrics: {
+      arrowCrossings: 0,
+      backwardEdgeRatio: 0,
+      canvasAspectRatio: 1.5,
+      dashedEdgeCount: 0,
+      edgeCount: 1,
+      edgeNodeIntersections: 0,
+      extraBends: 0,
+      groupCount: 0,
+      literalEscapedNewlineCount: 0,
+      maxFanIn: 1,
+      maxFanOut: 1,
+      maxPointsPerEdge: 2,
+      nodeCount: 2,
+      overlappingNodePairs: 0,
+      textOverflowCount: 0,
+      totalSegments: 1,
+    },
+    score: 100,
+    suggestions: [],
+    warnings: [],
+  },
   sceneBytes: new Uint8Array([1, 2, 3]),
   title: 'Spring Cloud 架构',
   warnings: [],
@@ -58,6 +85,7 @@ function previewRequest() {
   return {
     arguments: {
       definition: compiled.definition,
+      profile: compiled.profile,
       title: compiled.title,
     },
     callId: 'call-1',
@@ -131,6 +159,55 @@ describe('useAiDrawingTools', () => {
       compiled.previewBytes,
     );
     expect(onCreated).toHaveBeenCalledWith(created);
+    expect(mocks.compile).toHaveBeenCalledWith(
+      compiled.title,
+      compiled.definition,
+      compiled.profile,
+    );
+  });
+
+  it('returns the quality report but refuses to create a blocked preview', async () => {
+    mocks.compile.mockResolvedValueOnce({
+      ...compiled,
+      quality: {
+        ...compiled.quality,
+        blockers: ['检测到 4 处箭头交叉。'],
+        creatable: false,
+        grade: 'C',
+        score: 64,
+        suggestions: ['减少跨层关系。'],
+      },
+    });
+    const controller = {
+      descriptor: null,
+      selection: { kind: 'album', path: '架构' },
+    } as unknown as DrawingController;
+    const { result } = renderHook(() =>
+      useAiDrawingTools({
+        controller,
+        onCreated: vi.fn(),
+        workspaceRootPath: '/workspace',
+      }),
+    );
+
+    let previewId = '';
+    await act(async () => {
+      const preview = await result.current(previewRequest());
+      expect(preview.success).toBe(true);
+      const payload = JSON.parse(preview.text);
+      previewId = payload.previewId;
+      expect(payload.quality.creatable).toBe(false);
+
+      const creation = await result.current({
+        ...previewRequest(),
+        arguments: { previewId },
+        tool: 'create_from_preview',
+      });
+      expect(creation.success).toBe(false);
+      expect(creation.text).toContain('质量门禁');
+    });
+
+    expect(mocks.begin).not.toHaveBeenCalled();
   });
 
   it('returns a bounded editable scene projection and preview for an inspected drawing', async () => {

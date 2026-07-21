@@ -118,11 +118,20 @@ export function useAiDrawingTools({
         previewAttemptsRef.current.set(request.turnId, attempts + 1);
         const title = request.arguments.title;
         const definition = request.arguments.definition;
-        if (typeof title !== 'string' || typeof definition !== 'string') {
+        const profile = request.arguments.profile;
+        if (
+          typeof title !== 'string' ||
+          typeof definition !== 'string' ||
+          !['architecture', 'default', 'flow'].includes(String(profile))
+        ) {
           return { success: false, text: 'preview_mermaid 参数无效。' };
         }
         try {
-          const drawing = await compileMermaidDrawing(title, definition);
+          const drawing = await compileMermaidDrawing(
+            title,
+            definition,
+            profile as 'architecture' | 'default' | 'flow',
+          );
           const previewId = cacheRef.current.put(
             drawing,
             workspaceRootPath,
@@ -134,6 +143,8 @@ export function useAiDrawingTools({
               diagramType: drawing.diagramType,
               elementCount: drawing.elementCount,
               previewId,
+              profile: drawing.profile,
+              quality: drawing.quality,
               title: drawing.title,
               warnings: drawing.warnings,
             }),
@@ -154,7 +165,7 @@ export function useAiDrawingTools({
       }
       let sessionId: string | null = null;
       try {
-        const drawing = cacheRef.current.get(previewId, workspaceRootPath);
+        const drawing = cacheRef.current.getForCreate(previewId, workspaceRootPath);
         const session = await beginGeneratedDrawingCreate(
           workspaceRootPath,
           selectedAlbumPath(controller),

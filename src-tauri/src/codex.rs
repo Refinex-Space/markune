@@ -1419,9 +1419,9 @@ fn prepare_dynamic_tool_request(
         "preview_mermaid" => {
             if raw_arguments
                 .keys()
-                .any(|key| !matches!(key.as_str(), "title" | "definition"))
+                .any(|key| !matches!(key.as_str(), "title" | "definition" | "profile"))
             {
-                return Err("preview_mermaid 只接受 title 和 definition".to_string());
+                return Err("preview_mermaid 只接受 title、definition 和 profile".to_string());
             }
             let title = required_bounded_text(
                 raw_arguments.get("title"),
@@ -1439,7 +1439,21 @@ fn prepare_dynamic_tool_request(
             if definition.chars().count() > MAX_MERMAID_DEFINITION_CHARS {
                 return Err("preview_mermaid definition 超过 50,000 个字符".to_string());
             }
-            json!({ "title": title.trim(), "definition": definition })
+            let profile = required_bounded_text(
+                raw_arguments.get("profile"),
+                "preview_mermaid 缺少 profile",
+                32,
+            )?;
+            if !matches!(profile.as_str(), "architecture" | "flow" | "default") {
+                return Err(
+                    "preview_mermaid profile 必须是 architecture、flow 或 default".to_string(),
+                );
+            }
+            json!({
+                "title": title.trim(),
+                "definition": definition,
+                "profile": profile
+            })
         }
         "create_from_preview" => {
             if raw_arguments.len() != 1 || !raw_arguments.contains_key("previewId") {
@@ -2455,21 +2469,25 @@ fn inject_madora_dynamic_tools(params: &mut Value) -> Result<(), String> {
                 {
                     "type": "function",
                     "name": "preview_mermaid",
-                    "description": "Compile supported Mermaid into an editable Madora Drawing preview. Inspect the returned image and warnings before creation.",
+                    "description": "Compile supported Mermaid into an editable Madora Drawing preview and return a deterministic quality report. A preview can only be created when quality.creatable is true.",
                     "inputSchema": {
                         "type": "object",
                         "additionalProperties": false,
                         "properties": {
                             "title": { "type": "string", "minLength": 1, "maxLength": 120 },
-                            "definition": { "type": "string", "minLength": 1, "maxLength": MAX_MERMAID_DEFINITION_CHARS }
+                            "definition": { "type": "string", "minLength": 1, "maxLength": MAX_MERMAID_DEFINITION_CHARS },
+                            "profile": {
+                                "type": "string",
+                                "enum": ["architecture", "flow", "default"]
+                            }
                         },
-                        "required": ["title", "definition"]
+                        "required": ["title", "definition", "profile"]
                     }
                 },
                 {
                     "type": "function",
                     "name": "create_from_preview",
-                    "description": "Atomically create the exact cached preview as a new editable Madora Drawing and open it.",
+                    "description": "Atomically create the exact cached grade-A preview as a new editable Madora Drawing and open it. Blocked previews are rejected.",
                     "inputSchema": {
                         "type": "object",
                         "additionalProperties": false,
@@ -3790,6 +3808,14 @@ mod tests {
         assert_eq!(tools[0]["name"], MADORA_DRAWING_NAMESPACE);
         assert_eq!(tools[0]["tools"].as_array().expect("tools").len(), 3);
         assert_eq!(tools[0]["tools"][0]["name"], "inspect_drawing");
+        assert_eq!(
+            tools[0]["tools"][1]["inputSchema"]["properties"]["profile"]["enum"],
+            json!(["architecture", "flow", "default"])
+        );
+        assert_eq!(
+            tools[0]["tools"][1]["inputSchema"]["required"],
+            json!(["title", "definition", "profile"])
+        );
 
         let mut unsafe_params = json!({ "dynamicTools": [] });
         assert!(inject_madora_dynamic_tools(&mut unsafe_params).is_err());
@@ -3808,7 +3834,8 @@ mod tests {
                 "tool": "preview_mermaid",
                 "arguments": {
                     "title": " Spring Cloud ",
-                    "definition": "flowchart TB\nA-->B"
+                    "definition": "flowchart TB\nA-->B",
+                    "profile": "architecture"
                 }
             }
         });
@@ -3818,6 +3845,18 @@ mod tests {
         };
         assert_eq!(tool, "preview_mermaid");
         assert_eq!(payload["params"]["arguments"]["title"], "Spring Cloud");
+        assert_eq!(payload["params"]["arguments"]["profile"], "architecture");
+
+        let mut invalid_profile = payload.clone();
+        invalid_profile["params"]["arguments"]["profile"] = json!("poster");
+        assert!(prepare_pending_server_request(&mut invalid_profile).is_err());
+
+        let mut missing_profile = payload.clone();
+        missing_profile["params"]["arguments"]
+            .as_object_mut()
+            .expect("arguments")
+            .remove("profile");
+        assert!(prepare_pending_server_request(&mut missing_profile).is_err());
 
         payload["params"]["arguments"]["unknown"] = json!(true);
         assert!(prepare_pending_server_request(&mut payload).is_err());

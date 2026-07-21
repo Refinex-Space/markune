@@ -1,8 +1,22 @@
+import {
+  evaluateAiDrawingQuality,
+  type AiDrawingProfile,
+  type AiDrawingQualityReport,
+} from './ai-drawing-quality';
+
 const MAX_DEFINITION_CHARS = 50_000;
 const MAX_DRAWABLE_ELEMENTS = 400;
 const MAX_EDGES = 500;
 const MAX_PREVIEW_BYTES = 2 * 1024 * 1024;
 const MAX_CANVAS_SPAN = 50_000;
+
+export { evaluateAiDrawingQuality } from './ai-drawing-quality';
+export type {
+  AiDrawingProfile,
+  AiDrawingQualityGrade,
+  AiDrawingQualityMetrics,
+  AiDrawingQualityReport,
+} from './ai-drawing-quality';
 
 export type AiDiagramType =
   | 'class'
@@ -18,9 +32,17 @@ export interface CompiledAiDrawing {
   previewBytes: Uint8Array;
   previewDataUrl: string;
   previewMediaType: 'image/png' | 'image/webp';
+  profile: AiDrawingProfile;
+  quality: AiDrawingQualityReport;
   sceneBytes: Uint8Array;
   title: string;
   warnings: string[];
+}
+
+function validateProfile(profile: unknown): asserts profile is AiDrawingProfile {
+  if (!['architecture', 'default', 'flow'].includes(String(profile))) {
+    throw new Error('图稿 profile 必须是 architecture、flow 或 default。');
+  }
 }
 
 function detectDiagramType(definition: string): AiDiagramType {
@@ -171,58 +193,101 @@ function validateBindings(elements: readonly Record<string, unknown>[]) {
   }
 }
 
-function applyTechnicalPalette<T extends { type: string }>(element: T): T {
+function applyProfessionalTheme<T extends { type: string }>(
+  element: T,
+  fontFamily: number,
+): T {
   const record = element as T & {
     backgroundColor?: string;
+    label?: Record<string, unknown>;
     strokeColor?: string;
   };
+  const label = record.label
+    ? {
+        ...record.label,
+        fontFamily,
+        fontSize: Math.max(
+          record.label.verticalAlign === 'top' ? 20 : 18,
+          Number(record.label.fontSize) || 18,
+        ),
+        strokeColor: '#0f172a',
+      }
+    : undefined;
+  const base = {
+    ...element,
+    ...(label ? { label } : {}),
+    fillStyle: 'solid',
+    roughness: 0,
+    strokeWidth: 1,
+  };
   if (element.type === 'text') {
-    return { ...element, strokeColor: '#0f172a' };
+    return {
+      ...base,
+      fontFamily,
+      fontSize: Math.max(18, Number((element as T & { fontSize?: number }).fontSize) || 18),
+      strokeColor: '#0f172a',
+    } as T;
   }
   if (element.type === 'arrow' || element.type === 'line') {
-    return { ...element, strokeColor: '#64748b' };
+    return {
+      ...base,
+      roundness: null,
+      strokeColor: '#64748b',
+    } as T;
+  }
+  if (record.label?.verticalAlign === 'top') {
+    return {
+      ...base,
+      backgroundColor: '#f8fafc',
+      strokeColor: '#cbd5e1',
+    } as T;
   }
   const currentFill = (record.backgroundColor ?? '').toLocaleLowerCase();
   const hasCustomFill =
     currentFill &&
     !['#ececff', '#ffffde', 'transparent'].includes(currentFill);
-  if (hasCustomFill) return element;
+  if (hasCustomFill) return base as T;
   if (currentFill === '#ffffde') {
     return {
-      ...element,
-      backgroundColor: '#f8fafc',
-      strokeColor: '#94a3b8',
-    };
+      ...base,
+      backgroundColor: '#ecfdf5',
+      strokeColor: '#059669',
+    } as T;
   }
   if (element.type === 'diamond') {
     return {
-      ...element,
+      ...base,
       backgroundColor: '#fef3c7',
       strokeColor: '#d97706',
-    };
+    } as T;
   }
   if (element.type === 'ellipse') {
     return {
-      ...element,
+      ...base,
       backgroundColor: '#ede9fe',
       strokeColor: '#7c3aed',
-    };
+    } as T;
   }
   return {
-    ...element,
-    backgroundColor: '#dbeafe',
+    ...base,
+    backgroundColor: '#eff6ff',
     strokeColor: '#2563eb',
-  };
+  } as T;
 }
 
 export async function compileMermaidDrawing(
   titleInput: string,
   definition: string,
+  profile: AiDrawingProfile,
 ): Promise<CompiledAiDrawing> {
   const { diagramType, title } = validateMermaidDrawingInput(
     titleInput,
     definition,
   );
+  validateProfile(profile);
+  if (profile !== 'default' && diagramType !== 'flowchart') {
+    throw new Error(`${profile} profile 只适用于 flowchart/graph。`);
+  }
   const [{ parseMermaidToExcalidraw }, excalidraw] = await Promise.all([
     import('@excalidraw/mermaid-to-excalidraw'),
     import('@excalidraw/excalidraw'),
@@ -237,24 +302,34 @@ export async function compileMermaidDrawing(
   if (parsed.files && Object.keys(parsed.files).length > 0) {
     throw new Error('Mermaid 结果包含图片文件，首版仅支持可编辑矢量元素。');
   }
+  const fontFamily = Number(excalidraw.FONT_FAMILY.Helvetica);
   const skeletons = parsed.elements.map((element) => {
     if (element.type === 'text') {
-      return applyTechnicalPalette({
-        ...element,
-        fontSize: Math.max(16, element.fontSize ?? 16),
-      });
+      return applyProfessionalTheme(
+        {
+          ...element,
+          fontSize: Math.max(18, element.fontSize ?? 18),
+        },
+        fontFamily,
+      );
     }
-    return applyTechnicalPalette(element);
+    return applyProfessionalTheme(element, fontFamily);
   });
   const converted = excalidraw.convertToExcalidrawElements(skeletons, {
     regenerateIds: false,
   });
-  const contentMinX = Math.min(...converted.map((element) => element.x), 0);
-  const contentMinY = Math.min(...converted.map((element) => element.y), 0);
+  const contentMinX = converted.length > 0
+    ? Math.min(...converted.map((element) => element.x))
+    : 0;
+  const contentMinY = converted.length > 0
+    ? Math.min(...converted.map((element) => element.y))
+    : 0;
   const titleElements = excalidraw.convertToExcalidrawElements(
     [
       {
         fontSize: 24,
+        fontFamily,
+        roughness: 0,
         strokeColor: '#0f172a',
         text: title,
         type: 'text',
@@ -268,7 +343,7 @@ export async function compileMermaidDrawing(
     {
       appState: {
         exportBackground: true,
-        viewBackgroundColor: '#f8fafc',
+        viewBackgroundColor: '#ffffff',
       },
       elements: [...titleElements, ...converted],
       files: {},
@@ -282,6 +357,12 @@ export async function compileMermaidDrawing(
     drawable as unknown as readonly Record<string, unknown>[],
   );
   validateBindings(drawable as unknown as readonly Record<string, unknown>[]);
+  const quality = evaluateAiDrawingQuality(
+    drawable as unknown as readonly Record<string, unknown>[],
+    diagramType,
+    profile,
+    definition,
+  );
   const scene = excalidraw.serializeAsJSON(
     restored.elements,
     restored.appState,
@@ -294,7 +375,7 @@ export async function compileMermaidDrawing(
     appState: {
       exportBackground: true,
       exportPadding: 32,
-      viewBackgroundColor: '#f8fafc',
+      viewBackgroundColor: '#ffffff',
     },
     elements: drawable,
     files: restored.files,
@@ -308,7 +389,7 @@ export async function compileMermaidDrawing(
       appState: {
         exportBackground: true,
         exportPadding: 32,
-        viewBackgroundColor: '#f8fafc',
+        viewBackgroundColor: '#ffffff',
       },
       elements: drawable,
       files: restored.files,
@@ -327,8 +408,10 @@ export async function compileMermaidDrawing(
     previewBytes,
     previewDataUrl: dataUrl(previewBytes, previewMediaType),
     previewMediaType,
+    profile,
+    quality,
     sceneBytes,
     title,
-    warnings,
+    warnings: [...new Set([...warnings, ...quality.warnings])],
   };
 }

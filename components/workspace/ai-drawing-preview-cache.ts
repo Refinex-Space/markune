@@ -29,6 +29,15 @@ export class AiDrawingPreviewCache {
     return entry.drawing;
   }
 
+  getForCreate(previewId: string, workspaceRootPath: string, now = Date.now()) {
+    const drawing = this.get(previewId, workspaceRootPath, now);
+    if (!drawing.quality.creatable) {
+      const reason = drawing.quality.blockers[0] ?? `质量等级为 ${drawing.quality.grade}`;
+      throw new Error(`该预览未通过质量门禁，不能创建：${reason}`);
+    }
+    return drawing;
+  }
+
   put(drawing: CompiledAiDrawing, workspaceRootPath: string, now = Date.now()) {
     this.prune(now);
     while (this.entries.size >= MAX_PREVIEWS) {
