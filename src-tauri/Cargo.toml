@@ -18,9 +18,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.6.2", features = [] }
 
 [dependencies]
+arboard = { version = "=3.6.1", features = ["wayland-data-control"] }
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 hex = "0.4"
+image = { version = "=0.25.4", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
 keyring = "3"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }

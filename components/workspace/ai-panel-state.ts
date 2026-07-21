@@ -46,7 +46,9 @@ export interface AiMessageMention {
 
 export interface AiMessageAttachment {
   kind: 'file' | 'folder' | 'image';
+  mediaType?: 'image/gif' | 'image/jpeg' | 'image/png' | 'image/webp' | null;
   name: string;
+  previewUrl?: string | null;
 }
 
 export interface AiDocumentInputMention extends AiMessageMention {
@@ -1732,15 +1734,28 @@ function messageFromUserMessage(
       path: input.path as string,
     }));
   const usedMentionIndexes = new Set<number>();
-  const attachments: AiMessageAttachment[] = inputs
-    .filter(
-      (input) =>
-        input.type === 'localImage' && typeof input.path === 'string',
-    )
-    .map((input) => ({
+  let imageIndex = 0;
+  const attachments = inputs.flatMap<AiMessageAttachment>((input) => {
+    if (input.type === 'localImage' && typeof input.path === 'string') {
+      return [{
+        kind: 'image' as const,
+        name: localPathName(input.path),
+        previewUrl: null,
+      }];
+    }
+    if (input.type !== 'image' || typeof input.url !== 'string') {
+      return [];
+    }
+    const mediaType = inlineImageMediaType(input.url);
+    if (!mediaType) return [];
+    imageIndex += 1;
+    return [{
       kind: 'image' as const,
-      name: localPathName(input.path as string),
-    }));
+      mediaType,
+      name: `图片 ${imageIndex}`,
+      previewUrl: input.url,
+    }];
+  });
   const mentions: AiMessageMention[] = [];
   let text = '';
 
@@ -1940,11 +1955,19 @@ function localPathName(path: string) {
 function uniqueMessageAttachments(attachments: AiMessageAttachment[]) {
   const seen = new Set<string>();
   return attachments.filter((attachment) => {
-    const key = `${attachment.kind}:${attachment.name}`;
+    const key = `${attachment.kind}:${attachment.name}:${attachment.previewUrl ?? ''}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
+}
+
+function inlineImageMediaType(url: string): AiMessageAttachment['mediaType'] {
+  if (url.length > 28_000_000) return null;
+  const match = /^data:(image\/(?:gif|jpeg|png|webp));base64,[A-Za-z0-9+/]+={0,2}$/.exec(
+    url,
+  );
+  return match?.[1] as AiMessageAttachment['mediaType'] ?? null;
 }
 
 function parseHistoricalDocumentReference(value: string) {

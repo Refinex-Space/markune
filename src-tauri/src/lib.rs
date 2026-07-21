@@ -49,6 +49,8 @@ pub fn run() {
             codex::codex_app_server_respond_dynamic_tool,
             codex::read_codex_plugin_icon,
             codex::select_codex_context_attachments,
+            codex::paste_codex_context_attachments,
+            codex::read_codex_context_attachment_preview,
             codex::release_codex_context_attachments,
             drawings::load_drawing_library,
             drawings::read_drawing_meta,

@@ -1,11 +1,14 @@
 import * as React from 'react';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const bridge = vi.hoisted(() => ({
   listen: vi.fn(),
+  pasteAttachments: vi.fn(),
+  readAttachmentPreview: vi.fn(),
   readPluginIcon: vi.fn(),
+  releaseAttachments: vi.fn(),
   rejectPending: vi.fn(),
   request: vi.fn(),
   start: vi.fn(),
@@ -23,7 +26,10 @@ vi.mock('../codex-app-server', async (importOriginal) => {
       subscribe: bridge.subscribe,
     },
     listenCodexEventsUntilDisposed: bridge.listen,
+    pasteCodexContextAttachments: bridge.pasteAttachments,
+    readCodexContextAttachmentPreview: bridge.readAttachmentPreview,
     readCodexPluginIcon: bridge.readPluginIcon,
+    releaseCodexContextAttachments: bridge.releaseAttachments,
     startCodexRuntime: bridge.start,
   };
 });
@@ -207,7 +213,10 @@ beforeEach(() => {
     value: vi.fn(),
   });
   bridge.listen.mockReset().mockResolvedValue(vi.fn());
+  bridge.pasteAttachments.mockReset().mockResolvedValue(null);
+  bridge.readAttachmentPreview.mockReset();
   bridge.readPluginIcon.mockReset();
+  bridge.releaseAttachments.mockReset().mockResolvedValue(undefined);
   bridge.rejectPending.mockReset();
   bridge.start.mockReset().mockResolvedValue(runtime);
   protocolSubscriber = null;
@@ -221,6 +230,135 @@ beforeEach(() => {
 });
 
 describe('AI panel startup lifecycle', () => {
+  it('图片粘贴进入附件栏，turn 接受前保留并在成功后释放授权', async () => {
+    const user = userEvent.setup();
+    const turnStart = deferred<{ turn: { id: string } }>();
+    bridge.pasteAttachments.mockResolvedValue([
+      {
+        attachmentId: 'image-grant-1',
+        isImage: true,
+        kind: 'file',
+        mediaType: 'image/png',
+        name: '粘贴图片.png',
+        previewAvailable: true,
+        previewMediaType: 'image/png',
+        sizeBytes: 8,
+      },
+    ]);
+    bridge.readAttachmentPreview.mockResolvedValue(
+      new Uint8Array([137, 80, 78, 71]),
+    );
+    bridge.request.mockImplementation((method: string) =>
+      method === 'turn/start'
+        ? turnStart.promise
+        : Promise.resolve(defaultResponse(method)),
+    );
+    renderPanel();
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    fireEvent.paste(editor, { clipboardData: { getData: () => '' } });
+    await screen.findByRole('button', { name: '预览图片 粘贴图片.png' });
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith(
+        'turn/start',
+        expect.objectContaining({ madoraFileAttachments: ['image-grant-1'] }),
+      ),
+    );
+    expect(screen.getAllByText('粘贴图片.png').length).toBeGreaterThan(0);
+    expect(bridge.releaseAttachments).not.toHaveBeenCalledWith(['image-grant-1']);
+
+    turnStart.resolve({ turn: { id: 'turn-image' } });
+    await waitFor(() =>
+      expect(bridge.releaseAttachments).toHaveBeenCalledWith(['image-grant-1']),
+    );
+  });
+
+  it('turn/start 失败时删除本次空任务并完整保留文字和附件', async () => {
+    const user = userEvent.setup();
+    bridge.pasteAttachments.mockResolvedValue([
+      {
+        attachmentId: 'file-grant-1',
+        isImage: false,
+        kind: 'file',
+        mediaType: null,
+        name: 'CONTRIBUTING.md',
+        previewAvailable: false,
+        previewMediaType: null,
+        sizeBytes: 1200,
+      },
+    ]);
+    bridge.request.mockImplementation((method: string) =>
+      method === 'turn/start'
+        ? Promise.reject(new Error('turn failed'))
+        : Promise.resolve(defaultResponse(method)),
+    );
+    renderPanel();
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.type(editor, '请审阅附件');
+    fireEvent.paste(editor, { clipboardData: { getData: () => '' } });
+    await screen.findByText('CONTRIBUTING.md');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await screen.findByText('turn failed');
+    expect(editor.textContent).toBe('请审阅附件');
+    expect(screen.getByText('CONTRIBUTING.md')).toBeTruthy();
+    expect(bridge.releaseAttachments).not.toHaveBeenCalledWith(['file-grant-1']);
+    expect(bridge.request).toHaveBeenCalledWith('thread/delete', {
+      threadId: 'thread-1',
+    });
+  });
+
+  it('模型显式不支持 image 时阻止发送并保留附件', async () => {
+    const user = userEvent.setup();
+    bridge.pasteAttachments.mockResolvedValue([
+      {
+        attachmentId: 'image-grant-unsupported',
+        isImage: true,
+        kind: 'file',
+        mediaType: 'image/png',
+        name: '截图.png',
+        previewAvailable: false,
+        previewMediaType: null,
+        sizeBytes: 12,
+      },
+    ]);
+    bridge.request.mockImplementation((method: string) => {
+      if (method === 'model/list') {
+        const response = planCapableModelResponse();
+        return Promise.resolve({
+          ...response,
+          data: response.data.map((model) => ({
+            ...model,
+            inputModalities: ['text'] as const,
+          })),
+        });
+      }
+      return Promise.resolve(defaultResponse(method));
+    });
+    renderPanel();
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    fireEvent.paste(editor, { clipboardData: { getData: () => '' } });
+    await screen.findByRole('button', { name: '图片 截图.png 暂无安全预览' });
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    expect(
+      await screen.findByText('当前模型不支持图片输入；附件和草稿已保留。'),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: '图片 截图.png 暂无安全预览' }),
+    ).toBeTruthy();
+    expect(
+      bridge.request.mock.calls.some(([method]) => method === 'turn/start'),
+    ).toBe(false);
+  });
+
   it('每个 turn 感知当前活跃图稿并在发送前刷新保存', async () => {
     const user = userEvent.setup();
     const onBeforeTurnStart = vi.fn().mockResolvedValue(true);

@@ -96,7 +96,7 @@ AI 文件修改以 App Server 事件为刷新事实源。`item/fileChange/patchU
 
 文档树重命名以用户确认的新名称为统一显示身份：原生层移动物理 `.md` 文件并更新已有 frontmatter `title` 与首个 H1，前端随后刷新树节点、迁移已打开 Tab、编辑器 session 和最近文档路径。若展示标题已经等于目标名称、但物理文件 stem 仍不一致，仍必须执行重命名；只有物理 stem 与文档标题均已一致时才视为无操作。没有 frontmatter `title` 的外部 Markdown 不因重命名新增该字段。
 
-任意本地文件与文件夹上下文必须经过 Tauri 原生选择器。渲染器只取得 15 分钟有效的 opaque attachment ID、名称、类型和图片标记，单次最多保留 20 个，不取得所选绝对路径。发送 turn 时 Rust 重新校验授权与真实路径：受支持图片转换为 App Server `localImage`，其他文件和目录按官方 `# Files mentioned by the user` 文本头编码，并用私有 `text_elements.placeholder` 保存历史展示元数据。附件授权只允许把所选路径传入当前 turn，不扩大 Codex permission profile；工作区外文件或目录的实际读取仍由 App Server 工具权限和审批决定。
+任意本地文件、文件夹和剪贴板图片上下文必须经过 Tauri 原生附件入口。系统粘贴优先消费 Finder/Explorer 文件列表，否则读取系统位图并在 Rust 内存中编码为 PNG；现有选择器继续处理文件和文件夹，不启用窗口文件拖放。渲染器只取得 15 分钟有效的 opaque attachment ID、名称、类型、媒体类型、大小和预览标记，单次最多保留 20 个，不取得所选绝对路径。图片预览通过 Raw IPC 返回最长边 2048 px、最多 2 MiB 的重新编码 PNG；剪贴板位图不写工作区、临时目录、local storage 或资源协议。发送 turn 时 Rust 重新校验路径、修改时间、大小、内容签名、图片格式和像素预算：图片转换为 App Server 内联 `image` Data URL，使模型获得真实视觉输入；其他文件和目录按官方 `# Files mentioned by the user` 文本头编码，并用私有 `text_elements.placeholder` 保存历史展示元数据。历史投影可直接预览内联 `image`，旧 `localImage` 只显示无路径占位。附件授权不扩大 Codex permission profile；工作区外文件或目录的实际读取仍由 App Server 工具权限和审批决定。
 
 插件入口在核心运行时就绪后使用固定 sidecar 的 `plugin/installed` 按当前工作区自动加载，每个运行时代际最多发起一次成功请求，只展示已安装、已启用且未被管理员禁用的插件；加载失败时只在菜单内提供重试。App Server 返回的 `composerIcon`、`logo` 与 `logoDark` 本地文件由 Rust 按响应请求 ID 建立精确路径授权，前端只能通过 `read_codex_plugin_icon` 读取当前插件清单声明的单个受支持图片；远程图标只接受 HTTPS。菜单按 composer、主题 logo、通用占位图标的顺序降级，单个资源失败不影响插件清单。授权在重新检测、运行时停止或工作区切换时失效，不扩大资源协议 scope。
 

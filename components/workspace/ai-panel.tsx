@@ -8,7 +8,9 @@ import remarkGfm from 'remark-gfm';
 import {
   AlertCircle,
   Archive,
+  ArrowLeft,
   ArrowDown,
+  ArrowRight,
   ArrowUp,
   Blocks,
   Bot,
@@ -28,6 +30,7 @@ import {
   Goal,
   Hand,
   History,
+  ImageIcon,
   Lightbulb,
   LoaderCircle,
   Maximize2,
@@ -97,6 +100,8 @@ import { cn } from '@/lib/utils';
 import {
   codexAppServerClient,
   listenCodexEventsUntilDisposed,
+  pasteCodexContextAttachments,
+  readCodexContextAttachmentPreview,
   readCodexPluginIcon,
   releaseCodexContextAttachments,
   respondToCodexApproval,
@@ -600,6 +605,9 @@ export function AiPanel({
   const [selectedAttachments, setSelectedAttachments] = React.useState<
     CodexContextAttachment[]
   >([]);
+  const [attachmentPreviewUrls, setAttachmentPreviewUrls] = React.useState<
+    Record<string, string>
+  >({});
   const [pluginStatus, setPluginStatus] =
     React.useState<ControlLoadStatus>('idle');
   const [pluginOptions, setPluginOptions] = React.useState<
@@ -654,6 +662,9 @@ export function AiPanel({
   const skillLoadRequestRef = React.useRef(0);
   const composerSkillInsertRequestIdRef = React.useRef(0);
   const selectedAttachmentsRef = React.useRef<CodexContextAttachment[]>([]);
+  const attachmentPreviewUrlsRef = React.useRef<Record<string, string>>({});
+  const loadingAttachmentPreviewsRef = React.useRef(new Set<string>());
+  const attachmentPreviewMountedRef = React.useRef(true);
   const threadTokenUsageRef = React.useRef<
     Record<string, CodexThreadTokenUsage>
   >({});
@@ -693,6 +704,64 @@ export function AiPanel({
   React.useEffect(() => {
     conversationRef.current = conversation;
   }, [conversation]);
+
+  React.useEffect(() => {
+    attachmentPreviewUrlsRef.current = attachmentPreviewUrls;
+  }, [attachmentPreviewUrls]);
+
+  React.useEffect(() => {
+    attachmentPreviewMountedRef.current = true;
+    return () => {
+      attachmentPreviewMountedRef.current = false;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    const previewAttachments = selectedAttachments.filter(
+      (attachment) => attachment.previewAvailable,
+    );
+    for (const attachment of previewAttachments) {
+      if (
+        attachmentPreviewUrlsRef.current[attachment.attachmentId] ||
+        loadingAttachmentPreviewsRef.current.has(attachment.attachmentId)
+      ) {
+        continue;
+      }
+      loadingAttachmentPreviewsRef.current.add(attachment.attachmentId);
+      void readCodexContextAttachmentPreview(attachment.attachmentId)
+        .then((bytes) => {
+          if (
+            !attachmentPreviewMountedRef.current ||
+            !selectedAttachmentsRef.current.some(
+              (candidate) => candidate.attachmentId === attachment.attachmentId,
+            )
+          ) {
+            return;
+          }
+          const previewUrl = bytesToDataUrl(
+            bytes,
+            attachment.previewMediaType ?? 'image/png',
+          );
+          setAttachmentPreviewUrls((current) => ({
+            ...current,
+            [attachment.attachmentId]: previewUrl,
+          }));
+        })
+        .catch((error) => {
+          if (
+            attachmentPreviewMountedRef.current &&
+            selectedAttachmentsRef.current.some(
+              (candidate) => candidate.attachmentId === attachment.attachmentId,
+            )
+          ) {
+            setRuntimeError(getErrorMessage(error));
+          }
+        })
+        .finally(() => {
+          loadingAttachmentPreviewsRef.current.delete(attachment.attachmentId);
+        });
+    }
+  }, [selectedAttachments]);
 
   React.useEffect(() => {
     permissionSettingsRef.current = permissionSettings;
@@ -1361,9 +1430,14 @@ export function AiPanel({
       try {
         const selected = await selectCodexContextAttachments(kind, remaining);
         if (!selected) return;
-        setSelectedAttachments((current) =>
-          uniqueContextAttachments([...current, ...selected]).slice(0, 20),
-        );
+        setSelectedAttachments((current) => {
+          const next = uniqueContextAttachments([
+            ...current,
+            ...selected,
+          ]).slice(0, 20);
+          selectedAttachmentsRef.current = next;
+          return next;
+        });
       } catch (error) {
         setRuntimeError(getErrorMessage(error));
       }
@@ -1371,10 +1445,56 @@ export function AiPanel({
     [selectedAttachments.length],
   );
 
+  const pasteContextAttachments = React.useCallback(async () => {
+    const current = selectedAttachmentsRef.current;
+    try {
+      const selected = await pasteCodexContextAttachments(
+        Math.max(1, 20 - current.length),
+      );
+      if (!selected) return false;
+
+      const next = uniqueContextAttachments([...current, ...selected]);
+      if (next.length > 20) {
+        const retainedIds = new Set(current.map((item) => item.attachmentId));
+        const overflowIds = selected
+          .filter((item) => !retainedIds.has(item.attachmentId))
+          .map((item) => item.attachmentId);
+        void releaseCodexContextAttachments(overflowIds).catch(() => undefined);
+        setRuntimeError('最多附加 20 个文件、文件夹或图片。');
+        return true;
+      }
+
+      selectedAttachmentsRef.current = next;
+      setSelectedAttachments(next);
+      if (
+        selected.some((attachment) => attachment.isImage) &&
+        !modelSupportsImages(selectedModelInfo)
+      ) {
+        setRuntimeError('当前模型不支持图片输入；请选择支持图片的模型后发送。');
+      } else {
+        setRuntimeError(null);
+      }
+      return true;
+    } catch (error) {
+      setRuntimeError(getErrorMessage(error));
+      return true;
+    }
+  }, [selectedModelInfo]);
+
   const removeContextAttachment = React.useCallback((attachmentId: string) => {
-    setSelectedAttachments((current) =>
-      current.filter((attachment) => attachment.attachmentId !== attachmentId),
-    );
+    setSelectedAttachments((current) => {
+      const next = current.filter(
+        (attachment) => attachment.attachmentId !== attachmentId,
+      );
+      selectedAttachmentsRef.current = next;
+      return next;
+    });
+    setAttachmentPreviewUrls((current) => {
+      if (!current[attachmentId]) return current;
+      const next = { ...current };
+      delete next[attachmentId];
+      return next;
+    });
     void releaseCodexContextAttachments([attachmentId]).catch(() => undefined);
   }, []);
 
@@ -1450,6 +1570,7 @@ export function AiPanel({
       ).catch(() => undefined);
       selectedAttachmentsRef.current = [];
       setSelectedAttachments([]);
+      setAttachmentPreviewUrls({});
       setComposerValue('');
       setComposerSkillInsertRequest(null);
       permissionSettingsRef.current = DEFAULT_PERMISSION_SETTINGS;
@@ -1753,6 +1874,7 @@ export function AiPanel({
     ).catch(() => undefined);
     selectedAttachmentsRef.current = [];
     setSelectedAttachments([]);
+    setAttachmentPreviewUrls({});
     setActiveThread(null);
     setActiveThreadSupportsDrawing(true);
     activeThreadIdRef.current = null;
@@ -1813,6 +1935,7 @@ export function AiPanel({
     ).catch(() => undefined);
     selectedAttachmentsRef.current = [];
     setSelectedAttachments([]);
+    setAttachmentPreviewUrls({});
     setSelectedMentions([]);
     setComposerValue('');
     goalDraftModeRef.current = false;
@@ -1910,6 +2033,7 @@ export function AiPanel({
           threadGoalsRef.current[activeThreadIdRef.current]
         );
       let attachmentGrantsDetached = false;
+      let turnAccepted = false;
       let createdThread: CodexThread | null = null;
       let createdThreadTitle: string | null = null;
       if (
@@ -1921,6 +2045,13 @@ export function AiPanel({
       }
       if (startingGoal && !text) {
         setRuntimeError('目标不能为空。');
+        return;
+      }
+      if (
+        attachments.some((attachment) => attachment.isImage) &&
+        !modelSupportsImages(selectedModelInfo)
+      ) {
+        setRuntimeError('当前模型不支持图片输入；附件和草稿已保留。');
         return;
       }
       if (
@@ -2013,14 +2144,6 @@ export function AiPanel({
             : collaborationModeRef.current === 'plan'
               ? restoredDefaultEffort
               : effortRef.current;
-        if (!options.planAction) {
-          setComposerValue('');
-          setSelectedMentions([]);
-          selectedAttachmentsRef.current = [];
-          setSelectedAttachments([]);
-          attachmentGrantsDetached = true;
-          setMentionQuery(null);
-        }
         setPlanImplementation(null);
         setFollowLatestRequest((current) => current + 1);
         const clientMessageId = `madora-${Date.now()}`;
@@ -2033,7 +2156,11 @@ export function AiPanel({
             {
               attachments: attachments.map((attachment) => ({
                 kind: attachment.isImage ? 'image' : attachment.kind,
+                mediaType: attachment.mediaType,
                 name: attachment.name,
+                previewUrl:
+                  attachmentPreviewUrlsRef.current[attachment.attachmentId] ??
+                  null,
               })),
               type: 'message',
               id: clientMessageId,
@@ -2157,6 +2284,16 @@ export function AiPanel({
             summary: 'concise',
           },
         );
+        turnAccepted = true;
+        if (!options.planAction) {
+          setComposerValue('');
+          setSelectedMentions([]);
+          selectedAttachmentsRef.current = [];
+          setSelectedAttachments([]);
+          setAttachmentPreviewUrls({});
+          attachmentGrantsDetached = true;
+          setMentionQuery(null);
+        }
         turnModesRef.current.set(response.turn.id, requestedMode);
         if (options.forceNewThread && createdThread && createdThreadTitle) {
           setActiveThread(createdThread);
@@ -2200,16 +2337,21 @@ export function AiPanel({
           }
         }
       } catch (error) {
-        if (options.planAction) {
-          if (options.forceNewThread && createdThread) {
+        if (!turnAccepted) {
+          if (createdThread) {
             await codexAppServerClient
               .request('thread/delete', { threadId: createdThread.id })
               .catch(() => undefined);
+            setThreads((current) =>
+              current.filter((thread) => thread.id !== createdThread?.id),
+            );
           }
           setConversation(previousConversation);
           setActiveThread(previousThread);
           activeThreadIdRef.current = previousThread?.id ?? null;
-          setPlanImplementation(options.restorePlan ?? null);
+          if (options.planAction) {
+            setPlanImplementation(options.restorePlan ?? null);
+          }
         }
         setRuntimeError(getErrorMessage(error));
       } finally {
@@ -2231,6 +2373,7 @@ export function AiPanel({
       activeDrawing,
       models,
       onBeforeTurnStart,
+      selectedModelInfo,
       selectedMentions,
       updateThreadGoal,
       workspaceRootPath,
@@ -2502,6 +2645,7 @@ export function AiPanel({
               goalDraftMode={goalDraftMode}
               goalUnavailableReason={goalEntryUnavailableReason}
               attachments={selectedAttachments}
+              attachmentPreviewUrls={attachmentPreviewUrls}
               mentionDocuments={filteredMentionDocuments}
               mentionDrawings={filteredMentionDrawings}
               mentionQuery={mentionQuery}
@@ -2532,6 +2676,7 @@ export function AiPanel({
               planModeUnavailableReason={planModeUnavailableReason}
               value={composerValue}
               onAttachmentRemove={removeContextAttachment}
+              onAttachmentPaste={pasteContextAttachments}
               onAttachmentSelect={(kind) => void selectContextAttachments(kind)}
               onDetectPlugins={() => void detectInstalledPlugins()}
               onEffortChange={setEffort}
@@ -3679,6 +3824,177 @@ function formatMessageTimestamp(timestampMs: number | null) {
   ).padStart(2, '0')}`;
 }
 
+interface DisplayAttachment {
+  id: string;
+  kind: 'file' | 'folder' | 'image';
+  mediaType?: string | null;
+  name: string;
+  previewUrl?: string | null;
+  sizeBytes?: number | null;
+}
+
+function AttachmentCards({
+  attachments,
+  onRemove,
+}: {
+  attachments: DisplayAttachment[];
+  onRemove?: (attachmentId: string) => void;
+}) {
+  const previewable = attachments.filter(
+    (attachment) => attachment.kind === 'image' && attachment.previewUrl,
+  );
+  const [previewId, setPreviewId] = React.useState<string | null>(null);
+  const previewIndex = previewable.findIndex(
+    (attachment) => attachment.id === previewId,
+  );
+  const preview = previewIndex >= 0 ? previewable[previewIndex] : null;
+
+  const movePreview = (direction: -1 | 1) => {
+    if (previewable.length < 2 || previewIndex < 0) return;
+    const index =
+      (previewIndex + direction + previewable.length) % previewable.length;
+    setPreviewId(previewable[index]?.id ?? null);
+  };
+
+  return (
+    <>
+      <div className="flex w-max min-w-full gap-2 pb-1">
+        {attachments.map((attachment) =>
+          attachment.kind === 'image' ? (
+            <div className="relative size-16 shrink-0" key={attachment.id}>
+              <button
+                aria-label={
+                  attachment.previewUrl
+                    ? `预览图片 ${attachment.name}`
+                    : `图片 ${attachment.name} 暂无安全预览`
+                }
+                className="flex size-16 items-center justify-center overflow-hidden rounded-xl border border-border/80 bg-muted/60 outline-none transition-colors hover:border-foreground/30 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
+                disabled={!attachment.previewUrl}
+                type="button"
+                onClick={() => setPreviewId(attachment.id)}
+              >
+                {attachment.previewUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    alt={attachment.name}
+                    className="size-full object-cover"
+                    src={attachment.previewUrl}
+                  />
+                ) : (
+                  <ImageIcon className="text-muted-foreground" size={21} />
+                )}
+              </button>
+              {onRemove ? (
+                <button
+                  aria-label={`移除 ${attachment.name}`}
+                  className="absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm ring-1 ring-border hover:bg-destructive hover:text-destructive-foreground"
+                  type="button"
+                  onClick={() => onRemove(attachment.id)}
+                >
+                  <X size={12} />
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <div
+              className="relative flex h-16 w-44 shrink-0 items-center gap-2.5 rounded-xl border border-border/80 bg-muted/30 px-3"
+              key={attachment.id}
+              title={attachment.name}
+            >
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-background text-muted-foreground shadow-sm ring-1 ring-border/70">
+                {attachment.kind === 'folder' ? (
+                  <FolderOpen size={18} />
+                ) : (
+                  <FileText size={18} />
+                )}
+              </span>
+              <span className="min-w-0 pr-4">
+                <span className="block truncate text-xs font-medium">
+                  {attachment.name}
+                </span>
+                <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+                  {attachment.kind === 'folder'
+                    ? '文件夹'
+                    : attachmentSecondaryLabel(attachment)}
+                </span>
+              </span>
+              {onRemove ? (
+                <button
+                  aria-label={`移除 ${attachment.name}`}
+                  className="absolute right-1.5 top-1.5 flex size-5 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive hover:text-destructive-foreground"
+                  type="button"
+                  onClick={() => onRemove(attachment.id)}
+                >
+                  <X size={12} />
+                </button>
+              ) : null}
+            </div>
+          ),
+        )}
+      </div>
+
+      <Dialog
+        open={Boolean(preview)}
+        onOpenChange={(open) => {
+          if (!open) setPreviewId(null);
+        }}
+      >
+        <DialogContent
+          className="max-w-[min(92vw,72rem)] border-border/30 bg-black/95 p-4 text-white"
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowLeft') movePreview(-1);
+            if (event.key === 'ArrowRight') movePreview(1);
+          }}
+        >
+          <DialogHeader className="pr-8 text-left">
+            <DialogTitle className="truncate text-sm text-white">
+              {preview?.name ?? '图片预览'}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              附件图片大图预览
+            </DialogDescription>
+          </DialogHeader>
+          <div className="relative flex min-h-64 items-center justify-center">
+            {preview?.previewUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                alt={preview.name}
+                className="max-h-[78vh] max-w-full object-contain"
+                src={preview.previewUrl}
+              />
+            ) : null}
+            {previewable.length > 1 ? (
+              <>
+                <button
+                  aria-label="上一张图片"
+                  className="absolute left-1 flex size-9 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80 focus-visible:ring-2 focus-visible:ring-white"
+                  type="button"
+                  onClick={() => movePreview(-1)}
+                >
+                  <ArrowLeft size={18} />
+                </button>
+                <button
+                  aria-label="下一张图片"
+                  className="absolute right-1 flex size-9 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80 focus-visible:ring-2 focus-visible:ring-white"
+                  type="button"
+                  onClick={() => movePreview(1)}
+                >
+                  <ArrowRight size={18} />
+                </button>
+              </>
+            ) : null}
+          </div>
+          {previewable.length > 1 ? (
+            <p className="text-center text-xs text-white/65">
+              {previewIndex + 1} / {previewable.length}
+            </p>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 export function UserMessageContent({
   attachments = [],
   mentions,
@@ -3757,20 +4073,16 @@ export function UserMessageContent({
   return (
     <div>
       {attachments.length > 0 ? (
-        <div className={cn('flex flex-wrap gap-1.5', text && 'mb-1.5')}>
-          {attachments.map((attachment, index) => (
-            <span
-              className="inline-flex max-w-52 items-center gap-1 rounded-md border border-border/70 bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground"
-              key={`${attachment.kind}:${attachment.name}:${index}`}
-            >
-              {attachment.kind === 'folder' ? (
-                <FolderOpen size={11} />
-              ) : (
-                <Paperclip size={11} />
-              )}
-              <span className="truncate">{attachment.name}</span>
-            </span>
-          ))}
+        <div className={cn('max-w-full overflow-x-auto', text && 'mb-2')}>
+          <AttachmentCards
+            attachments={attachments.map((attachment, index) => ({
+              id: `${attachment.kind}:${attachment.name}:${index}`,
+              kind: attachment.kind,
+              mediaType: attachment.mediaType,
+              name: attachment.name,
+              previewUrl: attachment.previewUrl,
+            }))}
+          />
         </div>
       ) : null}
       {text ? (
@@ -5204,6 +5516,7 @@ export function AiComposer({
   active,
   approvalPolicyAvailability,
   attachments = [],
+  attachmentPreviewUrls = {},
   authRequired = false,
   autoReviewAvailable,
   collaborationMode = 'default',
@@ -5241,6 +5554,7 @@ export function AiComposer({
   submitting,
   value,
   onAttachmentRemove = () => undefined,
+  onAttachmentPaste = async () => false,
   onAttachmentSelect = () => undefined,
   onDetectPlugins = () => undefined,
   onCollaborationModeChange = () => undefined,
@@ -5259,6 +5573,7 @@ export function AiComposer({
   active: boolean;
   approvalPolicyAvailability: { never: boolean; onRequest: boolean };
   attachments?: CodexContextAttachment[];
+  attachmentPreviewUrls?: Record<string, string>;
   authRequired?: boolean;
   autoReviewAvailable: boolean;
   collaborationMode?: CodexCollaborationModeKind;
@@ -5296,6 +5611,7 @@ export function AiComposer({
   submitting: boolean;
   value: string;
   onAttachmentRemove?: (attachmentId: string) => void;
+  onAttachmentPaste?: () => Promise<boolean>;
   onAttachmentSelect?: (kind: CodexContextAttachment['kind']) => void;
   onDetectPlugins?: () => void;
   onCollaborationModeChange?: (mode: CodexCollaborationModeKind) => void;
@@ -5329,6 +5645,7 @@ export function AiComposer({
   const dismissedMentionKeyRef = React.useRef<string | null>(null);
   const mentionPathsRef = React.useRef<string[]>([]);
   const appliedSkillInsertRequestIdRef = React.useRef<number | null>(null);
+  const pasteQueueRef = React.useRef(Promise.resolve());
   const [composerMentionPaths, setComposerMentionPaths] = React.useState<
     string[]
   >([]);
@@ -5755,7 +6072,24 @@ export function AiComposer({
           />
         ) : null}
 
-        {currentDocument || currentDrawing || attachments.length > 0 ? (
+        {attachments.length > 0 ? (
+          <div className="scrollbar-thin overflow-x-auto px-3 pt-2.5">
+            <AttachmentCards
+              attachments={attachments.map((attachment) => ({
+                id: attachment.attachmentId,
+                kind: attachment.isImage ? 'image' : attachment.kind,
+                mediaType: attachment.mediaType,
+                name: attachment.name,
+                previewUrl:
+                  attachmentPreviewUrls[attachment.attachmentId] ?? null,
+                sizeBytes: attachment.sizeBytes,
+              }))}
+              onRemove={onAttachmentRemove}
+            />
+          </div>
+        ) : null}
+
+        {currentDocument || currentDrawing ? (
           <div className="flex flex-wrap gap-1 px-3 pt-2.5">
             {currentDocument ? (
               <ContextChip
@@ -5774,21 +6108,6 @@ export function AiComposer({
                 }
               />
             ) : null}
-            {attachments.map((attachment) => (
-              <ContextChip
-                dismissible
-                icon={
-                  attachment.kind === 'folder' ? (
-                    <FolderOpen size={11} />
-                  ) : (
-                    <Paperclip size={11} />
-                  )
-                }
-                key={attachment.attachmentId}
-                label={attachment.name}
-                onDismiss={() => onAttachmentRemove(attachment.attachmentId)}
-              />
-            ))}
           </div>
         ) : null}
 
@@ -5941,12 +6260,22 @@ export function AiComposer({
           }}
           onPaste={(event) => {
             event.preventDefault();
-            insertPlainTextAtSelection(
-              editorRef.current,
-              event.clipboardData.getData('text/plain'),
-              savedRangeRef,
-            );
-            syncEditorState();
+            saveSelection();
+            const pastedText = event.clipboardData.getData('text/plain');
+            const pasteRange = savedRangeRef.current?.cloneRange() ?? null;
+            pasteQueueRef.current = pasteQueueRef.current.then(async () => {
+              const handled = await onAttachmentPaste();
+              if (!handled) {
+                if (pasteRange) savedRangeRef.current = pasteRange;
+                insertPlainTextAtSelection(
+                  editorRef.current,
+                  pastedText,
+                  savedRangeRef,
+                );
+                syncEditorState();
+              }
+              editorRef.current?.focus();
+            });
           }}
         />
 
@@ -6381,7 +6710,10 @@ export function AiComposer({
                 aria-label="发送"
                 className="ml-1 flex size-8 items-center justify-center rounded-full bg-foreground text-background disabled:opacity-30"
                 disabled={
-                  runtimeUnavailable || submitting || inputBlocked || !value.trim()
+                  runtimeUnavailable ||
+                  submitting ||
+                  inputBlocked ||
+                  (!value.trim() && attachments.length === 0)
                 }
                 type="button"
                 onClick={onSend}
@@ -7481,6 +7813,34 @@ function isSkillComposerMention(
   mention: AiComposerMention,
 ): mention is AiComposerSkillMention {
   return mention.kind === 'skill';
+}
+
+function modelSupportsImages(model: CodexModel | null) {
+  return model?.inputModalities?.includes('image') ?? true;
+}
+
+function bytesToDataUrl(bytes: Uint8Array, mediaType: string) {
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return `data:${mediaType};base64,${globalThis.btoa(binary)}`;
+}
+
+function attachmentSecondaryLabel(attachment: DisplayAttachment) {
+  const extension = attachment.name.includes('.')
+    ? attachment.name.split('.').at(-1)?.toLocaleUpperCase()
+    : null;
+  const size = formatAttachmentSize(attachment.sizeBytes);
+  return [extension || '文件', size].filter(Boolean).join(' · ');
+}
+
+function formatAttachmentSize(sizeBytes?: number | null) {
+  if (!sizeBytes || sizeBytes < 0) return null;
+  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  if (sizeBytes < 1024 * 1024) return `${Math.ceil(sizeBytes / 1024)} KiB`;
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
 function uniqueContextAttachments(attachments: CodexContextAttachment[]) {

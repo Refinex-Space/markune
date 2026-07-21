@@ -1,17 +1,19 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+use image::{DynamicImage, ImageFormat, RgbaImage};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::ffi::OsStr;
 use std::fs;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager, State};
+use std::time::{Duration, Instant, SystemTime};
+use tauri::{ipc::Response, AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
@@ -24,6 +26,11 @@ const CODEX_STORAGE_MODE: &str = "sharedCodexHome";
 const MAX_DOCUMENT_REFERENCES: usize = 32;
 const MAX_DRAWING_REFERENCES: usize = 32;
 const MAX_CONTEXT_ATTACHMENTS: usize = 20;
+const MAX_CONTEXT_IMAGE_BYTES: usize = 20 * 1024 * 1024;
+const MAX_CONTEXT_IMAGE_TOTAL_BYTES: usize = 40 * 1024 * 1024;
+const MAX_CONTEXT_IMAGE_PIXELS: u64 = 25_000_000;
+const MAX_CONTEXT_PREVIEW_BYTES: usize = 2 * 1024 * 1024;
+const MAX_CONTEXT_PREVIEW_EDGE: u32 = 2048;
 const MAX_PLUGIN_ICON_BYTES: usize = 1024 * 1024;
 const MAX_USER_INPUT_NOTE_BYTES: usize = 16 * 1024;
 const MAX_DYNAMIC_TOOL_TEXT_BYTES: usize = 16 * 1024;
@@ -200,8 +207,26 @@ struct CodexContextAttachmentGrant {
     expires_at: Instant,
     is_image: bool,
     kind: CodexContextAttachmentKind,
+    media_type: Option<String>,
     name: String,
-    path: PathBuf,
+    preview_available: bool,
+    preview_media_type: Option<String>,
+    size_bytes: Option<u64>,
+    source: CodexContextAttachmentSource,
+}
+
+#[derive(Debug, Clone)]
+enum CodexContextAttachmentSource {
+    Path {
+        modified_at: Option<SystemTime>,
+        path: PathBuf,
+        sha256: Option<String>,
+        size_bytes: Option<u64>,
+    },
+    ClipboardImage {
+        bytes: Arc<[u8]>,
+        sha256: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -210,7 +235,39 @@ pub struct CodexContextAttachment {
     attachment_id: String,
     is_image: bool,
     kind: String,
+    media_type: Option<String>,
     name: String,
+    preview_available: bool,
+    preview_media_type: Option<String>,
+    size_bytes: Option<u64>,
+}
+
+struct ClipboardBitmap {
+    bytes: Vec<u8>,
+    height: u32,
+    width: u32,
+}
+
+trait ContextClipboard {
+    fn file_list(&mut self) -> Vec<PathBuf>;
+    fn image(&mut self) -> Option<ClipboardBitmap>;
+}
+
+struct ArboardContextClipboard(arboard::Clipboard);
+
+impl ContextClipboard for ArboardContextClipboard {
+    fn file_list(&mut self) -> Vec<PathBuf> {
+        self.0.get().file_list().unwrap_or_default()
+    }
+
+    fn image(&mut self) -> Option<ClipboardBitmap> {
+        let image = self.0.get_image().ok()?;
+        Some(ClipboardBitmap {
+            bytes: image.bytes.into_owned(),
+            height: u32::try_from(image.height).ok()?,
+            width: u32::try_from(image.width).ok()?,
+        })
+    }
 }
 
 #[tauri::command]
@@ -240,59 +297,103 @@ pub fn select_codex_context_attachments(
         ));
     }
 
-    let mut grants = state
-        .context_attachments
-        .lock()
-        .map_err(|_| "Codex 上下文附件状态不可用".to_string())?;
-    cleanup_expired_context_attachments(&mut grants);
-    let mut result = Vec::with_capacity(selected.len());
+    let paths = selected
+        .into_iter()
+        .map(|selected_path| {
+            selected_path
+                .into_path()
+                .map(|path| (path, kind))
+                .map_err(|_| "所选 Codex 上下文不是本地文件系统路径".to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    register_context_path_attachments(&state.context_attachments, paths).map(Some)
+}
 
-    for selected_path in selected {
-        let selected_path = selected_path
-            .into_path()
-            .map_err(|_| "所选 Codex 上下文不是本地文件系统路径".to_string())?;
-        let path = selected_path
-            .canonicalize()
-            .map_err(|error| format!("Codex 上下文路径不可用: {error}"))?;
-        if !kind.matches_path(&path) {
-            return Err("所选 Codex 上下文类型与请求不一致".to_string());
-        }
-        let name = context_attachment_name(&path)?;
-        let is_image = kind == CodexContextAttachmentKind::File && is_supported_local_image(&path);
+#[tauri::command]
+pub fn paste_codex_context_attachments(
+    state: State<'_, CodexState>,
+    remaining: usize,
+) -> Result<Option<Vec<CodexContextAttachment>>, String> {
+    let clipboard = match arboard::Clipboard::new() {
+        Ok(clipboard) => clipboard,
+        Err(_) => return Ok(None),
+    };
+    paste_context_attachments_with_clipboard(
+        &state.context_attachments,
+        remaining,
+        &mut ArboardContextClipboard(clipboard),
+    )
+}
 
-        if let Some((attachment_id, grant)) = grants.iter_mut().find(|(_, grant)| {
-            grant.path == path && grant.kind == kind && grant.expires_at > Instant::now()
-        }) {
-            grant.expires_at = Instant::now() + CONTEXT_ATTACHMENT_TTL;
-            result.push(CodexContextAttachment {
-                attachment_id: attachment_id.clone(),
-                is_image: grant.is_image,
-                kind: grant.kind.as_str().to_string(),
-                name: grant.name.clone(),
-            });
-            continue;
-        }
-
-        let attachment_id = Uuid::new_v4().to_string();
-        grants.insert(
-            attachment_id.clone(),
-            CodexContextAttachmentGrant {
-                expires_at: Instant::now() + CONTEXT_ATTACHMENT_TTL,
-                is_image,
-                kind,
-                name: name.clone(),
-                path,
-            },
-        );
-        result.push(CodexContextAttachment {
-            attachment_id,
-            is_image,
-            kind: kind.as_str().to_string(),
-            name,
-        });
+fn paste_context_attachments_with_clipboard(
+    attachment_store: &Mutex<HashMap<String, CodexContextAttachmentGrant>>,
+    remaining: usize,
+    clipboard: &mut impl ContextClipboard,
+) -> Result<Option<Vec<CodexContextAttachment>>, String> {
+    if remaining == 0 || remaining > MAX_CONTEXT_ATTACHMENTS {
+        return Err(format!(
+            "Codex 上下文附件剩余数量必须在 1 到 {MAX_CONTEXT_ATTACHMENTS} 之间"
+        ));
     }
 
-    Ok(Some(result))
+    let files = clipboard.file_list();
+    if !files.is_empty() {
+        if files.len() > remaining {
+            return Err(format!(
+                "一次粘贴的附件超过剩余数量，最多还能添加 {remaining} 个"
+            ));
+        }
+        let paths = files
+            .into_iter()
+            .map(|path| {
+                let kind = if path.is_dir() {
+                    CodexContextAttachmentKind::Folder
+                } else {
+                    CodexContextAttachmentKind::File
+                };
+                (path, kind)
+            })
+            .collect();
+        return register_context_path_attachments(attachment_store, paths).map(Some);
+    }
+
+    let image = match clipboard.image() {
+        Some(image) => image,
+        None => return Ok(None),
+    };
+    validate_image_dimensions(image.width, image.height)?;
+    let rgba = RgbaImage::from_raw(image.width, image.height, image.bytes)
+        .ok_or_else(|| "剪贴板图片数据损坏".to_string())?;
+    let bytes = encode_png(&DynamicImage::ImageRgba8(rgba))?;
+    if bytes.len() > MAX_CONTEXT_IMAGE_BYTES {
+        return Err("剪贴板图片超过 20 MiB 限制".to_string());
+    }
+    register_clipboard_image_attachment(attachment_store, bytes).map(|value| Some(vec![value]))
+}
+
+#[tauri::command]
+pub fn read_codex_context_attachment_preview(
+    state: State<'_, CodexState>,
+    attachment_id: String,
+) -> Result<Response, String> {
+    if Uuid::parse_str(&attachment_id).is_err() {
+        return Err("Codex 上下文附件 ID 无效".to_string());
+    }
+    let grant = {
+        let mut grants = state
+            .context_attachments
+            .lock()
+            .map_err(|_| "Codex 上下文附件状态不可用".to_string())?;
+        cleanup_expired_context_attachments(&mut grants);
+        grants
+            .get(&attachment_id)
+            .cloned()
+            .ok_or_else(|| "Codex 上下文附件授权已过期或不存在".to_string())?
+    };
+    if !grant.preview_available {
+        return Err("该附件不支持图片预览".to_string());
+    }
+    Ok(Response::new(context_attachment_preview(&grant)?))
 }
 
 #[tauri::command]
@@ -367,6 +468,7 @@ pub fn codex_runtime_start(
         let _ = session.child.kill();
         *session_guard = None;
     }
+    clear_context_attachments(&state.context_attachments)?;
 
     let binary = resolve_codex_binary(&app)?;
     let app_server_args = codex_app_server_args(&storage.root)?;
@@ -492,12 +594,18 @@ pub fn codex_runtime_stop(state: State<'_, CodexState>) -> Result<(), String> {
         .lock()
         .map_err(|_| "Codex 运行时状态锁已损坏".to_string())?;
 
-    if let Some(mut session) = session_guard.take() {
+    let stop_result = if let Some(mut session) = session_guard.take() {
         session
             .child
             .kill()
-            .map_err(|error| format!("关闭 Codex App Server 失败: {error}"))?;
-    }
+            .map_err(|error| format!("关闭 Codex App Server 失败: {error}"))
+    } else {
+        Ok(())
+    };
+
+    let clear_result = clear_context_attachments(&state.context_attachments);
+    stop_result?;
+    clear_result?;
 
     Ok(())
 }
@@ -1809,7 +1917,9 @@ fn validate_request_params_with_authorized_context(
             for input in inputs {
                 let input_type = input.get("type").and_then(Value::as_str);
 
-                if input_type == Some("localImage") {
+                if input_type == Some("image") {
+                    validate_inline_context_image(input)?;
+                } else if input_type == Some("localImage") {
                     let path = input
                         .get("path")
                         .and_then(Value::as_str)
@@ -2163,6 +2273,18 @@ fn prepare_request_params_with_attachments(
 
     if params.contains_key("additionalContext") {
         return Err("渲染器不得直接提交 Codex additionalContext".to_string());
+    }
+    if method == "turn/start"
+        && params
+            .get("input")
+            .and_then(Value::as_array)
+            .is_some_and(|inputs| {
+                inputs
+                    .iter()
+                    .any(|input| input.get("type").and_then(Value::as_str) == Some("image"))
+            })
+    {
+        return Err("图片输入只能使用 Madora 原生附件授权".to_string());
     }
 
     let references = params.remove("madoraDocumentReferences");
@@ -2535,18 +2657,41 @@ fn resolve_context_attachments(
             .get(attachment_id)
             .cloned()
             .ok_or_else(|| "Madora 文件附件授权已过期或不存在".to_string())?;
-        let canonical_path = grant
-            .path
-            .canonicalize()
-            .map_err(|error| format!("Madora 文件附件不可用: {error}"))?;
-        if !grant.kind.matches_path(&canonical_path) {
-            return Err("Madora 文件附件类型已变化".to_string());
-        }
-        if seen.insert(canonical_path.clone()) {
-            resolved.push(CodexContextAttachmentGrant {
-                path: canonical_path,
-                ..grant
-            });
+        match &grant.source {
+            CodexContextAttachmentSource::Path {
+                modified_at,
+                path,
+                sha256,
+                size_bytes,
+            } => {
+                let canonical_path = path
+                    .canonicalize()
+                    .map_err(|error| format!("Madora 文件附件不可用: {error}"))?;
+                if canonical_path != *path || !grant.kind.matches_path(&canonical_path) {
+                    return Err("Madora 文件附件类型或路径已变化".to_string());
+                }
+                let metadata = fs::metadata(&canonical_path)
+                    .map_err(|error| format!("Madora 文件附件不可用: {error}"))?;
+                if size_bytes.is_some_and(|size| Some(size) != Some(metadata.len()))
+                    || modified_at.is_some_and(|value| metadata.modified().ok() != Some(value))
+                {
+                    return Err("Madora 文件附件在预览后已变化，请重新添加".to_string());
+                }
+                if let Some(expected_hash) = sha256 {
+                    let bytes = read_context_image(&canonical_path)?;
+                    if sha256_hex(&bytes) != *expected_hash {
+                        return Err("Madora 图片附件在预览后已变化，请重新添加".to_string());
+                    }
+                }
+                if seen.insert(format!("path:{}", canonical_path.to_string_lossy())) {
+                    resolved.push(grant);
+                }
+            }
+            CodexContextAttachmentSource::ClipboardImage { sha256, .. } => {
+                if seen.insert(format!("clipboard:{sha256}")) {
+                    resolved.push(grant);
+                }
+            }
         }
     }
 
@@ -2556,7 +2701,7 @@ fn resolve_context_attachments(
 fn prepend_context_attachments(
     params: &mut serde_json::Map<String, Value>,
     attachments: &[CodexContextAttachmentGrant],
-    security: &mut PreparedRequestSecurity,
+    _security: &mut PreparedRequestSecurity,
 ) -> Result<(), String> {
     let inputs = params
         .entry("input".to_string())
@@ -2565,14 +2710,17 @@ fn prepend_context_attachments(
         .ok_or_else(|| "Codex turn input 参数无效".to_string())?;
     let mut context_entries = Vec::new();
 
+    let mut total_image_bytes = 0_usize;
     for attachment in attachments {
         if attachment.is_image {
-            security
-                .authorized_local_images
-                .insert(attachment.path.clone());
+            let (media_type, bytes) = context_attachment_image_bytes(attachment)?;
+            total_image_bytes = total_image_bytes.saturating_add(bytes.len());
+            if total_image_bytes > MAX_CONTEXT_IMAGE_TOTAL_BYTES {
+                return Err("图片附件总量超过 40 MiB 限制".to_string());
+            }
             inputs.push(json!({
-                "type": "localImage",
-                "path": display_path(&attachment.path),
+                "type": "image",
+                "url": format!("data:{media_type};base64,{}", STANDARD.encode(bytes)),
             }));
         } else {
             context_entries.push(attachment);
@@ -2586,11 +2734,12 @@ fn prepend_context_attachments(
     let mut prefix = "# Files mentioned by the user:\n\n".to_string();
     let mut attachment_elements = Vec::with_capacity(context_entries.len());
     for attachment in context_entries {
+        let path = context_attachment_path(attachment)?;
         let start = prefix.len();
         prefix.push_str(&format!(
             "## {}: {}\n\n",
             attachment.name,
-            display_path(&attachment.path)
+            display_path(path)
         ));
         attachment_elements.push(json!({
             "byteRange": { "start": start, "end": prefix.len() },
@@ -2658,6 +2807,345 @@ fn cleanup_expired_context_attachments(grants: &mut HashMap<String, CodexContext
     grants.retain(|_, grant| grant.expires_at > now);
 }
 
+fn clear_context_attachments(
+    attachment_store: &Mutex<HashMap<String, CodexContextAttachmentGrant>>,
+) -> Result<(), String> {
+    attachment_store
+        .lock()
+        .map_err(|_| "Codex 上下文附件状态不可用".to_string())?
+        .clear();
+    Ok(())
+}
+
+fn register_context_path_attachments(
+    attachment_store: &Mutex<HashMap<String, CodexContextAttachmentGrant>>,
+    paths: Vec<(PathBuf, CodexContextAttachmentKind)>,
+) -> Result<Vec<CodexContextAttachment>, String> {
+    let candidates = paths
+        .into_iter()
+        .map(|(path, kind)| context_path_attachment_grant(path, kind))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut grants = attachment_store
+        .lock()
+        .map_err(|_| "Codex 上下文附件状态不可用".to_string())?;
+    cleanup_expired_context_attachments(&mut grants);
+    let new_paths = candidates
+        .iter()
+        .filter(|candidate| {
+            !grants.values().any(|grant| {
+                grant.kind == candidate.kind
+                    && matches!(
+                        &grant.source,
+                        CodexContextAttachmentSource::Path { path, .. }
+                            if context_attachment_path(candidate).is_ok_and(|candidate_path| path == candidate_path)
+                    )
+            })
+        })
+        .filter_map(|candidate| context_attachment_path(candidate).ok())
+        .collect::<HashSet<_>>();
+    if grants.len().saturating_add(new_paths.len()) > MAX_CONTEXT_ATTACHMENTS {
+        return Err(format!(
+            "Codex 上下文附件最多允许 {MAX_CONTEXT_ATTACHMENTS} 个"
+        ));
+    }
+    let mut result = Vec::with_capacity(candidates.len());
+
+    for mut candidate in candidates {
+        let candidate_path = context_attachment_path(&candidate)?.to_path_buf();
+        if let Some((attachment_id, existing)) = grants.iter_mut().find(|(_, grant)| {
+            grant.kind == candidate.kind
+                && matches!(
+                    &grant.source,
+                    CodexContextAttachmentSource::Path { path, .. } if path == &candidate_path
+                )
+        }) {
+            candidate.expires_at = Instant::now() + CONTEXT_ATTACHMENT_TTL;
+            *existing = candidate;
+            result.push(context_attachment_response(attachment_id.clone(), existing));
+            continue;
+        }
+
+        let attachment_id = Uuid::new_v4().to_string();
+        result.push(context_attachment_response(
+            attachment_id.clone(),
+            &candidate,
+        ));
+        grants.insert(attachment_id, candidate);
+    }
+    Ok(result)
+}
+
+fn register_clipboard_image_attachment(
+    attachment_store: &Mutex<HashMap<String, CodexContextAttachmentGrant>>,
+    bytes: Vec<u8>,
+) -> Result<CodexContextAttachment, String> {
+    if validate_image_data(&bytes)? != "image/png" {
+        return Err("剪贴板图片必须编码为 PNG".to_string());
+    }
+    let sha256 = sha256_hex(&bytes);
+    let mut grants = attachment_store
+        .lock()
+        .map_err(|_| "Codex 上下文附件状态不可用".to_string())?;
+    cleanup_expired_context_attachments(&mut grants);
+    if let Some((attachment_id, grant)) = grants.iter_mut().find(|(_, grant)| {
+        matches!(
+            &grant.source,
+            CodexContextAttachmentSource::ClipboardImage { sha256: existing, .. }
+                if existing == &sha256
+        )
+    }) {
+        grant.expires_at = Instant::now() + CONTEXT_ATTACHMENT_TTL;
+        return Ok(context_attachment_response(attachment_id.clone(), grant));
+    }
+    if grants.len() >= MAX_CONTEXT_ATTACHMENTS {
+        return Err(format!(
+            "Codex 上下文附件最多允许 {MAX_CONTEXT_ATTACHMENTS} 个"
+        ));
+    }
+    let total_image_bytes = grants
+        .values()
+        .filter(|grant| grant.is_image)
+        .filter_map(|grant| grant.size_bytes)
+        .fold(bytes.len() as u64, u64::saturating_add);
+    if total_image_bytes > MAX_CONTEXT_IMAGE_TOTAL_BYTES as u64 {
+        return Err("图片附件总量超过 40 MiB 限制".to_string());
+    }
+
+    let grant = CodexContextAttachmentGrant {
+        expires_at: Instant::now() + CONTEXT_ATTACHMENT_TTL,
+        is_image: true,
+        kind: CodexContextAttachmentKind::File,
+        media_type: Some("image/png".to_string()),
+        name: "粘贴图片.png".to_string(),
+        preview_available: true,
+        preview_media_type: Some("image/png".to_string()),
+        size_bytes: Some(bytes.len() as u64),
+        source: CodexContextAttachmentSource::ClipboardImage {
+            bytes: Arc::from(bytes),
+            sha256,
+        },
+    };
+    let attachment_id = Uuid::new_v4().to_string();
+    let response = context_attachment_response(attachment_id.clone(), &grant);
+    grants.insert(attachment_id, grant);
+    Ok(response)
+}
+
+fn context_path_attachment_grant(
+    path: PathBuf,
+    kind: CodexContextAttachmentKind,
+) -> Result<CodexContextAttachmentGrant, String> {
+    let path = path
+        .canonicalize()
+        .map_err(|error| format!("Codex 上下文路径不可用: {error}"))?;
+    if !kind.matches_path(&path) {
+        return Err("所选 Codex 上下文类型与请求不一致".to_string());
+    }
+    let name = context_attachment_name(&path)?;
+    let metadata =
+        fs::metadata(&path).map_err(|error| format!("Codex 上下文路径不可用: {error}"))?;
+    let size_bytes = (kind == CodexContextAttachmentKind::File).then_some(metadata.len());
+    let media_type = if kind == CodexContextAttachmentKind::File {
+        supported_image_media_type_path(&path)?
+    } else {
+        None
+    };
+    let image_sha256 = if media_type.is_some() {
+        let bytes = read_context_image(&path)?;
+        validate_image_data(&bytes)?;
+        Some(sha256_hex(&bytes))
+    } else {
+        None
+    };
+    Ok(CodexContextAttachmentGrant {
+        expires_at: Instant::now() + CONTEXT_ATTACHMENT_TTL,
+        is_image: media_type.is_some(),
+        kind,
+        media_type,
+        name,
+        preview_available: image_sha256.is_some(),
+        preview_media_type: image_sha256.as_ref().map(|_| "image/png".to_string()),
+        size_bytes,
+        source: CodexContextAttachmentSource::Path {
+            modified_at: metadata.modified().ok(),
+            path,
+            sha256: image_sha256,
+            size_bytes,
+        },
+    })
+}
+
+fn context_attachment_response(
+    attachment_id: String,
+    grant: &CodexContextAttachmentGrant,
+) -> CodexContextAttachment {
+    CodexContextAttachment {
+        attachment_id,
+        is_image: grant.is_image,
+        kind: grant.kind.as_str().to_string(),
+        media_type: grant.media_type.clone(),
+        name: grant.name.clone(),
+        preview_available: grant.preview_available,
+        preview_media_type: grant.preview_media_type.clone(),
+        size_bytes: grant.size_bytes,
+    }
+}
+
+fn context_attachment_path(grant: &CodexContextAttachmentGrant) -> Result<&Path, String> {
+    match &grant.source {
+        CodexContextAttachmentSource::Path { path, .. } => Ok(path),
+        CodexContextAttachmentSource::ClipboardImage { .. } => {
+            Err("剪贴板图片不能作为文件路径上下文".to_string())
+        }
+    }
+}
+
+fn context_attachment_image_bytes(
+    grant: &CodexContextAttachmentGrant,
+) -> Result<(String, Vec<u8>), String> {
+    let media_type = grant
+        .media_type
+        .clone()
+        .ok_or_else(|| "图片附件缺少媒体类型".to_string())?;
+    let bytes = match &grant.source {
+        CodexContextAttachmentSource::Path { path, sha256, .. } => {
+            let bytes = read_context_image(path)?;
+            if sha256
+                .as_ref()
+                .is_some_and(|expected| sha256_hex(&bytes) != *expected)
+            {
+                return Err("Madora 图片附件在预览后已变化，请重新添加".to_string());
+            }
+            bytes
+        }
+        CodexContextAttachmentSource::ClipboardImage { bytes, .. } => bytes.to_vec(),
+    };
+    let detected = validate_image_data(&bytes)?;
+    if detected != media_type {
+        return Err("图片附件媒体类型与内容不一致".to_string());
+    }
+    Ok((media_type, bytes))
+}
+
+fn context_attachment_preview(grant: &CodexContextAttachmentGrant) -> Result<Vec<u8>, String> {
+    let (_, bytes) = context_attachment_image_bytes(grant)?;
+    let image =
+        image::load_from_memory(&bytes).map_err(|error| format!("无法解码图片附件: {error}"))?;
+    validate_image_dimensions(image.width(), image.height())?;
+    let mut edge = MAX_CONTEXT_PREVIEW_EDGE;
+    loop {
+        let preview = image.thumbnail(edge, edge);
+        let encoded = encode_png(&preview)?;
+        if encoded.len() <= MAX_CONTEXT_PREVIEW_BYTES {
+            return Ok(encoded);
+        }
+        if edge <= 256 {
+            return Err("图片预览超过 2 MiB 限制".to_string());
+        }
+        edge /= 2;
+    }
+}
+
+fn supported_image_media_type_path(path: &Path) -> Result<Option<String>, String> {
+    let mut file = fs::File::open(path).map_err(|error| format!("无法读取图片附件: {error}"))?;
+    let mut header = [0_u8; 12];
+    let read = file
+        .read(&mut header)
+        .map_err(|error| format!("无法读取图片附件: {error}"))?;
+    Ok(image_media_type(&header[..read]).map(str::to_string))
+}
+
+fn read_context_image(path: &Path) -> Result<Vec<u8>, String> {
+    let metadata = fs::metadata(path).map_err(|error| format!("无法读取图片附件: {error}"))?;
+    if metadata.len() > MAX_CONTEXT_IMAGE_BYTES as u64 {
+        return Err("图片附件超过 20 MiB 限制".to_string());
+    }
+    let dimensions =
+        image::image_dimensions(path).map_err(|error| format!("无法读取图片尺寸: {error}"))?;
+    validate_image_dimensions(dimensions.0, dimensions.1)?;
+    fs::read(path).map_err(|error| format!("无法读取图片附件: {error}"))
+}
+
+fn validate_image_data(bytes: &[u8]) -> Result<String, String> {
+    if bytes.len() > MAX_CONTEXT_IMAGE_BYTES {
+        return Err("图片附件超过 20 MiB 限制".to_string());
+    }
+    let media_type = image_media_type(bytes)
+        .ok_or_else(|| "图片附件只支持 PNG、JPEG、GIF 或 WebP".to_string())?;
+    let image =
+        image::load_from_memory(bytes).map_err(|error| format!("无法解码图片附件: {error}"))?;
+    validate_image_dimensions(image.width(), image.height())?;
+    Ok(media_type.to_string())
+}
+
+fn validate_image_dimensions(width: u32, height: u32) -> Result<(), String> {
+    let pixels = u64::from(width).saturating_mul(u64::from(height));
+    if width == 0 || height == 0 || pixels > MAX_CONTEXT_IMAGE_PIXELS {
+        return Err("图片附件尺寸无效或超过 2500 万像素限制".to_string());
+    }
+    Ok(())
+}
+
+fn image_media_type(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
+    }
+}
+
+fn encode_png(image: &DynamicImage) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    image
+        .write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)
+        .map_err(|error| format!("无法编码图片预览: {error}"))?;
+    Ok(bytes)
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    hex::encode(Sha256::digest(bytes))
+}
+
+fn validate_inline_context_image(input: &Value) -> Result<(), String> {
+    let input = input
+        .as_object()
+        .ok_or_else(|| "Codex 图片输入格式无效".to_string())?;
+    if input
+        .keys()
+        .any(|key| !matches!(key.as_str(), "type" | "url" | "detail"))
+    {
+        return Err("Codex 图片输入包含未知字段".to_string());
+    }
+    let url = input
+        .get("url")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "Codex 图片输入缺少 Data URL".to_string())?;
+    let (media_type, encoded) = ["image/png", "image/jpeg", "image/gif", "image/webp"]
+        .into_iter()
+        .find_map(|media_type| {
+            url.strip_prefix(&format!("data:{media_type};base64,"))
+                .map(|encoded| (media_type, encoded))
+        })
+        .ok_or_else(|| "Codex 图片输入只允许受支持的 Data URL".to_string())?;
+    if encoded.len() > (MAX_CONTEXT_IMAGE_BYTES * 4 / 3) + 8 {
+        return Err("Codex 图片输入超过 20 MiB 限制".to_string());
+    }
+    let bytes = STANDARD
+        .decode(encoded)
+        .map_err(|_| "Codex 图片输入 Base64 无效".to_string())?;
+    let detected = validate_image_data(&bytes)?;
+    if detected != media_type {
+        return Err("Codex 图片输入媒体类型与内容不一致".to_string());
+    }
+    Ok(())
+}
+
 fn context_attachment_name(path: &Path) -> Result<String, String> {
     let name = path
         .file_name()
@@ -2672,22 +3160,6 @@ fn context_attachment_name(path: &Path) -> Result<String, String> {
         return Err("Codex 上下文附件路径包含控制字符".to_string());
     }
     Ok(name.to_string())
-}
-
-fn is_supported_local_image(path: &Path) -> bool {
-    let Ok(mut file) = fs::File::open(path) else {
-        return false;
-    };
-    let mut bytes = [0_u8; 12];
-    let Ok(read) = file.read(&mut bytes) else {
-        return false;
-    };
-    let bytes = &bytes[..read];
-    bytes.starts_with(b"\x89PNG\r\n\x1a\n")
-        || bytes.starts_with(&[0xff, 0xd8, 0xff])
-        || bytes.starts_with(b"GIF87a")
-        || bytes.starts_with(b"GIF89a")
-        || (bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP")
 }
 
 fn validate_native_mention_target(path: &str) -> Result<(), String> {
@@ -3003,6 +3475,21 @@ fn find_on_path(executable_name: &str) -> Option<PathBuf> {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    struct FakeClipboard {
+        files: Vec<PathBuf>,
+        image: Option<ClipboardBitmap>,
+    }
+
+    impl ContextClipboard for FakeClipboard {
+        fn file_list(&mut self) -> Vec<PathBuf> {
+            std::mem::take(&mut self.files)
+        }
+
+        fn image(&mut self) -> Option<ClipboardBitmap> {
+            self.image.take()
+        }
+    }
 
     fn write_test_drawing(root: &Path, drawing_id: &str, title: &str) {
         let bundle = root.join(".madora/drawings/albums/架构").join(drawing_id);
@@ -4300,7 +4787,13 @@ mod tests {
         let note = outside.path().join("notes.txt");
         let image = outside.path().join("diagram.png");
         fs::write(&note, "outside context").expect("write note");
-        fs::write(&image, b"\x89PNG\r\n\x1a\nrest").expect("write image");
+        let image_bytes = encode_png(&DynamicImage::new_rgba8(2, 2)).expect("encode image");
+        fs::write(&image, &image_bytes).expect("write image");
+
+        let note_metadata = fs::metadata(&note).expect("note metadata");
+        let image_metadata = fs::metadata(&image).expect("image metadata");
+        let note_path = note.canonicalize().expect("canonicalize note");
+        let image_path = image.canonicalize().expect("canonicalize image");
 
         let note_id = "80f45fe1-6281-4ec1-9528-053d09d287bf".to_string();
         let image_id = "e50545e6-2087-40df-a0f5-63109348708d".to_string();
@@ -4311,8 +4804,17 @@ mod tests {
                     expires_at: Instant::now() + CONTEXT_ATTACHMENT_TTL,
                     is_image: false,
                     kind: CodexContextAttachmentKind::File,
+                    media_type: None,
                     name: "notes.txt".to_string(),
-                    path: note.canonicalize().expect("canonicalize note"),
+                    preview_available: false,
+                    preview_media_type: None,
+                    size_bytes: Some(note_metadata.len()),
+                    source: CodexContextAttachmentSource::Path {
+                        modified_at: note_metadata.modified().ok(),
+                        path: note_path,
+                        sha256: None,
+                        size_bytes: Some(note_metadata.len()),
+                    },
                 },
             ),
             (
@@ -4321,8 +4823,17 @@ mod tests {
                     expires_at: Instant::now() + CONTEXT_ATTACHMENT_TTL,
                     is_image: true,
                     kind: CodexContextAttachmentKind::File,
+                    media_type: Some("image/png".to_string()),
                     name: "diagram.png".to_string(),
-                    path: image.canonicalize().expect("canonicalize image"),
+                    preview_available: true,
+                    preview_media_type: Some("image/png".to_string()),
+                    size_bytes: Some(image_metadata.len()),
+                    source: CodexContextAttachmentSource::Path {
+                        modified_at: image_metadata.modified().ok(),
+                        path: image_path,
+                        sha256: Some(sha256_hex(&image_bytes)),
+                        size_bytes: Some(image_metadata.len()),
+                    },
                 },
             ),
         ]));
@@ -4362,15 +4873,190 @@ mod tests {
             inputs[0]["text_elements"][1]["byteRange"]["start"],
             text.len() - request.len()
         );
-        assert_eq!(inputs[1]["type"], "localImage");
-        assert_eq!(security.authorized_local_images.len(), 1);
-        assert!(validate_request_params_with_authorized_images(
+        assert_eq!(inputs[1]["type"], "image");
+        assert!(inputs[1]["url"]
+            .as_str()
+            .is_some_and(|url| url.starts_with("data:image/png;base64,")));
+        assert!(security.authorized_local_images.is_empty());
+        assert!(validate_request_params(root.path(), "turn/start", &params).is_ok());
+    }
+
+    #[test]
+    fn native_clipboard_images_are_deduplicated_and_injected_inline() {
+        let root = tempdir().expect("create root");
+        let image_bytes = encode_png(&DynamicImage::new_rgba8(3, 2)).expect("encode image");
+        let store = Mutex::new(HashMap::new());
+        let first = register_clipboard_image_attachment(&store, image_bytes.clone())
+            .expect("register clipboard image");
+        let second = register_clipboard_image_attachment(&store, image_bytes)
+            .expect("deduplicate clipboard image");
+        assert_eq!(first.attachment_id, second.attachment_id);
+        assert!(first.preview_available);
+        assert_eq!(first.media_type.as_deref(), Some("image/png"));
+
+        let mut params = json!({
+            "input": [],
+            "madoraFileAttachments": [first.attachment_id],
+        });
+        prepare_request_params_with_attachments(
             root.path(),
             "turn/start",
-            &params,
-            &security.authorized_local_images,
+            &mut params,
+            Some(&store),
         )
-        .is_ok());
+        .expect("prepare clipboard attachment");
+        assert_eq!(params["input"][0]["type"], "image");
+        assert!(params["input"][0]["url"]
+            .as_str()
+            .is_some_and(|url| url.starts_with("data:image/png;base64,")));
+    }
+
+    #[test]
+    fn clipboard_adapter_prefers_files_then_falls_back_to_bitmap() {
+        let outside = tempdir().expect("create outside");
+        let note = outside.path().join("notes.md");
+        fs::write(&note, "notes").expect("write note");
+        let store = Mutex::new(HashMap::new());
+        let mut file_clipboard = FakeClipboard {
+            files: vec![note],
+            image: Some(ClipboardBitmap {
+                bytes: vec![255; 4],
+                height: 1,
+                width: 1,
+            }),
+        };
+        let pasted = paste_context_attachments_with_clipboard(&store, 20, &mut file_clipboard)
+            .expect("paste file")
+            .expect("file attachment");
+        assert_eq!(pasted.len(), 1);
+        assert!(!pasted[0].is_image);
+        assert!(file_clipboard.image.is_some());
+
+        let mut image_clipboard = FakeClipboard {
+            files: Vec::new(),
+            image: Some(ClipboardBitmap {
+                bytes: vec![255, 0, 0, 255, 0, 255, 0, 255],
+                height: 1,
+                width: 2,
+            }),
+        };
+        let first = paste_context_attachments_with_clipboard(&store, 20, &mut image_clipboard)
+            .expect("paste bitmap")
+            .expect("image attachment");
+        assert!(first[0].is_image);
+        assert_eq!(first[0].media_type.as_deref(), Some("image/png"));
+
+        let mut duplicate_clipboard = FakeClipboard {
+            files: Vec::new(),
+            image: Some(ClipboardBitmap {
+                bytes: vec![255, 0, 0, 255, 0, 255, 0, 255],
+                height: 1,
+                width: 2,
+            }),
+        };
+        let duplicate =
+            paste_context_attachments_with_clipboard(&store, 20, &mut duplicate_clipboard)
+                .expect("paste duplicate")
+                .expect("duplicate attachment");
+        assert_eq!(duplicate[0].attachment_id, first[0].attachment_id);
+
+        let mut empty_clipboard = FakeClipboard {
+            files: Vec::new(),
+            image: None,
+        };
+        assert!(
+            paste_context_attachments_with_clipboard(&store, 20, &mut empty_clipboard,)
+                .expect("empty clipboard")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn renderer_cannot_inject_inline_images_without_native_grants() {
+        let image_bytes = encode_png(&DynamicImage::new_rgba8(1, 1)).expect("encode image");
+        let mut params = json!({
+            "input": [{
+                "type": "image",
+                "url": format!("data:image/png;base64,{}", STANDARD.encode(image_bytes)),
+            }],
+        });
+
+        assert!(prepare_request_params_with_attachments(
+            Path::new("/tmp"),
+            "turn/start",
+            &mut params,
+            None,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn image_attachment_limits_reject_invalid_content_and_changed_paths() {
+        let outside = tempdir().expect("create outside");
+        let fake_image = outside.path().join("fake.png");
+        fs::write(&fake_image, b"\x89PNG\r\n\x1a\nnot-an-image").expect("write fake image");
+        assert!(
+            context_path_attachment_grant(fake_image, CodexContextAttachmentKind::File,).is_err()
+        );
+        assert!(validate_image_dimensions(5_001, 5_001).is_err());
+
+        let note = outside.path().join("notes.txt");
+        fs::write(&note, "before").expect("write note");
+        let grant = context_path_attachment_grant(note.clone(), CodexContextAttachmentKind::File)
+            .expect("create grant");
+        let attachment_id = Uuid::new_v4().to_string();
+        let store = Mutex::new(HashMap::from([(attachment_id.clone(), grant)]));
+        fs::write(&note, "changed content").expect("replace note");
+        assert!(resolve_context_attachments(json!([attachment_id]), Some(&store)).is_err());
+    }
+
+    #[test]
+    fn attachment_preview_is_reencoded_and_bounded() {
+        let bytes = encode_png(&DynamicImage::new_rgba8(3_000, 2_000)).expect("encode large image");
+        let grant = CodexContextAttachmentGrant {
+            expires_at: Instant::now() + CONTEXT_ATTACHMENT_TTL,
+            is_image: true,
+            kind: CodexContextAttachmentKind::File,
+            media_type: Some("image/png".to_string()),
+            name: "large.png".to_string(),
+            preview_available: true,
+            preview_media_type: Some("image/png".to_string()),
+            size_bytes: Some(bytes.len() as u64),
+            source: CodexContextAttachmentSource::ClipboardImage {
+                sha256: sha256_hex(&bytes),
+                bytes: Arc::from(bytes),
+            },
+        };
+
+        let preview = context_attachment_preview(&grant).expect("create preview");
+        assert!(preview.starts_with(b"\x89PNG\r\n\x1a\n"));
+        assert!(preview.len() <= MAX_CONTEXT_PREVIEW_BYTES);
+        let dimensions = image::load_from_memory(&preview).expect("decode preview");
+        assert!(dimensions.width() <= MAX_CONTEXT_PREVIEW_EDGE);
+        assert!(dimensions.height() <= MAX_CONTEXT_PREVIEW_EDGE);
+    }
+
+    #[test]
+    fn native_attachment_store_never_exceeds_twenty_live_grants() {
+        let outside = tempdir().expect("create outside");
+        let store = Mutex::new(HashMap::new());
+        for index in 0..MAX_CONTEXT_ATTACHMENTS {
+            let path = outside.path().join(format!("note-{index}.txt"));
+            fs::write(&path, index.to_string()).expect("write note");
+            register_context_path_attachments(
+                &store,
+                vec![(path, CodexContextAttachmentKind::File)],
+            )
+            .expect("register attachment");
+        }
+        let overflow = outside.path().join("overflow.txt");
+        fs::write(&overflow, "overflow").expect("write overflow");
+        assert!(register_context_path_attachments(
+            &store,
+            vec![(overflow, CodexContextAttachmentKind::File)],
+        )
+        .is_err());
+        assert_eq!(store.lock().expect("attachment store").len(), 20);
     }
 
     #[test]

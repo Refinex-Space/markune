@@ -27,6 +27,7 @@ import {
   type AiTraceBlock,
 } from '../ai-panel-state';
 import type {
+  CodexContextAttachment,
   CodexThreadGoal,
   CodexThreadTokenUsage,
 } from '../codex-app-server';
@@ -1036,7 +1037,11 @@ describe('AI message rendering', () => {
             attachmentId: 'attachment-1',
             isImage: false,
             kind: 'folder',
+            mediaType: null,
             name: '资料',
+            previewAvailable: false,
+            previewMediaType: null,
+            sizeBytes: null,
           },
         ]}
         onAttachmentRemove={onAttachmentRemove}
@@ -1047,6 +1052,85 @@ describe('AI message rendering', () => {
     expect(screen.getByText('资料')).toBeTruthy();
     await user.click(screen.getByRole('button', { name: '移除 资料' }));
     expect(onAttachmentRemove).toHaveBeenCalledWith('attachment-1');
+  });
+
+  it('粘贴未产生原生附件时保留纯文本和光标语义', async () => {
+    const onAttachmentPaste = vi.fn().mockResolvedValue(false);
+    render(
+      <ComposerHarness
+        onAttachmentPaste={onAttachmentPaste}
+        onOpenMention={vi.fn()}
+      />,
+    );
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    fireEvent.paste(editor, {
+      clipboardData: { getData: () => '粘贴文本' },
+    });
+
+    await waitFor(() => {
+      expect(onAttachmentPaste).toHaveBeenCalledOnce();
+      expect(editor.textContent).toBe('粘贴文本');
+    });
+  });
+
+  it('粘贴产生原生附件时不把剪贴板占位文本插入编辑器', async () => {
+    const onAttachmentPaste = vi.fn().mockResolvedValue(true);
+    render(
+      <ComposerHarness
+        onAttachmentPaste={onAttachmentPaste}
+        onOpenMention={vi.fn()}
+      />,
+    );
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    fireEvent.paste(editor, {
+      clipboardData: { getData: () => '/Users/refinex/Desktop/image.png' },
+    });
+
+    await waitFor(() => expect(onAttachmentPaste).toHaveBeenCalledOnce());
+    expect(editor.textContent).toBe('');
+    expect(document.activeElement).toBe(editor);
+  });
+
+  it('图片附件支持大图预览、键盘关闭与纯附件发送', async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    render(
+      <ComposerHarness
+        attachments={[
+          {
+            attachmentId: 'image-1',
+            isImage: true,
+            kind: 'file',
+            mediaType: 'image/png',
+            name: 'diagram.png',
+            previewAvailable: true,
+            previewMediaType: 'image/png',
+            sizeBytes: 1024,
+          },
+        ]}
+        attachmentPreviewUrls={{
+          'image-1': 'data:image/png;base64,aW1hZ2U=',
+        }}
+        onOpenMention={vi.fn()}
+        onSend={onSend}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole('button', { name: '预览图片 diagram.png' }),
+    );
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toBeTruthy();
+    expect(within(dialog).getByAltText('diagram.png').getAttribute('src')).toBe(
+      'data:image/png;base64,aW1hZ2U=',
+    );
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    const send = screen.getByRole('button', { name: '发送' });
+    expect((send as HTMLButtonElement).disabled).toBe(false);
+    await user.click(send);
+    expect(onSend).toHaveBeenCalledOnce();
   });
 
   it('把文档提及插入光标位置并允许点击打开文档', async () => {
@@ -1985,6 +2069,7 @@ function createTrace({
 function ComposerHarness({
   active = false,
   attachments = [],
+  attachmentPreviewUrls = {},
   compacting = false,
   compactUnavailableReason = null,
   collaborationMode = 'default',
@@ -1995,6 +2080,7 @@ function ComposerHarness({
   goalUnavailableReason = null,
   mentionDocuments = [mentionedDocument],
   onAttachmentRemove = vi.fn(),
+  onAttachmentPaste = vi.fn().mockResolvedValue(false),
   onAttachmentSelect = vi.fn(),
   onDetectPlugins = vi.fn(),
   onCollaborationModeChange = vi.fn(),
@@ -2009,12 +2095,8 @@ function ComposerHarness({
   skillStatus = 'idle',
 }: {
   active?: boolean;
-  attachments?: Array<{
-    attachmentId: string;
-    isImage: boolean;
-    kind: 'file' | 'folder';
-    name: string;
-  }>;
+  attachments?: CodexContextAttachment[];
+  attachmentPreviewUrls?: Record<string, string>;
   compacting?: boolean;
   compactUnavailableReason?: string | null;
   collaborationMode?: 'default' | 'plan';
@@ -2025,6 +2107,7 @@ function ComposerHarness({
   goalUnavailableReason?: string | null;
   mentionDocuments?: Array<typeof mentionedDocument>;
   onAttachmentRemove?: (attachmentId: string) => void;
+  onAttachmentPaste?: () => Promise<boolean>;
   onAttachmentSelect?: (kind: 'file' | 'folder') => void;
   onDetectPlugins?: () => void;
   onCollaborationModeChange?: (mode: 'default' | 'plan') => void;
@@ -2061,6 +2144,7 @@ function ComposerHarness({
         active={active}
         approvalPolicyAvailability={{ never: true, onRequest: true }}
         attachments={attachments}
+        attachmentPreviewUrls={attachmentPreviewUrls}
         autoReviewAvailable
         collaborationMode={collaborationMode}
         compacting={compacting}
@@ -2088,6 +2172,7 @@ function ComposerHarness({
         submitting={false}
         value={value}
         onAttachmentRemove={onAttachmentRemove}
+        onAttachmentPaste={onAttachmentPaste}
         onAttachmentSelect={onAttachmentSelect}
         onDetectPlugins={onDetectPlugins}
         onCollaborationModeChange={onCollaborationModeChange}

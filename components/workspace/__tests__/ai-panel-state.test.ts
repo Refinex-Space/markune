@@ -655,6 +655,51 @@ describe('AI panel event reducer', () => {
     });
   });
 
+  it('从历史消息恢复内联图片预览并安全降级旧 localImage', () => {
+    const imageUrl = 'data:image/png;base64,aW1hZ2U=';
+    const state = conversationFromThread({
+      id: 'thread-images',
+      name: '图片附件',
+      preview: '',
+      createdAt: 0,
+      updatedAt: 0,
+      cwd: '/workspace',
+      status: {},
+      turns: [
+        {
+          id: 'turn-images',
+          status: 'completed',
+          items: [
+            {
+              id: 'message-images',
+              type: 'userMessage',
+              content: [
+                { type: 'image', url: imageUrl },
+                { type: 'localImage', path: '/private/legacy.webp' },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(state.entries[0]).toMatchObject({
+      attachments: [
+        {
+          kind: 'image',
+          mediaType: 'image/png',
+          name: '图片 1',
+          previewUrl: imageUrl,
+        },
+        {
+          kind: 'image',
+          name: 'legacy.webp',
+          previewUrl: null,
+        },
+      ],
+    });
+  });
+
   it('从历史用户消息恢复 Skill 展示标签和原生路径', () => {
     const text = '使用 $design-qa 检查页面';
     const skillStart = text.indexOf('$design-qa');
