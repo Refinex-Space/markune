@@ -3735,17 +3735,40 @@ function UserMessageBubble({
   timestampMs: number | null;
   onOpenMention: (path: string) => void;
 }) {
+  const hasText = Boolean(text.trim());
+
   return (
     <div className="flex max-w-[96%] flex-col items-end">
-      <div className="w-max max-w-full break-words rounded-xl bg-muted/70 px-3 py-2">
-        <UserMessageContent
-          attachments={attachments}
-          mentions={mentions}
-          pluginOptions={pluginOptions}
-          text={text}
-          onOpenMention={onOpenMention}
-        />
-      </div>
+      {attachments.length > 0 ? (
+        <div
+          className={cn('flex max-w-full justify-end', hasText && 'mb-2')}
+          data-testid="user-message-attachments"
+        >
+          <AttachmentCards
+            attachments={attachments.map((attachment, index) => ({
+              id: `${attachment.kind}:${attachment.name}:${index}`,
+              kind: attachment.kind,
+              mediaType: attachment.mediaType,
+              name: attachment.name,
+              previewUrl: attachment.previewUrl,
+            }))}
+            variant="message"
+          />
+        </div>
+      ) : null}
+      {hasText ? (
+        <div
+          className="w-max max-w-full break-words rounded-xl bg-muted/70 px-3 py-2"
+          data-testid="user-message-bubble"
+        >
+          <UserMessageContent
+            mentions={mentions}
+            pluginOptions={pluginOptions}
+            text={text}
+            onOpenMention={onOpenMention}
+          />
+        </div>
+      ) : null}
       <MessageMetadata role="user" text={text} timestampMs={timestampMs} />
     </div>
   );
@@ -3762,10 +3785,11 @@ function MessageMetadata({
 }) {
   const [copied, setCopied] = React.useState(false);
   const formattedTime = formatMessageTimestamp(timestampMs);
+  const hasCopyableText = Boolean(text.trim());
 
-  if (!text.trim()) return null;
+  if (!hasCopyableText && !formattedTime) return null;
 
-  const copyButton = (
+  const copyButton = hasCopyableText ? (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
@@ -3789,7 +3813,7 @@ function MessageMetadata({
         {copied ? '已复制' : '复制'}
       </TooltipContent>
     </Tooltip>
-  );
+  ) : null;
   const time = formattedTime ? (
     <time
       className="px-1 text-[11px] leading-none tabular-nums"
@@ -3836,9 +3860,11 @@ interface DisplayAttachment {
 function AttachmentCards({
   attachments,
   onRemove,
+  variant = 'composer',
 }: {
   attachments: DisplayAttachment[];
   onRemove?: (attachmentId: string) => void;
+  variant?: 'composer' | 'message';
 }) {
   const previewable = attachments.filter(
     (attachment) => attachment.kind === 'image' && attachment.previewUrl,
@@ -3858,17 +3884,34 @@ function AttachmentCards({
 
   return (
     <>
-      <div className="flex w-max min-w-full gap-2 pb-1">
+      <div
+        className={cn(
+          'flex gap-2',
+          variant === 'message'
+            ? 'max-w-full flex-wrap justify-end'
+            : 'w-max min-w-full pb-1',
+        )}
+      >
         {attachments.map((attachment) =>
           attachment.kind === 'image' ? (
-            <div className="relative size-16 shrink-0" key={attachment.id}>
+            <div
+              className="relative size-16 shrink-0"
+              data-attachment-kind="image"
+              data-attachment-variant={variant}
+              key={attachment.id}
+            >
               <button
                 aria-label={
                   attachment.previewUrl
                     ? `预览图片 ${attachment.name}`
                     : `图片 ${attachment.name} 暂无安全预览`
                 }
-                className="flex size-16 items-center justify-center overflow-hidden rounded-xl border border-border/80 bg-muted/60 outline-none transition-colors hover:border-foreground/30 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
+                className={cn(
+                  'flex size-16 items-center justify-center overflow-hidden rounded-xl border border-border/80 outline-none transition-colors hover:border-foreground/30 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default',
+                  variant === 'message'
+                    ? 'bg-background shadow-sm'
+                    : 'bg-muted/60',
+                )}
                 disabled={!attachment.previewUrl}
                 type="button"
                 onClick={() => setPreviewId(attachment.id)}
@@ -3897,26 +3940,48 @@ function AttachmentCards({
             </div>
           ) : (
             <div
-              className="relative flex h-16 w-44 shrink-0 items-center gap-2.5 rounded-xl border border-border/80 bg-muted/30 px-3"
+              className={cn(
+                'relative flex shrink-0 items-center border border-border/80',
+                variant === 'message'
+                  ? 'h-9 max-w-56 gap-1.5 rounded-full bg-background px-3 shadow-sm'
+                  : 'h-16 w-44 gap-2.5 rounded-xl bg-muted/30 px-3',
+              )}
+              data-attachment-kind={attachment.kind}
+              data-attachment-variant={variant}
               key={attachment.id}
               title={attachment.name}
             >
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-background text-muted-foreground shadow-sm ring-1 ring-border/70">
+              <span
+                className={cn(
+                  'flex shrink-0 items-center justify-center text-muted-foreground',
+                  variant === 'composer' &&
+                    'size-9 rounded-lg bg-background shadow-sm ring-1 ring-border/70',
+                )}
+              >
                 {attachment.kind === 'folder' ? (
-                  <FolderOpen size={18} />
+                  <FolderOpen size={variant === 'message' ? 14 : 18} />
                 ) : (
-                  <FileText size={18} />
+                  <FileText size={variant === 'message' ? 14 : 18} />
                 )}
               </span>
-              <span className="min-w-0 pr-4">
-                <span className="block truncate text-xs font-medium">
+              <span
+                className={cn('min-w-0', variant === 'composer' && 'pr-4')}
+              >
+                <span
+                  className={cn(
+                    'block truncate font-medium',
+                    variant === 'message' ? 'text-[13px]' : 'text-xs',
+                  )}
+                >
                   {attachment.name}
                 </span>
-                <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
-                  {attachment.kind === 'folder'
-                    ? '文件夹'
-                    : attachmentSecondaryLabel(attachment)}
-                </span>
+                {variant === 'composer' ? (
+                  <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+                    {attachment.kind === 'folder'
+                      ? '文件夹'
+                      : attachmentSecondaryLabel(attachment)}
+                  </span>
+                ) : null}
               </span>
               {onRemove ? (
                 <button
@@ -3996,13 +4061,11 @@ function AttachmentCards({
 }
 
 export function UserMessageContent({
-  attachments = [],
   mentions,
   pluginOptions = [],
   text,
   onOpenMention,
 }: {
-  attachments?: AiMessageAttachment[];
   mentions: AiMessageMention[];
   pluginOptions?: AiPluginMentionOption[];
   text: string;
@@ -4070,26 +4133,11 @@ export function UserMessageContent({
     content.push(text.slice(cursor));
   }
 
+  if (!text) return null;
+
   return (
-    <div>
-      {attachments.length > 0 ? (
-        <div className={cn('max-w-full overflow-x-auto', text && 'mb-2')}>
-          <AttachmentCards
-            attachments={attachments.map((attachment, index) => ({
-              id: `${attachment.kind}:${attachment.name}:${index}`,
-              kind: attachment.kind,
-              mediaType: attachment.mediaType,
-              name: attachment.name,
-              previewUrl: attachment.previewUrl,
-            }))}
-          />
-        </div>
-      ) : null}
-      {text ? (
-        <div className="whitespace-pre-wrap break-words">
-          {content.length > 0 ? content : text}
-        </div>
-      ) : null}
+    <div className="whitespace-pre-wrap break-words">
+      {content.length > 0 ? content : text}
     </div>
   );
 }

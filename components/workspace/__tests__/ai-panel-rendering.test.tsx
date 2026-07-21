@@ -423,6 +423,90 @@ describe('AI message rendering', () => {
     expect(writeText).toHaveBeenCalledWith('你好啊');
   });
 
+  it('已发送附件独立显示在文字气泡上方并保持消息态样式', async () => {
+    const user = userEvent.setup();
+    render(
+      <ConversationEntryRow
+        entry={{
+          attachments: [
+            {
+              kind: 'image',
+              mediaType: 'image/png',
+              name: 'diagram.png',
+              previewUrl: 'data:image/png;base64,aW1hZ2U=',
+            },
+            {
+              kind: 'file',
+              name: 'AGENTS.md',
+              previewUrl: null,
+            },
+          ],
+          createdAtMs: new Date(2026, 6, 19, 18, 20).getTime(),
+          id: 'user-message-with-attachments',
+          role: 'user',
+          text: '这个文件有什么',
+          type: 'message',
+        }}
+        previous={null}
+        onOpenDocument={vi.fn()}
+      />,
+    );
+
+    const attachmentShelf = screen.getByTestId('user-message-attachments');
+    const bubble = screen.getByTestId('user-message-bubble');
+    const image = screen.getByRole('button', {
+      name: '预览图片 diagram.png',
+    });
+    const fileCard = screen
+      .getByText('AGENTS.md')
+      .closest('[data-attachment-kind]');
+
+    expect(attachmentShelf.parentElement).toBe(bubble.parentElement);
+    expect(bubble.contains(image)).toBe(false);
+    expect(
+      attachmentShelf.compareDocumentPosition(bubble) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(fileCard?.getAttribute('data-attachment-variant')).toBe('message');
+    expect(fileCard?.className).toContain('h-9');
+    expect(fileCard?.className).toContain('rounded-full');
+
+    await user.click(image);
+    expect(
+      within(screen.getByRole('dialog')).getByAltText('diagram.png'),
+    ).toBeTruthy();
+  });
+
+  it('纯附件消息不渲染空气泡并保留时间', () => {
+    render(
+      <ConversationEntryRow
+        entry={{
+          attachments: [
+            {
+              kind: 'file',
+              name: 'AGENTS.md',
+              previewUrl: null,
+            },
+          ],
+          createdAtMs: new Date(2026, 6, 19, 18, 24).getTime(),
+          id: 'user-message-attachment-only',
+          role: 'user',
+          text: '',
+          type: 'message',
+        }}
+        previous={null}
+        onOpenDocument={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('user-message-attachments')).toBeTruthy();
+    expect(screen.queryByTestId('user-message-bubble')).toBeNull();
+    expect(screen.getByTestId('user-message-metadata').textContent).toContain(
+      '18:24',
+    );
+    expect(screen.queryByRole('button', { name: '复制消息' })).toBeNull();
+  });
+
   it('AI 回答在悬浮区左侧按复制、时间的顺序展示元信息', async () => {
     const user = userEvent.setup();
     const writeText = vi.fn().mockResolvedValue(undefined);
@@ -1049,7 +1133,13 @@ describe('AI message rendering', () => {
       />,
     );
 
-    expect(screen.getByText('资料')).toBeTruthy();
+    const composerAttachment = screen
+      .getByText('资料')
+      .closest('[data-attachment-kind]');
+    expect(composerAttachment?.getAttribute('data-attachment-variant')).toBe(
+      'composer',
+    );
+    expect(composerAttachment?.className).toContain('h-16');
     await user.click(screen.getByRole('button', { name: '移除 资料' }));
     expect(onAttachmentRemove).toHaveBeenCalledWith('attachment-1');
   });
