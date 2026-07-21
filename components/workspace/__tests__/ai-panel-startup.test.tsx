@@ -1,11 +1,14 @@
 import * as React from 'react';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const bridge = vi.hoisted(() => ({
   listen: vi.fn(),
+  pasteAttachments: vi.fn(),
+  readAttachmentPreview: vi.fn(),
   readPluginIcon: vi.fn(),
+  releaseAttachments: vi.fn(),
   rejectPending: vi.fn(),
   request: vi.fn(),
   start: vi.fn(),
@@ -23,7 +26,10 @@ vi.mock('../codex-app-server', async (importOriginal) => {
       subscribe: bridge.subscribe,
     },
     listenCodexEventsUntilDisposed: bridge.listen,
+    pasteCodexContextAttachments: bridge.pasteAttachments,
+    readCodexContextAttachmentPreview: bridge.readAttachmentPreview,
     readCodexPluginIcon: bridge.readPluginIcon,
+    releaseCodexContextAttachments: bridge.releaseAttachments,
     startCodexRuntime: bridge.start,
   };
 });
@@ -47,6 +53,15 @@ const activeDocument = {
   name: 'Test.md',
   relativePath: 'Test.md',
   title: 'Spring Boot 介绍',
+};
+
+const activeDrawing = {
+  albumPath: '架构',
+  elementCount: 24,
+  hasPreview: true,
+  id: '11111111-1111-4111-8111-111111111111',
+  revision: 3,
+  title: 'Spring Cloud 微服务架构',
 };
 
 const runtime = {
@@ -173,12 +188,16 @@ function renderPanel(
   currentDocument = null as typeof activeDocument | null,
   currentDocumentPath = currentDocument?.absolutePath ?? null,
   documents: Array<Omit<typeof activeDocument, 'kind'>> = [],
+  drawing = null as typeof activeDrawing | null,
+  drawings: Array<typeof activeDrawing> = [],
 ) {
   return render(
     <AiPanel
+      activeDrawing={drawing}
       currentDocument={currentDocument}
       currentDocumentPath={currentDocumentPath}
       documents={documents}
+      drawings={drawings}
       workspaceRootPath="/workspace"
       onBeforeTurnStart={onBeforeTurnStart}
       onOpenDocument={vi.fn()}
@@ -194,7 +213,10 @@ beforeEach(() => {
     value: vi.fn(),
   });
   bridge.listen.mockReset().mockResolvedValue(vi.fn());
+  bridge.pasteAttachments.mockReset().mockResolvedValue(null);
+  bridge.readAttachmentPreview.mockReset();
   bridge.readPluginIcon.mockReset();
+  bridge.releaseAttachments.mockReset().mockResolvedValue(undefined);
   bridge.rejectPending.mockReset();
   bridge.start.mockReset().mockResolvedValue(runtime);
   protocolSubscriber = null;
@@ -208,6 +230,203 @@ beforeEach(() => {
 });
 
 describe('AI panel startup lifecycle', () => {
+  it('图片粘贴进入附件栏，turn 接受前保留并在成功后释放授权', async () => {
+    const user = userEvent.setup();
+    const turnStart = deferred<{ turn: { id: string } }>();
+    bridge.pasteAttachments.mockResolvedValue([
+      {
+        attachmentId: 'image-grant-1',
+        isImage: true,
+        kind: 'file',
+        mediaType: 'image/png',
+        name: '粘贴图片.png',
+        previewAvailable: true,
+        previewMediaType: 'image/png',
+        sizeBytes: 8,
+      },
+    ]);
+    bridge.readAttachmentPreview.mockResolvedValue(
+      new Uint8Array([137, 80, 78, 71]),
+    );
+    bridge.request.mockImplementation((method: string) =>
+      method === 'turn/start'
+        ? turnStart.promise
+        : Promise.resolve(defaultResponse(method)),
+    );
+    renderPanel();
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    fireEvent.paste(editor, { clipboardData: { getData: () => '' } });
+    await screen.findByRole('button', { name: '预览图片 粘贴图片.png' });
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith(
+        'turn/start',
+        expect.objectContaining({ madoraFileAttachments: ['image-grant-1'] }),
+      ),
+    );
+    expect(screen.getAllByText('粘贴图片.png').length).toBeGreaterThan(0);
+    expect(bridge.releaseAttachments).not.toHaveBeenCalledWith(['image-grant-1']);
+
+    turnStart.resolve({ turn: { id: 'turn-image' } });
+    await waitFor(() =>
+      expect(bridge.releaseAttachments).toHaveBeenCalledWith(['image-grant-1']),
+    );
+  });
+
+  it('turn/start 失败时删除本次空任务并完整保留文字和附件', async () => {
+    const user = userEvent.setup();
+    bridge.pasteAttachments.mockResolvedValue([
+      {
+        attachmentId: 'file-grant-1',
+        isImage: false,
+        kind: 'file',
+        mediaType: null,
+        name: 'CONTRIBUTING.md',
+        previewAvailable: false,
+        previewMediaType: null,
+        sizeBytes: 1200,
+      },
+    ]);
+    bridge.request.mockImplementation((method: string) =>
+      method === 'turn/start'
+        ? Promise.reject(new Error('turn failed'))
+        : Promise.resolve(defaultResponse(method)),
+    );
+    renderPanel();
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.type(editor, '请审阅附件');
+    fireEvent.paste(editor, { clipboardData: { getData: () => '' } });
+    await screen.findByText('CONTRIBUTING.md');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await screen.findByText('turn failed');
+    expect(editor.textContent).toBe('请审阅附件');
+    expect(screen.getByText('CONTRIBUTING.md')).toBeTruthy();
+    expect(bridge.releaseAttachments).not.toHaveBeenCalledWith(['file-grant-1']);
+    expect(bridge.request).toHaveBeenCalledWith('thread/delete', {
+      threadId: 'thread-1',
+    });
+  });
+
+  it('模型显式不支持 image 时阻止发送并保留附件', async () => {
+    const user = userEvent.setup();
+    bridge.pasteAttachments.mockResolvedValue([
+      {
+        attachmentId: 'image-grant-unsupported',
+        isImage: true,
+        kind: 'file',
+        mediaType: 'image/png',
+        name: '截图.png',
+        previewAvailable: false,
+        previewMediaType: null,
+        sizeBytes: 12,
+      },
+    ]);
+    bridge.request.mockImplementation((method: string) => {
+      if (method === 'model/list') {
+        const response = planCapableModelResponse();
+        return Promise.resolve({
+          ...response,
+          data: response.data.map((model) => ({
+            ...model,
+            inputModalities: ['text'] as const,
+          })),
+        });
+      }
+      return Promise.resolve(defaultResponse(method));
+    });
+    renderPanel();
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    fireEvent.paste(editor, { clipboardData: { getData: () => '' } });
+    await screen.findByRole('button', { name: '图片 截图.png 暂无安全预览' });
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    expect(
+      await screen.findByText('当前模型不支持图片输入；附件和草稿已保留。'),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: '图片 截图.png 暂无安全预览' }),
+    ).toBeTruthy();
+    expect(
+      bridge.request.mock.calls.some(([method]) => method === 'turn/start'),
+    ).toBe(false);
+  });
+
+  it('每个 turn 感知当前活跃图稿并在发送前刷新保存', async () => {
+    const user = userEvent.setup();
+    const onBeforeTurnStart = vi.fn().mockResolvedValue(true);
+    renderPanel(onBeforeTurnStart, null, null, [], activeDrawing, [activeDrawing]);
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    expect(screen.getAllByText(activeDrawing.title).length).toBeGreaterThan(0);
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '分析当前图稿的连线');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith(
+        'turn/start',
+        expect.objectContaining({
+          madoraDrawingReferences: [
+            { drawingId: activeDrawing.id, role: 'active' },
+          ],
+        }),
+      ),
+    );
+    expect(onBeforeTurnStart).toHaveBeenCalledWith(null, activeDrawing.id);
+  });
+
+  it('通过 @ 搜索并提及图稿，发送稳定 Drawing URI 和结构化引用', async () => {
+    const user = userEvent.setup();
+    const openDrawing = vi.fn();
+    window.addEventListener('madora:open-drawing', openDrawing, { once: true });
+    renderPanel(vi.fn().mockResolvedValue(true), null, null, [], null, [activeDrawing]);
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '@SpringCloud');
+    const option = screen.getByRole('option', {
+      name: `提及 ${activeDrawing.title}`,
+    });
+    expect(within(option).getByText('架构')).toBeTruthy();
+    await user.click(option);
+    await user.type(editor, '检查连线');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith(
+        'turn/start',
+        expect.objectContaining({
+          input: [
+            expect.objectContaining({
+              text: `madora-drawing://${activeDrawing.id} 检查连线`,
+            }),
+          ],
+          madoraDrawingReferences: [
+            { drawingId: activeDrawing.id, role: 'mention' },
+          ],
+        }),
+      ),
+    );
+    await user.click(
+      screen.getByRole('link', { name: activeDrawing.title }),
+    );
+    expect(openDrawing).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: { drawingId: activeDrawing.id },
+      }),
+    );
+  });
+
   it('当前文档会进入 @ 候选并在同等匹配中优先', async () => {
     const user = userEvent.setup();
     const competingDocument = {
@@ -263,11 +482,22 @@ describe('AI panel startup lifecycle', () => {
       ),
     ).toHaveLength(1);
     await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith('skills/extraRoots/set', {}),
+    );
+    await waitFor(() =>
       expect(bridge.request).toHaveBeenCalledWith('skills/list', {
         cwds: ['/workspace'],
         forceReload: false,
       }),
     );
+    const extraRootsCall = bridge.request.mock.calls.findIndex(
+      ([method]) => method === 'skills/extraRoots/set',
+    );
+    const skillsListCall = bridge.request.mock.calls.findIndex(
+      ([method]) => method === 'skills/list',
+    );
+    expect(extraRootsCall).toBeGreaterThanOrEqual(0);
+    expect(skillsListCall).toBeGreaterThan(extraRootsCall);
     expect(bridge.request).not.toHaveBeenCalledWith(
       'mcpServerStatus/list',
       expect.anything(),
@@ -287,6 +517,7 @@ describe('AI panel startup lifecycle', () => {
     expect(screen.getByRole('button', { name: '起草新文档' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '整理知识结构' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '查找内容问题' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'AI 画图' })).toBeTruthy();
   });
 
   it('新会话使用活动文档物理路径生成任务入口并可直接发送', async () => {
@@ -337,6 +568,92 @@ describe('AI panel startup lifecycle', () => {
         cwds: ['/workspace'],
         forceReload: true,
       }),
+    );
+  });
+
+  it('注册内置 Skill 触发 skills/changed 时不会形成重复注册循环', async () => {
+    const user = userEvent.setup();
+    let extraRootsCalls = 0;
+    bridge.request.mockImplementation((method: string) => {
+      if (method === 'skills/extraRoots/set') {
+        extraRootsCalls += 1;
+        if (extraRootsCalls <= 3) {
+          queueMicrotask(() => protocolSubscriber?.({ method: 'skills/changed' }));
+        }
+        return Promise.resolve({});
+      }
+      if (method === 'skills/list') {
+        return Promise.resolve({
+          data: [
+            {
+              cwd: '/workspace',
+              errors: [],
+              skills: [
+                {
+                  description: 'Create editable Madora technical diagrams',
+                  enabled: true,
+                  interface: {
+                    displayName: 'Madora AI 画图',
+                    shortDescription: '创建可编辑技术图稿',
+                  },
+                  name: 'madora-diagram',
+                  path: '/Applications/Madora.app/skills/madora-diagram/SKILL.md',
+                  scope: 'user',
+                  shortDescription: null,
+                },
+              ],
+            },
+          ],
+        });
+      }
+      return Promise.resolve(defaultResponse(method));
+    });
+
+    renderPanel();
+
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith('skills/list', {
+        cwds: ['/workspace'],
+        forceReload: true,
+      }),
+    );
+    expect(
+      bridge.request.mock.calls.filter(
+        ([method]) => method === 'skills/extraRoots/set',
+      ),
+    ).toHaveLength(1);
+
+    await user.click(screen.getByRole('button', { name: 'AI 画图' }));
+    const diagramSkillMention = await screen.findByRole('note', {
+      name: 'Madora AI 画图',
+    });
+    expect(diagramSkillMention.classList.contains('inline-flex')).toBe(true);
+    expect(diagramSkillMention.classList.contains('whitespace-nowrap')).toBe(true);
+    expect(
+      screen.queryByText('AI 画图 Skill 加载失败，请重试或重启 Madora。'),
+    ).toBeNull();
+
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '画 Spring Cloud 架构');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith(
+        'turn/start',
+        expect.objectContaining({
+          input: [
+            expect.objectContaining({
+              type: 'text',
+              text: '$madora-diagram 画 Spring Cloud 架构',
+            }),
+            {
+              type: 'skill',
+              name: 'madora-diagram',
+              path: '/Applications/Madora.app/skills/madora-diagram/SKILL.md',
+            },
+          ],
+        }),
+      ),
     );
   });
 
@@ -834,7 +1151,7 @@ describe('AI panel startup lifecycle', () => {
         }),
       ),
     );
-    expect(onBeforeTurnStart).toHaveBeenCalledWith('/workspace/Test.md');
+    expect(onBeforeTurnStart).toHaveBeenCalledWith('/workspace/Test.md', null);
   });
 
   it('活动标签路径与已加载文档不一致时阻止发送', async () => {

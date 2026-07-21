@@ -23,21 +23,39 @@ export interface WorkspaceAssetUploadBridge {
   toStorageMarkdown: (markdown: string) => string;
 }
 
+interface CachedStorageToDisplay {
+  mappings: ReadonlyMap<string, string>;
+  rootPath: string | null;
+}
+
+const EMPTY_ASSET_MAPPINGS = new Map<string, string>();
+
 export function useWorkspaceAssetUploader(
   rootPath: string | null,
   storageMarkdown: string,
 ): WorkspaceAssetUploadBridge {
   const displayToStorageRef = React.useRef(new Map<string, string>());
   const storageToDisplayRef = React.useRef(new Map<string, string>());
+  const [cachedStorageToDisplay, setCachedStorageToDisplay] =
+    React.useState<CachedStorageToDisplay>(() => ({
+      mappings: EMPTY_ASSET_MAPPINGS,
+      rootPath,
+    }));
   const [resolvedMarkdown, setResolvedMarkdown] = React.useState(() => ({
     editorMarkdown: storageMarkdown,
     rootPath,
     storageMarkdown,
   }));
   const editorMarkdown =
-    resolvedMarkdown.rootPath === rootPath &&
-    resolvedMarkdown.storageMarkdown === storageMarkdown
-      ? resolvedMarkdown.editorMarkdown
+    resolvedMarkdown.rootPath === rootPath
+      ? resolvedMarkdown.storageMarkdown === storageMarkdown
+        ? resolvedMarkdown.editorMarkdown
+        : replaceMappedValues(
+            storageMarkdown,
+            cachedStorageToDisplay.rootPath === rootPath
+              ? cachedStorageToDisplay.mappings
+              : EMPTY_ASSET_MAPPINGS,
+          )
       : storageMarkdown;
 
   React.useEffect(() => {
@@ -70,6 +88,7 @@ export function useWorkspaceAssetUploader(
       }
 
       const replacements = new Map<string, string>();
+      const resolvedMappings = new Map<string, string>();
 
       await Promise.all(
         references.map(async (reference) => {
@@ -79,14 +98,26 @@ export function useWorkspaceAssetUploader(
             return;
           }
 
+          const storageReference = `${LOCAL_ASSET_URL_PREFIX}${assetId}`;
+          const cachedDisplayUrl =
+            storageToDisplayRef.current.get(storageReference);
+
+          if (cachedDisplayUrl) {
+            replacements.set(reference, cachedDisplayUrl);
+            return;
+          }
+
           try {
             const asset = await resolveWorkspaceAsset(rootPath, assetId);
+
+            if (cancelled) {
+              return;
+            }
+
             const displayUrl = convertFileSrc(asset.absolutePath);
-            const storageReference = `${LOCAL_ASSET_URL_PREFIX}${assetId}`;
 
             replacements.set(reference, displayUrl);
-            storageToDisplayRef.current.set(storageReference, displayUrl);
-            displayToStorageRef.current.set(displayUrl, storageReference);
+            resolvedMappings.set(storageReference, displayUrl);
           } catch (error) {
             console.warn('Failed to resolve workspace asset.', error);
           }
@@ -94,6 +125,21 @@ export function useWorkspaceAssetUploader(
       );
 
       if (!cancelled) {
+        for (const [storageReference, displayUrl] of resolvedMappings) {
+          storageToDisplayRef.current.set(storageReference, displayUrl);
+          displayToStorageRef.current.set(displayUrl, storageReference);
+        }
+        if (resolvedMappings.size > 0) {
+          setCachedStorageToDisplay((current) => ({
+            mappings: mergeMappedValues(
+              current.rootPath === rootPath
+                ? current.mappings
+                : EMPTY_ASSET_MAPPINGS,
+              resolvedMappings,
+            ),
+            rootPath,
+          }));
+        }
         setResolvedMarkdown({
           editorMarkdown: replaceMappedValues(storageMarkdown, replacements),
           rootPath,
@@ -139,6 +185,15 @@ export function useWorkspaceAssetUploader(
 
       displayToStorageRef.current.set(displayUrl, storageReference);
       storageToDisplayRef.current.set(storageReference, displayUrl);
+      setCachedStorageToDisplay((current) => ({
+        mappings: mergeMappedValues(
+          current.rootPath === rootPath
+            ? current.mappings
+            : EMPTY_ASSET_MAPPINGS,
+          new Map([[storageReference, displayUrl]]),
+        ),
+        rootPath,
+      }));
 
       return {
         src: displayUrl,
@@ -211,6 +266,19 @@ function replaceMappedValues(
   }
 
   return next;
+}
+
+function mergeMappedValues(
+  current: ReadonlyMap<string, string>,
+  additions: ReadonlyMap<string, string>,
+) {
+  const merged = new Map(current);
+
+  for (const [from, to] of additions) {
+    merged.set(from, to);
+  }
+
+  return merged;
 }
 
 function fileToBase64(file: File): Promise<string> {

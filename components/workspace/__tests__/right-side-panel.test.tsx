@@ -12,6 +12,7 @@ vi.mock('../ai-panel', () => ({
   AiPanel: ({
     onOpenDocument,
     onOpenPlanPreview,
+    presentation,
     visible,
     workspaceRootPath,
   }: {
@@ -20,10 +21,11 @@ vi.mock('../ai-panel', () => ({
       plan: { id: string; text: string },
       threadId: string,
     ) => void;
+    presentation: 'panel' | 'workspace';
     visible: boolean;
     workspaceRootPath: string | null;
   }) => (
-    <div data-visible={visible}>
+    <div data-presentation={presentation} data-visible={visible}>
       AI:{workspaceRootPath}
       <button type="button" onClick={() => onOpenDocument('/workspace/README.md')}>
         打开提及文档
@@ -108,6 +110,7 @@ describe('right AI panel integration', () => {
         documentPanelData={null}
         documentReadOnly={false}
         documents={[]}
+        aiPresentation="panel"
         mode="ai"
         width={420}
         workspaceRootPath="/workspace"
@@ -119,6 +122,9 @@ describe('right AI panel integration', () => {
     );
 
     expect(screen.getByTestId('ai-side-panel')).toBeTruthy();
+    expect(
+      screen.getByTestId('ai-side-panel').getAttribute('data-presentation'),
+    ).toBe('panel');
     expect(screen.getByText('AI:/workspace')).toBeTruthy();
     expect(screen.queryByTestId('document-meta-panel')).toBeNull();
     screen.getByRole('button', { name: '打开提及文档' }).click();
@@ -137,6 +143,7 @@ describe('right AI panel integration', () => {
       documentPanelData: null,
       documentReadOnly: false,
       documents: [],
+      aiPresentation: 'panel' as const,
       width: 420,
       workspaceRootPath: '/workspace',
       onBeforeTurnStart: vi.fn().mockResolvedValue(true),
@@ -159,5 +166,73 @@ describe('right AI panel integration', () => {
       true,
     );
     expect(screen.getByTestId('document-meta-panel')).toBeTruthy();
+  });
+
+  it('在紧凑侧栏和 Codex 工作区之间复用同一个 AI 面板实例', () => {
+    const props = {
+      currentDocument: null,
+      currentDocumentPath: null,
+      documentPanelData: null,
+      documentReadOnly: false,
+      documents: [],
+      mode: 'ai' as const,
+      width: 420,
+      workspaceRootPath: '/workspace',
+      onBeforeTurnStart: vi.fn().mockResolvedValue(true),
+      onOpenDocument: vi.fn(),
+      onOpenPlanPreview: vi.fn(),
+      onWorkspaceChanged: vi.fn(),
+    };
+    const { rerender } = render(
+      <RightSidePanel {...props} aiPresentation="panel" />,
+    );
+
+    const aiPanel = screen.getByText('AI:/workspace').parentElement;
+    const compactSurface = screen.getByTestId('ai-side-panel');
+    expect(compactSurface.getAttribute('data-presentation')).toBe('panel');
+
+    rerender(
+      <RightSidePanel
+        {...props}
+        aiPresentation="workspace"
+        aiWorkspacePreview={<div>文档预览</div>}
+        aiWorkspacePreviewWidth={720}
+        onAiWorkspacePreviewResize={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('ai-side-panel')).toBe(compactSurface);
+    expect(screen.getByText('AI:/workspace').parentElement).toBe(aiPanel);
+    expect(
+      screen.getByTestId('ai-side-panel').getAttribute('data-presentation'),
+    ).toBe('workspace');
+    expect(screen.getByText('文档预览')).toBeTruthy();
+    const previewShell = screen.getByRole('complementary', {
+      name: '文档预览',
+    });
+    expect(previewShell.style.width).toBe('720px');
+    expect(previewShell.className).toContain('absolute');
+    expect(previewShell.className).toContain('top-1');
+    expect(previewShell.className).toContain('bottom-1');
+    expect(previewShell.className).toContain('right-2');
+    expect(previewShell.className).toContain('z-40');
+    expect(previewShell.className).toContain('rounded-lg');
+    expect(previewShell.className).toContain(
+      'shadow-[0_8px_24px_-18px_rgba(15,23,42,0.28)]',
+    );
+    expect(previewShell.className).toContain('slide-in-from-right-4');
+    expect(previewShell.className).not.toContain('min-[1440px]:static');
+
+    const resizeHandle = screen.getByRole('separator', {
+      name: '调整文档预览宽度',
+    });
+    expect(resizeHandle.getAttribute('aria-valuemin')).toBe('520');
+    expect(resizeHandle.getAttribute('aria-valuemax')).toBe('960');
+    expect(resizeHandle.getAttribute('aria-valuenow')).toBe('720');
+    expect(resizeHandle.className).toContain('absolute!');
+    expect(resizeHandle.className).toContain('[&>span]:hidden');
+    expect(screen.getByText('文档预览').parentElement?.className).not.toContain(
+      'border-l',
+    );
   });
 });

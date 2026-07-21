@@ -8,7 +8,9 @@ import remarkGfm from 'remark-gfm';
 import {
   AlertCircle,
   Archive,
+  ArrowLeft,
   ArrowDown,
+  ArrowRight,
   ArrowUp,
   Blocks,
   Bot,
@@ -28,6 +30,7 @@ import {
   Goal,
   Hand,
   History,
+  ImageIcon,
   Lightbulb,
   LoaderCircle,
   Maximize2,
@@ -97,9 +100,12 @@ import { cn } from '@/lib/utils';
 import {
   codexAppServerClient,
   listenCodexEventsUntilDisposed,
+  pasteCodexContextAttachments,
+  readCodexContextAttachmentPreview,
   readCodexPluginIcon,
   releaseCodexContextAttachments,
   respondToCodexApproval,
+  respondToCodexDynamicTool,
   respondToCodexUserInput,
   selectCodexContextAttachments,
   startCodexRuntime,
@@ -114,6 +120,8 @@ import {
   type CodexCollaborationModeListResponse,
   type CodexCollaborationModeMask,
   type CodexContextAttachment,
+  type CodexDynamicToolRequest,
+  type CodexDynamicToolResponse,
   type CodexExperimentalFeatureListResponse,
   type CodexModel,
   type CodexModelListResponse,
@@ -137,6 +145,7 @@ import {
   conversationFromThread,
   buildConversationBlocks,
   createComposerAwareUserInput,
+  createDrawingMentionPath,
   createThreadTitle,
   createEmptyConversation,
   getOutputPreviewLines,
@@ -144,6 +153,7 @@ import {
   selectActiveTaskProgress,
   threadNameUpdateFromMessage,
   workspaceChangeEventFromProtocolMessage,
+  parseDrawingMentionPath,
   type AiActivityGroup,
   type AiApprovalRequest,
   type AiChangeSummaryBlock,
@@ -151,6 +161,7 @@ import {
   type AiConversationEntry,
   type AiConversationState,
   type AiFileChange,
+  type AiDrawingInputMention,
   type AiMessageAttachment,
   type AiMessageMention,
   type AiPluginInputMention,
@@ -172,19 +183,28 @@ import {
   isTauriRuntime,
   openUrlInDefaultBrowser,
 } from './workspace-api';
-import type { WorkspaceNode } from './workspace-types';
+import type { AiDrawingReference, WorkspaceNode } from './workspace-types';
 
 interface AiPanelProps {
+  activeDrawing?: AiDrawingReference | null;
   currentDocument: WorkspaceNode | null;
   currentDocumentPath: string | null;
   documents: AiDocumentReference[];
+  drawings?: AiDrawingReference[];
   workspaceRootPath: string | null;
-  onBeforeTurnStart: (documentPath: string | null) => Promise<boolean>;
+  onBeforeTurnStart: (
+    documentPath: string | null,
+    drawingId: string | null,
+  ) => Promise<boolean>;
+  onDrawingToolCall?: (
+    request: CodexDynamicToolRequest,
+  ) => Promise<CodexDynamicToolResponse>;
   onOpenDocument: (documentPath: string) => void;
   onOpenPlanPreview: (plan: AiProposedPlan, threadId: string) => void;
   onWorkspaceChanged: (
     event: AiWorkspaceChangeEvent,
   ) => void | Promise<void>;
+  presentation?: 'panel' | 'workspace';
   visible?: boolean;
 }
 
@@ -195,6 +215,8 @@ type AiDocumentReference = Pick<
 
 type AiComposerDocumentMention = AiDocumentReference &
   AiMessageMention & { kind: 'document' };
+
+type AiComposerDrawingMention = AiDrawingReference & AiDrawingInputMention;
 
 type AiComposerPluginMention = AiPluginInputMention & {
   description: string | null;
@@ -209,6 +231,7 @@ type AiComposerSkillMention = AiSkillInputMention & {
 
 type AiComposerMention =
   | AiComposerDocumentMention
+  | AiComposerDrawingMention
   | AiComposerPluginMention
   | AiComposerSkillMention;
 
@@ -229,6 +252,11 @@ interface AiSkillMentionOption {
   scope: CodexSkillScope;
 }
 
+interface ComposerSkillInsertRequest {
+  id: number;
+  skill: AiSkillMentionOption;
+}
+
 type CodexPluginInterface = NonNullable<
   CodexPluginInstalledResponse['marketplaces'][number]['plugins'][number]['interface']
 >;
@@ -241,7 +269,11 @@ interface ComposerMentionTarget {
 }
 
 const mentionLinkClassName =
-  'mx-0.5 inline-flex cursor-pointer select-none items-center gap-1.5 rounded-sm border-0 bg-transparent p-0 align-middle font-sans text-[#3574f0] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3574f0]/35';
+  'mx-0.5 inline cursor-pointer select-none rounded-sm border-0 bg-transparent p-0 [font:inherit] leading-[inherit] text-left text-[#3574f0] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3574f0]/35';
+const composerMentionClassName = cn(
+  mentionLinkClassName,
+  'inline-flex items-center gap-1 whitespace-nowrap align-middle',
+);
 const GOAL_COMMAND_SELECTION = 'madora:goal-mode';
 const COMPACT_COMMAND_SELECTION = 'madora:compact-context';
 const GOAL_OBJECTIVE_MAX_LENGTH = 4_000;
@@ -355,7 +387,7 @@ const WORKSPACE_STARTER_ACTIONS: StarterAction[] = [
 
 const SCROLL_BOTTOM_THRESHOLD = 64;
 
-const DEVELOPER_INSTRUCTIONS = `你运行在 Madora 的工作区级 AI 面板中。默认只在当前工作区内读取和修改文件；仅当当前命名权限配置明确允许、且用户请求确实需要时，才可访问工作区外路径。Madora 以 Markdown 为唯一持久化文档格式，请保持现有 frontmatter 和目录约定。Madora 会为每个 turn 提供编辑器活跃文档和显式文档引用；“当前文档”“本文”“这篇文档”等表述只指向该 turn 的 madora_active_document，不得根据日期、最近文件或工作区惯例猜测。请求依赖文档内容时，必须先使用工作区工具读取相关文件，并让读取动作通过正常工具事件返回；不得在尝试读取前声称缺少路径。与文档无关的请求不必读取活跃文档。严格遵循当前线程的 Codex 权限配置和审批结果，不得绕过权限边界。删除文档前必须明确说明将删除的路径和影响，并等待用户确认。不要读取、输出或记录密钥、Token、Cookie、连接串或其他敏感信息。完成文件变更后简要列出实际修改和验证结果。`;
+const DEVELOPER_INSTRUCTIONS = `你运行在 Madora 的工作区级 AI 面板中。默认只在当前工作区内读取和修改文件；仅当当前命名权限配置明确允许、且用户请求确实需要时，才可访问工作区外路径。Madora 以 Markdown 为唯一持久化文档格式，请保持现有 frontmatter 和目录约定。Madora 会为每个 turn 提供编辑器活跃文档和显式文档引用；“当前文档”“本文”“这篇文档”等表述只指向该 turn 的 madora_active_document，不得根据日期、最近文件或工作区惯例猜测。请求依赖文档内容时，必须先使用工作区工具读取相关文件，并让读取动作通过正常工具事件返回；不得在尝试读取前声称缺少路径。与文档无关的请求不必读取活跃文档。AI 画图必须使用 Madora 提供的 madora_drawing 工具，禁止直接读写 .madora/drawings 或生成待导入文件。严格遵循当前线程的 Codex 权限配置和审批结果，不得绕过权限边界。删除文档前必须明确说明将删除的路径和影响，并等待用户确认。不要读取、输出或记录密钥、Token、Cookie、连接串或其他敏感信息。完成文件变更后简要列出实际修改和验证结果。`;
 
 const PLAN_IMPLEMENTATION_MESSAGE = 'Implement the plan.';
 const PLAN_IMPLEMENTATION_FRESH_PREFIX =
@@ -498,14 +530,18 @@ function collaborationModeForTurn(
 }
 
 export function AiPanel({
+  activeDrawing = null,
   currentDocument,
   currentDocumentPath,
   documents,
+  drawings = [],
   workspaceRootPath,
   onBeforeTurnStart,
+  onDrawingToolCall,
   onOpenDocument,
   onOpenPlanPreview,
   onWorkspaceChanged,
+  presentation = 'panel',
 }: AiPanelProps) {
   const {
     confirm: confirmAction,
@@ -545,6 +581,8 @@ export function AiPanel({
   const [threadListStatus, setThreadListStatus] =
     React.useState<ControlLoadStatus>('idle');
   const [activeThread, setActiveThread] = React.useState<CodexThread | null>(null);
+  const [activeThreadSupportsDrawing, setActiveThreadSupportsDrawing] =
+    React.useState(true);
   const [conversation, setConversation] = React.useState<AiConversationState>(
     createEmptyConversation,
   );
@@ -567,6 +605,9 @@ export function AiPanel({
   const [selectedAttachments, setSelectedAttachments] = React.useState<
     CodexContextAttachment[]
   >([]);
+  const [attachmentPreviewUrls, setAttachmentPreviewUrls] = React.useState<
+    Record<string, string>
+  >({});
   const [pluginStatus, setPluginStatus] =
     React.useState<ControlLoadStatus>('idle');
   const [pluginOptions, setPluginOptions] = React.useState<
@@ -580,6 +621,8 @@ export function AiPanel({
   const [skillOptions, setSkillOptions] = React.useState<
     AiSkillMentionOption[]
   >([]);
+  const [composerSkillInsertRequest, setComposerSkillInsertRequest] =
+    React.useState<ComposerSkillInsertRequest | null>(null);
   const [mentionQuery, setMentionQuery] = React.useState<string | null>(null);
   const [historyQuery, setHistoryQuery] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
@@ -595,6 +638,7 @@ export function AiPanel({
   const modelSelectionInitializedRef = React.useRef(false);
   const activeThreadIdRef = React.useRef<string | null>(null);
   const onWorkspaceChangedRef = React.useRef(onWorkspaceChanged);
+  const onDrawingToolCallRef = React.useRef(onDrawingToolCall);
   const runtimeReadyPromiseRef = React.useRef<Promise<void> | null>(null);
   const runtimeStatusRef = React.useRef<RuntimeStatus>('loading');
   const authRequiredRef = React.useRef(false);
@@ -611,14 +655,23 @@ export function AiPanel({
   const submittingRef = React.useRef(false);
   const runtimeGenerationRef = React.useRef(0);
   const pluginLoadGenerationRef = React.useRef<number | null>(null);
+  const skillRootRegistrationRef = React.useRef<{
+    generation: number;
+    promise: Promise<void>;
+  } | null>(null);
   const skillLoadRequestRef = React.useRef(0);
+  const composerSkillInsertRequestIdRef = React.useRef(0);
   const selectedAttachmentsRef = React.useRef<CodexContextAttachment[]>([]);
+  const attachmentPreviewUrlsRef = React.useRef<Record<string, string>>({});
+  const loadingAttachmentPreviewsRef = React.useRef(new Set<string>());
+  const attachmentPreviewMountedRef = React.useRef(true);
   const threadTokenUsageRef = React.useRef<
     Record<string, CodexThreadTokenUsage>
   >({});
   const compactingThreadIdRef = React.useRef<string | null>(null);
   const goalDraftModeRef = React.useRef(false);
   const threadGoalsRef = React.useRef<Record<string, CodexThreadGoal>>({});
+  const dynamicToolRequestsRef = React.useRef(new Set<string>());
 
   React.useEffect(() => {
     activeThreadIdRef.current = activeThread?.id ?? null;
@@ -627,6 +680,10 @@ export function AiPanel({
   React.useEffect(() => {
     onWorkspaceChangedRef.current = onWorkspaceChanged;
   }, [onWorkspaceChanged]);
+
+  React.useEffect(() => {
+    onDrawingToolCallRef.current = onDrawingToolCall;
+  }, [onDrawingToolCall]);
 
   React.useEffect(() => {
     authRequiredRef.current = authRequired;
@@ -647,6 +704,64 @@ export function AiPanel({
   React.useEffect(() => {
     conversationRef.current = conversation;
   }, [conversation]);
+
+  React.useEffect(() => {
+    attachmentPreviewUrlsRef.current = attachmentPreviewUrls;
+  }, [attachmentPreviewUrls]);
+
+  React.useEffect(() => {
+    attachmentPreviewMountedRef.current = true;
+    return () => {
+      attachmentPreviewMountedRef.current = false;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    const previewAttachments = selectedAttachments.filter(
+      (attachment) => attachment.previewAvailable,
+    );
+    for (const attachment of previewAttachments) {
+      if (
+        attachmentPreviewUrlsRef.current[attachment.attachmentId] ||
+        loadingAttachmentPreviewsRef.current.has(attachment.attachmentId)
+      ) {
+        continue;
+      }
+      loadingAttachmentPreviewsRef.current.add(attachment.attachmentId);
+      void readCodexContextAttachmentPreview(attachment.attachmentId)
+        .then((bytes) => {
+          if (
+            !attachmentPreviewMountedRef.current ||
+            !selectedAttachmentsRef.current.some(
+              (candidate) => candidate.attachmentId === attachment.attachmentId,
+            )
+          ) {
+            return;
+          }
+          const previewUrl = bytesToDataUrl(
+            bytes,
+            attachment.previewMediaType ?? 'image/png',
+          );
+          setAttachmentPreviewUrls((current) => ({
+            ...current,
+            [attachment.attachmentId]: previewUrl,
+          }));
+        })
+        .catch((error) => {
+          if (
+            attachmentPreviewMountedRef.current &&
+            selectedAttachmentsRef.current.some(
+              (candidate) => candidate.attachmentId === attachment.attachmentId,
+            )
+          ) {
+            setRuntimeError(getErrorMessage(error));
+          }
+        })
+        .finally(() => {
+          loadingAttachmentPreviewsRef.current.delete(attachment.attachmentId);
+        });
+    }
+  }, [selectedAttachments]);
 
   React.useEffect(() => {
     permissionSettingsRef.current = permissionSettings;
@@ -718,6 +833,50 @@ export function AiPanel({
       preferredPath: currentDocument?.absolutePath,
     });
   }, [currentDocument, documents, mentionQuery, selectedMentions]);
+
+  const filteredMentionDrawings = React.useMemo(() => {
+    const excludedPaths = new Set(
+      selectedMentions
+        .filter(isDrawingComposerMention)
+        .map((drawing) => drawing.path),
+    );
+    return rankMentionDocuments(
+      drawings.map((drawing) => ({
+        ...drawing,
+        absolutePath: createDrawingMentionPath(drawing.id),
+        name: drawing.title,
+        relativePath: drawing.albumPath || '未归类',
+      })),
+      mentionQuery ?? '',
+      {
+        excludedPaths,
+        preferredPath: activeDrawing
+          ? createDrawingMentionPath(activeDrawing.id)
+          : null,
+      },
+    ).map((drawing) => ({
+      albumPath: drawing.albumPath,
+      elementCount: drawing.elementCount,
+      hasPreview: drawing.hasPreview,
+      id: drawing.id,
+      revision: drawing.revision,
+      title: drawing.title,
+    }));
+  }, [activeDrawing, drawings, mentionQuery, selectedMentions]);
+
+  const openMention = React.useCallback(
+    (path: string) => {
+      const drawingId = parseDrawingMentionPath(path);
+      if (drawingId) {
+        window.dispatchEvent(
+          new CustomEvent('madora:open-drawing', { detail: { drawingId } }),
+        );
+        return;
+      }
+      onOpenDocument(path);
+    },
+    [onOpenDocument],
+  );
 
   const visibleThreads = React.useMemo(() => {
     const query = historyQuery.trim().toLocaleLowerCase();
@@ -1197,12 +1356,27 @@ export function AiPanel({
       runtimeStatusRef.current !== 'ready' ||
       generation !== runtimeGenerationRef.current
     ) {
-      return;
+      return null;
     }
     const requestId = skillLoadRequestRef.current + 1;
     skillLoadRequestRef.current = requestId;
     setSkillStatus('loading');
     try {
+      let registration = skillRootRegistrationRef.current;
+      if (!registration || registration.generation !== generation) {
+        const promise = Promise.resolve()
+          .then(() => codexAppServerClient.request('skills/extraRoots/set', {}))
+          .then(() => undefined);
+        const nextRegistration = { generation, promise };
+        skillRootRegistrationRef.current = nextRegistration;
+        void promise.catch(() => {
+          if (skillRootRegistrationRef.current === nextRegistration) {
+            skillRootRegistrationRef.current = null;
+          }
+        });
+        registration = nextRegistration;
+      }
+      await registration.promise;
       const response = await codexAppServerClient.request<CodexSkillsListResponse>(
         'skills/list',
         { cwds: [workspaceRootPath], forceReload },
@@ -1211,29 +1385,29 @@ export function AiPanel({
         generation !== runtimeGenerationRef.current ||
         requestId !== skillLoadRequestRef.current
       ) {
-        return;
+        return null;
       }
-      setSkillOptions(
-        uniqueSkillOptions(
-          response.data.flatMap((entry) =>
-            entry.skills
-              .filter((skill) => skill.enabled)
-              .map((skill) => ({
-                description:
-                  skill.interface?.shortDescription?.trim() ||
-                  skill.shortDescription?.trim() ||
-                  skill.description,
-                displayName:
-                  skill.interface?.displayName?.trim() ||
-                  formatSkillDisplayName(skill.name),
-                name: skill.name,
-                path: skill.path,
-                scope: skill.scope,
-              })),
-          ),
+      const options = uniqueSkillOptions(
+        response.data.flatMap((entry) =>
+          entry.skills
+            .filter((skill) => skill.enabled)
+            .map((skill) => ({
+              description:
+                skill.interface?.shortDescription?.trim() ||
+                skill.shortDescription?.trim() ||
+                skill.description,
+              displayName:
+                skill.interface?.displayName?.trim() ||
+                formatSkillDisplayName(skill.name),
+              name: skill.name,
+              path: skill.path,
+              scope: skill.scope,
+            })),
         ),
       );
+      setSkillOptions(options);
       setSkillStatus('ready');
+      return options;
     } catch {
       if (
         generation !== runtimeGenerationRef.current ||
@@ -1242,6 +1416,7 @@ export function AiPanel({
         return;
       }
       setSkillStatus('error');
+      return null;
     }
   }, [workspaceRootPath]);
 
@@ -1255,9 +1430,14 @@ export function AiPanel({
       try {
         const selected = await selectCodexContextAttachments(kind, remaining);
         if (!selected) return;
-        setSelectedAttachments((current) =>
-          uniqueContextAttachments([...current, ...selected]).slice(0, 20),
-        );
+        setSelectedAttachments((current) => {
+          const next = uniqueContextAttachments([
+            ...current,
+            ...selected,
+          ]).slice(0, 20);
+          selectedAttachmentsRef.current = next;
+          return next;
+        });
       } catch (error) {
         setRuntimeError(getErrorMessage(error));
       }
@@ -1265,10 +1445,56 @@ export function AiPanel({
     [selectedAttachments.length],
   );
 
+  const pasteContextAttachments = React.useCallback(async () => {
+    const current = selectedAttachmentsRef.current;
+    try {
+      const selected = await pasteCodexContextAttachments(
+        Math.max(1, 20 - current.length),
+      );
+      if (!selected) return false;
+
+      const next = uniqueContextAttachments([...current, ...selected]);
+      if (next.length > 20) {
+        const retainedIds = new Set(current.map((item) => item.attachmentId));
+        const overflowIds = selected
+          .filter((item) => !retainedIds.has(item.attachmentId))
+          .map((item) => item.attachmentId);
+        void releaseCodexContextAttachments(overflowIds).catch(() => undefined);
+        setRuntimeError('最多附加 20 个文件、文件夹或图片。');
+        return true;
+      }
+
+      selectedAttachmentsRef.current = next;
+      setSelectedAttachments(next);
+      if (
+        selected.some((attachment) => attachment.isImage) &&
+        !modelSupportsImages(selectedModelInfo)
+      ) {
+        setRuntimeError('当前模型不支持图片输入；请选择支持图片的模型后发送。');
+      } else {
+        setRuntimeError(null);
+      }
+      return true;
+    } catch (error) {
+      setRuntimeError(getErrorMessage(error));
+      return true;
+    }
+  }, [selectedModelInfo]);
+
   const removeContextAttachment = React.useCallback((attachmentId: string) => {
-    setSelectedAttachments((current) =>
-      current.filter((attachment) => attachment.attachmentId !== attachmentId),
-    );
+    setSelectedAttachments((current) => {
+      const next = current.filter(
+        (attachment) => attachment.attachmentId !== attachmentId,
+      );
+      selectedAttachmentsRef.current = next;
+      return next;
+    });
+    setAttachmentPreviewUrls((current) => {
+      if (!current[attachmentId]) return current;
+      const next = { ...current };
+      delete next[attachmentId];
+      return next;
+    });
     void releaseCodexContextAttachments([attachmentId]).catch(() => undefined);
   }, []);
 
@@ -1318,6 +1544,7 @@ export function AiPanel({
     const generation = runtimeGenerationRef.current + 1;
     runtimeGenerationRef.current = generation;
     pluginLoadGenerationRef.current = null;
+    skillRootRegistrationRef.current = null;
     skillLoadRequestRef.current += 1;
     const nextRuntimeStatus: RuntimeStatus = !workspaceRootPath
       ? 'error'
@@ -1343,7 +1570,9 @@ export function AiPanel({
       ).catch(() => undefined);
       selectedAttachmentsRef.current = [];
       setSelectedAttachments([]);
+      setAttachmentPreviewUrls({});
       setComposerValue('');
+      setComposerSkillInsertRequest(null);
       permissionSettingsRef.current = DEFAULT_PERMISSION_SETTINGS;
       setPermissionSettings(DEFAULT_PERMISSION_SETTINGS);
       setModelCatalogStatus('idle');
@@ -1496,6 +1725,7 @@ export function AiPanel({
       }
 
       if (message.method === 'madora/runtime/exited') {
+        window.dispatchEvent(new Event('madora:codex-runtime-stopped'));
         setPlanImplementation(null);
         goalDraftModeRef.current = false;
         setGoalDraftMode(false);
@@ -1532,6 +1762,32 @@ export function AiPanel({
 
       if (message.method === 'skills/changed') {
         void loadSkills(generation, true);
+      }
+
+      if (message.method === 'item/tool/call' && message.id !== undefined) {
+        const requestKey = String(message.id);
+        if (!dynamicToolRequestsRef.current.has(requestKey)) {
+          dynamicToolRequestsRef.current.add(requestKey);
+          const request = message.params as unknown as CodexDynamicToolRequest;
+          void (async () => {
+            try {
+              const response = onDrawingToolCallRef.current
+                ? await onDrawingToolCallRef.current(request)
+                : {
+                    success: false,
+                    text: '当前 Madora 窗口未启用 AI 画图工具。请在新任务中重试。',
+                  };
+              await respondToCodexDynamicTool(message.id!, response);
+            } catch (error) {
+              await respondToCodexDynamicTool(message.id!, {
+                success: false,
+                text: getErrorMessage(error),
+              }).catch(() => undefined);
+            } finally {
+              dynamicToolRequestsRef.current.delete(requestKey);
+            }
+          })();
+        }
       }
 
       const workspaceChange = workspaceChangeEventFromProtocolMessage(
@@ -1618,13 +1874,17 @@ export function AiPanel({
     ).catch(() => undefined);
     selectedAttachmentsRef.current = [];
     setSelectedAttachments([]);
+    setAttachmentPreviewUrls({});
     setActiveThread(null);
+    setActiveThreadSupportsDrawing(true);
     activeThreadIdRef.current = null;
     compactingThreadIdRef.current = null;
     setCompactingThreadId(null);
     setConversation(createEmptyConversation());
     setSelectedMentions([]);
     setComposerValue('');
+    composerSkillInsertRequestIdRef.current += 1;
+    setComposerSkillInsertRequest(null);
     goalDraftModeRef.current = false;
     setGoalDraftMode(false);
     permissionSettingsRef.current = DEFAULT_PERMISSION_SETTINGS;
@@ -1632,6 +1892,40 @@ export function AiPanel({
     resetToDefaultMode();
     setView('chat');
   }, [resetToDefaultMode]);
+
+  const startNewDiagram = React.useCallback(() => {
+    startNewChat();
+    setRuntimeError(null);
+    const requestId = composerSkillInsertRequestIdRef.current;
+    void (async () => {
+      let skill = skillOptions.find(
+        (candidate) => candidate.name === 'madora-diagram',
+      );
+      if (!skill) {
+        try {
+          await runtimeReadyPromiseRef.current;
+        } catch (error) {
+          if (requestId === composerSkillInsertRequestIdRef.current) {
+            setRuntimeError(getErrorMessage(error));
+          }
+          return;
+        }
+        const options = await loadSkills(runtimeGenerationRef.current, true);
+        skill = options?.find(
+          (candidate) => candidate.name === 'madora-diagram',
+        );
+      }
+      if (requestId !== composerSkillInsertRequestIdRef.current) {
+        return;
+      }
+      if (!skill) {
+        setRuntimeError('AI 画图 Skill 加载失败，请重试或重启 Madora。');
+        return;
+      }
+      setComposerSkillInsertRequest({ id: requestId, skill });
+      setComposerFocusRequest((current) => current + 1);
+    })();
+  }, [loadSkills, skillOptions, startNewChat]);
 
   const openThread = React.useCallback(async (thread: CodexThread) => {
     void releaseCodexContextAttachments(
@@ -1641,6 +1935,7 @@ export function AiPanel({
     ).catch(() => undefined);
     selectedAttachmentsRef.current = [];
     setSelectedAttachments([]);
+    setAttachmentPreviewUrls({});
     setSelectedMentions([]);
     setComposerValue('');
     goalDraftModeRef.current = false;
@@ -1670,6 +1965,7 @@ export function AiPanel({
         { threadId: thread.id },
       );
       setActiveThread(response.thread);
+      setActiveThreadSupportsDrawing(false);
       activeThreadIdRef.current = response.thread.id;
       const nextPermissionSettings = permissionSettingsFromResponse(resumed);
       permissionSettingsRef.current = nextPermissionSettings;
@@ -1712,10 +2008,21 @@ export function AiPanel({
       const text = (messageOverride ?? composerValue).trim();
       const activeDocument = currentDocument;
       const activeDocumentPath = currentDocumentPath;
+      const currentDrawing = activeDrawing;
       const attachments = options.planAction
         ? []
         : selectedAttachmentsRef.current;
       const composerMentions = options.planAction ? [] : selectedMentions;
+      const needsDrawingTools =
+        Boolean(currentDrawing) ||
+        composerMentions.some(isDrawingComposerMention);
+      const forceNewThread =
+        Boolean(options.forceNewThread) ||
+        composerMentions.some(
+          (mention) =>
+            isSkillComposerMention(mention) && mention.name === 'madora-diagram',
+        ) ||
+        (needsDrawingTools && Boolean(activeThread) && !activeThreadSupportsDrawing);
       const previousConversation = conversationRef.current;
       const previousThread = activeThread;
       const startingGoal =
@@ -1726,6 +2033,7 @@ export function AiPanel({
           threadGoalsRef.current[activeThreadIdRef.current]
         );
       let attachmentGrantsDetached = false;
+      let turnAccepted = false;
       let createdThread: CodexThread | null = null;
       let createdThreadTitle: string | null = null;
       if (
@@ -1737,6 +2045,13 @@ export function AiPanel({
       }
       if (startingGoal && !text) {
         setRuntimeError('目标不能为空。');
+        return;
+      }
+      if (
+        attachments.some((attachment) => attachment.isImage) &&
+        !modelSupportsImages(selectedModelInfo)
+      ) {
+        setRuntimeError('当前模型不支持图片输入；附件和草稿已保留。');
         return;
       }
       if (
@@ -1774,9 +2089,12 @@ export function AiPanel({
           );
         }
 
-        const ready = await onBeforeTurnStart(activeDocumentPath);
+        const ready = await onBeforeTurnStart(
+          activeDocumentPath,
+          currentDrawing?.id ?? null,
+        );
         if (!ready) {
-          throw new Error('当前文档保存失败，未发送消息。请先处理保存错误。');
+          throw new Error('当前内容保存失败，未发送消息。请先处理保存错误。');
         }
 
         const documentMentions = composerMentions.filter(
@@ -1788,15 +2106,22 @@ export function AiPanel({
         const skillMentions = composerMentions.filter(
           isSkillComposerMention,
         );
+        const drawingMentions = composerMentions.filter(
+          isDrawingComposerMention,
+        );
         const explicitDocuments = uniqueDocuments(documentMentions).filter(
           (document) =>
             document.absolutePath !== activeDocumentPath,
+        );
+        const explicitDrawings = uniqueDrawings(drawingMentions).filter(
+          (drawing) => drawing.id !== currentDrawing?.id,
         );
         const userInput = createComposerAwareUserInput(
           text,
           documentMentions,
           pluginMentions,
           skillMentions,
+          drawingMentions,
         );
         const currentPermissionSettings = permissionSettingsRef.current;
         const currentModel = selectedModelRef.current;
@@ -1819,19 +2144,11 @@ export function AiPanel({
             : collaborationModeRef.current === 'plan'
               ? restoredDefaultEffort
               : effortRef.current;
-        if (!options.planAction) {
-          setComposerValue('');
-          setSelectedMentions([]);
-          selectedAttachmentsRef.current = [];
-          setSelectedAttachments([]);
-          attachmentGrantsDetached = true;
-          setMentionQuery(null);
-        }
         setPlanImplementation(null);
         setFollowLatestRequest((current) => current + 1);
         const clientMessageId = `madora-${Date.now()}`;
         setConversation((current) => {
-          const base = options.forceNewThread ? createEmptyConversation() : current;
+          const base = forceNewThread ? createEmptyConversation() : current;
           return {
             ...base,
             entries: [
@@ -1839,7 +2156,11 @@ export function AiPanel({
             {
               attachments: attachments.map((attachment) => ({
                 kind: attachment.isImage ? 'image' : attachment.kind,
+                mediaType: attachment.mediaType,
                 name: attachment.name,
+                previewUrl:
+                  attachmentPreviewUrlsRef.current[attachment.attachmentId] ??
+                  null,
               })),
               type: 'message',
               id: clientMessageId,
@@ -1857,7 +2178,7 @@ export function AiPanel({
           };
         });
 
-        let thread = options.forceNewThread ? null : activeThread;
+        let thread = forceNewThread ? null : activeThread;
         if (!thread) {
           const response =
             await codexAppServerClient.request<ThreadStartResponse>(
@@ -1877,6 +2198,7 @@ export function AiPanel({
             text || attachments.map((attachment) => attachment.name).join('、'),
           );
           thread = { ...response.thread, name: threadTitle };
+          setActiveThreadSupportsDrawing(true);
           createdThread = thread;
           createdThreadTitle = threadTitle;
           const nextPermissionSettings = permissionSettingsFromResponse(response);
@@ -1944,6 +2266,15 @@ export function AiPanel({
                 role: 'mention',
               })),
             ],
+            madoraDrawingReferences: [
+              ...(currentDrawing
+                ? [{ drawingId: currentDrawing.id, role: 'active' }]
+                : []),
+              ...explicitDrawings.map((drawing) => ({
+                drawingId: drawing.id,
+                role: 'mention',
+              })),
+            ],
             cwd: workspaceRootPath,
             ...(requestedCollaborationMode
               ? { collaborationMode: requestedCollaborationMode }
@@ -1953,6 +2284,16 @@ export function AiPanel({
             summary: 'concise',
           },
         );
+        turnAccepted = true;
+        if (!options.planAction) {
+          setComposerValue('');
+          setSelectedMentions([]);
+          selectedAttachmentsRef.current = [];
+          setSelectedAttachments([]);
+          setAttachmentPreviewUrls({});
+          attachmentGrantsDetached = true;
+          setMentionQuery(null);
+        }
         turnModesRef.current.set(response.turn.id, requestedMode);
         if (options.forceNewThread && createdThread && createdThreadTitle) {
           setActiveThread(createdThread);
@@ -1996,16 +2337,21 @@ export function AiPanel({
           }
         }
       } catch (error) {
-        if (options.planAction) {
-          if (options.forceNewThread && createdThread) {
+        if (!turnAccepted) {
+          if (createdThread) {
             await codexAppServerClient
               .request('thread/delete', { threadId: createdThread.id })
               .catch(() => undefined);
+            setThreads((current) =>
+              current.filter((thread) => thread.id !== createdThread?.id),
+            );
           }
           setConversation(previousConversation);
           setActiveThread(previousThread);
           activeThreadIdRef.current = previousThread?.id ?? null;
-          setPlanImplementation(options.restorePlan ?? null);
+          if (options.planAction) {
+            setPlanImplementation(options.restorePlan ?? null);
+          }
         }
         setRuntimeError(getErrorMessage(error));
       } finally {
@@ -2020,11 +2366,14 @@ export function AiPanel({
     },
     [
       activeThread,
+      activeThreadSupportsDrawing,
       composerValue,
       currentDocument,
       currentDocumentPath,
+      activeDrawing,
       models,
       onBeforeTurnStart,
+      selectedModelInfo,
       selectedMentions,
       updateThreadGoal,
       workspaceRootPath,
@@ -2172,11 +2521,17 @@ export function AiPanel({
   );
 
   return (
-    <section className="flex h-full min-h-0 flex-col bg-background" data-testid="ai-panel">
+    <section
+      className="flex h-full min-h-0 flex-col bg-background"
+      data-presentation={presentation}
+      data-testid="ai-panel"
+    >
       <AiPanelHeader
         activeThread={activeThread}
+        presentation={presentation}
         view={view}
         onHistory={() => setView('history')}
+        onNewDiagram={startNewDiagram}
         onNewChat={startNewChat}
       />
 
@@ -2193,6 +2548,15 @@ export function AiPanel({
         />
       ) : (
         <>
+          {activeThread && !activeThreadSupportsDrawing ? (
+            <button
+              className="mx-3 mb-1 rounded-lg border border-border/70 bg-muted/25 px-3 py-2 text-left text-[11px] text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+              type="button"
+              onClick={startNewDiagram}
+            >
+              该历史任务可能没有 Madora 画图工具。在新任务中使用 AI 画图
+            </button>
+          ) : null}
           <AiConversationViewport
             followLatestRequest={followLatestRequest}
             key={activeThread?.id ?? 'new-task'}
@@ -2202,11 +2566,13 @@ export function AiPanel({
               authRequired={authRequired}
               conversation={conversation}
               currentDocument={currentDocument}
+              pluginOptions={pluginOptions}
+              presentation={presentation}
               runtimeError={runtimeError}
               runtimeStatus={runtimeStatus}
               signingIn={signingIn}
               onApprove={approve}
-              onOpenDocument={onOpenDocument}
+              onOpenDocument={openMention}
               onOpenPlanPreview={(plan) =>
                 onOpenPlanPreview(
                   plan,
@@ -2218,123 +2584,136 @@ export function AiPanel({
             />
           </AiConversationViewport>
 
-          {conversation.userInputRequests[0] ? (
-            <UserInputDecisionCard
-              key={String(conversation.userInputRequests[0].id)}
-              request={conversation.userInputRequests[0]}
-              onSubmit={(answers) =>
-                answerUserInput(conversation.userInputRequests[0], answers)
-              }
-            />
-          ) : planImplementation ? (
-            <PlanImplementationCard
-              plan={planImplementation}
+          <div
+            className={cn(
+              'shrink-0',
+              presentation === 'workspace' &&
+                'mx-auto w-full max-w-[920px]',
+            )}
+          >
+            {conversation.userInputRequests[0] ? (
+              <UserInputDecisionCard
+                key={String(conversation.userInputRequests[0].id)}
+                request={conversation.userInputRequests[0]}
+                onSubmit={(answers) =>
+                  answerUserInput(conversation.userInputRequests[0], answers)
+                }
+              />
+            ) : planImplementation ? (
+              <PlanImplementationCard
+                plan={planImplementation}
+                submitting={submitting}
+                onFreshContext={() => implementPlan(true)}
+                onImplement={() => implementPlan(false)}
+                onStay={() => {
+                  setPlanImplementation(null);
+                  setComposerFocusRequest((current) => current + 1);
+                }}
+              />
+            ) : null}
+
+            {activeTaskProgress ? (
+              <TaskProgressIndicator
+                key={activeTaskProgress.turnId}
+                progress={activeTaskProgress}
+              />
+            ) : null}
+
+            {activeGoal ? (
+              <GoalStatusBar
+                goal={activeGoal}
+                observedAt={activeGoalObservedAt}
+                updating={goalUpdating}
+                onClear={() => void clearGoal()}
+                onSave={updateGoalObjective}
+                onStatusChange={(status) => void setGoalStatus(status)}
+              />
+            ) : null}
+
+            <AiComposer
+              active={Boolean(conversation.activeTurnId)}
+              currentDrawing={activeDrawing}
+              collaborationMode={collaborationMode}
+              compacting={compactingThreadId === activeThread?.id}
+              compactUnavailableReason={compactUnavailableReason}
+              contextUsage={activeThreadTokenUsage}
+              currentDocument={currentDocument}
+              effort={effort}
+              focusRequest={composerFocusRequest}
+              skillInsertRequest={composerSkillInsertRequest}
+              goalActive={Boolean(activeGoal)}
+              goalDraftMode={goalDraftMode}
+              goalUnavailableReason={goalEntryUnavailableReason}
+              attachments={selectedAttachments}
+              attachmentPreviewUrls={attachmentPreviewUrls}
+              mentionDocuments={filteredMentionDocuments}
+              mentionDrawings={filteredMentionDrawings}
+              mentionQuery={mentionQuery}
+              modelCatalogStatus={modelCatalogStatus}
+              models={models}
+              authRequired={authRequired}
+              runtimeStatus={runtimeStatus}
+              selectedModel={selectedModel}
+              selectedModelInfo={selectedModelInfo}
+              skillOptions={skillOptions}
+              skillStatus={skillStatus}
               submitting={submitting}
-              onFreshContext={() => implementPlan(true)}
-              onImplement={() => implementPlan(false)}
-              onStay={() => {
-                setPlanImplementation(null);
-                setComposerFocusRequest((current) => current + 1);
+              pluginLoadWarning={pluginLoadWarning}
+              pluginOptions={pluginOptions}
+              pluginStatus={pluginStatus}
+              autoReviewAvailable={autoReviewAvailable}
+              approvalPolicyAvailability={approvalPolicyAvailability}
+              permissionMode={permissionModeFromSettings(permissionSettings)}
+              permissionProfiles={permissionProfiles}
+              permissionSwitchDisabled={
+                Boolean(conversation.activeTurnId) ||
+                conversation.approvals.length > 0 ||
+                permissionUpdating
+              }
+              inputBlocked={conversation.userInputRequests.length > 0}
+              modeSwitchDisabled={modeSwitchDisabled}
+              planModeAvailable={planModeAvailable}
+              planModeUnavailableReason={planModeUnavailableReason}
+              value={composerValue}
+              onAttachmentRemove={removeContextAttachment}
+              onAttachmentPaste={pasteContextAttachments}
+              onAttachmentSelect={(kind) => void selectContextAttachments(kind)}
+              onDetectPlugins={() => void detectInstalledPlugins()}
+              onEffortChange={setEffort}
+              onGoalModeChange={changeGoalMode}
+              onInterrupt={() => void interruptTurn()}
+              onCollaborationModeChange={changeCollaborationMode}
+              onCompact={() => void compactContext()}
+              onMentionQueryChange={setMentionQuery}
+              onMentionsChange={setSelectedMentions}
+              onModelChange={(model) => {
+                const next = models.find((candidate) => candidate.model === model);
+                if (
+                  collaborationModeRef.current === 'plan' &&
+                  !next?.supportedReasoningEfforts.some(
+                    (option) => option.reasoningEffort === 'medium',
+                  )
+                ) {
+                  return;
+                }
+                setSelectedModel(model);
+                if (next) {
+                  const nextEffort =
+                    collaborationModeRef.current === 'plan'
+                      ? 'medium'
+                      : next.defaultReasoningEffort;
+                  effortRef.current = nextEffort;
+                  setEffort(nextEffort);
+                }
+              }}
+              onPermissionModeChange={(mode) => void changePermissionMode(mode)}
+              onOpenMention={openMention}
+              onSend={() => void sendMessage()}
+              onValueChange={(value) => {
+                setComposerValue(value);
               }}
             />
-          ) : null}
-
-          {activeTaskProgress ? (
-            <TaskProgressIndicator
-              key={activeTaskProgress.turnId}
-              progress={activeTaskProgress}
-            />
-          ) : null}
-
-          {activeGoal ? (
-            <GoalStatusBar
-              goal={activeGoal}
-              observedAt={activeGoalObservedAt}
-              updating={goalUpdating}
-              onClear={() => void clearGoal()}
-              onSave={updateGoalObjective}
-              onStatusChange={(status) => void setGoalStatus(status)}
-            />
-          ) : null}
-
-          <AiComposer
-            active={Boolean(conversation.activeTurnId)}
-            collaborationMode={collaborationMode}
-            compacting={compactingThreadId === activeThread?.id}
-            compactUnavailableReason={compactUnavailableReason}
-            contextUsage={activeThreadTokenUsage}
-            currentDocument={currentDocument}
-            effort={effort}
-            focusRequest={composerFocusRequest}
-            goalActive={Boolean(activeGoal)}
-            goalDraftMode={goalDraftMode}
-            goalUnavailableReason={goalEntryUnavailableReason}
-            attachments={selectedAttachments}
-            mentionDocuments={filteredMentionDocuments}
-            mentionQuery={mentionQuery}
-            modelCatalogStatus={modelCatalogStatus}
-            models={models}
-            authRequired={authRequired}
-            runtimeStatus={runtimeStatus}
-            selectedModel={selectedModel}
-            selectedModelInfo={selectedModelInfo}
-            skillOptions={skillOptions}
-            skillStatus={skillStatus}
-            submitting={submitting}
-            pluginLoadWarning={pluginLoadWarning}
-            pluginOptions={pluginOptions}
-            pluginStatus={pluginStatus}
-            autoReviewAvailable={autoReviewAvailable}
-            approvalPolicyAvailability={approvalPolicyAvailability}
-            permissionMode={permissionModeFromSettings(permissionSettings)}
-            permissionProfiles={permissionProfiles}
-            permissionSwitchDisabled={
-              Boolean(conversation.activeTurnId) ||
-              conversation.approvals.length > 0 ||
-              permissionUpdating
-            }
-            inputBlocked={conversation.userInputRequests.length > 0}
-            modeSwitchDisabled={modeSwitchDisabled}
-            planModeAvailable={planModeAvailable}
-            planModeUnavailableReason={planModeUnavailableReason}
-            value={composerValue}
-            onAttachmentRemove={removeContextAttachment}
-            onAttachmentSelect={(kind) => void selectContextAttachments(kind)}
-            onDetectPlugins={() => void detectInstalledPlugins()}
-            onEffortChange={setEffort}
-            onGoalModeChange={changeGoalMode}
-            onInterrupt={() => void interruptTurn()}
-            onCollaborationModeChange={changeCollaborationMode}
-            onCompact={() => void compactContext()}
-            onMentionQueryChange={setMentionQuery}
-            onMentionsChange={setSelectedMentions}
-            onModelChange={(model) => {
-              const next = models.find((candidate) => candidate.model === model);
-              if (
-                collaborationModeRef.current === 'plan' &&
-                !next?.supportedReasoningEfforts.some(
-                  (option) => option.reasoningEffort === 'medium',
-                )
-              ) {
-                return;
-              }
-              setSelectedModel(model);
-              if (next) {
-                const nextEffort =
-                  collaborationModeRef.current === 'plan'
-                    ? 'medium'
-                    : next.defaultReasoningEffort;
-                effortRef.current = nextEffort;
-                setEffort(nextEffort);
-              }
-            }}
-            onPermissionModeChange={(mode) => void changePermissionMode(mode)}
-            onOpenMention={onOpenDocument}
-            onSend={() => void sendMessage()}
-            onValueChange={(value) => {
-              setComposerValue(value);
-            }}
-          />
+          </div>
         </>
       )}
       <ConfirmationDialog
@@ -2461,17 +2840,26 @@ function isViewportNearBottom(viewport: HTMLElement) {
 
 export function AiPanelHeader({
   activeThread,
+  presentation = 'panel',
   view,
   onHistory,
+  onNewDiagram,
   onNewChat,
 }: {
   activeThread: CodexThread | null;
+  presentation?: 'panel' | 'workspace';
   view: PanelView;
   onHistory: () => void;
+  onNewDiagram?: () => void;
   onNewChat: () => void;
 }) {
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/70 px-3">
+    <header
+      className={cn(
+        'flex shrink-0 items-center gap-2 px-3',
+        presentation === 'workspace' ? '-mt-1 h-9' : 'h-12',
+      )}
+    >
       <div className="min-w-0 flex-1">
         <div className="truncate text-[13px] font-medium">
           {view === 'history'
@@ -2479,12 +2867,22 @@ export function AiPanelHeader({
             : activeThread?.name || activeThread?.preview || '新任务'}
         </div>
       </div>
-      <HeaderButton label="新任务" onClick={onNewChat}>
-        <SquarePen size={16} />
-      </HeaderButton>
-      <HeaderButton label="历史记录" onClick={onHistory}>
-        <History size={16} />
-      </HeaderButton>
+      <div
+        className="flex shrink-0 items-center gap-0.5"
+        data-testid="ai-header-actions"
+      >
+        {onNewDiagram ? (
+          <HeaderButton label="AI 画图" onClick={onNewDiagram}>
+            <Blocks size={16} />
+          </HeaderButton>
+        ) : null}
+        <HeaderButton label="新任务" onClick={onNewChat}>
+          <SquarePen size={16} />
+        </HeaderButton>
+        <HeaderButton label="历史记录" onClick={onHistory}>
+          <History size={16} />
+        </HeaderButton>
+      </div>
     </header>
   );
 }
@@ -2507,11 +2905,13 @@ function HeaderButton({
   );
 }
 
-function PanelContent({
+export function PanelContent({
   account,
   authRequired,
   conversation,
   currentDocument,
+  pluginOptions = [],
+  presentation = 'panel',
   runtimeError,
   runtimeStatus,
   signingIn,
@@ -2525,6 +2925,8 @@ function PanelContent({
   authRequired: boolean;
   conversation: AiConversationState;
   currentDocument: WorkspaceNode | null;
+  pluginOptions?: AiPluginMentionOption[];
+  presentation?: 'panel' | 'workspace';
   runtimeError: string | null;
   runtimeStatus: RuntimeStatus;
   signingIn: boolean;
@@ -2660,7 +3062,15 @@ function PanelContent({
   const blocks = buildConversationBlocks(conversation);
 
   return (
-    <div className="mx-auto w-full max-w-[680px] px-5 py-5">
+    <div
+      className={cn(
+        'mx-auto w-full py-5',
+        presentation === 'workspace'
+          ? 'max-w-[920px] px-3'
+          : 'max-w-[680px] px-5',
+      )}
+      data-testid="ai-conversation-content"
+    >
       <div>
         {blocks.map((block, index) =>
           block.type === 'trace' ? (
@@ -2688,6 +3098,7 @@ function PanelContent({
               key={`${block.type}-${block.id}`}
               onOpenDocument={onOpenDocument}
               onOpenPlanPreview={onOpenPlanPreview}
+              pluginOptions={pluginOptions}
               previous={previousConversationEntry(blocks[index - 1])}
               timestampMs={messageTimestampMs(block, conversation.turns)}
             />
@@ -3247,12 +3658,14 @@ export function ConversationEntryRow({
   entry,
   onOpenDocument,
   onOpenPlanPreview = () => undefined,
+  pluginOptions = [],
   previous,
   timestampMs,
 }: {
   entry: AiConversationEntry;
   onOpenDocument: (documentPath: string) => void;
   onOpenPlanPreview?: (plan: AiProposedPlan) => void;
+  pluginOptions?: AiPluginMentionOption[];
   previous: AiConversationEntry | null;
   timestampMs?: number | null;
 }) {
@@ -3297,6 +3710,7 @@ export function ConversationEntryRow({
         <UserMessageBubble
           attachments={entry.attachments ?? []}
           mentions={entry.mentions ?? []}
+          pluginOptions={pluginOptions}
           text={entry.text}
           timestampMs={resolvedTimestampMs}
           onOpenMention={onOpenDocument}
@@ -3309,26 +3723,52 @@ export function ConversationEntryRow({
 function UserMessageBubble({
   attachments,
   mentions,
+  pluginOptions,
   text,
   timestampMs,
   onOpenMention,
 }: {
   attachments: AiMessageAttachment[];
   mentions: AiMessageMention[];
+  pluginOptions: AiPluginMentionOption[];
   text: string;
   timestampMs: number | null;
   onOpenMention: (path: string) => void;
 }) {
+  const hasText = Boolean(text.trim());
+
   return (
-    <div className="flex max-w-[88%] flex-col items-end">
-      <div className="w-max max-w-full break-words rounded-xl bg-muted/70 px-3 py-2">
-        <UserMessageContent
-          attachments={attachments}
-          mentions={mentions}
-          text={text}
-          onOpenMention={onOpenMention}
-        />
-      </div>
+    <div className="flex max-w-[96%] flex-col items-end">
+      {attachments.length > 0 ? (
+        <div
+          className={cn('flex max-w-full justify-end', hasText && 'mb-2')}
+          data-testid="user-message-attachments"
+        >
+          <AttachmentCards
+            attachments={attachments.map((attachment, index) => ({
+              id: `${attachment.kind}:${attachment.name}:${index}`,
+              kind: attachment.kind,
+              mediaType: attachment.mediaType,
+              name: attachment.name,
+              previewUrl: attachment.previewUrl,
+            }))}
+            variant="message"
+          />
+        </div>
+      ) : null}
+      {hasText ? (
+        <div
+          className="w-max max-w-full break-words rounded-xl bg-muted/70 px-3 py-2"
+          data-testid="user-message-bubble"
+        >
+          <UserMessageContent
+            mentions={mentions}
+            pluginOptions={pluginOptions}
+            text={text}
+            onOpenMention={onOpenMention}
+          />
+        </div>
+      ) : null}
       <MessageMetadata role="user" text={text} timestampMs={timestampMs} />
     </div>
   );
@@ -3345,10 +3785,11 @@ function MessageMetadata({
 }) {
   const [copied, setCopied] = React.useState(false);
   const formattedTime = formatMessageTimestamp(timestampMs);
+  const hasCopyableText = Boolean(text.trim());
 
-  if (!text.trim()) return null;
+  if (!hasCopyableText && !formattedTime) return null;
 
-  const copyButton = (
+  const copyButton = hasCopyableText ? (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
@@ -3372,7 +3813,7 @@ function MessageMetadata({
         {copied ? '已复制' : '复制'}
       </TooltipContent>
     </Tooltip>
-  );
+  ) : null;
   const time = formattedTime ? (
     <time
       className="px-1 text-[11px] leading-none tabular-nums"
@@ -3407,14 +3848,226 @@ function formatMessageTimestamp(timestampMs: number | null) {
   ).padStart(2, '0')}`;
 }
 
+interface DisplayAttachment {
+  id: string;
+  kind: 'file' | 'folder' | 'image';
+  mediaType?: string | null;
+  name: string;
+  previewUrl?: string | null;
+  sizeBytes?: number | null;
+}
+
+function AttachmentCards({
+  attachments,
+  onRemove,
+  variant = 'composer',
+}: {
+  attachments: DisplayAttachment[];
+  onRemove?: (attachmentId: string) => void;
+  variant?: 'composer' | 'message';
+}) {
+  const previewable = attachments.filter(
+    (attachment) => attachment.kind === 'image' && attachment.previewUrl,
+  );
+  const [previewId, setPreviewId] = React.useState<string | null>(null);
+  const previewIndex = previewable.findIndex(
+    (attachment) => attachment.id === previewId,
+  );
+  const preview = previewIndex >= 0 ? previewable[previewIndex] : null;
+
+  const movePreview = (direction: -1 | 1) => {
+    if (previewable.length < 2 || previewIndex < 0) return;
+    const index =
+      (previewIndex + direction + previewable.length) % previewable.length;
+    setPreviewId(previewable[index]?.id ?? null);
+  };
+
+  return (
+    <>
+      <div
+        className={cn(
+          'flex gap-2',
+          variant === 'message'
+            ? 'max-w-full flex-wrap justify-end'
+            : 'w-max min-w-full pb-1',
+        )}
+      >
+        {attachments.map((attachment) =>
+          attachment.kind === 'image' ? (
+            <div
+              className="relative size-16 shrink-0"
+              data-attachment-kind="image"
+              data-attachment-variant={variant}
+              key={attachment.id}
+            >
+              <button
+                aria-label={
+                  attachment.previewUrl
+                    ? `预览图片 ${attachment.name}`
+                    : `图片 ${attachment.name} 暂无安全预览`
+                }
+                className={cn(
+                  'flex size-16 items-center justify-center overflow-hidden rounded-xl border border-border/80 outline-none transition-colors hover:border-foreground/30 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default',
+                  variant === 'message'
+                    ? 'bg-background shadow-sm'
+                    : 'bg-muted/60',
+                )}
+                disabled={!attachment.previewUrl}
+                type="button"
+                onClick={() => setPreviewId(attachment.id)}
+              >
+                {attachment.previewUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    alt={attachment.name}
+                    className="size-full object-cover"
+                    src={attachment.previewUrl}
+                  />
+                ) : (
+                  <ImageIcon className="text-muted-foreground" size={21} />
+                )}
+              </button>
+              {onRemove ? (
+                <button
+                  aria-label={`移除 ${attachment.name}`}
+                  className="absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm ring-1 ring-border hover:bg-destructive hover:text-destructive-foreground"
+                  type="button"
+                  onClick={() => onRemove(attachment.id)}
+                >
+                  <X size={12} />
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <div
+              className={cn(
+                'relative flex shrink-0 items-center border border-border/80',
+                variant === 'message'
+                  ? 'h-9 max-w-56 gap-1.5 rounded-full bg-background px-3 shadow-sm'
+                  : 'h-16 w-44 gap-2.5 rounded-xl bg-muted/30 px-3',
+              )}
+              data-attachment-kind={attachment.kind}
+              data-attachment-variant={variant}
+              key={attachment.id}
+              title={attachment.name}
+            >
+              <span
+                className={cn(
+                  'flex shrink-0 items-center justify-center text-muted-foreground',
+                  variant === 'composer' &&
+                    'size-9 rounded-lg bg-background shadow-sm ring-1 ring-border/70',
+                )}
+              >
+                {attachment.kind === 'folder' ? (
+                  <FolderOpen size={variant === 'message' ? 14 : 18} />
+                ) : (
+                  <FileText size={variant === 'message' ? 14 : 18} />
+                )}
+              </span>
+              <span
+                className={cn('min-w-0', variant === 'composer' && 'pr-4')}
+              >
+                <span
+                  className={cn(
+                    'block truncate font-medium',
+                    variant === 'message' ? 'text-[13px]' : 'text-xs',
+                  )}
+                >
+                  {attachment.name}
+                </span>
+                {variant === 'composer' ? (
+                  <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+                    {attachment.kind === 'folder'
+                      ? '文件夹'
+                      : attachmentSecondaryLabel(attachment)}
+                  </span>
+                ) : null}
+              </span>
+              {onRemove ? (
+                <button
+                  aria-label={`移除 ${attachment.name}`}
+                  className="absolute right-1.5 top-1.5 flex size-5 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive hover:text-destructive-foreground"
+                  type="button"
+                  onClick={() => onRemove(attachment.id)}
+                >
+                  <X size={12} />
+                </button>
+              ) : null}
+            </div>
+          ),
+        )}
+      </div>
+
+      <Dialog
+        open={Boolean(preview)}
+        onOpenChange={(open) => {
+          if (!open) setPreviewId(null);
+        }}
+      >
+        <DialogContent
+          className="max-w-[min(92vw,72rem)] border-border/30 bg-black/95 p-4 text-white"
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowLeft') movePreview(-1);
+            if (event.key === 'ArrowRight') movePreview(1);
+          }}
+        >
+          <DialogHeader className="pr-8 text-left">
+            <DialogTitle className="truncate text-sm text-white">
+              {preview?.name ?? '图片预览'}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              附件图片大图预览
+            </DialogDescription>
+          </DialogHeader>
+          <div className="relative flex min-h-64 items-center justify-center">
+            {preview?.previewUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                alt={preview.name}
+                className="max-h-[78vh] max-w-full object-contain"
+                src={preview.previewUrl}
+              />
+            ) : null}
+            {previewable.length > 1 ? (
+              <>
+                <button
+                  aria-label="上一张图片"
+                  className="absolute left-1 flex size-9 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80 focus-visible:ring-2 focus-visible:ring-white"
+                  type="button"
+                  onClick={() => movePreview(-1)}
+                >
+                  <ArrowLeft size={18} />
+                </button>
+                <button
+                  aria-label="下一张图片"
+                  className="absolute right-1 flex size-9 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80 focus-visible:ring-2 focus-visible:ring-white"
+                  type="button"
+                  onClick={() => movePreview(1)}
+                >
+                  <ArrowRight size={18} />
+                </button>
+              </>
+            ) : null}
+          </div>
+          {previewable.length > 1 ? (
+            <p className="text-center text-xs text-white/65">
+              {previewIndex + 1} / {previewable.length}
+            </p>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 export function UserMessageContent({
-  attachments = [],
   mentions,
+  pluginOptions = [],
   text,
   onOpenMention,
 }: {
-  attachments?: AiMessageAttachment[];
   mentions: AiMessageMention[];
+  pluginOptions?: AiPluginMentionOption[];
   text: string;
   onOpenMention: (path: string) => void;
 }) {
@@ -3448,19 +4101,29 @@ export function UserMessageContent({
           key={`${mention.path}-${mention.start}-${mention.end}`}
           role="note"
         >
+          <MessageMentionIcon
+            mention={mention}
+            pluginOptions={pluginOptions}
+          />
           {label}
         </span>
       ) : (
-        <button
+        <a
           aria-label={label}
           className={mentionLinkClassName}
+          href={mention.path}
           key={`${mention.path}-${mention.start}-${mention.end}`}
-          role="link"
-          type="button"
-          onClick={() => onOpenMention(mention.path)}
+          onClick={(event) => {
+            event.preventDefault();
+            onOpenMention(mention.path);
+          }}
         >
+          <MessageMentionIcon
+            mention={mention}
+            pluginOptions={pluginOptions}
+          />
           {label}
-        </button>
+        </a>
       ),
     );
     cursor = mention.end;
@@ -3470,31 +4133,68 @@ export function UserMessageContent({
     content.push(text.slice(cursor));
   }
 
+  if (!text) return null;
+
   return (
-    <div>
-      {attachments.length > 0 ? (
-        <div className={cn('flex flex-wrap gap-1.5', text && 'mb-1.5')}>
-          {attachments.map((attachment, index) => (
-            <span
-              className="inline-flex max-w-52 items-center gap-1 rounded-md border border-border/70 bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground"
-              key={`${attachment.kind}:${attachment.name}:${index}`}
-            >
-              {attachment.kind === 'folder' ? (
-                <FolderOpen size={11} />
-              ) : (
-                <Paperclip size={11} />
-              )}
-              <span className="truncate">{attachment.name}</span>
-            </span>
-          ))}
-        </div>
-      ) : null}
-      {text ? (
-        <div className="whitespace-pre-wrap break-words">
-          {content.length > 0 ? content : text}
-        </div>
-      ) : null}
+    <div className="whitespace-pre-wrap break-words">
+      {content.length > 0 ? content : text}
     </div>
+  );
+}
+
+function MessageMentionIcon({
+  mention,
+  pluginOptions,
+}: {
+  mention: AiMessageMention;
+  pluginOptions: AiPluginMentionOption[];
+}) {
+  let icon: React.ReactNode;
+
+  if (mention.kind === 'plugin' || mention.path.startsWith('plugin://')) {
+    const plugin = pluginOptions.find(
+      (option) => option.mentionPath === mention.path,
+    );
+    icon = plugin ? (
+      <PluginIcon plugin={plugin} />
+    ) : (
+      <StaticMentionIcon src="/icons/mentions/puzzle.svg" />
+    );
+  } else {
+    icon = (
+      <StaticMentionIcon
+        src={
+          mention.kind === 'skill'
+            ? '/icons/mentions/box.svg'
+            : mention.kind === 'drawing'
+              ? '/icons/mentions/box.svg'
+            : '/icons/mentions/file-text.svg'
+        }
+      />
+    );
+  }
+
+  return (
+    <span
+      aria-hidden="true"
+      className="mr-1.5 inline-flex size-4 align-[-0.125em]"
+    >
+      {icon}
+    </span>
+  );
+}
+
+function StaticMentionIcon({ src }: { src: string }) {
+  return (
+    // Mention 图标来自 Madora 自带静态资源，不需要 Next 图片优化。
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      alt=""
+      aria-hidden="true"
+      className="size-4 shrink-0 object-contain"
+      draggable={false}
+      src={src}
+    />
   );
 }
 
@@ -3719,9 +4419,7 @@ function ActivityGroupRow({
   ) => void;
   onOpenDocument: (documentPath: string) => void;
 }) {
-  const forceOpen = ['declined', 'failed', 'waitingApproval'].includes(
-    group.status,
-  );
+  const forceOpen = ['declined', 'waitingApproval'].includes(group.status);
   const [open, onOpenChange] = useAttentionDisclosure(forceOpen);
 
   return (
@@ -3786,7 +4484,6 @@ function ActivityItemRow({
   onOpenDocument: (documentPath: string) => void;
 }) {
   const forceOpen =
-    activity.status === 'failed' ||
     activity.status === 'declined' ||
     approvals.length > 0;
   const [open, onOpenChange] = useAttentionDisclosure(forceOpen);
@@ -3888,7 +4585,7 @@ function ActivityMeta({ activity }: { activity: AiTimelineItem }) {
   return null;
 }
 
-function ActivityDetails({
+export function ActivityDetails({
   activity,
   onOpenDocument,
 }: {
@@ -3978,11 +4675,30 @@ function ActivityDetails({
   }
 
   if (activity.kind === 'mcp' || activity.kind === 'dynamic') {
+    const resultImages =
+      activity.kind === 'dynamic'
+        ? dynamicToolResultImages(activity.result)
+        : [];
+    const detailResult =
+      activity.kind === 'dynamic'
+        ? dynamicToolResultWithoutImages(activity.result)
+        : activity.result;
     return (
       <div className="mb-2 mt-1 space-y-2 rounded-lg bg-muted/25 px-3 py-2 text-[11px] text-muted-foreground">
         {activity.progress ? <div>{activity.progress}</div> : null}
         <JsonDetail label="参数" value={activity.arguments} />
-        <JsonDetail label="结果" value={activity.result} />
+        {resultImages.map((imageUrl) => (
+          // Madora-generated Data URLs are already bounded and cannot use the Next image optimizer.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            alt="AI 图稿预览"
+            className="max-h-72 w-full rounded-md border border-border/70 bg-white object-contain"
+            data-testid="ai-drawing-preview-image"
+            key={imageUrl.slice(0, 96)}
+            src={imageUrl}
+          />
+        ))}
+        <JsonDetail label="结果" value={detailResult} />
         {activity.error ? (
           <div className="whitespace-pre-wrap text-destructive">{activity.error}</div>
         ) : null}
@@ -4030,6 +4746,34 @@ function JsonDetail({ label, value }: { label: string; value: unknown }) {
       </pre>
     </div>
   );
+}
+
+function dynamicToolResultImages(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const record = item as Record<string, unknown>;
+    const imageUrl = record.imageUrl;
+    if (
+      record.type !== 'inputImage' ||
+      typeof imageUrl !== 'string' ||
+      !/^data:image\/(?:png|webp);base64,/i.test(imageUrl)
+    ) {
+      return [];
+    }
+    return [imageUrl];
+  });
+}
+
+function dynamicToolResultWithoutImages(value: unknown) {
+  if (!Array.isArray(value)) return value;
+  const filtered = value.filter(
+    (item) =>
+      !item ||
+      typeof item !== 'object' ||
+      (item as Record<string, unknown>).type !== 'inputImage',
+  );
+  return filtered.length > 0 ? filtered : null;
 }
 
 function DetailLabel({ label }: { label: string }) {
@@ -4820,6 +5564,7 @@ export function AiComposer({
   active,
   approvalPolicyAvailability,
   attachments = [],
+  attachmentPreviewUrls = {},
   authRequired = false,
   autoReviewAvailable,
   collaborationMode = 'default',
@@ -4827,12 +5572,14 @@ export function AiComposer({
   compactUnavailableReason = null,
   contextUsage = null,
   currentDocument,
+  currentDrawing = null,
   effort,
   focusRequest = 0,
   goalActive = false,
   goalDraftMode = false,
   goalUnavailableReason = null,
   mentionDocuments,
+  mentionDrawings = [],
   mentionQuery,
   modeSwitchDisabled = false,
   modelCatalogStatus = 'ready',
@@ -4849,11 +5596,13 @@ export function AiComposer({
   runtimeStatus,
   selectedModel,
   selectedModelInfo,
+  skillInsertRequest = null,
   skillOptions = [],
   skillStatus = 'idle',
   submitting,
   value,
   onAttachmentRemove = () => undefined,
+  onAttachmentPaste = async () => false,
   onAttachmentSelect = () => undefined,
   onDetectPlugins = () => undefined,
   onCollaborationModeChange = () => undefined,
@@ -4872,6 +5621,7 @@ export function AiComposer({
   active: boolean;
   approvalPolicyAvailability: { never: boolean; onRequest: boolean };
   attachments?: CodexContextAttachment[];
+  attachmentPreviewUrls?: Record<string, string>;
   authRequired?: boolean;
   autoReviewAvailable: boolean;
   collaborationMode?: CodexCollaborationModeKind;
@@ -4879,12 +5629,14 @@ export function AiComposer({
   compactUnavailableReason?: string | null;
   contextUsage?: CodexThreadTokenUsage | null;
   currentDocument: WorkspaceNode | null;
+  currentDrawing?: AiDrawingReference | null;
   effort: CodexReasoningEffort;
   focusRequest?: number;
   goalActive?: boolean;
   goalDraftMode?: boolean;
   goalUnavailableReason?: string | null;
   mentionDocuments: AiDocumentReference[];
+  mentionDrawings?: AiDrawingReference[];
   mentionQuery: string | null;
   modeSwitchDisabled?: boolean;
   modelCatalogStatus?: ControlLoadStatus;
@@ -4901,11 +5653,13 @@ export function AiComposer({
   runtimeStatus: RuntimeStatus;
   selectedModel: string;
   selectedModelInfo: CodexModel | null;
+  skillInsertRequest?: ComposerSkillInsertRequest | null;
   skillOptions?: AiSkillMentionOption[];
   skillStatus?: ControlLoadStatus;
   submitting: boolean;
   value: string;
   onAttachmentRemove?: (attachmentId: string) => void;
+  onAttachmentPaste?: () => Promise<boolean>;
   onAttachmentSelect?: (kind: CodexContextAttachment['kind']) => void;
   onDetectPlugins?: () => void;
   onCollaborationModeChange?: (mode: CodexCollaborationModeKind) => void;
@@ -4938,6 +5692,8 @@ export function AiComposer({
   const mentionTargetRef = React.useRef<ComposerMentionTarget | null>(null);
   const dismissedMentionKeyRef = React.useRef<string | null>(null);
   const mentionPathsRef = React.useRef<string[]>([]);
+  const appliedSkillInsertRequestIdRef = React.useRef<number | null>(null);
+  const pasteQueueRef = React.useRef(Promise.resolve());
   const [composerMentionPaths, setComposerMentionPaths] = React.useState<
     string[]
   >([]);
@@ -4964,7 +5720,7 @@ export function AiComposer({
     ? '桌面端连接 Codex 后可用'
     : goalDraftMode
     ? '描述你的目标，定义可衡量的成果，以获得最佳效果'
-    : '要求后续变更，使用 @ 提及文档，/ 选择 Skill';
+    : '要求后续变更，使用 @ 提及文档或图稿，/ 选择 Skill';
 
   React.useEffect(() => {
     if (focusRequest > 0 && !editorDisabled) {
@@ -5052,7 +5808,7 @@ export function AiComposer({
   }, [value]);
 
   const insertMention = React.useCallback(
-    (document: AiDocumentReference) => {
+    (reference: AiDocumentReference | AiDrawingReference) => {
       const editor = editorRef.current;
       if (!editor) {
         return;
@@ -5066,7 +5822,9 @@ export function AiComposer({
           : getComposerRange(editor, savedRangeRef.current);
       range.deleteContents();
 
-      const mention = createDocumentMentionElement(document);
+      const mention = isDrawingReference(reference)
+        ? createDrawingMentionElement(reference)
+        : createDocumentMentionElement(reference);
       const trailingSpace = window.document.createTextNode('\u00a0');
       range.insertNode(mention);
       mention.after(trailingSpace);
@@ -5146,6 +5904,25 @@ export function AiComposer({
     [onMentionQueryChange, syncEditorState],
   );
 
+  React.useLayoutEffect(() => {
+    const editor = editorRef.current;
+    if (
+      !editor ||
+      !skillInsertRequest ||
+      appliedSkillInsertRequestIdRef.current === skillInsertRequest.id
+    ) {
+      return;
+    }
+    appliedSkillInsertRequestIdRef.current = skillInsertRequest.id;
+    editor.replaceChildren();
+    savedRangeRef.current = null;
+    mentionTargetRef.current = null;
+    dismissedMentionKeyRef.current = null;
+    mentionPathsRef.current = [];
+    setComposerMentionPaths([]);
+    insertSkillMention(skillInsertRequest.skill);
+  }, [insertSkillMention, skillInsertRequest]);
+
   const runCompactCommand = React.useCallback(() => {
     if (compactUnavailableReason) return;
     const editor = editorRef.current;
@@ -5209,26 +5986,41 @@ export function AiComposer({
     setSkillQuery(null);
   }, [onMentionQueryChange]);
 
+  const mentionOptions = React.useMemo(
+    () => [
+      ...mentionDocuments.map((reference) => ({
+        kind: 'document' as const,
+        path: reference.absolutePath,
+        reference,
+      })),
+      ...mentionDrawings.map((reference) => ({
+        kind: 'drawing' as const,
+        path: createDrawingMentionPath(reference.id),
+        reference,
+      })),
+    ],
+    [mentionDocuments, mentionDrawings],
+  );
   const selectedMentionIndex =
     mentionSelection.query === mentionQuery
-      ? mentionDocuments.findIndex(
-          (document) => document.absolutePath === mentionSelection.path,
+      ? mentionOptions.findIndex(
+          (option) => option.path === mentionSelection.path,
         )
       : -1;
   const activeMentionIndex =
-    mentionDocuments.length === 0 ? -1 : Math.max(0, selectedMentionIndex);
+    mentionOptions.length === 0 ? -1 : Math.max(0, selectedMentionIndex);
   const activeMention =
     activeMentionIndex >= 0
-      ? (mentionDocuments[activeMentionIndex] ?? null)
+      ? (mentionOptions[activeMentionIndex]?.reference ?? null)
       : null;
   const selectMentionIndex = React.useCallback(
     (index: number) => {
       setMentionSelection({
-        path: mentionDocuments[index]?.absolutePath ?? null,
+        path: mentionOptions[index]?.path ?? null,
         query: mentionQuery,
       });
     },
-    [mentionDocuments, mentionQuery],
+    [mentionOptions, mentionQuery],
   );
   const visibleSkills = React.useMemo(
     () =>
@@ -5317,7 +6109,9 @@ export function AiComposer({
           <MentionMenu
             activeIndex={activeMentionIndex}
             currentDocumentPath={currentDocument?.absolutePath ?? null}
+            currentDrawingId={currentDrawing?.id ?? null}
             documents={mentionDocuments}
+            drawings={mentionDrawings}
             listboxId={mentionListboxId}
             query={mentionQuery}
             onActiveIndexChange={selectMentionIndex}
@@ -5326,7 +6120,24 @@ export function AiComposer({
           />
         ) : null}
 
-        {currentDocument || attachments.length > 0 ? (
+        {attachments.length > 0 ? (
+          <div className="scrollbar-thin overflow-x-auto px-3 pt-2.5">
+            <AttachmentCards
+              attachments={attachments.map((attachment) => ({
+                id: attachment.attachmentId,
+                kind: attachment.isImage ? 'image' : attachment.kind,
+                mediaType: attachment.mediaType,
+                name: attachment.name,
+                previewUrl:
+                  attachmentPreviewUrls[attachment.attachmentId] ?? null,
+                sizeBytes: attachment.sizeBytes,
+              }))}
+              onRemove={onAttachmentRemove}
+            />
+          </div>
+        ) : null}
+
+        {currentDocument || currentDrawing ? (
           <div className="flex flex-wrap gap-1 px-3 pt-2.5">
             {currentDocument ? (
               <ContextChip
@@ -5334,21 +6145,17 @@ export function AiComposer({
                 title={getDocumentContextTitle(currentDocument)}
               />
             ) : null}
-            {attachments.map((attachment) => (
+            {currentDrawing ? (
               <ContextChip
-                dismissible
-                icon={
-                  attachment.kind === 'folder' ? (
-                    <FolderOpen size={11} />
-                  ) : (
-                    <Paperclip size={11} />
-                  )
+                icon={<Blocks size={11} />}
+                label={currentDrawing.title}
+                title={
+                  currentDrawing.albumPath
+                    ? `${currentDrawing.title} · ${currentDrawing.albumPath}`
+                    : currentDrawing.title
                 }
-                key={attachment.attachmentId}
-                label={attachment.name}
-                onDismiss={() => onAttachmentRemove(attachment.attachmentId)}
               />
-            ))}
+            ) : null}
           </div>
         ) : null}
 
@@ -5383,7 +6190,10 @@ export function AiComposer({
             const mention = findMentionElement(event.target);
             if (mention) {
               event.preventDefault();
-              if (mention.dataset.mentionKind === 'document') {
+              if (
+                mention.dataset.mentionKind === 'document' ||
+                mention.dataset.mentionKind === 'drawing'
+              ) {
                 onOpenMention(mention.dataset.mentionPath ?? '');
               }
               return;
@@ -5401,7 +6211,10 @@ export function AiComposer({
             const mention = findMentionElement(event.target);
             if (mention && (event.key === 'Enter' || event.key === ' ')) {
               event.preventDefault();
-              if (mention.dataset.mentionKind === 'document') {
+              if (
+                mention.dataset.mentionKind === 'document' ||
+                mention.dataset.mentionKind === 'drawing'
+              ) {
                 onOpenMention(mention.dataset.mentionPath ?? '');
               }
               return;
@@ -5419,12 +6232,12 @@ export function AiComposer({
                     (activeMenuIndex + direction + menuOptionCount) %
                       menuOptionCount,
                   );
-                } else if (mentionDocuments.length > 0) {
+                } else if (mentionOptions.length > 0) {
                   selectMentionIndex(
                     (activeMentionIndex +
                       direction +
-                      mentionDocuments.length) %
-                      mentionDocuments.length,
+                      mentionOptions.length) %
+                      mentionOptions.length,
                   );
                 }
                 return;
@@ -5495,12 +6308,22 @@ export function AiComposer({
           }}
           onPaste={(event) => {
             event.preventDefault();
-            insertPlainTextAtSelection(
-              editorRef.current,
-              event.clipboardData.getData('text/plain'),
-              savedRangeRef,
-            );
-            syncEditorState();
+            saveSelection();
+            const pastedText = event.clipboardData.getData('text/plain');
+            const pasteRange = savedRangeRef.current?.cloneRange() ?? null;
+            pasteQueueRef.current = pasteQueueRef.current.then(async () => {
+              const handled = await onAttachmentPaste();
+              if (!handled) {
+                if (pasteRange) savedRangeRef.current = pasteRange;
+                insertPlainTextAtSelection(
+                  editorRef.current,
+                  pastedText,
+                  savedRangeRef,
+                );
+                syncEditorState();
+              }
+              editorRef.current?.focus();
+            });
           }}
         />
 
@@ -5935,7 +6758,10 @@ export function AiComposer({
                 aria-label="发送"
                 className="ml-1 flex size-8 items-center justify-center rounded-full bg-foreground text-background disabled:opacity-30"
                 disabled={
-                  runtimeUnavailable || submitting || inputBlocked || !value.trim()
+                  runtimeUnavailable ||
+                  submitting ||
+                  inputBlocked ||
+                  (!value.trim() && attachments.length === 0)
                 }
                 type="button"
                 onClick={onSend}
@@ -6057,7 +6883,9 @@ function ContextUsageProgress({
 function MentionMenu({
   activeIndex,
   currentDocumentPath,
+  currentDrawingId,
   documents,
+  drawings,
   listboxId,
   query,
   onActiveIndexChange,
@@ -6066,12 +6894,14 @@ function MentionMenu({
 }: {
   activeIndex: number;
   currentDocumentPath: string | null;
+  currentDrawingId: string | null;
   documents: AiDocumentReference[];
+  drawings: AiDrawingReference[];
   listboxId: string;
   query: string;
   onActiveIndexChange: (index: number) => void;
   onClose: () => void;
-  onSelect: (document: AiDocumentReference) => void;
+  onSelect: (reference: AiDocumentReference | AiDrawingReference) => void;
 }) {
   const optionRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
 
@@ -6088,7 +6918,7 @@ function MentionMenu({
       data-mention-menu
     >
       <div className="flex items-center justify-between px-2 py-1.5 text-[11px] text-muted-foreground">
-        <span>@ 提及文档{query ? ` · ${query}` : ''}</span>
+        <span>@ 提及文档或图稿{query ? ` · ${query}` : ''}</span>
         <button
           aria-label="关闭提及列表"
           className="rounded-sm p-0.5 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -6100,66 +6930,127 @@ function MentionMenu({
         </button>
       </div>
       <div
-        aria-label="提及工作区文档"
+        aria-label="提及工作区文档或图稿"
         className="scrollbar-thin max-h-56 overflow-y-auto"
         id={listboxId}
         role="listbox"
       >
-        {documents.length === 0 ? (
+        {documents.length === 0 && drawings.length === 0 ? (
           <div className="px-2 py-5 text-center text-xs text-muted-foreground">
-            没有匹配的文档
+            没有匹配的文档或图稿
           </div>
         ) : (
-          documents.map((document, index) => {
-            const isCurrentDocument =
-              document.absolutePath === currentDocumentPath;
-            return (
-              <button
-                aria-label={`提及 ${document.title || document.name}${isCurrentDocument ? '，当前文档' : ''}`}
-                aria-selected={index === activeIndex}
-                className={cn(
-                  'flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left outline-none',
-                  index === activeIndex
-                    ? 'bg-accent text-accent-foreground'
-                    : 'hover:bg-accent/60',
-                )}
-                id={mentionOptionId(listboxId, index)}
-                key={document.absolutePath}
-                ref={(element) => {
-                  optionRefs.current[index] = element;
-                }}
-                role="option"
-                type="button"
-                onMouseDown={(event) => event.preventDefault()}
-                onMouseMove={() => onActiveIndexChange(index)}
-                onClick={() => onSelect(document)}
-              >
-                <FileText className="shrink-0 text-muted-foreground" size={14} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex min-w-0 items-center gap-1.5 text-xs">
-                    <span className="truncate">
-                      <MentionMatchedText
-                        query={query}
-                        text={document.title || document.name}
-                      />
-                    </span>
-                    {isCurrentDocument ? (
-                      <span className="shrink-0 rounded border border-border/70 bg-muted/45 px-1 py-0.5 text-[9px] leading-none text-muted-foreground">
-                        当前文档
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="truncate text-[10px] text-muted-foreground">
-                    <MentionMatchedText
-                      query={query}
-                      text={document.relativePath}
-                    />
-                  </div>
-                </div>
-              </button>
-            );
-          })
+          <>
+            {documents.length > 0 ? (
+              <div className="px-2 pb-1 pt-1.5 text-[10px] font-medium text-muted-foreground">
+                文档
+              </div>
+            ) : null}
+            {documents.map((document, index) => {
+              const isCurrentDocument =
+                document.absolutePath === currentDocumentPath;
+              return (
+                <button
+                  aria-label={`提及 ${document.title || document.name}${isCurrentDocument ? '，当前文档' : ''}`}
+                  aria-selected={index === activeIndex}
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left outline-none',
+                    index === activeIndex
+                      ? 'bg-accent text-accent-foreground'
+                      : 'hover:bg-accent/60',
+                  )}
+                  id={mentionOptionId(listboxId, index)}
+                  key={document.absolutePath}
+                  ref={(element) => {
+                    optionRefs.current[index] = element;
+                  }}
+                  role="option"
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onMouseMove={() => onActiveIndexChange(index)}
+                  onClick={() => onSelect(document)}
+                >
+                  <FileText className="shrink-0 text-muted-foreground" size={14} />
+                  <MentionOptionText
+                    badge={isCurrentDocument ? '当前文档' : null}
+                    detail={document.relativePath}
+                    label={document.title || document.name}
+                    query={query}
+                  />
+                </button>
+              );
+            })}
+            {drawings.length > 0 ? (
+              <div className="px-2 pb-1 pt-2 text-[10px] font-medium text-muted-foreground">
+                图稿
+              </div>
+            ) : null}
+            {drawings.map((drawing, drawingIndex) => {
+              const index = documents.length + drawingIndex;
+              const isCurrentDrawing = drawing.id === currentDrawingId;
+              return (
+                <button
+                  aria-label={`提及 ${drawing.title}${isCurrentDrawing ? '，当前图稿' : ''}`}
+                  aria-selected={index === activeIndex}
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left outline-none',
+                    index === activeIndex
+                      ? 'bg-accent text-accent-foreground'
+                      : 'hover:bg-accent/60',
+                  )}
+                  id={mentionOptionId(listboxId, index)}
+                  key={drawing.id}
+                  ref={(element) => {
+                    optionRefs.current[index] = element;
+                  }}
+                  role="option"
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onMouseMove={() => onActiveIndexChange(index)}
+                  onClick={() => onSelect(drawing)}
+                >
+                  <Blocks className="shrink-0 text-muted-foreground" size={14} />
+                  <MentionOptionText
+                    badge={isCurrentDrawing ? '当前图稿' : null}
+                    detail={drawing.albumPath || '未归类'}
+                    label={drawing.title}
+                    query={query}
+                  />
+                </button>
+              );
+            })}
+          </>
         )}
+      </div>
+    </div>
+  );
+}
+
+function MentionOptionText({
+  badge,
+  detail,
+  label,
+  query,
+}: {
+  badge: string | null;
+  detail: string;
+  label: string;
+  query: string;
+}) {
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 items-center gap-1.5 text-xs">
+        <span className="truncate">
+          <MentionMatchedText query={query} text={label} />
+        </span>
+        {badge ? (
+          <span className="shrink-0 rounded border border-border/70 bg-muted/45 px-1 py-0.5 text-[9px] leading-none text-muted-foreground">
+            {badge}
+          </span>
+        ) : null}
+      </div>
+      <div className="truncate text-[10px] text-muted-foreground">
+        <MentionMatchedText query={query} text={detail} />
       </div>
     </div>
   );
@@ -6460,7 +7351,7 @@ function createDocumentMentionElement(document: AiDocumentReference) {
   const mention = window.document.createElement('span');
   const label = getDocumentContextLabel(document);
 
-  mention.className = mentionLinkClassName;
+  mention.className = composerMentionClassName;
   mention.contentEditable = 'false';
   mention.dataset.mentionId = document.id;
   mention.dataset.mentionKind = 'document';
@@ -6475,6 +7366,32 @@ function createDocumentMentionElement(document: AiDocumentReference) {
   mention.tabIndex = 0;
   appendMentionImage(mention, '/icons/mentions/file-text.svg');
   mention.append(window.document.createTextNode(label));
+
+  return mention;
+}
+
+function createDrawingMentionElement(drawing: AiDrawingReference) {
+  const mention = window.document.createElement('span');
+
+  mention.className = composerMentionClassName;
+  mention.contentEditable = 'false';
+  mention.dataset.mentionAlbumPath = drawing.albumPath;
+  mention.dataset.mentionElementCount = String(drawing.elementCount);
+  mention.dataset.mentionHasPreview = String(drawing.hasPreview);
+  mention.dataset.mentionId = drawing.id;
+  mention.dataset.mentionKind = 'drawing';
+  mention.dataset.mentionLabel = drawing.title;
+  mention.dataset.mentionName = drawing.title;
+  mention.dataset.mentionPath = createDrawingMentionPath(drawing.id);
+  mention.dataset.mentionRevision = String(drawing.revision);
+  mention.setAttribute('aria-label', drawing.title);
+  mention.setAttribute('role', 'link');
+  mention.title = drawing.albumPath
+    ? `${drawing.title} · ${drawing.albumPath}`
+    : drawing.title;
+  mention.tabIndex = 0;
+  appendMentionImage(mention, '/icons/mentions/box.svg');
+  mention.append(window.document.createTextNode(drawing.title));
 
   return mention;
 }
@@ -6494,7 +7411,7 @@ function createPluginMentionElement(plugin: AiPluginMentionOption) {
   const mention = window.document.createElement('span');
   const label = plugin.displayName;
 
-  mention.className = cn(mentionLinkClassName, 'cursor-default no-underline');
+  mention.className = cn(composerMentionClassName, 'cursor-default no-underline');
   mention.contentEditable = 'false';
   mention.dataset.mentionDescription = plugin.description ?? '';
   mention.dataset.mentionId = plugin.id;
@@ -6530,7 +7447,7 @@ function createPluginMentionElement(plugin: AiPluginMentionOption) {
 function createSkillMentionElement(skill: AiSkillMentionOption) {
   const mention = window.document.createElement('span');
 
-  mention.className = cn(mentionLinkClassName, 'cursor-default no-underline');
+  mention.className = cn(composerMentionClassName, 'cursor-default no-underline');
   mention.contentEditable = 'false';
   mention.dataset.mentionDescription = skill.description;
   mention.dataset.mentionKind = 'skill';
@@ -6693,7 +7610,25 @@ function readComposerSnapshot(editor: HTMLElement) {
       const label = node.dataset.mentionLabel ?? node.textContent ?? '';
       const start = value.length;
       value += label;
-      if (node.dataset.mentionKind === 'plugin') {
+      if (node.dataset.mentionKind === 'drawing') {
+        const drawingId = parseDrawingMentionPath(node.dataset.mentionPath);
+        if (drawingId) {
+          mentions.push({
+            albumPath: node.dataset.mentionAlbumPath ?? '',
+            drawingId,
+            elementCount: Number(node.dataset.mentionElementCount ?? 0),
+            end: value.length,
+            hasPreview: node.dataset.mentionHasPreview === 'true',
+            id: drawingId,
+            kind: 'drawing',
+            label,
+            path: node.dataset.mentionPath,
+            revision: Number(node.dataset.mentionRevision ?? 0),
+            start,
+            title: node.dataset.mentionName || label,
+          });
+        }
+      } else if (node.dataset.mentionKind === 'plugin') {
         mentions.push({
           description: node.dataset.mentionDescription || null,
           end: value.length,
@@ -6889,6 +7824,21 @@ function uniqueDocuments(documents: AiDocumentReference[]) {
   });
 }
 
+function uniqueDrawings(drawings: AiComposerDrawingMention[]) {
+  const seen = new Set<string>();
+  return drawings.filter((drawing) => {
+    if (seen.has(drawing.id)) return false;
+    seen.add(drawing.id);
+    return true;
+  });
+}
+
+function isDrawingReference(
+  reference: AiDocumentReference | AiDrawingReference,
+): reference is AiDrawingReference {
+  return 'albumPath' in reference && !('absolutePath' in reference);
+}
+
 function isDocumentComposerMention(
   mention: AiComposerMention,
 ): mention is AiComposerDocumentMention {
@@ -6901,10 +7851,44 @@ function isPluginComposerMention(
   return mention.kind === 'plugin';
 }
 
+function isDrawingComposerMention(
+  mention: AiComposerMention,
+): mention is AiComposerDrawingMention {
+  return mention.kind === 'drawing';
+}
+
 function isSkillComposerMention(
   mention: AiComposerMention,
 ): mention is AiComposerSkillMention {
   return mention.kind === 'skill';
+}
+
+function modelSupportsImages(model: CodexModel | null) {
+  return model?.inputModalities?.includes('image') ?? true;
+}
+
+function bytesToDataUrl(bytes: Uint8Array, mediaType: string) {
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return `data:${mediaType};base64,${globalThis.btoa(binary)}`;
+}
+
+function attachmentSecondaryLabel(attachment: DisplayAttachment) {
+  const extension = attachment.name.includes('.')
+    ? attachment.name.split('.').at(-1)?.toLocaleUpperCase()
+    : null;
+  const size = formatAttachmentSize(attachment.sizeBytes);
+  return [extension || '文件', size].filter(Boolean).join(' · ');
+}
+
+function formatAttachmentSize(sizeBytes?: number | null) {
+  if (!sizeBytes || sizeBytes < 0) return null;
+  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  if (sizeBytes < 1024 * 1024) return `${Math.ceil(sizeBytes / 1024)} KiB`;
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
 function uniqueContextAttachments(attachments: CodexContextAttachment[]) {

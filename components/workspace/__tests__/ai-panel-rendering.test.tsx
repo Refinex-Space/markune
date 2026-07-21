@@ -11,6 +11,7 @@ import {
   ChangeSummaryCard,
   ConversationEntryRow,
   GoalStatusBar,
+  PanelContent,
   PlanImplementationCard,
   ProcessingTrace,
   ProposedPlanCard,
@@ -19,12 +20,14 @@ import {
   UserMessageContent,
 } from '../ai-panel';
 import {
+  createEmptyConversation,
   createOutputPreview,
   type AiChangeSummaryBlock,
   type AiTaskProgress,
   type AiTraceBlock,
 } from '../ai-panel-state';
 import type {
+  CodexContextAttachment,
   CodexThreadGoal,
   CodexThreadTokenUsage,
 } from '../codex-app-server';
@@ -403,7 +406,7 @@ describe('AI message rendering', () => {
     expect(row?.getAttribute('tabindex')).toBe('0');
     expect(bubble?.className).toContain('w-max');
     expect(bubble?.className).toContain('max-w-full');
-    expect(wrapper?.className).toContain('max-w-[88%]');
+    expect(wrapper?.className).toContain('max-w-[96%]');
     expect(bubble?.className).toContain('break-words');
     const metadata = screen.getByTestId('user-message-metadata');
     expect(row?.className).toContain('ai-message-entry');
@@ -418,6 +421,90 @@ describe('AI message rendering', () => {
     expect((await screen.findByRole('tooltip')).textContent).toContain('复制');
     await user.click(copy);
     expect(writeText).toHaveBeenCalledWith('你好啊');
+  });
+
+  it('已发送附件独立显示在文字气泡上方并保持消息态样式', async () => {
+    const user = userEvent.setup();
+    render(
+      <ConversationEntryRow
+        entry={{
+          attachments: [
+            {
+              kind: 'image',
+              mediaType: 'image/png',
+              name: 'diagram.png',
+              previewUrl: 'data:image/png;base64,aW1hZ2U=',
+            },
+            {
+              kind: 'file',
+              name: 'AGENTS.md',
+              previewUrl: null,
+            },
+          ],
+          createdAtMs: new Date(2026, 6, 19, 18, 20).getTime(),
+          id: 'user-message-with-attachments',
+          role: 'user',
+          text: '这个文件有什么',
+          type: 'message',
+        }}
+        previous={null}
+        onOpenDocument={vi.fn()}
+      />,
+    );
+
+    const attachmentShelf = screen.getByTestId('user-message-attachments');
+    const bubble = screen.getByTestId('user-message-bubble');
+    const image = screen.getByRole('button', {
+      name: '预览图片 diagram.png',
+    });
+    const fileCard = screen
+      .getByText('AGENTS.md')
+      .closest('[data-attachment-kind]');
+
+    expect(attachmentShelf.parentElement).toBe(bubble.parentElement);
+    expect(bubble.contains(image)).toBe(false);
+    expect(
+      attachmentShelf.compareDocumentPosition(bubble) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(fileCard?.getAttribute('data-attachment-variant')).toBe('message');
+    expect(fileCard?.className).toContain('h-9');
+    expect(fileCard?.className).toContain('rounded-full');
+
+    await user.click(image);
+    expect(
+      within(screen.getByRole('dialog')).getByAltText('diagram.png'),
+    ).toBeTruthy();
+  });
+
+  it('纯附件消息不渲染空气泡并保留时间', () => {
+    render(
+      <ConversationEntryRow
+        entry={{
+          attachments: [
+            {
+              kind: 'file',
+              name: 'AGENTS.md',
+              previewUrl: null,
+            },
+          ],
+          createdAtMs: new Date(2026, 6, 19, 18, 24).getTime(),
+          id: 'user-message-attachment-only',
+          role: 'user',
+          text: '',
+          type: 'message',
+        }}
+        previous={null}
+        onOpenDocument={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('user-message-attachments')).toBeTruthy();
+    expect(screen.queryByTestId('user-message-bubble')).toBeNull();
+    expect(screen.getByTestId('user-message-metadata').textContent).toContain(
+      '18:24',
+    );
+    expect(screen.queryByRole('button', { name: '复制消息' })).toBeNull();
   });
 
   it('AI 回答在悬浮区左侧按复制、时间的顺序展示元信息', async () => {
@@ -471,19 +558,72 @@ describe('AI message rendering', () => {
     expect(screen.getByText('图片：远程图片')).toBeTruthy();
   });
 
-  it('不在面板头部重复提供折叠按钮', () => {
-    render(
+  it('两种展示模式的标题栏均隐藏分割线', () => {
+    const { rerender } = render(
       <AiPanelHeader
         activeThread={null}
+        presentation="workspace"
         view="chat"
         onHistory={vi.fn()}
         onNewChat={vi.fn()}
       />,
     );
 
+    const header = screen.getByRole('banner');
+    const actions = screen.getByTestId('ai-header-actions');
+    expect(header.className).toContain('-mt-1');
+    expect(header.className).toContain('h-9');
+    expect(header.className).not.toContain('border-b');
+    expect(actions.className).toContain('gap-0.5');
     expect(
       screen.queryByRole('button', { name: '折叠 AI 面板' }),
     ).toBeNull();
+
+    rerender(
+      <AiPanelHeader
+        activeThread={null}
+        presentation="panel"
+        view="chat"
+        onHistory={vi.fn()}
+        onNewChat={vi.fn()}
+      />,
+    );
+
+    const panelHeader = screen.getByRole('banner');
+    expect(panelHeader.className).toContain('h-12');
+    expect(panelHeader.className).not.toContain('border-b');
+  });
+
+  it('大屏消息区与输入框使用同一宽度和水平内边距', () => {
+    const conversation = createEmptyConversation();
+    conversation.entries.push({
+      id: 'assistant-message',
+      role: 'assistant',
+      text: '已经完成处理。',
+      type: 'message',
+    });
+
+    render(
+      <PanelContent
+        account={null}
+        authRequired={false}
+        conversation={conversation}
+        currentDocument={null}
+        presentation="workspace"
+        runtimeError={null}
+        runtimeStatus="ready"
+        signingIn={false}
+        onApprove={vi.fn()}
+        onOpenDocument={vi.fn()}
+        onOpenPlanPreview={vi.fn()}
+        onPrompt={vi.fn()}
+        onSignIn={vi.fn()}
+      />,
+    );
+
+    const content = screen.getByTestId('ai-conversation-content');
+    expect(content.className).toContain('max-w-[920px]');
+    expect(content.className).toContain('px-3');
   });
 
   it('加号菜单只展示附件、占位能力和插件入口', async () => {
@@ -981,7 +1121,11 @@ describe('AI message rendering', () => {
             attachmentId: 'attachment-1',
             isImage: false,
             kind: 'folder',
+            mediaType: null,
             name: '资料',
+            previewAvailable: false,
+            previewMediaType: null,
+            sizeBytes: null,
           },
         ]}
         onAttachmentRemove={onAttachmentRemove}
@@ -989,9 +1133,94 @@ describe('AI message rendering', () => {
       />,
     );
 
-    expect(screen.getByText('资料')).toBeTruthy();
+    const composerAttachment = screen
+      .getByText('资料')
+      .closest('[data-attachment-kind]');
+    expect(composerAttachment?.getAttribute('data-attachment-variant')).toBe(
+      'composer',
+    );
+    expect(composerAttachment?.className).toContain('h-16');
     await user.click(screen.getByRole('button', { name: '移除 资料' }));
     expect(onAttachmentRemove).toHaveBeenCalledWith('attachment-1');
+  });
+
+  it('粘贴未产生原生附件时保留纯文本和光标语义', async () => {
+    const onAttachmentPaste = vi.fn().mockResolvedValue(false);
+    render(
+      <ComposerHarness
+        onAttachmentPaste={onAttachmentPaste}
+        onOpenMention={vi.fn()}
+      />,
+    );
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    fireEvent.paste(editor, {
+      clipboardData: { getData: () => '粘贴文本' },
+    });
+
+    await waitFor(() => {
+      expect(onAttachmentPaste).toHaveBeenCalledOnce();
+      expect(editor.textContent).toBe('粘贴文本');
+    });
+  });
+
+  it('粘贴产生原生附件时不把剪贴板占位文本插入编辑器', async () => {
+    const onAttachmentPaste = vi.fn().mockResolvedValue(true);
+    render(
+      <ComposerHarness
+        onAttachmentPaste={onAttachmentPaste}
+        onOpenMention={vi.fn()}
+      />,
+    );
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    fireEvent.paste(editor, {
+      clipboardData: { getData: () => '/Users/refinex/Desktop/image.png' },
+    });
+
+    await waitFor(() => expect(onAttachmentPaste).toHaveBeenCalledOnce());
+    expect(editor.textContent).toBe('');
+    expect(document.activeElement).toBe(editor);
+  });
+
+  it('图片附件支持大图预览、键盘关闭与纯附件发送', async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    render(
+      <ComposerHarness
+        attachments={[
+          {
+            attachmentId: 'image-1',
+            isImage: true,
+            kind: 'file',
+            mediaType: 'image/png',
+            name: 'diagram.png',
+            previewAvailable: true,
+            previewMediaType: 'image/png',
+            sizeBytes: 1024,
+          },
+        ]}
+        attachmentPreviewUrls={{
+          'image-1': 'data:image/png;base64,aW1hZ2U=',
+        }}
+        onOpenMention={vi.fn()}
+        onSend={onSend}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole('button', { name: '预览图片 diagram.png' }),
+    );
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toBeTruthy();
+    expect(within(dialog).getByAltText('diagram.png').getAttribute('src')).toBe(
+      'data:image/png;base64,aW1hZ2U=',
+    );
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    const send = screen.getByRole('button', { name: '发送' });
+    expect((send as HTMLButtonElement).disabled).toBe(false);
+    await user.click(send);
+    expect(onSend).toHaveBeenCalledOnce();
   });
 
   it('把文档提及插入光标位置并允许点击打开文档', async () => {
@@ -1025,7 +1254,9 @@ describe('AI message rendering', () => {
     await user.click(editor);
     await user.type(editor, '@READ');
 
-    const listbox = screen.getByRole('listbox', { name: '提及工作区文档' });
+    const listbox = screen.getByRole('listbox', {
+      name: '提及工作区文档或图稿',
+    });
     const menu = listbox.closest('[data-mention-menu]');
     expect(menu?.className).not.toContain('shadow-xl');
     expect(menu?.className).toContain('shadow-none');
@@ -1164,10 +1395,79 @@ describe('AI message rendering', () => {
 
     const mention = screen.getByRole('link', { name: 'README' });
     expect(mention.textContent).toBe('README');
+    expect(mention.tagName).toBe('A');
+    expect(mention.getAttribute('href')).toBe('/workspace/README.md');
+    expect(mention.className.split(/\s+/)).toContain('inline');
+    expect(mention.className.split(/\s+/)).not.toContain('inline-flex');
+    expect(mention.className).toContain('[font:inherit]');
+    expect(mention.className).toContain('leading-[inherit]');
+    expect(mention.className).toContain('text-left');
+    expect(mention.parentElement?.className).not.toContain('text-pretty');
+    expect(mention.querySelector('img')?.getAttribute('src')).toBe(
+      '/icons/mentions/file-text.svg',
+    );
+    expect(mention.firstElementChild?.className).toContain('align-[-0.125em]');
     expect(screen.getByText('比较 README 与')).toBeTruthy();
 
     await user.click(mention);
     expect(onOpenMention).toHaveBeenCalledWith('/workspace/README.md');
+  });
+
+  it('已发送消息保留插件真实图标和 Skill 统一图标', () => {
+    const text = '使用 OpenAI Docs 和 Design QA';
+    const pluginStart = text.indexOf('OpenAI Docs');
+    const skillStart = text.indexOf('Design QA');
+
+    render(
+      <UserMessageContent
+        mentions={[
+          {
+            end: pluginStart + 'OpenAI Docs'.length,
+            kind: 'plugin',
+            label: 'OpenAI Docs',
+            path: 'plugin://openai-docs',
+            start: pluginStart,
+          },
+          {
+            end: skillStart + 'Design QA'.length,
+            kind: 'skill',
+            label: 'Design QA',
+            path: '/Users/example/.codex/skills/design-qa/SKILL.md',
+            start: skillStart,
+          },
+        ]}
+        pluginOptions={[
+          {
+            darkIconUrl: '/icons/plugins/openai-docs-dark.png',
+            description: 'OpenAI 官方文档',
+            displayName: 'OpenAI Docs',
+            iconUrl: '/icons/plugins/openai-docs-light.png',
+            id: 'openai-docs',
+            mentionPath: 'plugin://openai-docs',
+          },
+        ]}
+        text={text}
+        onOpenMention={vi.fn()}
+      />,
+    );
+
+    const plugin = screen.getByRole('note', { name: 'OpenAI Docs' });
+    const pluginImages = plugin.querySelectorAll('img');
+    expect(plugin.className.split(/\s+/)).toContain('inline');
+    expect(plugin.className).toContain('[font:inherit]');
+    expect(plugin.firstElementChild?.className).toContain('align-[-0.125em]');
+    expect(pluginImages).toHaveLength(2);
+    expect(pluginImages[0]?.getAttribute('src')).toBe(
+      '/icons/plugins/openai-docs-light.png',
+    );
+    expect(pluginImages[1]?.getAttribute('src')).toBe(
+      '/icons/plugins/openai-docs-dark.png',
+    );
+
+    const skill = screen.getByRole('note', { name: 'Design QA' });
+    expect(skill.querySelector('img')?.getAttribute('src')).toBe(
+      '/icons/mentions/box.svg',
+    );
   });
 
   it('已发送消息隐藏模型使用的相对路径并显示文档标题', async () => {
@@ -1419,6 +1719,39 @@ describe('AI message rendering', () => {
     expect(screen.queryByText('/bin/zsh -lc "sed README.md"')).toBeNull();
   });
 
+  it('失败的工具组和技术详情保持默认折叠', async () => {
+    const user = userEvent.setup();
+    const trace = createTrace({ historical: false, status: 'failed' });
+    const failedGroup = trace.segments.find(
+      (segment) => segment.type === 'group',
+    );
+    if (!failedGroup || failedGroup.type !== 'group') {
+      throw new Error('缺少工具组测试数据');
+    }
+    failedGroup.status = 'failed';
+    failedGroup.activities[0].status = 'failed';
+
+    render(
+      <ProcessingTrace
+        trace={trace}
+        onApprove={vi.fn()}
+        onOpenDocument={vi.fn()}
+      />,
+    );
+
+    const group = screen.getByRole('button', {
+      name: '读取了文件，展开工具活动',
+    });
+    expect(group.getAttribute('aria-expanded')).toBe('false');
+
+    await user.click(group);
+    const activity = screen.getByRole('button', {
+      name: '读取 README.md，展开详情',
+    });
+    expect(activity.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByText('/bin/zsh -lc "sed README.md"')).toBeNull();
+  });
+
   it('用户手动展开工具组后，完成状态不会重置其选择', async () => {
     const user = userEvent.setup();
     const { rerender } = render(
@@ -1502,6 +1835,16 @@ describe('AI message rendering', () => {
       />,
     );
 
+    await user.click(
+      screen.getByRole('button', {
+        name: '编辑了文件，展开工具活动',
+      }),
+    );
+    await user.click(
+      screen.getByRole('button', {
+        name: '修改 README.md，展开详情',
+      }),
+    );
     await user.click(screen.getByRole('button', { name: 'README.md' }));
     expect(onOpenDocument).toHaveBeenCalledWith('/workspace/README.md');
     expect(
@@ -1816,6 +2159,7 @@ function createTrace({
 function ComposerHarness({
   active = false,
   attachments = [],
+  attachmentPreviewUrls = {},
   compacting = false,
   compactUnavailableReason = null,
   collaborationMode = 'default',
@@ -1826,6 +2170,7 @@ function ComposerHarness({
   goalUnavailableReason = null,
   mentionDocuments = [mentionedDocument],
   onAttachmentRemove = vi.fn(),
+  onAttachmentPaste = vi.fn().mockResolvedValue(false),
   onAttachmentSelect = vi.fn(),
   onDetectPlugins = vi.fn(),
   onCollaborationModeChange = vi.fn(),
@@ -1840,12 +2185,8 @@ function ComposerHarness({
   skillStatus = 'idle',
 }: {
   active?: boolean;
-  attachments?: Array<{
-    attachmentId: string;
-    isImage: boolean;
-    kind: 'file' | 'folder';
-    name: string;
-  }>;
+  attachments?: CodexContextAttachment[];
+  attachmentPreviewUrls?: Record<string, string>;
   compacting?: boolean;
   compactUnavailableReason?: string | null;
   collaborationMode?: 'default' | 'plan';
@@ -1856,6 +2197,7 @@ function ComposerHarness({
   goalUnavailableReason?: string | null;
   mentionDocuments?: Array<typeof mentionedDocument>;
   onAttachmentRemove?: (attachmentId: string) => void;
+  onAttachmentPaste?: () => Promise<boolean>;
   onAttachmentSelect?: (kind: 'file' | 'folder') => void;
   onDetectPlugins?: () => void;
   onCollaborationModeChange?: (mode: 'default' | 'plan') => void;
@@ -1892,6 +2234,7 @@ function ComposerHarness({
         active={active}
         approvalPolicyAvailability={{ never: true, onRequest: true }}
         attachments={attachments}
+        attachmentPreviewUrls={attachmentPreviewUrls}
         autoReviewAvailable
         collaborationMode={collaborationMode}
         compacting={compacting}
@@ -1919,6 +2262,7 @@ function ComposerHarness({
         submitting={false}
         value={value}
         onAttachmentRemove={onAttachmentRemove}
+        onAttachmentPaste={onAttachmentPaste}
         onAttachmentSelect={onAttachmentSelect}
         onDetectPlugins={onDetectPlugins}
         onCollaborationModeChange={onCollaborationModeChange}

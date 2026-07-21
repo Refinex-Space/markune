@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-19
+updated: 2026-07-20
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -18,6 +18,8 @@ referenced_by: AGENTS.md#knowledge-map
 - `pnpm build:desktop:web`：运行 Tauri 静态导出。
 - `pnpm import:stage`：从锁定依赖复制 PDF.js/Tesseract Worker、PDF CMap/字体/WASM 和 `eng+chi_sim` OCR 模型到 `public/import-runtime`。该目录不进入 Git，也不参与 ESLint；文件缺失时脚本立即失败。
 - `pnpm excalidraw:stage`：从精确锁定的 `@excalidraw/excalidraw@0.18.1` 复制生产 CSS 和字体到 `public/excalidraw-runtime`。该目录不进入 Git；源文件缺失时脚本立即失败。
+
+AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由于其 Mermaid DOM 解析器与 `mermaid@11.15.0` 会把 class、ER 和 state 图降级为 SVG image，`pnpm-workspace.yaml` 只对该依赖的内部 Mermaid 锁定为 `11.12.1`；应用自身的 `mermaid@11.15.0` 不降级。升级任一版本时必须在真实浏览器重新验证五类图型均返回零 files 的可编辑元素。
 - `pnpm runtime:stage`：依次准备文档导入与 Excalidraw 离线运行时，是 Web 开发和构建的统一前置步骤。
 - `pnpm harness:check`：运行仓库治理检查。
 
@@ -42,6 +44,7 @@ referenced_by: AGENTS.md#knowledge-map
 - 单文档 PDF 导出注册内部 `madora-export://` 协议，但不扩大 `capabilities/default.json` 或 `assetProtocol.scope`。该协议只提供一次性内存 HTML 会话，不读取工作区文件。
 - 多格式导入不新增文件协议或 capability。源文件访问只通过 `src-tauri/src/import.rs` 的限时授权与 Raw IPC；`assetProtocol.scope` 保持不变。
 - 画板不新增文件协议或 capability。图稿场景、预览和组件库只通过 `src-tauri/src/drawings.rs` 的受限 Raw IPC 传输；缩略图以可撤销 Blob URL 展示，`assetProtocol.scope` 保持不变。
+- `src-tauri/resources/skills/` 作为只读 Tauri bundle resource 随应用发布。运行时只解析其中的 `madora-diagram/SKILL.md` 根目录，不读取渲染器提供的 Skill 物理路径。
 - Rust 侧 Tauri 依赖固定在 `2.11.x`，以约束 `with_webview` 平台类型；Windows 直接使用与当前 Wry 对齐的 `webview2-com 0.38.2`，macOS 使用 `objc2 0.6.4` 与 `objc2-*-kit 0.3.2`。Word 生成依赖精确锁定为 `docx 9.7.1`。
 
 ## Document Import Dependencies

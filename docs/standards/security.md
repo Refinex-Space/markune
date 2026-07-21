@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-19
+updated: 2026-07-21
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -26,12 +26,15 @@ referenced_by: AGENTS.md#knowledge-map
 - Codex collaboration mode 与权限模式必须保持分离。Plan 只能使用 `collaborationMode/list` 返回的内置预设、当前模型、`medium` 推理强度和显式空 `developer_instructions`；渲染器不得提交自定义开发者指令、未知模式或非法强度。Plan 依赖指令禁止实施，并不提供强制只读安全边界；不得因此绕过现有 permission profile、审批或审计。
 - 上下文压缩不得成为通用 App Server 参数透传入口。Rust 只允许 `thread/compact/start` 的精确 `threadId`，拒绝缺失、空值、控制字符、超长值、未知字段和自定义压缩指令。上下文用量只作为当前面板的临时协议状态，不得写入日志、工作区、local storage 或 Madora 会话镜像；自动压缩必须继续由 Codex Core 原生阈值控制，前端不得按百分比重复触发。
 - Goal 不得成为扩大权限或无限前端重试的入口。Rust 只允许用户设置非空、最多 4,000 字符且不含非法控制字符的 objective，并只允许 `active | paused` 生命周期写入；模型终态、token budget、自定义 continuation prompt 和未知字段一律拒绝。Goal 的续跑、预算、空转保护和运行中 objective steering 由 Codex Core 负责，Madora 不得建立定时轮询、后台重发或第二份持久化状态。目标文本仍属于会话用户内容，会遵循 Codex Home 的线程持久化规则，不得写入共享日志。
-- 自定义 permission profile 只能来自 App Server `permissionProfile/list`，并遵循其 `allowed` 标记与 `configRequirements/read` 的企业要求；Madora 不得开放通用 `config/read`、配置写入或实验功能写入。渲染器直接提交的 `localImage` 路径必须在工作区内；工作区外图片只允许由 Rust 从有效原生附件授权注入。Codex 原生 `mention` 只允许非空的 `app://` 或 `plugin://` 目标。
-- Codex 文件与文件夹附件必须由 Tauri 原生选择器创建不可猜测、最多 15 分钟有效的授权，渲染器只可取得 ID、显示名称、类型与图片标记。Rust 在每次 `turn/start` 重新 canonicalize 并校验真实类型、去重且限制最多 20 个；未知、过期、伪造或已变化的授权必须失败关闭。发送完成、移除附件、切换线程或工作区时应幂等释放授权。
+- 自定义 permission profile 只能来自 App Server `permissionProfile/list`，并遵循其 `allowed` 标记与 `configRequirements/read` 的企业要求；Madora 不得开放通用 `config/read`、配置写入或实验功能写入。渲染器直接提交的 `localImage` 路径必须在工作区内；所有 App Server 内联 `image` 只能由 Rust 从有效原生附件授权生成，外部 URL、客户端 Data URL 和伪造图片必须拒绝。Codex 原生 `mention` 只允许非空的 `app://` 或 `plugin://` 目标。
+- Codex 文件与文件夹附件必须由 Tauri 原生选择器创建授权；剪贴板文件列表或位图只能在显式粘贴时由原生命令读取。授权不可猜测且最多 15 分钟有效，渲染器只可取得 ID、显示名称、类型、媒体类型、大小与预览标记。路径附件记录 canonical path、真实类型、大小和修改时间，图片额外记录内容散列；剪贴板图片只保存内存字节和散列。Rust 在每次预览与 `turn/start` 重新校验、去重并限制最多 20 个，图片还必须满足签名、解码、20 MiB 单图、40 MiB 单 turn 和 2500 万像素边界；未知、过期、伪造或已变化的授权必须失败关闭。发送完成、移除附件、切换线程或工作区、运行时停止时应幂等释放授权。
 - 原生附件授权不等于扩大 Codex 文件系统权限。非图片附件只把所选路径作为不可信用户上下文交给 App Server，工作区外读取仍必须服从当前 permission profile 和审批；不得为附件修改 Tauri capability、资源协议 scope 或 runtime workspace roots。
+- 图片预览必须由 Rust 解码、缩放并重新编码后通过 Raw IPC 返回，最长边不超过 2048 px、响应不超过 2 MiB；不得把绝对路径或任意本地 URL 暴露给渲染器。图片输入会随 App Server 任务历史进入用户级 Codex Home，但不得复制到 `.madora`、local storage、资源协议或普通文件 staging。
 - 插件本地图标不是通用文件读取入口。Rust 只能授权当前运行时最近一次 `plugin/installed` 响应中声明的 `composerIcon`、`logo`、`logoDark` 精确 canonical path，并在读取时重新 canonicalize、拒绝目录、符号链接改指、超过 1 MiB 或签名不属于 PNG/JPEG/GIF/WebP/SVG 的内容。重新检测、运行时停止或工作区切换必须撤销授权；不得为图标扩大 Tauri capability、文件系统插件权限或 asset protocol scope。
 - 插件远程图标只允许 HTTPS，必须禁用 Referer。SVG 仅作为经 Rust 大小与类型检查后的 `<img>` 数据源使用，不得以内联 HTML、`dangerouslySetInnerHTML` 或脚本可执行 DOM 注入；图标数据不得写入 mention、消息历史、local storage 或工作区。
 - Skill 路径不是渲染器可自由提交的文件路径。`skills/list` 只允许查询当前工作区根目录；Rust 必须按客户端请求 ID 关联响应，只登记 enabled Skill 的精确名称与 canonical 普通文件路径。`turn/start` 的 `skill` 输入必须同时匹配名称和路径授权；列表刷新、`skills/changed`、运行时停止或工作区切换必须撤销旧授权。Skill 输入框统一使用应用内置图标，不读取 Skill 自定义图标路径，也不得扩大 Tauri capability 或资源协议范围。
+- 内置 AI 画图 Skill 根目录只能由 Tauri resource resolver 取得并经 Rust 注入；渲染器提交任意 `extraRoots` 或 `dynamicTools` 必须失败关闭。动态工具请求必须精确匹配 `madora_drawing` namespace、允许的工具名、字段与受限 profile，未知字段、超长 Mermaid、非 UUID previewId/drawingId、重复响应、外链 Data URL 和伪造图片签名一律拒绝。`inspect_drawing` 只能读取当前 turn 的 active/mention 授权集合，授权在 turn 完成、运行时退出、工作区切换或下一 turn 时撤销。质量不合格的预览可以返回给模型检查，但缓存必须保留 `creatable: false`，原子创建流程不得绕过该标记。
+- Madora 图稿引用只接受规范小写 UUID、`active | mention` 角色和最多 32 项；Rust 必须从当前工作区非回收站 Drawing bundle 重新读取权威元数据，并拒绝未知字段、多个 active、缺失/损坏 bundle、重复 ID 和符号链接存储。模型只取得 untrusted 元数据、移除 files/blob 的有界场景投影和受签名校验的现有 PNG/WebP 预览，不得取得物理路径或 raw scene。
 - Madora 文档引用必须由 Rust canonicalize，并验证为当前工作区内真实存在的 Markdown 文件；必须拒绝相对路径、目录、非 Markdown 文件、工作区外路径、符号链接逃逸、未知角色、多个活跃文档和超过 32 个引用。传给 Codex 的只是不可信工作区相对路径，不得由前端预读、上传或复制文档正文。
 - 渲染器不得直接构造 `additionalContext` 或 developer 级上下文。固定读取策略只能由 Tauri 生成，活跃文档和显式引用路径必须分别使用 `untrusted` 信任级别；文件名、路径和文档内容均不得解释为指令。空活跃文档必须编码为 `null`，防止跨 turn 沿用旧文档。
 - `on-request` 审批是默认策略。命令、文件修改和 `item/permissions/requestApproval` 在用户或 auto-reviewer 决定前不得继续；“拒绝并继续”与“拒绝并停止”必须保持不同语义，“本次任务允许”只作用于当前 App Server 会话。
@@ -58,6 +61,7 @@ referenced_by: AGENTS.md#knowledge-map
 ## Drawing Storage
 
 - 渲染器只能提交已选择工作区根、UUID Drawing ID、受校验的相对图集路径以及 opaque grant/session ID；不得提交 bundle、导入源或导出目标的任意绝对路径。
+- AI 预览不得持久化到工作区或 local storage，切换工作区、运行时退出、成功创建或过期时必须清理。模型不能选择物理路径；创建只能消费当前工作区缓存的 opaque previewId，并通过 generated-create staging 原子落盘，不得直接写 `.madora/drawings`。
 - Rust 必须拒绝绝对路径、父目录段、隐藏图集、UUID 图集名、超过 8 层的图集、符号链接路径和 canonicalize 后逃出 `.madora/drawings` 的访问。扫描到单个损坏 bundle 时返回独立 issue，不得阻塞其他图稿。
 - 场景、预览和组件库分别限制为 100 MiB、2 MiB 和 20 MiB，并经 Raw IPC 传输；场景必须是受支持的 Excalidraw JSON 结构，预览优先使用 WebP，并只允许有 WebP 或 PNG 签名的 macOS WebView 兼容回退，组件库必须是 Excalidraw library JSON。
 - 保存使用 `expectedRevision` 乐观并发和 SHA-256 双重检查。begin 与 commit 都必须重新检查磁盘 revision/scene hash；普通保存不得覆盖外部修改，显式覆盖也只能覆盖 begin 之后未再次变化的磁盘版本。失败时必须保持 dirty 并清理 staging；提交中断必须恢复原文件。

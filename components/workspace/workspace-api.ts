@@ -12,6 +12,7 @@ import type {
   DrawingExportGrant,
   DrawingImportGrant,
   DrawingLibrarySnapshot,
+  DrawingRawSession,
   DrawingSaveManifest,
   DrawingSaveSession,
   DrawingTrashedAlbumSummary,
@@ -389,6 +390,20 @@ export async function beginDrawingSave(
   });
 }
 
+export async function beginGeneratedDrawingCreate(
+  rootPath: string,
+  albumPath: string,
+  manifest: DrawingSaveManifest,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<DrawingRawSession>('begin_generated_drawing_create', {
+    rootPath,
+    albumPath,
+    manifest,
+  });
+}
+
 export async function stageDrawingScene(
   sessionId: string,
   bytes: Uint8Array,
@@ -423,6 +438,21 @@ export async function cancelDrawingSave(sessionId: string) {
   const { invoke } = await import('@tauri-apps/api/core');
 
   return invoke<void>('cancel_drawing_save', { sessionId });
+}
+
+export async function commitGeneratedDrawingCreate(sessionId: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<DrawingDocumentDescriptor>(
+    'commit_generated_drawing_create',
+    { sessionId },
+  );
+}
+
+export async function cancelGeneratedDrawingCreate(sessionId: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('cancel_generated_drawing_create', { sessionId });
 }
 
 export async function renameDrawing(

@@ -130,3 +130,41 @@ final result: passed for protocol, interaction, and automated rendering; live pi
 - 无阻塞项。自动压缩由 Codex Core 的原生阈值负责，客户端没有重复倒计时或阈值，因此需在真实长任务达到阈值时做一次长期运行观察，而不是通过 UI 人工伪造。
 
 final result: passed
+
+# Sent Mention Baseline Design QA
+
+- source visual truth path: `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-72a8a26f-8d69-4354-9060-8540011dbd32.png`
+- implementation screenshot path: unavailable
+- viewport: source screenshot `2048 × 712`; local desktop viewport unavailable to automation
+- state: 浅色主题、主工作区 Codex 会话、已发送用户消息同时包含普通文字和文档 mention
+
+## Full-view comparison evidence
+
+参考截图显示普通文字“总结”的基线低于文档 mention。当前本地开发程序使用原生 Tauri 窗口，桌面自动化只能解析安装版 `/Applications/Madora.app`，无法安全绑定正在运行的 `target/debug/madora`，因此本轮没有伪造或借用安装版实现截图。
+
+## Focused region comparison evidence
+
+代码和生成 CSS 已做聚焦验证：mention 从独立的 `inline-flex + items-center + font-sans` 改为普通 `inline` 文本，并显式使用 `font: inherit` 与继承行高；文件、插件和 Skill 图标移动到独立 `inline-flex` 图标槽，通过 `vertical-align: -0.125em` 做光学校正。浏览器读取本地 `pnpm desktop:dev` 的 CSS 输出，确认上述三条规则均已生成。
+
+## Findings
+
+- [P2] 缺少同状态的本地 Tauri 实现截图，无法完成源图与实现图的并排像素比较。
+- 字体和排版：mention 文字不再使用独立字体族、字号或行高，理论上与同一文本节点共享基线。
+- 间距和布局：文字不再参与 flex 垂直居中；只有 16px 图标保留 `6px` 右间距和 `-0.125em` 垂直校正。
+- 颜色和令牌：链接颜色、Hover、焦点环和主题行为未改动。
+- 图标和图像：继续使用现有文件、真实插件和 Skill 图标，没有新增或替换资源。
+- 文案和内容：消息文本及 mention 区间保持不变。
+
+## Comparison history
+
+- Pass 1: `inline-flex + items-center + font-sans` 使 mention 形成独立字体度量与 flex 基线，截图中普通文字明显偏低。
+- Fix: mention 改为普通行内文本并完整继承字体；图标从文字布局中拆出，单独下沉 `0.125em`。
+- Post-fix evidence: 48 项定向渲染测试、87 项相关 AI 面板测试、396 项全量测试和桌面 Web 构建通过；本地生成 CSS 包含精确的 `display: inline`、`font: inherit` 与 `vertical-align: -0.125em` 规则。
+
+## Implementation Checklist
+
+- 在当前 `pnpm desktop:dev` 窗口发送同时包含普通文字和文档 mention 的消息。
+- 截取同一消息行，确认中文、英文和 mention 链接共用同一文字基线。
+- 若仍有图标光学偏差，只调整图标槽的 `vertical-align`，不要再次移动 mention 文字。
+
+final result: blocked

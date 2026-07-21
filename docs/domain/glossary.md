@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-19
+updated: 2026-07-21
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -26,6 +26,7 @@ referenced_by: AGENTS.md#knowledge-map
 - Drawing save session: an opaque Rust-side staging transaction that receives scene and preview bytes through Raw IPC, validates revision and SHA-256, then atomically commits a new bundle revision.
 - Drawing snapshot: a content-addressed static WebP workspace asset used by Markdown references; later edits to the source drawing do not mutate the snapshot.
 - Drawing back-link: a stable `madora-drawing://{drawing-id}` link that opens the source drawing without depending on its title or album path.
+- Drawing context reference: a turn-scoped active or explicit `@` reference identified only by a stable Drawing UUID; Rust resolves authoritative metadata and authorizes bounded `inspect_drawing` access without exposing the bundle path.
 - Inbox: the workspace capture and triage center for Markdown fragments that are not yet formal notes, Daily entries, or tasks. Inbox search is separate from global document search.
 - Capture: one lightweight Markdown fragment stored under `.madora/inbox`, identified by its file name and carrying triage metadata in camelCase frontmatter.
 - Triage: deciding whether a Capture should remain open, be processed, be promoted to a Note, be appended to Daily, be completed, archived, or deleted. Legacy snoozed Captures remain recoverable as open items.
@@ -37,3 +38,5 @@ referenced_by: AGENTS.md#knowledge-map
 - Codex permission profile: a named App Server permission boundary such as `:workspace`, `:read-only`, `:danger-full-access`, or a user-defined `[permissions.<id>]` entry in shared `config.toml`; it controls what the agent can access, independently from who reviews approvals.
 - Codex approval reviewer: `user` or `auto_review`, deciding who evaluates an escalation without changing the active permission profile itself.
 - Codex Skill: an App Server-discovered capability identified by a canonical name and absolute `SKILL.md` path; Madora selects it from the `/` panel, sends `$skill-name` plus a native `skill` input, and never treats its path as a general renderer file grant.
+- Codex context attachment: a 15-minute opaque native grant for a selected file/folder or an in-memory pasted bitmap; image grants become real App Server visual `image` inputs, while non-image grants remain permission-controlled local path context.
+- Attachment preview: a bounded PNG derived by Rust and delivered through Raw IPC for UI display; it is not the original file, a filesystem grant, or a persisted Madora asset.

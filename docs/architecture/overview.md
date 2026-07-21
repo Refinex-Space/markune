@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-19
+updated: 2026-07-21
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -66,7 +66,13 @@ Markdown/HTML 相对图片只能从已授权源文档目录内读取；跨工作
 
 AI 面板是工作区级客户端，不在浏览器渲染器中运行 Node.js SDK，也不持有 OpenAI API key。Tauri 启动固定版本的 `codex app-server --listen stdio://`，账户登录、线程历史、模型目录、MCP、联网搜索、工具调用和文件变更由 App Server 提供。前端仅能调用 `src-tauri/src/codex.rs` 中的 allowlist 方法，并把消息、计划、命令、文件修改与 MCP 事件按协议到达顺序写入统一会话流；助手消息使用禁用原始 HTML 的 GFM 渲染。
 
+AI 画图是宿主内的受控 Codex 能力，不接入远程 Excalidraw MCP UI。随应用打包的 `madora-diagram` Skill 负责检查当前或显式提及图稿、收敛单一视角、选择图型和质量 profile、编排 Mermaid，并根据预览最多修复两轮；Rust 在新线程中固定注入 `madora_drawing.inspect_drawing`、`madora_drawing.preview_mermaid` 与 `madora_drawing.create_from_preview`，渲染器不能提供其他 dynamic tools。`inspect_drawing` 只接受当前 turn 已授权的 Drawing UUID，返回去除 files/blob 的有界元素结构和可选 PNG/WebP 预览。Mermaid 编译器只在工具调用时动态加载，成功结果必须是可编辑 Excalidraw 元素，SVG/image fallback 会作为失败返回；编译后按 `architecture | flow | default` profile 计算交叉、穿越节点、关系和分组预算、扇出、转折、逆向关系、重叠、标签裁切与画布比例，返回确定性的 grade、blockers 和 repair suggestions。预览按工作区保存在前端内存中，最多 3 个且 10 分钟有效；未达 A 级或存在 blocker 的预览保留供模型检查，但 `create_from_preview` 必须失败关闭。创建只能提交对应 opaque `previewId` 的已编译场景，不能替换定义。
+
+生成图稿继续复用 Drawing Raw IPC，但使用独立 generated-create session。场景与 PNG/WebP 预览完整暂存并通过 Rust 校验后，revision 1 bundle 才从 `.staging` 原子 rename 到当前普通图集或未归类根目录；任何失败都不创建空白 bundle。成功后前端刷新图稿库、切换到 Drawings system page 并打开结果，后续保存、备份、冲突和导出完全复用普通图稿流程。
+
 Codex 运行时在工作区根目录就绪后后台预热，关闭右侧 AI 面板只隐藏视图，不卸载会话组件或终止 App Server。启动采用分层加载：App Server、账户与权限约束构成可发送消息的核心就绪条件，模型目录、线程历史、当前工作区的已安装插件与 Skill 在核心就绪后后台加载。Madora 不为输入框菜单预取或展示 MCP inventory。模型、历史、插件或 Skill 加载慢或失败都不得退回全屏“正在连接”状态，也不得阻塞使用服务端默认模型发送消息。用户在核心握手期间可以编辑并提交，提交操作等待同一个启动 Promise，核心成功后继续执行，失败时保留草稿并显示错误。
+
+Codex 同时提供右侧紧凑面板和主工作区两种展示形态，但两者必须复用同一个持续挂载的 `AiPanel` 实例；从左侧固定的“Codex”入口进入主工作区时，只切换 presentation，不新建运行时、线程或消息状态，也不清空当前文档与已打开标签。主工作区中的文档动作先打开右侧只读预览检查器，不立即替换编辑器当前文档；预览优先使用当前未保存草稿或已缓存编辑器 session，否则通过既有 `readMarkdownDocument` 读取磁盘内容。用户只有显式选择“在编辑器中打开”时，才把该文档提升为普通编辑器标签。预览宽度只保存在浏览器 local storage，不属于工作区或 AI 会话状态。
 
 会话渲染保留 App Server 的 `Turn -> Item` 层级。`agentMessage.phase=commentary`、工具活动、计划和上下文压缩组成可折叠的处理过程，`phase=final_answer` 保持为独立最终回答；未提供 phase 的旧消息按普通助手消息兼容。连续工具只在视图投影层分组，底层有序 item 不重排。命令输出增量、文件 patch、MCP progress、耗时、退出码和审批请求都更新原 item；历史恢复使用同一映射逻辑。内部 reasoning 不进入界面，命令输出只保留有界首尾预览，避免大输出占用无界内存。
 
@@ -76,7 +82,7 @@ AI 文件修改以 App Server 事件为刷新事实源。`item/fileChange/patchU
 
 当 Codex 写盘期间用户又修改了同一当前文档，Madora 不自动选择任一版本，也不继续自动保存：编辑器保留本地草稿并进入显式冲突状态，用户只能确认“加载 AI 版本”或“用我的版本覆盖”。完成 turn 的聚合 diff 优先生成确定性的“已编辑 N 个文件”摘要、净增删行数和可展开文件列表；Markdown 路径只有在已解析到当前工作区时才可点击。摘要不发起第二次模型调用，也不提供缺少 turn 快照保障的一键撤销。
 
-正常运行和成功的工具组及技术详情默认折叠，只保留语义摘要、状态与耗时；失败、拒绝和待审批活动自动展开，用户手动 disclosure 状态不会被后续增量或完成通知重置。消息视口只在用户位于底部时跟随流式更新，用户上滚后显示轻量“回到最新消息”按钮；发送新消息或显式点击后恢复跟随。输入编辑区从紧凑高度开始随内容增长，并在达到面板合理上限后改为内部滚动。
+工具组及技术详情默认折叠，只保留语义摘要、状态与耗时；执行失败不会自动展开详情，拒绝和待审批活动仍自动展开，用户手动 disclosure 状态不会被后续增量或完成通知重置。消息视口只在用户位于底部时跟随流式更新，用户上滚后显示轻量“回到最新消息”按钮；发送新消息或显式点击后恢复跟随。输入编辑区从紧凑高度开始随内容增长，并在达到面板合理上限后改为内部滚动。
 
 历史恢复以 App Server 实际返回的 thread items 为上限。固定 sidecar `0.144.4` 的 `thread/read` 与 `thread/turns/list` 当前不会回放已完成 turn 的命令和其他工具 item，`thread/items/list` 也尚未实现；因此 Madora 可以恢复 commentary、最终回答和 App Server 返回的持久 item，但不能通过读取 Codex JSONL 或维护第二份日志补齐缺失的历史工具明细。升级 sidecar 后必须重新验证该投影能力。
 
@@ -86,9 +92,11 @@ AI 文件修改以 App Server 事件为刷新事实源。`item/fileChange/patchU
 
 文档上下文采用路径引用，不复制文档正文。活动文档身份只取自当前编辑器文档标签保存的物理绝对路径；frontmatter `title` 只作为可读元数据，不参与身份解析，输入框和欢迎提示展示工作区相对路径。发送前必须确认该标签路径已经成为工作区当前加载文档，否则阻止 turn，避免快速切换标签时保存或引用上一份文档。前端把显式 `@` 文档在模型文本中编码为带引号的工作区相对路径，并用 `text_elements.placeholder` 保留文档链接；同时把编辑器当前活跃文档标为 `active`、显式提及标为 `mention`，只通过 Madora 私有字段提交给 Tauri。Rust canonicalize 并验证路径后，将固定语义策略写入 `madora_document_context_policy`（`application`），将活跃文档写入 `madora_active_document`、其他显式引用写入 `madora_explicit_document_references`（均为 `untrusted`）。因此“当前文档/本文”只解析为该 turn 的活跃文档，不从 frontmatter 标题、日期、最近文件或会话历史猜测；没有活跃文档时显式发送 `null` 以清除 App Server 的粘性上下文。Codex 仅在请求依赖文档内容时通过正常工作区工具读取，因此读取动作仍进入原生工具时间线。
 
+图稿上下文采用稳定 UUID，不复制原始 bundle。只有 Drawings system page 当前已加载的 descriptor 才能成为 `active`；发送 turn 前先 flush 画布，失败或 revision 冲突会阻止发送。`@` 菜单把图稿编码为 `madora-drawing://<uuid>` 文本并以 placeholder 保留标题，同时通过私有 `madoraDrawingReferences` 提交 active/mention 角色。Rust 从当前工作区重新解析非回收站 bundle，忽略前端标题和 revision，并将权威元数据分别写入 `madora_active_drawing` 与 `madora_explicit_drawing_references`（`untrusted`）。当前 turn 的 UUID 集合同时形成 `inspect_drawing` 临时授权；turn 完成、运行时退出、工作区切换或下一 turn 空引用都会清理。v1 只读理解来源图稿并创建新图稿，不增量覆盖当前场景。
+
 文档树重命名以用户确认的新名称为统一显示身份：原生层移动物理 `.md` 文件并更新已有 frontmatter `title` 与首个 H1，前端随后刷新树节点、迁移已打开 Tab、编辑器 session 和最近文档路径。若展示标题已经等于目标名称、但物理文件 stem 仍不一致，仍必须执行重命名；只有物理 stem 与文档标题均已一致时才视为无操作。没有 frontmatter `title` 的外部 Markdown 不因重命名新增该字段。
 
-任意本地文件与文件夹上下文必须经过 Tauri 原生选择器。渲染器只取得 15 分钟有效的 opaque attachment ID、名称、类型和图片标记，单次最多保留 20 个，不取得所选绝对路径。发送 turn 时 Rust 重新校验授权与真实路径：受支持图片转换为 App Server `localImage`，其他文件和目录按官方 `# Files mentioned by the user` 文本头编码，并用私有 `text_elements.placeholder` 保存历史展示元数据。附件授权只允许把所选路径传入当前 turn，不扩大 Codex permission profile；工作区外文件或目录的实际读取仍由 App Server 工具权限和审批决定。
+任意本地文件、文件夹和剪贴板图片上下文必须经过 Tauri 原生附件入口。系统粘贴优先消费 Finder/Explorer 文件列表，否则读取系统位图并在 Rust 内存中编码为 PNG；现有选择器继续处理文件和文件夹，不启用窗口文件拖放。渲染器只取得 15 分钟有效的 opaque attachment ID、名称、类型、媒体类型、大小和预览标记，单次最多保留 20 个，不取得所选绝对路径。图片预览通过 Raw IPC 返回最长边 2048 px、最多 2 MiB 的重新编码 PNG；剪贴板位图不写工作区、临时目录、local storage 或资源协议。发送 turn 时 Rust 重新校验路径、修改时间、大小、内容签名、图片格式和像素预算：图片转换为 App Server 内联 `image` Data URL，使模型获得真实视觉输入；其他文件和目录按官方 `# Files mentioned by the user` 文本头编码，并用私有 `text_elements.placeholder` 保存历史展示元数据。历史投影可直接预览内联 `image`，旧 `localImage` 只显示无路径占位。附件授权不扩大 Codex permission profile；工作区外文件或目录的实际读取仍由 App Server 工具权限和审批决定。
 
 插件入口在核心运行时就绪后使用固定 sidecar 的 `plugin/installed` 按当前工作区自动加载，每个运行时代际最多发起一次成功请求，只展示已安装、已启用且未被管理员禁用的插件；加载失败时只在菜单内提供重试。App Server 返回的 `composerIcon`、`logo` 与 `logoDark` 本地文件由 Rust 按响应请求 ID 建立精确路径授权，前端只能通过 `read_codex_plugin_icon` 读取当前插件清单声明的单个受支持图片；远程图标只接受 HTTPS。菜单按 composer、主题 logo、通用占位图标的顺序降级，单个资源失败不影响插件清单。授权在重新检测、运行时停止或工作区切换时失效，不扩大资源协议 scope。
 

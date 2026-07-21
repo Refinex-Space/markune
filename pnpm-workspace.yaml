@@ -4,6 +4,7 @@ allowBuilds:
   sharp: set this to true or false
   unrs-resolver: set this to true or false
 overrides:
+  '@excalidraw/mermaid-to-excalidraw>mermaid': 11.12.1
   '@tiptap/markdown': 3.27.3
 minimumReleaseAgeExclude:
   - '@markweave/react@0.1.6 || 0.1.8 || 0.1.9 || 0.2.0'

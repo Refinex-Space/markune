@@ -28,14 +28,22 @@ import { cn } from '@/lib/utils';
 import { DocumentMetaPanel } from './document-meta-panel';
 import { AiPanel } from './ai-panel';
 import type {
+  CodexDynamicToolRequest,
+  CodexDynamicToolResponse,
+} from './codex-app-server';
+import type {
   AiProposedPlan,
   AiWorkspaceChangeEvent,
 } from './ai-panel-state';
 import type {
+  AiDrawingReference,
   RightPanelMode,
   WorkspaceNode,
   WorkspaceSearchResult,
 } from './workspace-types';
+import { WorkspaceResizeHandle } from './workspace-resize-handle';
+
+export type AiPanelPresentation = 'panel' | 'workspace';
 
 export interface DocumentPanelData {
   frontmatter: Record<string, string>;
@@ -44,15 +52,27 @@ export interface DocumentPanelData {
 }
 
 interface RightSidePanelProps {
+  activeDrawing?: AiDrawingReference | null;
+  aiPresentation?: AiPanelPresentation;
+  aiWorkspacePreview?: React.ReactNode;
+  aiWorkspacePreviewWidth?: number;
   currentDocument: WorkspaceNode | null;
   currentDocumentPath: string | null;
   documentPanelData: DocumentPanelData | null;
   documents: WorkspaceSearchResult[];
+  drawings?: AiDrawingReference[];
   documentReadOnly: boolean;
   mode: RightPanelMode;
   width: number;
   workspaceRootPath: string | null;
-  onBeforeTurnStart: (documentPath: string | null) => Promise<boolean>;
+  onBeforeTurnStart: (
+    documentPath: string | null,
+    drawingId: string | null,
+  ) => Promise<boolean>;
+  onDrawingToolCall?: (
+    request: CodexDynamicToolRequest,
+  ) => Promise<CodexDynamicToolResponse>;
+  onAiWorkspacePreviewResize?: (width: number) => void;
   onOpenDocument: (documentPath: string) => void;
   onOpenPlanPreview: (plan: AiProposedPlan, threadId: string) => void;
   onWorkspaceChanged: (
@@ -70,43 +90,90 @@ interface RightToolRailProps {
 }
 
 export function RightSidePanel({
+  activeDrawing = null,
+  aiPresentation = 'panel',
+  aiWorkspacePreview,
+  aiWorkspacePreviewWidth = 720,
   currentDocument,
   currentDocumentPath,
   documentPanelData,
   documents,
+  drawings = [],
   documentReadOnly,
   mode,
   width,
   workspaceRootPath,
   onBeforeTurnStart,
+  onDrawingToolCall,
+  onAiWorkspacePreviewResize,
   onOpenDocument,
   onOpenPlanPreview,
   onWorkspaceChanged,
   onToggleDocumentReadOnly,
 }: RightSidePanelProps) {
+  const aiVisible = mode === 'ai';
+  const workspacePresentation = aiPresentation === 'workspace';
+
   return (
     <>
       <aside
-        aria-hidden={mode !== 'ai'}
+        aria-hidden={!aiVisible}
         className={cn(
-          'h-full shrink-0 flex-col overflow-hidden border-l bg-background',
-          mode === 'ai' ? 'flex' : 'hidden',
+          'h-full min-h-0 min-w-0 overflow-hidden bg-background',
+          aiVisible ? 'flex' : 'hidden',
+          workspacePresentation
+            ? 'flex-1'
+            : 'shrink-0 border-l border-border/70',
         )}
+        data-presentation={aiPresentation}
         data-testid="ai-side-panel"
-        hidden={mode !== 'ai'}
-        style={{ width }}
+        hidden={!aiVisible}
+        style={workspacePresentation ? undefined : { width }}
       >
-        <AiPanel
-          currentDocument={currentDocument}
-          currentDocumentPath={currentDocumentPath}
-          documents={documents}
-          visible={mode === 'ai'}
-          workspaceRootPath={workspaceRootPath}
-          onBeforeTurnStart={onBeforeTurnStart}
-          onOpenDocument={onOpenDocument}
-          onOpenPlanPreview={onOpenPlanPreview}
-          onWorkspaceChanged={onWorkspaceChanged}
-        />
+        <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+          <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+            <AiPanel
+              activeDrawing={activeDrawing}
+              currentDocument={currentDocument}
+              currentDocumentPath={currentDocumentPath}
+              documents={documents}
+              drawings={drawings}
+              presentation={aiPresentation}
+              visible={aiVisible}
+              workspaceRootPath={workspaceRootPath}
+              onBeforeTurnStart={onBeforeTurnStart}
+              onDrawingToolCall={onDrawingToolCall}
+              onOpenDocument={onOpenDocument}
+              onOpenPlanPreview={onOpenPlanPreview}
+              onWorkspaceChanged={onWorkspaceChanged}
+            />
+          </div>
+
+          {workspacePresentation && aiWorkspacePreview ? (
+            <div
+              aria-label="文档预览"
+              className="absolute bottom-1 right-2 top-1 z-40 flex max-w-[calc(100%-320px)] shrink-0 animate-in overflow-hidden rounded-lg border border-border/60 bg-background shadow-[0_8px_24px_-18px_rgba(15,23,42,0.28)] duration-200 fade-in-0 slide-in-from-right-4 motion-reduce:animate-none"
+              data-testid="ai-workspace-preview-shell"
+              role="complementary"
+              style={{ width: aiWorkspacePreviewWidth }}
+            >
+              <WorkspaceResizeHandle
+                aria-label="调整文档预览宽度"
+                className="absolute! inset-y-0 left-0 h-auto! [&>span]:hidden"
+                direction="right"
+                max={960}
+                min={520}
+                value={aiWorkspacePreviewWidth}
+                onResize={(nextWidth) =>
+                  onAiWorkspacePreviewResize?.(nextWidth)
+                }
+              />
+              <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+                {aiWorkspacePreview}
+              </div>
+            </div>
+          ) : null}
+        </div>
       </aside>
 
       {mode === 'meta' ? (

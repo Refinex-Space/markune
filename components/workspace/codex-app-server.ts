@@ -26,6 +26,21 @@ export interface CodexProtocolMessage {
   };
 }
 
+export interface CodexDynamicToolRequest {
+  arguments: Record<string, unknown>;
+  callId: string;
+  namespace: 'madora_drawing';
+  threadId: string;
+  tool: 'create_from_preview' | 'inspect_drawing' | 'preview_mermaid';
+  turnId: string;
+}
+
+export interface CodexDynamicToolResponse {
+  imageDataUrl?: string;
+  success: boolean;
+  text: string;
+}
+
 export interface CodexModel {
   id: string;
   model: string;
@@ -33,6 +48,7 @@ export interface CodexModel {
   description: string;
   hidden: boolean;
   isDefault: boolean;
+  inputModalities?: Array<'image' | 'text'>;
   defaultReasoningEffort: CodexReasoningEffort;
   supportedReasoningEfforts: Array<{
     reasoningEffort: CodexReasoningEffort;
@@ -257,7 +273,11 @@ export interface CodexContextAttachment {
   attachmentId: string;
   isImage: boolean;
   kind: 'file' | 'folder';
+  mediaType: 'image/gif' | 'image/jpeg' | 'image/png' | 'image/webp' | null;
   name: string;
+  previewAvailable: boolean;
+  previewMediaType: 'image/png' | null;
+  sizeBytes: number | null;
 }
 
 export interface CodexPluginSummary {
@@ -571,6 +591,25 @@ export async function selectCodexContextAttachments(
   );
 }
 
+export async function pasteCodexContextAttachments(remaining: number) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<CodexContextAttachment[] | null>(
+    'paste_codex_context_attachments',
+    { remaining },
+  );
+}
+
+export async function readCodexContextAttachmentPreview(
+  attachmentId: string,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  const result = await invoke<ArrayBuffer | Uint8Array>(
+    'read_codex_context_attachment_preview',
+    { attachmentId },
+  );
+  return result instanceof Uint8Array ? result : new Uint8Array(result);
+}
+
 export async function releaseCodexContextAttachments(
   attachmentIds: string[],
 ) {
@@ -598,6 +637,17 @@ export async function respondToCodexUserInput(
   return invoke<void>('codex_app_server_respond_user_input', {
     requestId,
     answers,
+  });
+}
+
+export async function respondToCodexDynamicTool(
+  requestId: CodexRequestId,
+  response: CodexDynamicToolResponse,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<void>('codex_app_server_respond_dynamic_tool', {
+    requestId,
+    response,
   });
 }
 

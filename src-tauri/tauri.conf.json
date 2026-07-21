@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Madora",
-  "version": "0.1.2",
+  "version": "0.1.5",
   "identifier": "com.madora.app",
   "build": {
     "frontendDist": "../out",
@@ -43,6 +43,9 @@
     "targets": "all",
     "externalBin": [
       "binaries/codex"
+    ],
+    "resources": [
+      "resources/skills/"
     ],
     "icon": [
       "icons/32x32.png",

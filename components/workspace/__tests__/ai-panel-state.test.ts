@@ -4,6 +4,7 @@ import {
   buildConversationBlocks,
   conversationFromThread,
   createComposerAwareUserInput,
+  createDrawingMentionPath,
   createOutputPreview,
   createDocumentAwareUserInput,
   createMentionTextElements,
@@ -545,6 +546,34 @@ describe('AI panel event reducer', () => {
     });
   });
 
+  it('把图稿提及编码为稳定 Drawing URI 并保留显示标题', () => {
+    const drawingId = '11111111-1111-4111-8111-111111111111';
+    const text = '分析 Spring Cloud 架构 的连线';
+    const start = text.indexOf('Spring Cloud 架构');
+    const path = createDrawingMentionPath(drawingId);
+    const result = createComposerAwareUserInput(text, [], [], [], [
+      {
+        drawingId,
+        end: start + 'Spring Cloud 架构'.length,
+        kind: 'drawing',
+        label: 'Spring Cloud 架构',
+        path,
+        start,
+      },
+    ]);
+
+    expect(result.text).toBe(`分析 ${path} 的连线`);
+    expect(result.textElements).toEqual([
+      {
+        byteRange: {
+          start: new TextEncoder().encode('分析 ').length,
+          end: new TextEncoder().encode(`分析 ${path}`).length,
+        },
+        placeholder: 'Spring Cloud 架构',
+      },
+    ]);
+  });
+
   it('从历史消息隐藏原生附件头并恢复附件和插件提及', () => {
     const prefix =
       '# Files mentioned by the user:\n\n' +
@@ -621,6 +650,51 @@ describe('AI panel event reducer', () => {
           kind: 'plugin',
           label: '@OpenAI Docs',
           path: 'plugin://openai-docs',
+        },
+      ],
+    });
+  });
+
+  it('从历史消息恢复内联图片预览并安全降级旧 localImage', () => {
+    const imageUrl = 'data:image/png;base64,aW1hZ2U=';
+    const state = conversationFromThread({
+      id: 'thread-images',
+      name: '图片附件',
+      preview: '',
+      createdAt: 0,
+      updatedAt: 0,
+      cwd: '/workspace',
+      status: {},
+      turns: [
+        {
+          id: 'turn-images',
+          status: 'completed',
+          items: [
+            {
+              id: 'message-images',
+              type: 'userMessage',
+              content: [
+                { type: 'image', url: imageUrl },
+                { type: 'localImage', path: '/private/legacy.webp' },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(state.entries[0]).toMatchObject({
+      attachments: [
+        {
+          kind: 'image',
+          mediaType: 'image/png',
+          name: '图片 1',
+          previewUrl: imageUrl,
+        },
+        {
+          kind: 'image',
+          name: 'legacy.webp',
+          previewUrl: null,
         },
       ],
     });
