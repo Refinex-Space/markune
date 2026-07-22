@@ -168,3 +168,52 @@ final result: passed
 - 若仍有图标光学偏差，只调整图标槽的 `vertical-align`，不要再次移动 mention 文字。
 
 final result: blocked
+
+# Workspace Menu And Global Search Shell Design QA
+
+- source visual truth paths:
+  - `C:/Users/ADMINI~1/AppData/Local/Temp/codex-clipboard-26cf02f7-17b3-4da5-ba87-05b506f7d41d.png`
+  - `C:/Users/ADMINI~1/AppData/Local/Temp/codex-clipboard-649c8d94-c9e1-46bc-9d35-01bf87b4ee4e.png`
+- implementation screenshot paths:
+  - `C:/Users/Administrator/.codex/visualizations/2026/07/22/019f875e-5809-7e80-ba25-ef1dcd229a0a/madora-workspace-menu-flat.png`
+  - `C:/Users/Administrator/.codex/visualizations/2026/07/22/019f875e-5809-7e80-ba25-ef1dcd229a0a/madora-global-search-flat.png`
+- viewport: implementation `1280 × 720` CSS px, `devicePixelRatio: 1`
+- pixel dimensions: menu source `357 × 222`, search source `1897 × 726`, both implementation captures `1280 × 720`
+- density normalization: source density is unavailable; comparison was normalized by matching the same open states and judging the component shells rather than absolute full-screen scale
+- state: 浅色主题、未打开工作区、工作区菜单展开、全局搜索空查询弹窗展开
+
+## Full-view comparison evidence
+
+两张用户参考图与两张浏览器实现图已在同一次比较输入中打开。实现保留原有宽度、位置、边框、内边距、文案和遮罩，只把菜单与搜索弹窗外壳统一收紧为 `8px` 圆角，并移除外部高程阴影。两个浮层仍与现有侧栏和主题令牌保持一致。
+
+## Focused region comparison evidence
+
+菜单参考图本身就是组件聚焦裁切；实现同时通过浏览器计算样式确认菜单为 `218 × 80`、`border-radius: 8px` 且阴影完全透明。全局搜索实现通过浏览器计算样式确认弹窗为 `768 × 176`、`border-radius: 8px`，仅保留边界用的 `1px` ring，没有高程阴影。无需额外裁切即可判断本次只涉及的圆角与阴影表面。
+
+## Findings
+
+- 没有发现可执行的 P0、P1 或 P2 差异。
+- 字体和排版：未修改，标题、操作项、输入占位和空状态文案保持原有层级。
+- 间距和布局：未修改浮层宽高、定位、内边距与行高；圆角从较柔和卡片感收紧为统一 `8px`。
+- 颜色和令牌：继续使用 `popover`、`border`、`ring` 和现有遮罩令牌，没有引入固定颜色。
+- 图标和图像：继续使用项目已有 Lucide 图标，没有新增或替换资产。
+- 文案和内容：工作区操作项与全局搜索文案完全不变。
+
+## Comparison history
+
+- Pass 1: 参考图中的菜单使用较大圆角和明显投影，全局搜索外壳同样偏圆润，形成独立上浮卡片感。
+- Fix: 菜单由 `rounded-lg shadow-lg` 改为 `rounded-md shadow-none`；全局搜索由 `rounded-xl` 改为 `rounded-md shadow-none`。
+- Pass 2: 浏览器重新打开两个浮层并截图；计算样式均为 `8px` 圆角且无高程阴影，未发现新的 P0/P1/P2 问题。
+
+## Primary interactions tested
+
+- 点击工作区标题展开菜单，两个操作项保持可见。
+- 点击左侧全局搜索按钮打开弹窗，输入框自动获得焦点。
+- 浏览器控制台错误检查：`0`。
+- 自动化回归测试校验两个外壳不再包含旧圆角与旧阴影类名。
+
+## Follow-up polish
+
+- 无阻塞项。若后续希望更接近完全直角，可单独评估 `4px` 圆角，但本轮按“轻微一点点、偏矩形”采用 `8px`，兼顾现有控件体系的一致性。
+
+final result: passed

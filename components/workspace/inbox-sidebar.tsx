@@ -13,7 +13,9 @@ import {
   MoreHorizontal,
   Plus,
   RefreshCw,
+  Search,
   Trash2,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -237,6 +239,27 @@ export function InboxSidebar({
             <Plus />
           </Button>
         </div>
+        <label className="mt-1.5 flex h-8 items-center gap-2 rounded-md border border-sidebar-border/60 bg-background/70 px-2 text-xs text-muted-foreground transition-colors focus-within:border-ring focus-within:text-foreground">
+          <Search className="shrink-0" size={13} strokeWidth={1.75} />
+          <input
+            aria-label="搜索 Inbox"
+            className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+            placeholder="搜索 Inbox"
+            type="search"
+            value={controller.query}
+            onChange={(event) => controller.setQuery(event.currentTarget.value)}
+          />
+          {controller.query ? (
+            <button
+              aria-label="清除 Inbox 搜索"
+              className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+              type="button"
+              onClick={() => controller.setQuery('')}
+            >
+              <X size={12} />
+            </button>
+          ) : null}
+        </label>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">

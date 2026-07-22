@@ -369,6 +369,31 @@ export function DocumentTree({
     <>
       <div ref={treeRootRef} className="flex min-h-full flex-col py-1">
         {treeContent}
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <div
+              className="min-h-16 flex-1"
+              data-testid="workspace-tree-root-creation-area"
+            />
+          </ContextMenuTrigger>
+          <ContextMenuContent
+            className="w-44"
+            onCloseAutoFocus={(event) => event.preventDefault()}
+          >
+            <ContextMenuItem
+              onSelect={() => void handleCreateDocument('')}
+            >
+              <FilePlus2 />
+              新建文档
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() => void handleCreateDirectory('')}
+            >
+              <FolderPlus />
+              新建目录
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
       </div>
 
       <DeleteNodeDialog
@@ -436,7 +461,7 @@ function TreeNode({
   const isEditing = editingNodeId === node.id || isPendingRename;
   const displayName = getNodeDisplayName(node);
   const visualLevel = isDirectory ? level : Math.max(0, level - 1);
-  const rowPaddingLeft = 8 + visualLevel * 20;
+  const rowPaddingLeft = 11 + visualLevel * 20;
   const rowSurfaceLeft = visualLevel * 20;
   const isDragSource = draggedNode?.absolutePath === node.absolutePath;
   const previewPosition =
@@ -633,7 +658,7 @@ function TreeNode({
               style={{ marginLeft: rowSurfaceLeft }}
             >
               {isEditing ? (
-                <div className="relative z-[1] grid h-full min-w-0 flex-1 grid-cols-[13px_minmax(0,1fr)] items-center gap-1.5 rounded-md px-2 text-left">
+                <div className="relative z-[1] grid h-full min-w-0 flex-1 grid-cols-[13px_minmax(0,1fr)] items-center gap-1.5 rounded-md pl-[11px] pr-2 text-left">
                   <DirectoryIcon
                     isDirectory={isDirectory}
                     isExpanded={isExpanded}
@@ -650,7 +675,7 @@ function TreeNode({
                   />
                 </div>
               ) : (
-                <div className="relative z-[1] grid h-full min-w-0 flex-1 grid-cols-[13px_minmax(0,1fr)] items-center gap-1.5 rounded-md px-2 text-left text-foreground/80">
+                <div className="relative z-[1] grid h-full min-w-0 flex-1 grid-cols-[13px_minmax(0,1fr)] items-center gap-1.5 rounded-md pl-[11px] pr-2 text-left text-foreground/80">
                   <DirectoryIcon
                     isDirectory={isDirectory}
                     isExpanded={isExpanded}

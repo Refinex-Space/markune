@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { Openai } from '@thesvg/react';
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -42,6 +42,7 @@ interface WorkspaceSidebarProps {
   onOpenDailyNote?: () => void;
   onOpenCodex?: () => void;
   onOpenDrawings?: () => void;
+  onOpenGlobalSearch: () => void;
   onOpenInbox?: () => void;
   onOpenInFileManager?: (node: WorkspaceNode) => void;
   onOpenInPreferredEditor?: (node: WorkspaceNode) => void;
@@ -59,9 +60,6 @@ interface WorkspaceSidebarProps {
   onSelectDocument?: (node: WorkspaceNode) => void;
   onTogglePinned?: (node: WorkspaceNode) => void;
   inboxActiveCount?: number;
-  searchPlaceholder?: string;
-  searchQuery?: string;
-  onSearchQueryChange?: (query: string) => void;
   systemPage?: 'codex' | 'drawings' | 'inbox' | 'views' | null;
 }
 
@@ -78,6 +76,7 @@ export function WorkspaceSidebar({
   onOpenDailyNote,
   onOpenCodex,
   onOpenDrawings,
+  onOpenGlobalSearch,
   onOpenInbox,
   onOpenInFileManager,
   onOpenInPreferredEditor,
@@ -92,9 +91,6 @@ export function WorkspaceSidebar({
   onSelectDocument,
   onTogglePinned,
   inboxActiveCount = 0,
-  searchPlaceholder,
-  searchQuery,
-  onSearchQueryChange,
   systemPage = null,
 }: WorkspaceSidebarProps) {
   const createDocument = onCreateDocument ?? workspace.createDocument;
@@ -135,12 +131,8 @@ export function WorkspaceSidebar({
 
         <WorkspaceSidebarHeader
           workspace={workspace}
-          searchPlaceholder={searchPlaceholder}
-          searchQuery={searchQuery}
-          onCreateDirectory={() => void workspace.createDirectory('')}
-          onCreateDocument={() => void createDocument('')}
+          onOpenGlobalSearch={onOpenGlobalSearch}
           onRemoveWorkspace={onRemoveWorkspace}
-          onSearchQueryChange={onSearchQueryChange}
         />
 
         {workspace.snapshot ? (
@@ -249,7 +241,7 @@ export function WorkspaceSidebar({
               currentDocumentPath={workspace.currentDocument?.absolutePath ?? null}
               nodes={regularNodes}
               pendingRenameNodePath={workspace.pendingRenameNodePath}
-              searchQuery={workspace.searchQuery}
+              searchQuery=""
               onCreateDirectory={workspace.createDirectory}
               onCreateDocument={createDocument}
               onDeleteNode={deleteNode}
@@ -312,57 +304,13 @@ export function WorkspaceSidebar({
 
 function WorkspaceSidebarHeader({
   workspace,
-  searchPlaceholder,
-  searchQuery,
-  onCreateDirectory,
-  onCreateDocument,
+  onOpenGlobalSearch,
   onRemoveWorkspace,
-  onSearchQueryChange,
 }: {
   workspace: ReturnType<typeof useWorkspace>;
-  searchPlaceholder?: string;
-  searchQuery?: string;
-  onCreateDirectory: () => void;
-  onCreateDocument: () => void;
+  onOpenGlobalSearch: () => void;
   onRemoveWorkspace?: (rootPath: string) => void;
-  onSearchQueryChange?: (query: string) => void;
 }) {
-  const [searchExpanded, setSearchExpanded] = useState(false);
-  const searchRootRef = useRef<HTMLDivElement>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const activeSearchQuery = searchQuery ?? workspace.searchQuery;
-  const setActiveSearchQuery =
-    onSearchQueryChange ?? workspace.setSearchQuery;
-
-  useEffect(() => {
-    if (!searchExpanded) {
-      return;
-    }
-
-    function handlePointerDown(event: PointerEvent) {
-      const target = event.target;
-
-      if (!(target instanceof Node)) {
-        return;
-      }
-
-      if (!searchRootRef.current?.contains(target)) {
-        setSearchExpanded(false);
-      }
-    }
-
-    document.addEventListener('pointerdown', handlePointerDown);
-
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-    };
-  }, [searchExpanded]);
-
-  function expandSearch() {
-    setSearchExpanded(true);
-    window.requestAnimationFrame(() => searchInputRef.current?.focus());
-  }
-
   return (
     <div className="px-3 pb-2">
       <div className="relative flex h-9 items-center gap-1.5">
@@ -372,8 +320,6 @@ function WorkspaceSidebarHeader({
           history={workspace.workspaceHistory}
           isLoading={workspace.isLoading}
           onChooseWorkspaceParent={workspace.chooseWorkspaceParentDirectory}
-          onCreateDirectory={onCreateDirectory}
-          onCreateDocument={onCreateDocument}
           onCreateWorkspace={workspace.createWorkspace}
           onOpenWorkspace={workspace.openWorkspace}
           onRemoveWorkspace={onRemoveWorkspace ?? workspace.removeWorkspace}
@@ -381,53 +327,14 @@ function WorkspaceSidebarHeader({
         />
 
         <button
-          aria-label="展开侧边栏搜索"
-          className={cn(
-            'flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-            activeSearchQuery.trim().length > 0 &&
-              'bg-sidebar-accent/80 text-sidebar-accent-foreground',
-            searchExpanded && 'opacity-0',
-          )}
+          aria-label="全局搜索"
+          className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          title="全局搜索（Ctrl/Cmd + Shift + F）"
           type="button"
-          onClick={expandSearch}
+          onClick={onOpenGlobalSearch}
         >
           <Search size={17} strokeWidth={1.8} />
         </button>
-
-        <div
-          ref={searchRootRef}
-          aria-hidden={!searchExpanded}
-          className={cn(
-            'absolute right-0 top-0 z-20 h-9 overflow-hidden rounded-md transition-[width,opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]',
-            searchExpanded
-              ? 'w-full translate-x-0 opacity-100'
-              : 'pointer-events-none w-8 translate-x-1 opacity-0',
-          )}
-          data-testid="workspace-sidebar-search-panel"
-        >
-          <label className="flex h-9 w-full items-center gap-2 rounded-md border border-sidebar-border/70 bg-background/95 px-2.5 text-sm shadow-[0_8px_22px_rgba(15,23,42,0.08),inset_0_1px_1px_rgba(15,23,42,0.03)]">
-            <Search
-              className="shrink-0 text-muted-foreground"
-              size={14}
-              strokeWidth={1.75}
-            />
-            <input
-              ref={searchInputRef}
-              aria-label={searchPlaceholder ?? '搜索'}
-              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-              placeholder={searchPlaceholder ?? '搜索'}
-              role="searchbox"
-              value={activeSearchQuery}
-              onChange={(event) => setActiveSearchQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  event.preventDefault();
-                  setSearchExpanded(false);
-                }
-              }}
-            />
-          </label>
-        </div>
       </div>
     </div>
   );

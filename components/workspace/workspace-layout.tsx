@@ -12,7 +12,6 @@ import {
   Moon,
   Palette,
   RefreshCw,
-  Search,
   Sun,
   SquareTerminal,
   Square,
@@ -276,7 +275,6 @@ const WORKSPACE_PANEL_WIDTH_STORAGE_KEYS = {
 };
 
 const GLOBAL_SEARCH_READ_CONCURRENCY = 6;
-const DOUBLE_SHIFT_THRESHOLD_MS = 450;
 const RECENT_DOCUMENT_LIMIT = 5;
 const UI_FONT_FALLBACK =
   "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
@@ -758,7 +756,6 @@ export function WorkspaceLayout({
   const terminalSpawnInFlightRef = React.useRef(false);
   const pendingDocumentOpenTimerRef =
     React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastShiftKeyTimeRef = React.useRef(0);
   const gitLogOpen = bottomPanelMode === 'git-log';
   const terminalOpen = bottomPanelMode === 'terminal';
 
@@ -1004,7 +1001,11 @@ export function WorkspaceLayout({
         return;
       }
 
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        (event.key.toLowerCase() === 'k' ||
+          (event.shiftKey && event.key.toLowerCase() === 'f'))
+      ) {
         event.preventDefault();
         openGlobalSearch();
         return;
@@ -1025,19 +1026,6 @@ export function WorkspaceLayout({
         return;
       }
 
-      if (event.key !== 'Shift' || event.repeat) {
-        return;
-      }
-
-      const now = Date.now();
-
-      if (now - lastShiftKeyTimeRef.current <= DOUBLE_SHIFT_THRESHOLD_MS) {
-        event.preventDefault();
-        lastShiftKeyTimeRef.current = 0;
-        openGlobalSearch();
-      } else {
-        lastShiftKeyTimeRef.current = now;
-      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -2874,6 +2862,7 @@ export function WorkspaceLayout({
                 onOpenCodex={handleOpenCodexPage}
                 onOpenInbox={handleOpenInboxPage}
                 onOpenDrawings={handleOpenDrawingsPage}
+                onOpenGlobalSearch={openGlobalSearch}
                 onOpenViews={handleOpenViewsPage}
                 onOpenInFileManager={handleOpenNodeInFileManager}
                 onOpenSettings={() => openSettingsPage('appearance')}
@@ -2886,27 +2875,6 @@ export function WorkspaceLayout({
                 onSelectDocument={openDocumentNode}
                 onTogglePinned={handleToggleNodePinned}
                 inboxActiveCount={inbox.activeCount}
-                searchPlaceholder={
-                  systemPage === 'inbox'
-                    ? '搜索 Inbox'
-                    : systemPage === 'drawings'
-                      ? '搜索图稿'
-                      : '搜索'
-                }
-                searchQuery={
-                  systemPage === 'inbox'
-                    ? inbox.query
-                    : systemPage === 'drawings'
-                      ? drawings.query
-                    : workspace.searchQuery
-                }
-                onSearchQueryChange={
-                  systemPage === 'inbox'
-                    ? inbox.setQuery
-                    : systemPage === 'drawings'
-                      ? drawings.setQuery
-                    : workspace.setSearchQuery
-                }
                 systemPage={
                   systemPage === 'drawings' ||
                   systemPage === 'codex' ||
@@ -2973,7 +2941,6 @@ export function WorkspaceLayout({
                   leftPanelMode={leftPanelMode}
                   terminalOpen={terminalOpen}
                   windowsChromeInset={isTauriRuntime && isWindowsRuntime}
-                  onOpenGlobalSearch={openGlobalSearch}
                   onOpenGitPanel={openGitPanel}
                   onToggleGitLog={toggleGitLogDrawer}
                   onToggleTerminal={toggleTerminalPanel}
@@ -3497,7 +3464,6 @@ function WorkspaceMainHeader({
   terminalOpen,
   windowsChromeInset,
   onOpenGitPanel,
-  onOpenGlobalSearch,
   onToggleGitLog,
   onToggleTerminal,
 }: {
@@ -3507,7 +3473,6 @@ function WorkspaceMainHeader({
   terminalOpen: boolean;
   windowsChromeInset: boolean;
   onOpenGitPanel: () => void;
-  onOpenGlobalSearch: () => void;
   onToggleGitLog: () => void;
   onToggleTerminal: () => void;
 }) {
@@ -3520,22 +3485,11 @@ function WorkspaceMainHeader({
       data-tauri-drag-region="deep"
       data-testid="workspace-main-header"
     >
-      <button
-        aria-label="搜索文档"
-        className="absolute left-1/2 top-1/2 inline-flex h-7 w-[min(420px,34vw)] -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full border border-border/70 bg-background/80 px-3 text-sm text-muted-foreground shadow-[inset_0_1px_1px_rgba(15,23,42,0.05)] transition-colors hover:bg-accent hover:text-foreground"
-        data-chrome="workspace-centered-search"
-        type="button"
-        onClick={onOpenGlobalSearch}
-      >
-        <Search size={15} strokeWidth={1.75} />
-        <span className="hidden truncate lg:inline">搜索</span>
-      </button>
-
       <TooltipProvider>
         <div
           className={cn(
             'z-10 ml-auto flex items-center gap-0.5',
-            windowsChromeInset && 'mr-[150px]',
+            windowsChromeInset && 'mr-[136px]',
           )}
           data-testid="right-header-tools"
         >

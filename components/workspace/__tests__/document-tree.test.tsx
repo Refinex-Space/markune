@@ -35,6 +35,38 @@ const nodes: WorkspaceNode[] = [
 ];
 
 describe('DocumentTree', () => {
+  it('creates documents and directories at the workspace root from the blank area menu', async () => {
+    const user = userEvent.setup();
+    const onCreateDocument = vi.fn();
+    const onCreateDirectory = vi.fn();
+
+    render(
+      <DocumentTree
+        currentDocumentPath={null}
+        nodes={nodes}
+        searchQuery=""
+        onCreateDirectory={onCreateDirectory}
+        onCreateDocument={onCreateDocument}
+        onDeleteNode={vi.fn()}
+        onImportMarkdown={vi.fn()}
+        onRenameNode={vi.fn()}
+        onSelectDocument={vi.fn()}
+      />,
+    );
+
+    const rootCreationArea = screen.getByTestId(
+      'workspace-tree-root-creation-area',
+    );
+
+    fireEvent.contextMenu(rootCreationArea);
+    await user.click(screen.getByRole('menuitem', { name: '新建文档' }));
+    expect(onCreateDocument).toHaveBeenCalledWith('');
+
+    fireEvent.contextMenu(rootCreationArea);
+    await user.click(screen.getByRole('menuitem', { name: '新建目录' }));
+    expect(onCreateDirectory).toHaveBeenCalledWith('');
+  });
+
   it('uses folder state icons for directories and no icons for documents', async () => {
     const user = userEvent.setup();
 
@@ -154,6 +186,9 @@ describe('DocumentTree', () => {
     expect(screen.getByTestId('tree-row-guides').className).toContain('h-7');
     expect(screen.getByTestId('tree-row-guides').className).toContain(
       'text-[13px]',
+    );
+    expect(screen.getByText('Guides').parentElement?.className).toContain(
+      'pl-[11px]',
     );
   });
 
@@ -303,7 +338,7 @@ describe('DocumentTree', () => {
     expect(screen.getByTestId('tree-guide-parent').className).toContain(
       'bottom-0',
     );
-    expect(screen.getByTestId('tree-guide-parent').style.left).toBe('14.5px');
+    expect(screen.getByTestId('tree-guide-parent').style.left).toBe('17.5px');
     expect(screen.getByTestId('tree-row-surface-parent').style.marginLeft).toBe(
       '0px',
     );
@@ -314,7 +349,7 @@ describe('DocumentTree', () => {
 
     await user.click(screen.getByText('Child'));
 
-    expect(screen.getByTestId('tree-guide-child').style.left).toBe('34.5px');
+    expect(screen.getByTestId('tree-guide-child').style.left).toBe('37.5px');
     expect(screen.getByTestId('tree-row-surface-leaf').style.marginLeft).toBe(
       '20px',
     );

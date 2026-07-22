@@ -74,6 +74,17 @@ function controller(overrides: Partial<DrawingController> = {}) {
 }
 
 describe('DrawingSidebar', () => {
+  it('keeps drawing search inside its own sidebar', () => {
+    const value = controller();
+
+    render(<DrawingSidebar controller={value} />);
+    fireEvent.change(screen.getByRole('searchbox', { name: '搜索图稿' }), {
+      target: { value: '流程' },
+    });
+
+    expect(value.setQuery).toHaveBeenCalledWith('流程');
+  });
+
   it('centers collection counts on the same slot as the create button', () => {
     render(<DrawingSidebar controller={controller()} />);
 

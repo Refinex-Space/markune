@@ -177,15 +177,10 @@ function DocumentEmptyState({
             onOpenDocument={onOpenRecentDocument}
           />
         ) : (
-          <>
-            <p className="mt-4 text-sm font-medium text-foreground">
-              打开一个工作区
-            </p>
-            <Button className="mt-4" type="button" onClick={onOpenWorkspace}>
-              <FolderOpen size={16} />
-              选择文件夹
-            </Button>
-          </>
+          <Button className="mt-5" type="button" onClick={onOpenWorkspace}>
+            <FolderOpen size={16} />
+            选择文件夹
+          </Button>
         )}
       </div>
     </div>
