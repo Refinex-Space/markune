@@ -61,6 +61,9 @@ describe('theme provider source contract', () => {
       'core:window:allow-toggle-maximize',
     );
     expect(tauriCapability.permissions).toContain('core:window:allow-close');
+    expect(tauriCapability.permissions).not.toContain(
+      'core:window:allow-destroy',
+    );
     expect(tauriLibSource).toContain('cfg!(target_os = "windows")');
     expect(tauriLibSource).toContain('set_decorations(false)');
     expect(workspaceLayoutSource).toContain('data-tauri-drag-region="deep"');
@@ -70,6 +73,8 @@ describe('theme provider source contract', () => {
     expect(workspaceLayoutSource).toContain('windows-titlebar-controls');
     expect(workspaceLayoutSource).toContain('flex h-8 shrink-0');
     expect(workspaceLayoutSource).not.toContain('flex h-10 shrink-0');
+    expect(workspaceLayoutSource).toContain('await appWindow.close()');
+    expect(workspaceLayoutSource).not.toContain('await appWindow.destroy()');
   });
 
   it('keeps web and desktop app icons sourced from the Madora asset set', () => {

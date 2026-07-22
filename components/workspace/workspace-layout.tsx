@@ -584,7 +584,7 @@ export function WorkspaceLayout({
 
         allowAppWindowCloseRef.current = true;
         try {
-          await appWindow.destroy();
+          await appWindow.close();
         } catch (error) {
           allowAppWindowCloseRef.current = false;
           console.error('关闭应用窗口失败', error);
