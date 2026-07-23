@@ -9,6 +9,22 @@ referenced_by: AGENTS.md#knowledge-map
 
 本文是 Madora Windows/macOS 桌面版本的唯一发布操作手册。应用源码保存在私有 `Refinex-Space/madora`，安装包和 Tauri 更新清单统一发布到公开 `Refinex-Space/madora-site` 的 GitHub Releases。GitHub Packages 只用于 npm、Maven、NuGet、容器镜像等包注册表场景，不用于桌面安装器分发。
 
+## 0. 执行位置约定
+
+本手册中的动作只能在下表指定位置执行。后文所有命令都会再次写出 `cd` 或明确标注网页/系统环境，不依赖“当前目录”推断。
+
+| 标识 | 执行位置 | 用途 |
+| --- | --- | --- |
+| `APP-LOCAL` | macOS 本机目录 `/Users/refinex/develop/project/madora` | 修改私有应用源码、同步版本、运行验证、生成 updater 配置、创建和推送源码 Tag |
+| `SITE-LOCAL` | macOS 本机目录 `/Users/refinex/develop/project/madora-site` | 修改官网版本、下载链接和公开安装说明；不得在这里构建 Madora 安装包或手工创建应用发布 Tag |
+| `GITHUB-ACCOUNT` | GitHub 个人设置网页 | 创建 fine-grained personal access token |
+| `GITHUB-APP` | 私有仓库 `https://github.com/Refinex-Space/madora` 的 Settings/Actions 页面 | 配置构建 Secrets/Variables，查看私有源码 workflow run |
+| `GITHUB-SITE` | 公开仓库 `https://github.com/Refinex-Space/madora-site` 的 Releases 页面 | 验收和发布 draft Release；用户从这里下载安装包 |
+| `MAC-TEST` | Apple Silicon 或 Intel 测试机的 Terminal 与系统设置 | 验证 DMG、ad-hoc 签名、Gatekeeper 和更新安装 |
+| `WINDOWS-TEST` | Windows 11 x64 测试机的 PowerShell 与系统界面 | 验证 NSIS、`NotSigned`、SmartScreen 和更新安装 |
+
+关键边界：源码 Tag 在 `APP-LOCAL` 创建并推送到私有 `madora`；公开 `madora-site` 的 Release 和同名 Tag 由该 Tag 触发的工作流自动创建。不要进入 `SITE-LOCAL` 手工执行 `git tag`，也不要把安装包复制进 `madora-site` Git 工作树。
+
 ## 1. 发布架构与边界
 
 - 私有源码和构建工作流：`Refinex-Space/madora`。
@@ -27,9 +43,10 @@ referenced_by: AGENTS.md#knowledge-map
 
 ## 2. 一次性初始化更新签名密钥
 
-在安全的本机终端生成 Tauri updater 密钥；路径必须在仓库之外：
+执行位置：`APP-LOCAL`。在 macOS Terminal 执行；密钥写入仓库之外的 `~/.tauri`：
 
 ```bash
+cd /Users/refinex/develop/project/madora
 mkdir -p ~/.tauri
 pnpm tauri signer generate -w ~/.tauri/madora-updater.key
 ```
@@ -37,6 +54,7 @@ pnpm tauri signer generate -w ~/.tauri/madora-updater.key
 命令会要求设置私钥密码，并生成私钥及对应公钥。执行后确认：
 
 ```bash
+cd /Users/refinex/develop/project/madora
 test -s ~/.tauri/madora-updater.key
 test -s ~/.tauri/madora-updater.key.pub
 ```
@@ -52,6 +70,8 @@ test -s ~/.tauri/madora-updater.key.pub
 
 ### 3.1 初始化公开分发仓库
 
+执行位置：`GITHUB-SITE`。打开 `https://github.com/Refinex-Space/madora-site/settings` 和 `https://github.com/Refinex-Space/madora-site/releases` 检查，不在本机执行命令。
+
 确认 `Refinex-Space/madora-site` 满足以下条件：
 
 - 仓库可见性为 Public；
@@ -61,6 +81,8 @@ test -s ~/.tauri/madora-updater.key.pub
 - 仓库中没有 Madora 应用源码、私钥或发布 Token。
 
 ### 3.2 创建最小权限跨仓库 Token
+
+执行位置：`GITHUB-ACCOUNT`，打开 `https://github.com/settings/personal-access-tokens/new`。此步骤不是在任一 Git 仓库或 Terminal 中执行。
 
 私有 `madora` 工作流自带的 `GITHUB_TOKEN` 只能操作私有源码仓库，不能写入 `madora-site`。创建一个 fine-grained personal access token：
 
@@ -75,7 +97,7 @@ test -s ~/.tauri/madora-updater.key.pub
 
 ### 3.3 配置私有源码仓库
 
-进入私有 `Refinex-Space/madora` 的 `Settings → Secrets and variables → Actions`。
+执行位置：`GITHUB-APP`，打开 `https://github.com/Refinex-Space/madora/settings/secrets/actions`。不要把下列值配置到公开 `madora-site`。
 
 在 `Secrets` 新增：
 
@@ -99,12 +121,14 @@ test -s ~/.tauri/madora-updater.key.pub
 
 ## 4. 每次发布前同步版本号
 
+执行位置：`APP-LOCAL`。只修改以下两个绝对路径：
+
 Madora 应用版本必须同时修改：
 
-- `package.json` 的 `version`；
-- `src-tauri/tauri.conf.json` 的 `version`。
+- `/Users/refinex/develop/project/madora/package.json` 的 `version`；
+- `/Users/refinex/develop/project/madora/src-tauri/tauri.conf.json` 的 `version`。
 
-`src-tauri/Cargo.toml` 是 Rust crate 的内部版本，不作为桌面应用版本，不要求与上述两处同步。使用 SemVer：
+使用 SemVer：
 
 - 补丁修复：`0.1.6 → 0.1.7`；
 - 向后兼容功能：`0.1.7 → 0.2.0`；
@@ -112,11 +136,14 @@ Madora 应用版本必须同时修改：
 
 Tag 必须精确为 `v<version>`，例如版本 `0.1.7` 只能使用 `v0.1.7`。发布脚本会拒绝版本不一致或 Tag 不匹配。
 
+`/Users/refinex/develop/project/madora/src-tauri/Cargo.toml` 是 Rust crate 的内部版本，不在此步骤修改。`/Users/refinex/develop/project/madora-site/site.config.ts` 的网站展示版本等 draft Release 资产确认后再按第 9 节更新，不能代替应用版本同步。
+
 ## 5. 本地发布前验证
 
-在仓库根目录执行：
+执行位置：`APP-LOCAL`。在 macOS Terminal 完整执行以下命令：
 
 ```bash
+cd /Users/refinex/develop/project/madora
 pnpm install
 node --test scripts/prepare-release-updater-config.test.mjs
 pnpm exec vitest run components/workspace/__tests__/use-app-update.test.tsx components/workspace/__tests__/workspace-sidebar-update.test.tsx components/workspace/__tests__/workspace-settings-page.test.tsx
@@ -129,26 +156,34 @@ pnpm build:desktop:web
 本地检查生成配置时只设置公钥，不设置私钥：
 
 ```bash
+cd /Users/refinex/develop/project/madora
 MADORA_UPDATER_PUBLIC_KEY="$(cat ~/.tauri/madora-updater.key.pub)" pnpm release:prepare
 ```
 
-生成文件位于 `.tauri-build/tauri.release.generated.json`，已被 Git 忽略。检查它只包含 `madora-site` 的固定 HTTPS endpoint、公钥、`createUpdaterArtifacts: true`、macOS ad-hoc identity `-` 和 Windows passive 安装模式。不要提交该文件，也不要在终端打印私钥。
+生成文件位于 `/Users/refinex/develop/project/madora/.tauri-build/tauri.release.generated.json`，已被 Git 忽略。检查它只包含 `madora-site` 的固定 HTTPS endpoint、公钥、`createUpdaterArtifacts: true`、macOS ad-hoc identity `-` 和 Windows passive 安装模式。不要提交该文件，也不要在终端打印私钥。
 
 ## 6. 创建发布 Tag
 
-确认版本变更、发布说明和验证结果已经提交到目标分支后执行：
+执行位置：`APP-LOCAL`。确认版本变更、发布说明和验证结果已经提交到私有 `madora` 的目标分支后执行：
 
 ```bash
+cd /Users/refinex/develop/project/madora
 git status --short
 git tag -a v0.1.7 -m "Madora v0.1.7"
 git push origin v0.1.7
 ```
 
-把示例版本替换为本次真实版本。推送 Tag 会启动 `Release Madora desktop` 工作流。不要在同一版本失败后反复删除并重建 Tag；先修复源码并提升版本，或在 draft 尚未公开且团队确认无外部消费时按组织流程处理。
+把示例版本替换为本次真实版本。推送 Tag 会在私有 `madora` 启动 `Release Madora desktop` 工作流，并由工作流在公开 `madora-site` 创建同名 Release Tag 和 draft Release。不要在 `/Users/refinex/develop/project/madora-site` 手工创建或推送这个 Tag。不要在同一版本失败后反复删除并重建 Tag；先修复源码并提升版本，或在 draft 尚未公开且团队确认无外部消费时按组织流程处理。
 
 ## 7. 验收 draft Release
 
-工作流完成后进入 `Refinex-Space/madora-site` 的 GitHub Releases，保持 draft，不要立即发布。必须检查：
+执行位置分为三处：
+
+1. `GITHUB-APP`：打开 `https://github.com/Refinex-Space/madora/actions/workflows/release.yml`，确认私有构建工作流三平台成功。
+2. `GITHUB-SITE`：打开 `https://github.com/Refinex-Space/madora-site/releases`，进入本版本 draft，保持 draft，不要立即发布。
+3. `MAC-TEST` / `WINDOWS-TEST`：从该 draft 下载对应安装包并做系统验收。
+
+必须检查：
 
 - 三个构建任务均成功：macOS Apple Silicon、macOS Intel、Windows x64。
 - Release Tag 和标题版本与源码一致。
@@ -160,13 +195,15 @@ git push origin v0.1.7
 
 操作系统签名验收必须与 updater minisign 分开：
 
-- macOS：`codesign -dv --verbose=4 Madora.app` 应显示 ad-hoc 签名；Gatekeeper 仍会拒绝或警告未验证开发者，这是当前已接受限制。分别在 Apple Silicon 与 Intel 真机从浏览器下载 DMG，按“系统设置 → 隐私与安全性 → 仍要打开”完成首次放行，再验证启动和覆盖安装。
-- Windows：`Get-AuthenticodeSignature <installer.exe>` 应显示 `NotSigned`；SmartScreen 和“未知发布者”属于当前已接受限制。在干净的 Windows 11 x64 环境通过用户明确确认继续安装，再验证启动、卸载和覆盖升级。若系统策略不允许绕过，记录为该环境当前不支持，不得建议用户关闭企业安全策略。
+- `MAC-TEST`：从 draft 下载 DMG，把应用拖到 `/Applications` 后在该 Mac 的 Terminal 执行 `codesign -dv --verbose=4 /Applications/Madora.app`，应显示 ad-hoc 签名；Gatekeeper 仍会拒绝或警告未验证开发者，这是当前已接受限制。分别在 Apple Silicon 与 Intel 真机按“系统设置 → 隐私与安全性 → 仍要打开”完成首次放行，再验证启动和覆盖安装。
+- `WINDOWS-TEST`：从 draft 下载 NSIS 安装器，在下载目录打开 PowerShell，执行 `Get-AuthenticodeSignature .\<实际安装包文件名>.exe`，结果应为 `NotSigned`；SmartScreen 和“未知发布者”属于当前已接受限制。通过用户明确确认继续安装，再验证启动、卸载和覆盖升级。若系统策略不允许绕过，记录为该环境当前不支持，不得建议用户关闭企业安全策略。
 - updater：对 `latest.json` 中每个平台 URL、签名和 target 做独立检查；系统层未签名不能成为跳过 updater 签名的理由。
 
 任何目标缺失、签名不匹配或 `latest.json` URL 无法下载，都不得发布 draft。
 
 ## 8. N-1 到 N 自动更新验收
+
+执行位置：`MAC-TEST` 和 `WINDOWS-TEST` 上已经安装的 Madora 应用。这里不在源码仓库执行命令，也不通过开发模式代替安装版验收。
 
 首次发布只能验证安装包；从第二个版本开始，每次都必须验证真实更新链路：
 
@@ -184,35 +221,68 @@ macOS Apple Silicon、macOS Intel、Windows x64 必须分别验收，不能互�
 
 ## 9. 正式发布与 madora-site 接入
 
-完成 draft 验收后，在 `madora-site` 的 GitHub Release 页面点击发布。发布后验证：
+### 9.1 发布 Release
+
+执行位置：`GITHUB-SITE`。完成 draft 验收后，在 `https://github.com/Refinex-Space/madora-site/releases` 打开本版本 draft，补全用户可见 Release Notes，然后点击发布。发布后在浏览器验证：
 
 ```text
 https://github.com/Refinex-Space/madora-site/releases/latest
 https://github.com/Refinex-Space/madora-site/releases/latest/download/latest.json
 ```
 
-`madora-site` 页面应链接自身 GitHub Releases 的安装资产，不使用 GitHub Packages，也不把安装包复制进站点仓库。静态站点可使用第一次发布后确认的稳定文件名构造 `/releases/latest/download/<文件名>`；若以后修改 `releaseAssetNamePattern`，必须在同一次变更中更新站点下载配置并验证 302 跳转和最终下载。
+### 9.2 修改网站下载入口
+
+执行位置：`SITE-LOCAL`。只有在第 7 节已经看到 draft 中的实际资产文件名后，才修改网站。当前需要检查和修改的真实文件是：
+
+- `/Users/refinex/develop/project/madora-site/site.config.ts`：
+  - 删除 `placeholderDownloadUrl` 及其私有仓库占位值；
+  - `repositoryUrl` 改为公开 `https://github.com/Refinex-Space/madora-site`；
+  - `version` 改为本次应用版本；
+  - `downloads` 只保留 macOS arm64、macOS x64、Windows x64；
+  - 删除 `macos/universal` 项及不再需要的 `universal` 类型；
+  - 每个 `url` 改为 `https://github.com/Refinex-Space/madora-site/releases/latest/download/<draft 中确认的实际文件名>`。
+- `/Users/refinex/develop/project/madora-site/components/site-header.tsx`：把仍指向私有 `Refinex-Space/madora` 的 GitHub 链接改为公开站点仓库或 Releases 页面。
+- `/Users/refinex/develop/project/madora-site/app/[locale]/download/page.tsx`：删除“当前链接仍是占位地址”的提示，改为当前无系统证书的 Gatekeeper/SmartScreen 说明。
+- `/Users/refinex/develop/project/madora-site/content/docs/zh-CN/install.md` 和 `/Users/refinex/develop/project/madora-site/content/docs/en/install.md`：删除 Universal/占位下载描述，写明三种实际构建和系统放行步骤。
+- `/Users/refinex/develop/project/madora-site/content/docs/zh-CN/faq.md` 和 `/Users/refinex/develop/project/madora-site/content/docs/en/faq.md`：不得继续引导普通用户访问私有 `madora` 仓库。
+- `/Users/refinex/develop/project/madora-site/tests/downloads.test.ts`：同步删除 Universal 假设并覆盖三个实际目标。
+
+完成修改后，在 macOS Terminal 执行：
+
+```bash
+cd /Users/refinex/develop/project/madora-site
+npx --yes pnpm@11.12.0 test:run
+npx --yes pnpm@11.12.0 lint
+npx --yes pnpm@11.12.0 typecheck
+npx --yes pnpm@11.12.0 build
+npx --yes pnpm@11.12.0 check:static
+```
+
+`madora-site` 页面应链接自身 GitHub Releases 的安装资产，不使用 GitHub Packages，也不把安装包复制进站点仓库。若以后修改 `/Users/refinex/develop/project/madora/.github/workflows/release.yml` 的 `releaseAssetNamePattern`，必须在同一次发布中回到 `/Users/refinex/develop/project/madora-site/site.config.ts` 更新链接并验证 302 跳转和最终下载。
 
 站点只展示当前实际支持的三个目标，不提供 universal macOS 或 Windows ARM64 占位下载。网站发布属于独立仓库流程，本手册不授权从 Madora 仓库自动部署网站。
 
 ## 10. 故障、撤回与回滚
 
-- draft 失败：保持 draft，不发布；修复后重新运行同一 workflow 之前先确认不会复用错误签名资产。
-- `MADORA_RELEASES_TOKEN` 失效或权限不足：保持源码 Tag，不手工改用宽权限 Token；更新最小权限 Secret 后重新运行失败任务，并确认目标仍是 `madora-site`。
-- 已发布版本存在严重缺陷：立即在 Release Notes 标记，停止站点推荐；发布更高 SemVer 的热修复版本。不要依赖降级，因为 updater 默认只接受更高版本。
-- 删除或改回旧的 latest Release 不能修复已经安装坏版本的用户，也可能造成 endpoint 短暂不一致；优先发布更高版本热修复。
-- 单个平台资产错误：不得只替换同名二进制而沿用旧 `.sig`/`latest.json`。必须重新生成匹配的 updater artifact、签名和清单，并重新完成三平台验收。
-- 更新私钥疑似泄露：停止发布并按安全事件处理。密钥轮换不能直接替换，因为旧客户端固定信任旧公钥；需要先用旧密钥发布一个嵌入新公钥的过渡版本，确认覆盖率后才切换新私钥。旧私钥不可用时，无法通过原 updater 安全迁移，只能要求用户手工安装新版本。
+- `GITHUB-SITE` draft 失败：保持 draft，不发布；回到 `GITHUB-APP` 查看失败任务，在 `APP-LOCAL` 修复源码后重新运行工作流，先确认不会复用错误签名资产。
+- `GITHUB-APP` 中 `MADORA_RELEASES_TOKEN` 失效或权限不足：保持源码 Tag，不手工改用宽权限 Token；在 `GITHUB-ACCOUNT` 更新最小权限 Token，再回到 `GITHUB-APP` 更新 Secret 并重新运行失败任务。
+- `SITE-LOCAL` 链接错误：先停止部署网站，不移动或复制安装包；按第 9.2 节修正 `site.config.ts` 并重新执行站点五项验证。
+- `GITHUB-SITE` 已发布版本存在严重缺陷：立即在 Release Notes 标记并让 `SITE-LOCAL` 停止推荐；在 `APP-LOCAL` 提升 SemVer，按完整流程发布热修复。不要依赖降级，因为 updater 默认只接受更高版本。
+- 删除或改回旧的 latest Release 不能修复已经安装坏版本的用户，也可能造成 endpoint 短暂不一致；优先从 `APP-LOCAL` 发布更高版本热修复。
+- 单个平台资产错误：不得在 `GITHUB-SITE` 手工替换同名二进制而沿用旧 `.sig`/`latest.json`。必须从 `APP-LOCAL` 修复并重新生成匹配的 updater artifact、签名和清单，再完成三平台验收。
+- 更新私钥疑似泄露：立即停止 `GITHUB-APP` 发布并按安全事件处理。密钥轮换不能直接替换，因为旧客户端固定信任旧公钥；需要先用旧密钥从 `APP-LOCAL` 发布一个嵌入新公钥的过渡版本，确认覆盖率后才切换新私钥。旧私钥不可用时，无法通过原 updater 安全迁移，只能要求用户手工安装新版本。
 
 ## 11. 发布完成记录
 
-每次发布至少保留以下证据：
+证据保存位置必须明确，不使用未定义的“内部记录”：
 
-- 版本、Tag、Release URL 和源码 commit；
-- 三平台 workflow 结果；
-- `latest.json` target 与签名检查结果；
-- macOS ad-hoc/Gatekeeper 和 Windows `NotSigned`/SmartScreen 验收结果；
-- 三平台安装验收；
-- N-1→N 更新验收（首次发布注明不适用）；
-- madora-site 下载链接验证结果；
-- 已知限制和回滚负责人。
+| 证据 | 保存位置 |
+| --- | --- |
+| 用户可见版本、更新内容、已知限制、安装说明 | `GITHUB-SITE` 对应版本的 Release Notes |
+| 私有源码 commit、源码 Tag、三平台构建结果和 workflow 日志 | `GITHUB-APP` 对应 `Release Madora desktop` workflow run；Release Notes 同时保留工作流自动写入的源码 commit SHA |
+| `latest.json` target、URL、签名检查结果 | `GITHUB-SITE` 对应 Release Assets；在 Release Notes 的维护者验收段记录结论，不粘贴私钥或敏感日志 |
+| macOS ad-hoc/Gatekeeper、Windows `NotSigned`/SmartScreen、三平台安装结果 | `GITHUB-SITE` Release Notes 的“验收与已知限制”段；失败时不得发布 |
+| N-1→N 更新结果 | `GITHUB-SITE` Release Notes 的“更新验收”段；首次发布明确写“不适用：无 N-1” |
+| 官网下载链接和静态构建结果 | `SITE-LOCAL` 的提交记录，以及对应 `madora-site` GitHub Actions/部署记录（若该仓库尚未配置部署工作流，则保留本机五项验证结果并在提交说明中注明） |
+
+不要把私钥、Token、完整本地路径、私有 workflow 日志或用户文档写入公开 Release Notes。
