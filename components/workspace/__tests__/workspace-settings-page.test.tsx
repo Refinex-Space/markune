@@ -65,7 +65,9 @@ describe('WorkspaceSettingsPage', () => {
     expect(screen.getByTestId('workspace-settings-page').className).toContain(
       'min-w-0',
     );
-    expect(screen.getByTestId('workspace-editor-column')).toBeTruthy();
+    const editorColumn = screen.getByTestId('workspace-editor-column');
+    expect(editorColumn.className).toContain('m-2');
+    expect(editorColumn.className).not.toContain('shadow-[');
     expect(screen.getByTestId('workspace-settings-content').className).toContain(
       'max-w-[1120px]',
     );

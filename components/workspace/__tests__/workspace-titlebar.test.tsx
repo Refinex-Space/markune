@@ -47,9 +47,15 @@ describe('Windows workspace titlebar', () => {
       'data-testid="workspace-panel-group"',
     );
     expect(workspaceLayoutSource).toContain(
-      'relative m-2 flex min-h-0 min-w-0 max-w-full flex-1 gap-2 overflow-hidden',
+      'relative m-2 flex min-h-0 min-w-0 max-w-full flex-1 gap-2 overflow-hidden bg-sidebar',
     );
-    expect(workspaceLayoutSource).toContain('className="-mx-2"');
+    expect(workspaceLayoutSource).toContain(
+      'className="-mx-2 bg-sidebar"',
+    );
+    const editorColumnClass = workspaceLayoutSource.match(
+      /className="([^"]+)"\s+data-testid="workspace-editor-column"/,
+    )?.[1];
+    expect(editorColumnClass).not.toContain('shadow-[');
     expect(workspaceLayoutSource.indexOf('data-testid="workspace-editor-column"'))
       .toBeLessThan(workspaceLayoutSource.indexOf('<RightSidePanel'));
   });

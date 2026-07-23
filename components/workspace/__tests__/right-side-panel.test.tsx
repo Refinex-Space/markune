@@ -77,6 +77,7 @@ describe('right AI panel integration', () => {
     expect(aiPanelIcon?.getAttribute('viewBox')).toBe('0 0 256 260');
     expect(aiPanelIcon?.getAttribute('class')).toContain('size-[17px]');
     expect(aiPanelIcon?.getAttribute('fill')).toBe('currentColor');
+    expect(aiPanelButton.className).toContain('size-8');
 
     await user.click(screen.getByRole('button', { name: '展开 AI 面板' }));
     expect(onModeChange).toHaveBeenLastCalledWith('ai');
@@ -87,6 +88,7 @@ describe('right AI panel integration', () => {
     rerender(
       <RightToolRail
         mode="ai"
+        orientation="header"
         onModeChange={onModeChange}
         onOpenSettings={vi.fn()}
       />,
@@ -96,6 +98,8 @@ describe('right AI panel integration', () => {
       .className.split(/\s+/);
     expect(activeAiButtonClasses).not.toContain('bg-accent');
     expect(activeAiButtonClasses).not.toContain('text-foreground');
+    expect(activeAiButtonClasses).toContain('size-7');
+    expect(screen.getByTestId('right-tool-rail').className).toContain('h-full');
     await user.click(screen.getByRole('button', { name: '折叠 AI 面板' }));
     expect(onModeChange).toHaveBeenLastCalledWith(null);
   });
@@ -131,9 +135,7 @@ describe('right AI panel integration', () => {
     );
     expect(aiSidePanel.className).toContain('rounded-xl');
     expect(aiSidePanel.className).toContain('border-border/70');
-    expect(aiSidePanel.className).toContain(
-      'shadow-[0_1px_3px_rgba(15,23,42,0.05),0_18px_42px_-28px_rgba(15,23,42,0.45)]',
-    );
+    expect(aiSidePanel.className).not.toContain('shadow-[');
     expect(screen.getByText('AI:/workspace')).toBeTruthy();
     expect(screen.queryByTestId('document-meta-panel')).toBeNull();
     screen.getByRole('button', { name: '打开提及文档' }).click();
@@ -177,6 +179,7 @@ describe('right AI panel integration', () => {
     const metaPanel = screen.getByTestId('document-meta-panel');
     expect(metaPanel).toBeTruthy();
     expect(metaPanel.getAttribute('data-chrome')).toBe('workspace-side-panel');
+    expect(metaPanel.className).not.toContain('shadow-[');
     expect(metaPanel.className).toContain('rounded-xl');
     expect(metaPanel.className).toContain('border-border/70');
   });

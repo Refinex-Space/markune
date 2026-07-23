@@ -590,7 +590,12 @@ describe('AI message rendering', () => {
     );
 
     const panelHeader = screen.getByRole('banner');
-    expect(panelHeader.className).toContain('h-12');
+    expect(panelHeader.className).toContain(
+      'h-[var(--workspace-main-header-height)]',
+    );
+    expect(
+      screen.getByRole('button', { name: '新任务' }).className,
+    ).toContain('size-7');
     expect(panelHeader.className).not.toContain('border-b');
   });
 

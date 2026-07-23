@@ -2857,7 +2857,9 @@ export function AiPanelHeader({
     <header
       className={cn(
         'flex shrink-0 items-center gap-2 px-3',
-        presentation === 'workspace' ? '-mt-1 h-9' : 'h-12',
+        presentation === 'workspace'
+          ? '-mt-1 h-9'
+          : 'h-[var(--workspace-main-header-height)]',
       )}
     >
       <div className="min-w-0 flex-1">
@@ -2895,7 +2897,7 @@ function HeaderButton({
   return (
     <button
       aria-label={label}
-      className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
       title={label}
       type="button"
       onClick={onClick}

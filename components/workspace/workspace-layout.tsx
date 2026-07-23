@@ -2946,7 +2946,7 @@ export function WorkspaceLayout({
             ) : null}
 
             <div
-              className="relative m-2 flex min-h-0 min-w-0 max-w-full flex-1 gap-2 overflow-hidden"
+              className="relative m-2 flex min-h-0 min-w-0 max-w-full flex-1 gap-2 overflow-hidden bg-sidebar"
               data-testid="workspace-panel-group"
               style={
                 {
@@ -2956,7 +2956,7 @@ export function WorkspaceLayout({
               }
             >
               <div
-                className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-background shadow-[0_1px_3px_rgba(15,23,42,0.05),0_18px_42px_-28px_rgba(15,23,42,0.45)]"
+                className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-background"
                 data-testid="workspace-editor-column"
               >
               <section
@@ -3203,7 +3203,7 @@ export function WorkspaceLayout({
               {systemPage !== 'codex' && workspace.rightPanelMode ? (
                 <WorkspaceResizeHandle
                   aria-label="调整右侧面板宽度"
-                  className="-mx-2"
+                  className="-mx-2 bg-sidebar"
                   direction="right"
                   max={rightPanelWidthLimits.max}
                   min={rightPanelWidthLimits.min}
