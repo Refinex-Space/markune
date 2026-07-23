@@ -64,6 +64,98 @@ describe('useWorkspace AI 文件同步', () => {
     expect(result.current.saveState).toBe('saved');
   });
 
+  it('flush 边界只保存一次最新草稿，不会用旧闭包内容回写', async () => {
+    const { result } = renderHook(() => useWorkspace(snapshot));
+    await act(() => result.current.openDocument(node));
+    const nextMarkdown = markdown('flush 后的新内容');
+
+    let saved: boolean | void = false;
+    await act(async () => {
+      saved = await result.current.updateMarkdown(nextMarkdown, {
+        saveImmediately: true,
+      });
+    });
+
+    expect(saved).toBe(true);
+    expect(api.saveMarkdownDocument).toHaveBeenCalledTimes(1);
+    expect(api.saveMarkdownDocument).toHaveBeenCalledWith(
+      '/workspace',
+      node.absolutePath,
+      expect.stringContaining('flush 后的新内容'),
+      1,
+    );
+    expect(api.saveMarkdownDocument.mock.calls[0]?.[2]).not.toContain(
+      '原始内容',
+    );
+  });
+
+  it('flush 后立即准备 AI 不会再次写回旧闭包草稿', async () => {
+    const { result } = renderHook(() => useWorkspace(snapshot));
+    await act(() => result.current.openDocument(node));
+    const nextMarkdown = markdown('准备发送给 AI 的最新内容');
+
+    await act(async () => {
+      await result.current.updateMarkdown(nextMarkdown, {
+        saveImmediately: true,
+      });
+      await result.current.prepareCurrentDocumentForAi();
+    });
+
+    expect(api.saveMarkdownDocument).toHaveBeenCalledTimes(1);
+    expect(api.saveMarkdownDocument).toHaveBeenCalledWith(
+      '/workspace',
+      node.absolutePath,
+      expect.stringContaining('准备发送给 AI 的最新内容'),
+      1,
+    );
+  });
+
+  it('连续 flush 串行保存时使用上一轮返回的 modifiedAt', async () => {
+    let resolveFirstSave!: (value: {
+      modifiedAt: number;
+      path: string;
+    }) => void;
+    api.saveMarkdownDocument
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirstSave = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({
+        modifiedAt: 3,
+        path: node.absolutePath,
+      });
+    const { result } = renderHook(() => useWorkspace(snapshot));
+    await act(() => result.current.openDocument(node));
+    let firstSave!: Promise<boolean | void>;
+    let secondSave!: Promise<boolean | void>;
+
+    act(() => {
+      firstSave = Promise.resolve(
+        result.current.updateMarkdown(markdown('第一轮 flush'), {
+          saveImmediately: true,
+        }),
+      );
+      secondSave = Promise.resolve(
+        result.current.updateMarkdown(markdown('第二轮 flush'), {
+          saveImmediately: true,
+        }),
+      );
+    });
+    await act(async () => {
+      resolveFirstSave({ modifiedAt: 2, path: node.absolutePath });
+      await Promise.all([firstSave, secondSave]);
+    });
+
+    expect(api.saveMarkdownDocument).toHaveBeenCalledTimes(2);
+    expect(api.saveMarkdownDocument.mock.calls[0]?.[3]).toBe(1);
+    expect(api.saveMarkdownDocument.mock.calls[1]?.[2]).toContain(
+      '第二轮 flush',
+    );
+    expect(api.saveMarkdownDocument.mock.calls[1]?.[3]).toBe(2);
+  });
+
   it('本地草稿未保存时不覆盖 Codex 磁盘版本，并可显式加载外部版本', async () => {
     const { result } = renderHook(() => useWorkspace(snapshot));
     await act(() => result.current.openDocument(node));

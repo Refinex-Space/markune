@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-19
+updated: 2026-07-21
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -33,6 +33,20 @@ pnpm lint
 pnpm build
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
+
+## Large-document Acceptance
+
+聚焦自动化先执行：
+
+```bash
+pnpm exec vitest run components/editor/__tests__/markdown-editor.test.tsx components/editor/__tests__/use-workspace-asset-uploader.test.ts components/editor/__tests__/markweave-image-paste.test.tsx components/workspace/__tests__/use-workspace-ai-sync.test.tsx components/workspace/__tests__/workspace-performance.test.ts
+cargo test --manifest-path src-tauri/Cargo.toml assets::tests
+pnpm exec tsc --noEmit
+```
+
+使用 Markweave 共享的 250 KB 文本、250 KB 有效媒体、250 KB 缺失媒体和 1 MB 压力夹具；不要提交用户手册原文或真实资产。浏览器前置基准在 Markweave 仓库运行 `pnpm benchmark:large-document`。最终门禁必须在真实 macOS WKWebView 与 Windows WebView2 各执行至少五轮冷/热测试，记录首屏、可编辑、逐键/IME paint、长任务、滚动帧率、序列化、保存、IPC、DOM/轻量 NodeView 和内存，并与同机 Typora 相对比较。
+
+在 Madora URL 加 `?madoraPerf=1` 后，可从开发者控制台调用 `window.__MadoraPerformanceReport()` 导出脱敏 JSON。验证 100 次连续输入期间序列化计数为 0，500 ms idle 后只增加 1；普通输入资产 IPC 为 0，打开含 421 个唯一资源的文档最多增加 1。另需人工覆盖中文 IME、撤销重做、列表回车、跨块/全选复制、搜索替换、TOC 跳转、快速滚动后编辑、Live/Source 往返、导出、AI 发送和应用关闭 flush。任何保存失败都必须阻止切换/发送/退出并保留草稿。
 
 For single-document export changes, run the focused suites first:
 

@@ -39,6 +39,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             assets::upload_workspace_asset,
             assets::resolve_workspace_asset,
+            assets::resolve_workspace_assets,
             assets::read_workspace_asset_data,
             codex::codex_runtime_probe,
             codex::codex_runtime_start,

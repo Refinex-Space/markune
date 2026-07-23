@@ -12,6 +12,7 @@ import {
   openPlanPreviewTab,
   renameDocumentTab,
   selectDocumentTab,
+  updateDocumentEditorWarmPaths,
 } from '../document-tabs';
 import type { WorkspaceNode } from '../workspace-types';
 
@@ -191,5 +192,41 @@ describe('document tabs model', () => {
     });
     expect(getActiveDocumentPath(layout)).toBeNull();
     expect(getActiveDocumentPath(createInitialEditorLayout())).toBeNull();
+  });
+
+  it('keeps the three most recently selected document editors warm', () => {
+    let layout = createInitialEditorLayout();
+    let warmPaths: readonly string[] = [];
+
+    for (const id of ['a', 'b', 'c', 'd']) {
+      layout = openDocumentTab(layout, doc(id));
+      warmPaths = updateDocumentEditorWarmPaths(warmPaths, layout);
+    }
+
+    expect(warmPaths).toEqual([
+      '/repo/d.md',
+      '/repo/c.md',
+      '/repo/b.md',
+    ]);
+
+    layout = selectDocumentTab(layout, '/repo/c.md');
+    warmPaths = updateDocumentEditorWarmPaths(warmPaths, layout);
+    expect(warmPaths).toEqual([
+      '/repo/c.md',
+      '/repo/d.md',
+      '/repo/b.md',
+    ]);
+  });
+
+  it('removes closed documents from the warm editor set', () => {
+    let layout = createInitialEditorLayout();
+    layout = openDocumentTab(layout, doc('a'));
+    layout = openDocumentTab(layout, doc('b'));
+    let warmPaths = updateDocumentEditorWarmPaths([], layout);
+
+    layout = closeDocumentTab(layout, '/repo/b.md');
+    warmPaths = updateDocumentEditorWarmPaths(warmPaths, layout);
+
+    expect(warmPaths).toEqual(['/repo/a.md']);
   });
 });

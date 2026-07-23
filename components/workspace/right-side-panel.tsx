@@ -122,9 +122,12 @@ export function RightSidePanel({
           'h-full min-h-0 min-w-0 overflow-hidden bg-background',
           aiVisible ? 'flex' : 'hidden',
           workspacePresentation
-            ? 'flex-1'
-            : 'shrink-0 border-l border-border/70',
+            ? 'absolute inset-x-px bottom-px top-[var(--workspace-main-header-height)] z-20 rounded-b-[11px]'
+            : 'shrink-0 rounded-xl border border-border/70',
         )}
+        data-chrome={
+          workspacePresentation ? 'workspace-ai-surface' : 'workspace-side-panel'
+        }
         data-presentation={aiPresentation}
         data-testid="ai-side-panel"
         hidden={!aiVisible}
@@ -178,7 +181,8 @@ export function RightSidePanel({
 
       {mode === 'meta' ? (
         <aside
-          className="flex h-full shrink-0 flex-col overflow-hidden border-l bg-background"
+          className="flex h-full shrink-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-background"
+          data-chrome="workspace-side-panel"
           data-testid="document-meta-panel"
           style={{ width }}
         >
@@ -211,7 +215,7 @@ export function RightToolRail({
       <nav
         className={cn(
           orientation === 'header'
-            ? 'flex h-11 shrink-0 items-center gap-0.5'
+            ? 'flex h-full shrink-0 items-center gap-0.5'
             : 'flex h-full w-8 shrink-0 flex-col items-center gap-2 py-1',
         )}
         data-testid="right-tool-rail"
@@ -220,7 +224,7 @@ export function RightToolRail({
           <TooltipTrigger asChild>
             <button
               aria-label={mode === 'ai' ? '折叠 AI 面板' : '展开 AI 面板'}
-              className={rightToolButtonClassName()}
+              className={rightToolButtonClassName(orientation)}
               data-testid="ai-panel-icon-button"
               type="button"
               onClick={() => onModeChange(nextAiMode)}
@@ -237,7 +241,7 @@ export function RightToolRail({
           <TooltipTrigger asChild>
             <button
               aria-label={mode === 'meta' ? '折叠元信息面板' : '展开元信息面板'}
-              className={rightToolButtonClassName()}
+              className={rightToolButtonClassName(orientation)}
               data-testid="document-meta-panel-icon-button"
               type="button"
               onClick={() => onModeChange(nextMetaMode)}
@@ -257,7 +261,10 @@ export function RightToolRail({
                 <TooltipTrigger asChild>
                   <button
                     aria-label="打开设置菜单"
-                    className={cn(rightToolButtonClassName(), orientation === 'rail' && 'mt-auto')}
+                    className={cn(
+                      rightToolButtonClassName(orientation),
+                      orientation === 'rail' && 'mt-auto',
+                    )}
                     data-testid="settings-menu-button"
                     type="button"
                   >
@@ -296,8 +303,9 @@ export function RightToolRail({
   );
 }
 
-function rightToolButtonClassName() {
+function rightToolButtonClassName(orientation: 'header' | 'rail') {
   return cn(
-    'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+    'flex items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+    orientation === 'header' ? 'size-7' : 'size-8',
   );
 }

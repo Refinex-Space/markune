@@ -87,6 +87,7 @@ interface WorkspaceSettingsPageProps {
     onResize: (width: number) => void;
   };
   sidebarWidth?: number;
+  windowsChromeInset?: boolean;
   workspaceRootPath: string | null;
   onBack: () => void;
   onSettingsSaved?: (settings: AppSettings) => void;
@@ -149,6 +150,7 @@ export function WorkspaceSettingsPage({
   sessionCache,
   sidebarResize,
   sidebarWidth = 280,
+  windowsChromeInset = false,
   workspaceRootPath,
   onBack,
   onSettingsSaved,
@@ -388,7 +390,14 @@ export function WorkspaceSettingsPage({
         data-testid="workspace-settings-sidebar"
         style={{ width: sidebarWidth }}
       >
-        <header className="h-10 shrink-0" data-tauri-drag-region="deep" />
+        <header
+          className={cn(
+            'shrink-0',
+            windowsChromeInset ? 'h-2' : 'h-10',
+          )}
+          data-tauri-drag-region="deep"
+          data-testid="workspace-settings-sidebar-titlebar-spacer"
+        />
         <div className="px-2 pb-2 pr-4">
           <button
             aria-label="返回应用"
@@ -464,7 +473,7 @@ export function WorkspaceSettingsPage({
       ) : null}
 
       <div
-        className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-background shadow-[0_1px_3px_rgba(15,23,42,0.05),0_18px_42px_-28px_rgba(15,23,42,0.45)]"
+        className="m-2 flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-background"
         data-testid="workspace-editor-column"
       >
         <section

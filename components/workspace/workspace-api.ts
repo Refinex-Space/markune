@@ -47,6 +47,7 @@ import type {
   UploadedWorkspaceAsset,
   UploadWorkspaceAssetInput,
   WorkspaceAssetData,
+  WorkspaceAssetBatchResolution,
   WorkspaceExportFormat,
   WorkspaceImportFormat,
   WorkspaceGitSyncSettings,
@@ -1107,6 +1108,18 @@ export async function resolveWorkspaceAsset(rootPath: string, assetId: string) {
   return invoke<ResolvedWorkspaceAsset>('resolve_workspace_asset', {
     rootPath,
     assetId,
+  });
+}
+
+export async function resolveWorkspaceAssets(
+  rootPath: string,
+  assetIds: string[],
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<WorkspaceAssetBatchResolution>('resolve_workspace_assets', {
+    rootPath,
+    assetIds,
   });
 }
 

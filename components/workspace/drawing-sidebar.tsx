@@ -11,9 +11,11 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  Search,
   Star,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -136,6 +138,28 @@ export function DrawingSidebar({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+
+        <label className="mx-1 mb-2 flex h-8 shrink-0 items-center gap-2 rounded-md border border-sidebar-border/60 bg-background/70 px-2 text-xs text-muted-foreground transition-colors focus-within:border-ring focus-within:text-foreground">
+          <Search className="shrink-0" size={13} strokeWidth={1.75} />
+          <input
+            aria-label="搜索图稿"
+            className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+            placeholder="搜索图稿"
+            type="search"
+            value={controller.query}
+            onChange={(event) => controller.setQuery(event.currentTarget.value)}
+          />
+          {controller.query ? (
+            <button
+              aria-label="清除图稿搜索"
+              className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+              type="button"
+              onClick={() => controller.setQuery('')}
+            >
+              <X size={12} />
+            </button>
+          ) : null}
+        </label>
 
         <div className="drawing-tree-scrollarea min-h-0 flex-1 overflow-y-auto">
           <div className="space-y-0.5">

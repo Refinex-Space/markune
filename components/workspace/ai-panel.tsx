@@ -2857,7 +2857,9 @@ export function AiPanelHeader({
     <header
       className={cn(
         'flex shrink-0 items-center gap-2 px-3',
-        presentation === 'workspace' ? '-mt-1 h-9' : 'h-12',
+        presentation === 'workspace'
+          ? '-mt-1 h-9'
+          : 'h-[var(--workspace-main-header-height)]',
       )}
     >
       <div className="min-w-0 flex-1">
@@ -2871,17 +2873,19 @@ export function AiPanelHeader({
         className="flex shrink-0 items-center gap-0.5"
         data-testid="ai-header-actions"
       >
-        {onNewDiagram ? (
-          <HeaderButton label="AI 画图" onClick={onNewDiagram}>
-            <Blocks size={16} />
+        <TooltipProvider delayDuration={250}>
+          {onNewDiagram ? (
+            <HeaderButton label="AI 画图" onClick={onNewDiagram}>
+              <Blocks size={16} />
+            </HeaderButton>
+          ) : null}
+          <HeaderButton label="新任务" onClick={onNewChat}>
+            <SquarePen size={16} />
           </HeaderButton>
-        ) : null}
-        <HeaderButton label="新任务" onClick={onNewChat}>
-          <SquarePen size={16} />
-        </HeaderButton>
-        <HeaderButton label="历史记录" onClick={onHistory}>
-          <History size={16} />
-        </HeaderButton>
+          <HeaderButton label="历史记录" onClick={onHistory}>
+            <History size={16} />
+          </HeaderButton>
+        </TooltipProvider>
       </div>
     </header>
   );
@@ -2893,15 +2897,21 @@ function HeaderButton({
   onClick,
 }: React.PropsWithChildren<{ label: string; onClick: () => void }>) {
   return (
-    <button
-      aria-label={label}
-      className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-      title={label}
-      type="button"
-      onClick={onClick}
-    >
-      {children}
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          aria-label={label}
+          className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          type="button"
+          onClick={onClick}
+        >
+          {children}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" sideOffset={6}>
+        {label}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

@@ -523,7 +523,7 @@ git commit -m "refactor(workspace): 移除 TOC 快照状态与 prop 透传链
 
 **边界提示**（务必区分，勿误删）：
 - **要删/改**：文档目录 TOC 相关——`document-toc-panel`、`toc-panel-icon-button`、`onTocSnapshotChange`、"展开目录面板"/"折叠目录面板"指**右侧面板**目录按钮、`renders toc snapshot`。
-- **要保留**：左侧文件树"目录"——"搜索当前目录下的文档"、"选择其他目录"、"所在目录"、"新建目录"、"调整左侧目录宽度"、"资源目录"。这些是文件树功能，与 TOC 无关。
+- **要保留**：左侧文件树"目录"——"搜索当前目录下的文档"、"选择工作区"、"所在目录"、"新建目录"、"调整左侧目录宽度"、"资源目录"。这些是文件树功能，与 TOC 无关。
 
 - [ ] **Step 1：精简 `MarkdownEditor` mock**
 

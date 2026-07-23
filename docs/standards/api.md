@@ -58,7 +58,7 @@ referenced_by: AGENTS.md#knowledge-map
 
 ## Local Files And Assets
 
-工作区文档 API 必须保留 Markdown 源文件。`upload_workspace_asset` 返回的 `madora-asset://{assetId}` 是新资源唯一的 Markdown 持久化引用；`.madora/assets/files/...` 只描述索引中的平台无关物理文件相对位置。`upload_workspace_asset` 与 `resolve_workspace_asset` 只能在索引、canonicalize 和资源目录边界校验成功后，将最终解析出的单个文件加入当前进程的资源协议范围，以支持用户目录外、Windows 非系统盘和 macOS 外置卷上的工作区。预览、引用扫描和清理必须兼容旧相对路径引用，成功解析后可在下一次文档保存时规范化为协议引用，解析失败时不得改写原文。
+工作区文档 API 必须保留 Markdown 源文件。`upload_workspace_asset` 返回的 `madora-asset://{assetId}` 是新资源唯一的 Markdown 持久化引用；`.madora/assets/files/...` 只描述索引中的平台无关物理文件相对位置。`resolve_workspace_assets(rootPath, assetIds)` 单次最多接收 2,048 个合法资源 ID，只 canonicalize 工作区并读取一次索引，按输入唯一 ID 返回 `resolved | missing | unreadable`、既有资产信息和可读取图片的固有尺寸；旧 `resolve_workspace_asset` 保留一个兼容周期。上传与单/批量解析都只能在索引、canonicalize 和资源目录边界校验成功后，将最终解析出的单个文件加入当前进程的资源协议范围，以支持用户目录外、Windows 非系统盘和 macOS 外置卷上的工作区。预览、引用扫描和清理必须兼容旧相对路径引用，成功解析后可在下一次文档保存时规范化为协议引用，解析失败时不得改写原文。
 
 ## Inbox Commands
 

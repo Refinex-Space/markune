@@ -14,12 +14,31 @@ vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: vi.fn((path: string) => `asset://${path}`),
 }));
 
-vi.mock('@/components/workspace/workspace-api', () => ({
-  resolveWorkspaceAsset: vi.fn(),
-  uploadWorkspaceAsset: vi.fn(),
-}));
+vi.mock('@/components/workspace/workspace-api', () => {
+  const resolveWorkspaceAsset = vi.fn();
 
-import { useWorkspaceAssetUploader } from '@/components/editor/use-workspace-asset-uploader';
+  return {
+    resolveWorkspaceAsset,
+    resolveWorkspaceAssets: vi.fn(
+      async (rootPath: string, assetIds: string[]) => ({
+        items: await Promise.all(
+          assetIds.map(async (assetId) => {
+            const asset = await resolveWorkspaceAsset(rootPath, assetId);
+            return asset
+              ? { asset, id: assetId, status: 'resolved' }
+              : { id: assetId, status: 'missing' };
+          }),
+        ),
+      }),
+    ),
+    uploadWorkspaceAsset: vi.fn(),
+  };
+});
+
+import {
+  clearWorkspaceAssetResolverCache,
+  useWorkspaceAssetUploader,
+} from '@/components/editor/use-workspace-asset-uploader';
 import {
   resolveWorkspaceAsset,
   uploadWorkspaceAsset,
@@ -32,13 +51,17 @@ function WorkspaceAssetEditor({
   documentKey: string;
   markdown: string;
 }) {
-  const { editorMarkdown } = useWorkspaceAssetUploader('/ws/root', markdown);
+  const { editorMarkdown, resolveMediaSource } = useWorkspaceAssetUploader(
+    '/ws/root',
+    markdown,
+  );
 
   return (
     <MarkweaveEditor
       content={editorMarkdown}
       contentFormat="markdown"
       key={documentKey}
+      {...{ resolveMediaSource }}
     />
   );
 }
@@ -68,7 +91,7 @@ function ControlledWorkspaceAssetEditor({
 }) {
   const [value, setValue] = React.useState(markdown);
   const { editorMarkdown, onSlashCommandUpload, toStorageMarkdown } =
-    useWorkspaceAssetUploader('/ws/root', value);
+    useWorkspaceAssetUploader('/ws/root', markdown);
 
   return (
     <>
@@ -89,6 +112,7 @@ function ControlledWorkspaceAssetEditor({
 describe('Markweave image integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearWorkspaceAssetResolverCache();
   });
 
   it('把剪贴板图片交给 Madora 提供的上传处理器并展示返回地址', async () => {
@@ -110,7 +134,7 @@ describe('Markweave image integration', () => {
       />,
     );
 
-    const surface = screen.getByTestId('markweave-editor-surface');
+    const surface = await screen.findByTestId('markweave-editor-surface');
     fireEvent.paste(surface, {
       clipboardData: {
         files: [file],
@@ -167,7 +191,7 @@ describe('Markweave image integration', () => {
         }}
       />,
     );
-    const surface = screen.getByTestId('markweave-editor-surface');
+    const surface = await screen.findByTestId('markweave-editor-surface');
     await waitFor(() => {
       expect(surface.querySelectorAll('img')).toHaveLength(1);
       expect(editor).not.toBeNull();
@@ -217,7 +241,7 @@ describe('Markweave image integration', () => {
         }}
       />,
     );
-    const surface = screen.getByTestId('markweave-editor-surface');
+    const surface = await screen.findByTestId('markweave-editor-surface');
     await waitFor(() => {
       expect(surface.querySelector('img')?.getAttribute('src')).toContain(
         assetId,
@@ -331,7 +355,7 @@ describe('Markweave image integration', () => {
           ?.getAttribute('src'),
       ).toBe('asset:///ws/.madora/assets/files/ab/hash.png');
     });
-    expect(resolveWorkspaceAsset).toHaveBeenCalledTimes(2);
+    expect(resolveWorkspaceAsset).toHaveBeenCalledTimes(1);
     expect(resolveWorkspaceAsset).toHaveBeenLastCalledWith('/ws/root', 'hash');
   });
 

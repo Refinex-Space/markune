@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-21
+updated: 2026-07-22
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -12,7 +12,7 @@ Madora 是一个以本地 Markdown 文档为核心的桌面知识库，使用 Ne
 ## Runtime Shape
 
 - Web shell：Next.js App Router 与 React client components。
-- Editor：`components/editor/markdown-editor.tsx` 以受控 Markdown 字符串包装 `@markweave/react` / `markweave`。
+- Editor：`components/editor/markdown-editor.tsx` 以非受控 `defaultContent` 包装 `@markweave/react` / `markweave`；编辑事务只保留惰性 payload 和 dirty 状态，完整 Markdown 字符串边界只位于 load/flush。源码模式动态加载 CodeMirror 6，Live/Source 切换只在边界互转一次。
 - Workspace shell：`components/workspace/workspace-layout.tsx` 管理文档树、编辑器标签、全文搜索、Git、终端、设置、文档元信息与 AI 侧栏。
 - Native boundary：前端经 `components/workspace/workspace-api.ts` 调用 Tauri 命令；实现位于 `src-tauri/src`。
 - Codex runtime：`components/workspace/codex-app-server.ts` 只消费协议消息；`src-tauri/src/codex.rs` 启动随应用打包的 Codex App Server sidecar，并通过 stdio JSONL 传递允许的方法、通知与审批请求。
@@ -30,7 +30,7 @@ Madora 是一个以本地 Markdown 文档为核心的桌面知识库，使用 Ne
 
 Inbox 是工作区级快速捕获与分拣入口，不属于正式文档树、全局文档搜索或任务系统。每条 Capture 以独立 Markdown 文件保存在 `.madora/inbox/{capture-id}.md`，正文继续复用 Markdown 编辑器和工作区资产能力；列表、搜索和未处理徽标直接从这些文件计算，不修改 `.madora/workspace.json` schema。
 
-前端由 `use-inbox-controller.ts` 统一持有列表、选中项、新建草稿与保存状态，`inbox-sidebar.tsx` 复用左侧目录树区域承载紧凑列表、状态筛选、状态行右侧的新建入口和分拣菜单，`inbox-page.tsx` 只保留无标题栏的 Markdown 编辑器。新建时先在主编辑区建立临时草稿，空白草稿不写盘，首个非空正文通过自动保存创建 Capture。Capture 的历史标签仍按原样保留在 Markdown frontmatter 与接口中以保证兼容，但 Inbox v1 不提供标签交互。侧栏顶部搜索在 Inbox 激活时切换到独立查询，不覆盖普通文档树搜索。原生边界集中在 `src-tauri/src/inbox.rs`：通用 Markdown 命令继续拒绝 `.madora`，Inbox 命令只接受受格式约束的 Capture ID，并在 canonicalize 后访问 `.madora/inbox/<id>.md`。Promote 和 Append 作为 Rust 组合操作完成；Daily 追加使用 `<!-- madora-capture:<id> -->` 防止重复，并在 Capture 留痕保存失败时恢复本次追加。
+前端由 `use-inbox-controller.ts` 统一持有列表、选中项、新建草稿与保存状态，`inbox-sidebar.tsx` 复用左侧目录树区域承载紧凑列表、状态筛选、局部搜索、状态行右侧的新建入口和分拣菜单，`inbox-page.tsx` 只保留无标题栏的 Markdown 编辑器。新建时先在主编辑区建立临时草稿，空白草稿不写盘，首个非空正文通过自动保存创建 Capture。Capture 的历史标签仍按原样保留在 Markdown frontmatter 与接口中以保证兼容，但 Inbox v1 不提供标签交互。工作区头部搜索入口统一打开全局文档与图稿搜索，Inbox 查询只由其侧栏内部的局部搜索框控制。原生边界集中在 `src-tauri/src/inbox.rs`：通用 Markdown 命令继续拒绝 `.madora`，Inbox 命令只接受受格式约束的 Capture ID，并在 canonicalize 后访问 `.madora/inbox/<id>.md`。Promote 和 Append 作为 Rust 组合操作完成；Daily 追加使用 `<!-- madora-capture:<id> -->` 防止重复，并在 Capture 留痕保存失败时恢复本次追加。
 
 Capture 的持久状态仅为 `open`、`processing`、`done`、`archived`。Inbox 不再提供新增 snooze 的交互；历史 Capture 中未来的 `snoozedUntil` 仍在读取后的视图层派生为“稍后”，并提供“恢复待处理”清除该字段，无需后台迁移。提升后的 Note 与追加后的 Daily 都是正式 Markdown 文档，Capture 本身保留为已处理记录。
 
@@ -124,7 +124,11 @@ Codex App Server 是 AI 会话持久化的唯一所有者。Madora 默认把 sid
 
 持久化文档始终为 Markdown 文件。磁盘格式、内存草稿和编辑器输入/输出必须保持 Markdown 字符串边界，禁止重新引入富文本投影层。
 
-Markweave 只接收 frontmatter 解析后的正文；保存时必须重新序列化受保护的 frontmatter。新上传资源的物理文件写入工作区根目录下的 `.madora/assets/files/{shard}/{hash}.{ext}`，Markdown 持久化引用统一使用 `madora-asset://{assetId}`。编辑器展示前通过工作区资产索引解析为受控本地 URL；旧 `.madora/assets/files/...` 引用保持只读兼容，并在成功解析后的下一次保存中规范化为协议引用。资产存活扫描覆盖正式 Markdown 和 `.madora/inbox/*.md`，但不扫描 `.madora` 下其他私有 Markdown。
+Markweave 只接收 frontmatter 解析后的正文；保存时必须重新序列化受保护的 frontmatter。停止输入 500 ms、手动保存、切换标签/模式、导出、AI 发送和应用退出统一调用 `flushDraft(reason)`；flush 才读取一次 `payload.markdown`、恢复图稿引用、更新 `updatedAt` 并进入原子保存，失败会中止后续动作并保留草稿。新上传资源的物理文件写入工作区根目录下的 `.madora/assets/files/{shard}/{hash}.{ext}`，Markdown 持久化引用统一使用 `madora-asset://{assetId}`。正文挂载不等待资源预检；打开后的资源预检按唯一 ID 调用一次 `resolve_workspace_assets`，前端通过有界的工作区级缓存跨 Tab 复用成功、缺失、不可读与进行中结果。NodeView 只在展示层按视口解析 URL，不再把全部展示 URL 写回整篇 Markdown，也不通过 DOM 扫描触发文档事务。旧 `.madora/assets/files/...` 引用保持只读兼容，并在成功解析后的下一次保存中规范化为协议引用。资产存活扫描覆盖正式 Markdown 和 `.madora/inbox/*.md`，但不扫描 `.madora` 下其他私有 Markdown。
+
+## Large-document Performance Boundary
+
+Madora 的每次按键不得读取 `payload.markdown`、复制完整草稿到父级状态或产生资产 IPC。`?madoraPerf=1` 开启脱敏诊断，`window.__MadoraPerformanceReport()` 返回仅含数量、耗时、原因和状态的 JSON；不得记录正文或路径。Markweave 0.3 在大 Markdown 上使用安全标题边界的渐进解析、增量 TOC、轻量媒体 DOM NodeView、受控 `content-visibility` 与无事务级 React 重渲染。工作区以 LRU 方式保留最近 3 个已打开文档的 EditorView；切换 Tab 只改变可见性和活动编辑器 ref，关闭或超过上限才销毁实例，文档版本键必须在 live draft 与缓存 session 之间保持稳定。Madora 的 0.3 集成必须先通过本地 tarball 验证，npm 发布与 Madora 依赖升级仍是独立发布动作。
 
 ## Desktop Build Boundary
 

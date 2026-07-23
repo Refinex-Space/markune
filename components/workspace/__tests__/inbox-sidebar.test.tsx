@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -84,6 +84,17 @@ describe('InboxSidebar', () => {
     await user.click(screen.getByTestId('inbox-new-capture-trigger'));
 
     expect(controller.startNewCapture).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps Inbox search inside its own sidebar', () => {
+    const controller = createController();
+
+    renderSidebar(controller);
+    fireEvent.change(screen.getByRole('searchbox', { name: '搜索 Inbox' }), {
+      target: { value: '想法' },
+    });
+
+    expect(controller.setQuery).toHaveBeenCalledWith('想法');
   });
 
   it('exposes triage actions from the capture context menu', async () => {

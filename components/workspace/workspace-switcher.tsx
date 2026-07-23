@@ -4,11 +4,9 @@ import * as React from 'react';
 import {
   ChevronDown,
   Clock3,
-  FilePlus2,
   FolderOpen,
   FolderPlus,
   Loader2,
-  Plus,
   X,
 } from 'lucide-react';
 
@@ -36,8 +34,6 @@ interface WorkspaceSwitcherProps {
     parentPath: string,
     workspaceName: string,
   ) => Promise<void>;
-  onCreateDirectory?: () => void;
-  onCreateDocument?: () => void;
   onOpenWorkspace: () => void;
   onRemoveWorkspace: (rootPath: string) => void;
   onSwitchWorkspace: (rootPath: string) => void;
@@ -49,8 +45,6 @@ export function WorkspaceSwitcher({
   history,
   isLoading,
   onChooseWorkspaceParent,
-  onCreateDirectory,
-  onCreateDocument,
   onCreateWorkspace,
   onOpenWorkspace,
   onRemoveWorkspace,
@@ -134,103 +128,74 @@ export function WorkspaceSwitcher({
     >
       {isOpen ? (
         <div
+          data-testid="workspace-switcher-menu"
           className={cn(
-            'absolute top-[calc(100%+4px)] z-30 overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-lg',
+            'absolute top-[calc(100%+4px)] z-30 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-none',
             compact ? 'left-0 right-0' : 'left-3 right-3',
           )}
         >
-          <div className="p-2">
-            {currentWorkspace ? (
+          <div className="p-1.5">
+            {history.length > 0 ? (
               <>
-                <div className="grid gap-1 pb-2">
-                  <Button
-                    className="w-full justify-start"
-                    disabled={!onCreateDocument}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                    onClick={() => {
-                      setIsOpen(false);
-                      onCreateDocument?.();
-                    }}
-                  >
-                    <FilePlus2 size={14} />
-                    新建文档
-                  </Button>
-                  <Button
-                    className="w-full justify-start"
-                    disabled={!onCreateDirectory}
-                    size="sm"
-                    type="button"
-                    variant="ghost"
-                    onClick={() => {
-                      setIsOpen(false);
-                      onCreateDirectory?.();
-                    }}
-                  >
-                    <FolderPlus size={14} />
-                    新建目录
-                  </Button>
+                <div className="flex items-center gap-2 px-2 pb-1 pt-0.5 text-xs font-medium text-muted-foreground">
+                  <Clock3 size={13} />
+                  最近工作区
                 </div>
-                <div className="-mx-2 mb-2 border-t" />
+                <div className="max-h-64 overflow-y-auto">
+                  {history.map((item) => (
+                    <div
+                      key={item.rootPath}
+                      className={cn(
+                        'flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-muted',
+                        item.rootPath === currentWorkspace?.rootPath && 'bg-muted',
+                      )}
+                    >
+                      <button
+                        className="min-w-0 flex-1 text-left"
+                        type="button"
+                        onClick={() => {
+                          setIsOpen(false);
+                          onSwitchWorkspace(item.rootPath);
+                        }}
+                      >
+                        <span className="block truncate font-medium">
+                          {item.rootName}
+                        </span>
+                      </button>
+                      <button
+                        aria-label={`移除工作区 ${item.rootName}`}
+                        className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                        type="button"
+                        onClick={() => onRemoveWorkspace(item.rootPath)}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </>
             ) : null}
 
-            {history.length > 0 ? (
-              <>
-              <div className="flex items-center gap-2 px-2 pb-2 pt-1 text-xs font-medium text-muted-foreground">
-                <Clock3 size={13} />
-                最近工作区
-              </div>
-              <div className="max-h-64 overflow-y-auto">
-                {history.map((item) => (
-                  <div
-                    key={item.rootPath}
-                    className={cn(
-                      'flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-muted',
-                      item.rootPath === currentWorkspace?.rootPath && 'bg-muted',
-                    )}
-                  >
-                    <button
-                      className="min-w-0 flex-1 text-left"
-                      type="button"
-                      onClick={() => {
-                        setIsOpen(false);
-                        onSwitchWorkspace(item.rootPath);
-                      }}
-                    >
-                      <span className="block truncate font-medium">
-                        {item.rootName}
-                      </span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {item.rootPath}
-                      </span>
-                    </button>
-                    <button
-                      aria-label={`移除工作区 ${item.rootName}`}
-                      className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground"
-                      type="button"
-                      onClick={() => onRemoveWorkspace(item.rootPath)}
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              </>
-            ) : (
-              <div className="space-y-1 px-2 py-2 text-sm">
-                <p className="font-medium">
-                  {currentWorkspace ? '没有其它工作区' : '还没有打开过的工作区'}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  选择一个工作区目录，后续可在这里快速切换。
-                </p>
-              </div>
-            )}
-
+            <div
+              className={cn(
+                'grid gap-0.5',
+                history.length > 0 && 'mt-1 border-t pt-1',
+              )}
+            >
               <Button
-                className="mt-2 w-full justify-start"
+                className="w-full justify-start"
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setIsOpen(false);
+                  onOpenWorkspace();
+                }}
+              >
+                <FolderOpen size={15} />
+                {currentWorkspace ? '选择工作区' : '打开已有工作区'}
+              </Button>
+              <Button
+                className="w-full justify-start"
                 type="button"
                 variant="ghost"
                 onClick={() => {
@@ -241,18 +206,7 @@ export function WorkspaceSwitcher({
                 <FolderPlus size={15} />
                 新建工作区
               </Button>
-              <Button
-                className="mt-1 w-full justify-start"
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  setIsOpen(false);
-                  onOpenWorkspace();
-                }}
-              >
-                <Plus size={14} />
-                选择其他目录
-              </Button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -262,7 +216,7 @@ export function WorkspaceSwitcher({
         aria-label="打开工作区菜单"
         className={cn(
           'group flex w-full items-center gap-2 rounded-md text-left transition-colors hover:bg-sidebar-accent',
-          compact ? 'h-9 px-2 py-1' : 'min-h-10 px-2 py-1.5',
+          compact ? 'h-9 px-1.5 py-1' : 'min-h-10 px-2 py-1.5',
         )}
         disabled={isLoading}
         type="button"

@@ -43,6 +43,58 @@
 
 final result: passed
 
+---
+
+# Windows 外层标题栏设计 QA
+
+- source visual truth:
+  - `C:\Users\Administrator\AppData\Local\Temp\codex-clipboard-5e9aaeed-85d5-491f-b8fc-1575c08cfc46.png`
+  - `C:\Users\Administrator\AppData\Local\Temp\codex-clipboard-14715a9e-a4f3-4210-96f0-ed99ae25a9ea.png`
+- implementation screenshot: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-windows-outer-titlebar.png`
+- full-view comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-windows-titlebar-full-comparison.png`
+- focused comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-windows-titlebar-focus-comparison.png`
+- viewport: implementation `1280 × 720` CSS px, `devicePixelRatio: 1`
+- pixel dimensions: source baseline `1920 × 704`, source reference `1600 × 154`, implementation `1280 × 720`
+- density normalization: full view preserves each screenshot's aspect ratio; focused comparison scales both titlebar regions to the same 1600 px width before comparison
+- state: Windows layout simulation, light theme, empty workspace, expanded left sidebar
+
+## Full-view comparison evidence
+
+- The prior Madora screen placed window controls inside the rounded main panel and reserved a visibly empty strip after the custom tools.
+- The implementation creates a dedicated `32px` outer titlebar. Window controls occupy the window's top-right edge while the rounded main panel begins at `y = 40`, preserving the existing `8px` panel gutter below the titlebar.
+- The sidebar begins below the outer titlebar, while its collapse, pin, and refresh controls remain in the outer strip. The content panel and sidebar therefore read as one workspace below a single window-level chrome row.
+
+## Focused comparison evidence
+
+- The reference and implementation titlebar regions were placed in one comparison image. Both show the native window group on the highest outer row and product-specific controls on the lower content row.
+- The implementation's custom header tools end at `x = 1259`; the main panel ends at `x = 1272`, leaving the existing 13 px optical inset without the former 136 px native-control reservation or divider.
+- The outer titlebar spans `x = 0–1280`, and the window controls span `x = 1148–1280`, so minimize, maximize, and close retain the Windows top-right edge target.
+
+## Required fidelity surfaces
+
+- Fonts and typography: unchanged; no text styles, weights, line heights, or wrapping changed.
+- Spacing and layout rhythm: the outer titlebar is 32 px high, the main panel starts 8 px below it, and custom tools align to the main panel's right padding.
+- Colors and visual tokens: the titlebar uses the existing `bg-sidebar` and `border-sidebar-border` tokens; the main panel's background, border, radius, and shadow are unchanged.
+- Image quality and asset fidelity: no raster assets, logos, or icons were added or replaced; existing Lucide controls are reused.
+- Copy and content: no product copy changed.
+
+## Primary interactions and runtime checks
+
+- Browser layout measurements confirmed the outer titlebar, main content block, main panel, native-control group, sidebar controls, and custom-tool group do not overlap.
+- Source tests confirm the Windows-only `pt-8` content offset, full-width outer titlebar, and removal of the old 136 px reservation and divider.
+- The browser-rendered simulation displayed no runtime error overlay.
+
+## Findings
+
+- No actionable P0, P1, or P2 mismatch remains.
+- The reference application's exact icon sizing differs slightly, but Madora intentionally keeps its established Windows control icons and hover behavior; this is not an actionable fidelity issue for the requested hierarchy change.
+
+## Comparison history
+
+- Iteration 1: the implementation moved the native control group to a full-width outer titlebar, moved workspace content below it, and allowed custom tools to use the main panel's full right edge. The combined full-view and focused comparisons showed no P0/P1/P2 issue, so no corrective visual iteration was required.
+
+final result: passed
+
 # Goal Mode Design QA
 
 - source visual truth paths:
@@ -168,3 +220,194 @@ final result: passed
 - 若仍有图标光学偏差，只调整图标槽的 `vertical-align`，不要再次移动 mention 文字。
 
 final result: blocked
+
+# Workspace Menu And Global Search Shell Design QA
+
+- source visual truth paths:
+  - `C:/Users/ADMINI~1/AppData/Local/Temp/codex-clipboard-26cf02f7-17b3-4da5-ba87-05b506f7d41d.png`
+  - `C:/Users/ADMINI~1/AppData/Local/Temp/codex-clipboard-649c8d94-c9e1-46bc-9d35-01bf87b4ee4e.png`
+- implementation screenshot paths:
+  - `C:/Users/Administrator/.codex/visualizations/2026/07/22/019f875e-5809-7e80-ba25-ef1dcd229a0a/madora-workspace-menu-flat.png`
+  - `C:/Users/Administrator/.codex/visualizations/2026/07/22/019f875e-5809-7e80-ba25-ef1dcd229a0a/madora-global-search-flat.png`
+- viewport: implementation `1280 × 720` CSS px, `devicePixelRatio: 1`
+- pixel dimensions: menu source `357 × 222`, search source `1897 × 726`, both implementation captures `1280 × 720`
+- density normalization: source density is unavailable; comparison was normalized by matching the same open states and judging the component shells rather than absolute full-screen scale
+- state: 浅色主题、未打开工作区、工作区菜单展开、全局搜索空查询弹窗展开
+
+## Full-view comparison evidence
+
+两张用户参考图与两张浏览器实现图已在同一次比较输入中打开。实现保留原有宽度、位置、边框、内边距、文案和遮罩，只把菜单与搜索弹窗外壳统一收紧为 `8px` 圆角，并移除外部高程阴影。两个浮层仍与现有侧栏和主题令牌保持一致。
+
+## Focused region comparison evidence
+
+菜单参考图本身就是组件聚焦裁切；实现同时通过浏览器计算样式确认菜单为 `218 × 80`、`border-radius: 8px` 且阴影完全透明。全局搜索实现通过浏览器计算样式确认弹窗为 `768 × 176`、`border-radius: 8px`，仅保留边界用的 `1px` ring，没有高程阴影。无需额外裁切即可判断本次只涉及的圆角与阴影表面。
+
+## Findings
+
+- 没有发现可执行的 P0、P1 或 P2 差异。
+- 字体和排版：未修改，标题、操作项、输入占位和空状态文案保持原有层级。
+- 间距和布局：未修改浮层宽高、定位、内边距与行高；圆角从较柔和卡片感收紧为统一 `8px`。
+- 颜色和令牌：继续使用 `popover`、`border`、`ring` 和现有遮罩令牌，没有引入固定颜色。
+- 图标和图像：继续使用项目已有 Lucide 图标，没有新增或替换资产。
+- 文案和内容：工作区操作项与全局搜索文案完全不变。
+
+## Comparison history
+
+- Pass 1: 参考图中的菜单使用较大圆角和明显投影，全局搜索外壳同样偏圆润，形成独立上浮卡片感。
+- Fix: 菜单由 `rounded-lg shadow-lg` 改为 `rounded-md shadow-none`；全局搜索由 `rounded-xl` 改为 `rounded-md shadow-none`。
+- Pass 2: 浏览器重新打开两个浮层并截图；计算样式均为 `8px` 圆角且无高程阴影，未发现新的 P0/P1/P2 问题。
+
+## Primary interactions tested
+
+- 点击工作区标题展开菜单，两个操作项保持可见。
+- 点击左侧全局搜索按钮打开弹窗，输入框自动获得焦点。
+- 浏览器控制台错误检查：`0`。
+- 自动化回归测试校验两个外壳不再包含旧圆角与旧阴影类名。
+
+## Follow-up polish
+
+- 无阻塞项。若后续希望更接近完全直角，可单独评估 `4px` 圆角，但本轮按“轻微一点点、偏矩形”采用 `8px`，兼顾现有控件体系的一致性。
+
+final result: passed
+
+---
+
+# 主面板内嵌画布设计 QA
+
+- source visual truth:
+  - `C:\Users\Administrator\AppData\Local\Temp\codex-clipboard-96f7fb39-6561-481a-8062-9093419dd745.png`
+  - `C:\Users\Administrator\AppData\Local\Temp\codex-clipboard-2e0d131e-967f-4c8a-9b52-93824a05ed25.png`
+- implementation screenshot: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-main-panel-inset.png`
+- full-view comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-main-panel-comparison.png`
+- focused comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-main-panel-focus-comparison.png`
+- viewport: 1920 × 1032 CSS px
+- pixel dimensions: source 1920 × 1032; implementation 1920 × 1032
+- density normalization: source and implementation use matching dimensions; implementation `devicePixelRatio = 1`
+- state: light theme, empty workspace, expanded left sidebar
+
+## Full-view comparison evidence
+
+- The source Madora panel was flush with the top, right, and bottom window edges. The implementation places the main panel at `y = 8`, `right = 1912`, and `bottom = 1024`, producing an even 8 px outer gutter.
+- The expanded sidebar ends at `x = 280` and the main panel begins at `x = 288`, producing an 8 px left gutter that also contains the resize hit area.
+- The main panel remains a single restrained surface. Existing radius, border, shadow, content alignment, and empty-state placement are unchanged.
+
+## Focused comparison evidence
+
+- The top-left crop confirms that the main panel no longer touches the top or sidebar edge.
+- The bottom-right crop confirms a visible but restrained gutter without increasing shadow weight or corner radius.
+- The browser-rendered capture does not include Tauri's native Windows controls. Their `top-2 right-2` alignment is covered by the source contract test; a native-window visual glance remains optional P3 polish.
+
+## Required fidelity surfaces
+
+- Fonts and typography: unchanged; empty-state hierarchy, weight, line height, and wrapping match the existing Madora screen.
+- Spacing and layout rhythm: 8 px on all four main-panel edges; the same inset remains when the sidebar collapses. At 1366 × 768 there is no body overflow.
+- Colors and visual tokens: existing `bg-sidebar`, `bg-background`, border opacity, and shadow tokens are preserved, so the gutter reads as shell depth instead of a new color block.
+- Image quality and asset fidelity: no image, icon, logo, or generated asset changed.
+- Copy and content: no product copy changed.
+
+## Interaction and runtime checks
+
+- Sidebar collapse and expansion were exercised. Collapsed state keeps the panel at `x = 8`; expanded state keeps an 8 px gap after the sidebar.
+- 1920 × 1032 and 1366 × 768 layouts were measured with no horizontal or vertical document overflow.
+- Browser console warnings/errors checked: none.
+
+## Findings
+
+- No actionable P0, P1, or P2 visual mismatch remains.
+- P3: native Windows control alignment was not available in the browser-rendered capture; static layout coverage confirms the intended inset.
+
+## Comparison history
+
+- Iteration 1: the first rendered comparison showed the requested uniform inset, retained the existing visual language, and produced no P0/P1/P2 finding. No corrective visual iteration was required.
+
+final result: passed
+
+---
+
+# Windows 工作区标题与响应式文档 Tab 设计 QA
+
+- source visual truth:
+  - `C:\Users\Administrator\AppData\Local\Temp\codex-clipboard-ebdff35c-0ada-4814-b39a-23e6eb7ffccd.png`
+  - `C:\Users\Administrator\AppData\Local\Temp\codex-clipboard-c412fd5b-c2f0-4fd0-a4fe-bd3fce80a8ff.png`
+- implementation screenshots:
+  - `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-tab-overflow-closed.png`
+  - `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-tab-overflow-open.png`
+- full-view comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-tab-header-full-comparison.png`
+- focused comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-tab-header-focus-comparison.png`
+- viewport: implementation `1280 × 720` CSS px, `devicePixelRatio: 1`
+- pixel dimensions: full source `1920 × 1038`, focused source `1920 × 366`, implementation captures `1280 × 720`
+- density normalization: the full source was proportionally reduced to 1280 px width; the focused header comparison uses the same 1280 px width for source, closed implementation, and open implementation
+- state: Windows layout simulation, light theme, expanded sidebar, fourteen representative document tabs; preview-only mock tabs were removed before final verification
+
+## Full-view comparison evidence
+
+- The prior Windows screen left a 40 px sidebar spacer below the outer titlebar and placed document tabs on a separate row below the main header.
+- The implementation reduces the Windows-only sidebar spacer to 8 px. The workspace title row begins at `y = 40`, matching the main panel header's `y = 41` optical edge.
+- Document tabs and the custom header tools now share the same row. Tab centers and tool-button centers both sit at approximately `y = 57`, while the content surface gains the former tab-row height.
+
+## Focused comparison evidence
+
+- The combined header comparison shows the source empty band, the closed responsive tab row, and the expanded overflow menu in one image.
+- At 1280 px viewport width, the tab bar receives 768 px, shows three 184 px representative tabs, and places the overflow trigger at `x = 1041–1069`; the custom tool group starts at `x = 1073`, leaving a consistent 4 px gap without overlap.
+- The open menu is `256 × 288` px, contains eleven overflow items, aligns to the trigger's right edge, and uses internal vertical scrolling. The page remains exactly `1280 × 720` with no body overflow.
+- Two short 16 px separators are visible between the three rendered tabs. Their transparent endpoints keep the division quieter than a full-height border.
+
+## Required fidelity surfaces
+
+- Fonts and typography: existing 14 px tab typography, truncation, active weight, and tool-icon sizing are preserved.
+- Spacing and layout rhythm: workspace title, tabs, overflow trigger, and header tools share one horizontal rhythm; the main panel retains its existing 8 px outer inset.
+- Colors and visual tokens: active and hover states continue using `muted`, `foreground`, `border`, and `popover` tokens; the separators use the existing border token with transparent endpoints.
+- Image quality and asset fidelity: no raster assets or custom icons were introduced; the existing Lucide ChevronDown, close, and plan icons are reused.
+- Copy and content: document titles remain unchanged and the overflow control keeps the accessible label `显示更多打开的文档`.
+
+## Primary interactions and runtime checks
+
+- Responsive measurement confirmed that the visible tab count contracts before the tool group and reserves 32 px for the overflow trigger.
+- Clicking the overflow trigger opens the bounded menu directly below the header; eleven additional tabs remain reachable through its scrollbar.
+- Automated interaction tests cover tab selection, tab closing, context-menu actions, overflow selection, active-tab promotion, responsive width calculation, and menu height/scroll classes.
+- The browser-rendered simulation displayed no runtime error overlay.
+
+## Findings
+
+- No actionable P0, P1, or P2 visual or interaction issue remains.
+- The focused source does not specify an overflow-menu treatment; the implementation follows Madora's existing popover surface, radius, shadow, and keyboard-accessible DropdownMenu behavior.
+
+## Comparison history
+
+- Iteration 1: the first combined comparison showed aligned workspace and main-header rows, a collision-free responsive tab limit, readable faded separators, and a bounded scroll menu. No P0/P1/P2 correction was required.
+
+final result: passed
+
+---
+
+# 独立 AI 与元信息侧边面板设计 QA
+
+- source visual truth: `C:\Users\ADMINI~1\AppData\Local\Temp\codex-clipboard-b951e5cf-acd7-4428-b6e4-65182d85786e.png`
+- implementation capture: 运行中的 Windows Tauri 桌面窗口，`1920 × 1032`，深色主题
+- states: AI 紧凑面板、元信息紧凑面板
+
+## Full-view comparison evidence
+
+- 原界面把右侧内容包在主编辑面板内部，顶部与底部边界连续，无法形成独立的侧边层级。
+- AI 状态下，主面板和右侧面板现在分别拥有完整四边圆角、边框与轻阴影；两者垂直边界同高，视觉间距约 8 px。
+- 元信息状态复用同一独立面板外壳。主面板根据元信息面板宽度自然收缩，圆角、边框、阴影和外侧留白与 AI 状态保持一致。
+- 面板间的拖拽热区位于间距内部，没有增加额外可见分割线或破坏留白。
+
+## Required fidelity surfaces
+
+- Spacing and layout rhythm: 主面板、侧边面板与窗口边缘继续使用既有 8 px 节奏；面板间距保持轻微且清晰。
+- Colors and visual tokens: 两块面板共用 `bg-background`、`border-border/70` 和同一组阴影 token，没有引入新的色块或高浮阴影。
+- Border and radius: AI 与元信息面板均使用 `rounded-xl`，四角完整可见；主面板原有圆角不再被右侧内容吞并。
+- Interaction continuity: AI 面板继续保持持续挂载；切换元信息面板不会重建 AI 运行实例。现有宽度状态与拖拽限制保持不变。
+- Copy and assets: 没有修改产品文字、图标或内容资源。
+
+## Findings
+
+- No actionable P0, P1, or P2 visual or interaction issue remains.
+- P3: 本轮桌面实拍使用深色主题；浅色主题未单独实拍，但两种面板复用已覆盖的主题 token 与相同结构类。
+
+## Comparison history
+
+- Iteration 1: Windows 桌面实拍确认 AI 和元信息面板均成为与主面板同高的独立圆角卡片，约 8 px 间距稳定，没有双边框、重叠或窗口溢出，无需进一步视觉修正。
+
+final result: passed

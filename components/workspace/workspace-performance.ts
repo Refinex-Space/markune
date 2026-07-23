@@ -7,6 +7,33 @@ export interface WorkspacePerformanceMeasure {
   finishNextFrame: (details?: Record<string, number | string>) => void;
 }
 
+export interface WorkspacePerformanceReport {
+  readonly counters: Record<string, number>;
+  readonly measures: readonly WorkspacePerformanceEntry[];
+  readonly startedAt: string;
+  readonly version: 1;
+}
+
+export interface WorkspacePerformanceEntry {
+  readonly details?: Record<string, number | string>;
+  readonly durationMs: number;
+  readonly label: string;
+  readonly timestampMs: number;
+}
+
+const report: {
+  counters: Record<string, number>;
+  measures: WorkspacePerformanceEntry[];
+  startedAt: string;
+  version: 1;
+} = {
+  counters: {},
+  measures: [],
+  startedAt: new Date().toISOString(),
+  version: 1,
+};
+const MAX_PERFORMANCE_ENTRIES = 2_000;
+
 export function isWorkspacePerformanceLoggingEnabled(
   storageValue = readWorkspacePerformanceStorageValue(),
   search = readWorkspacePerformanceSearch(),
@@ -30,6 +57,7 @@ export function startWorkspacePerformanceMeasure(
   return {
     finish(details) {
       const elapsedMs = Math.round((performance.now() - startedAt) * 10) / 10;
+      recordWorkspacePerformanceEntry(label, elapsedMs, details);
       const message = `[madora:perf] ${label} ${elapsedMs}ms`;
 
       if (details) {
@@ -41,6 +69,7 @@ export function startWorkspacePerformanceMeasure(
     finishNextFrame(details) {
       window.requestAnimationFrame(() => {
         const elapsedMs = Math.round((performance.now() - startedAt) * 10) / 10;
+        recordWorkspacePerformanceEntry(`${label}.next_frame`, elapsedMs, details);
         const message = `[madora:perf] ${label}.next_frame ${elapsedMs}ms`;
 
         if (details) {
@@ -50,6 +79,30 @@ export function startWorkspacePerformanceMeasure(
         }
       });
     },
+  };
+}
+
+export function incrementWorkspacePerformanceCounter(
+  label: string,
+  amount = 1,
+  enabled = isWorkspacePerformanceLoggingEnabled(),
+) {
+  if (!enabled) {
+    return;
+  }
+
+  report.counters[label] = (report.counters[label] ?? 0) + amount;
+}
+
+export function getWorkspacePerformanceReport(): WorkspacePerformanceReport {
+  return {
+    counters: { ...report.counters },
+    measures: report.measures.map((entry) => ({
+      ...entry,
+      details: entry.details ? { ...entry.details } : undefined,
+    })),
+    startedAt: report.startedAt,
+    version: report.version,
   };
 }
 
@@ -69,6 +122,10 @@ export function observeWorkspaceLongTasks(
       console.debug(
         `[madora:perf] workspace.long_task ${Math.round(entry.duration * 10) / 10}ms`,
       );
+      recordWorkspacePerformanceEntry(
+        'workspace.long_task',
+        Math.round(entry.duration * 10) / 10,
+      );
     });
   });
 
@@ -78,6 +135,30 @@ export function observeWorkspaceLongTasks(
   } catch {
     observer.disconnect();
     return () => {};
+  }
+}
+
+function recordWorkspacePerformanceEntry(
+  label: string,
+  durationMs: number,
+  details?: Record<string, number | string>,
+) {
+  report.measures.push({
+    details,
+    durationMs,
+    label,
+    timestampMs:
+      typeof performance === 'undefined' ? Date.now() : performance.now(),
+  });
+  if (report.measures.length > MAX_PERFORMANCE_ENTRIES) {
+    report.measures.splice(0, report.measures.length - MAX_PERFORMANCE_ENTRIES);
+  }
+
+  if (typeof window !== 'undefined') {
+    Object.defineProperty(window, '__MadoraPerformanceReport', {
+      configurable: true,
+      value: getWorkspacePerformanceReport,
+    });
   }
 }
 

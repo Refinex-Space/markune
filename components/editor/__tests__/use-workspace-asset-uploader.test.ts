@@ -6,19 +6,23 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 vi.mock('@/components/workspace/workspace-api', () => ({
-  resolveWorkspaceAsset: vi.fn(),
+  resolveWorkspaceAssets: vi.fn(),
   uploadWorkspaceAsset: vi.fn(),
 }));
 
 import {
-  resolveWorkspaceAsset,
+  resolveWorkspaceAssets,
   uploadWorkspaceAsset,
 } from '@/components/workspace/workspace-api';
-import { useWorkspaceAssetUploader } from '@/components/editor/use-workspace-asset-uploader';
+import {
+  clearWorkspaceAssetResolverCache,
+  useWorkspaceAssetUploader,
+} from '@/components/editor/use-workspace-asset-uploader';
 
 describe('useWorkspaceAssetUploader', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearWorkspaceAssetResolverCache();
   });
 
   it('上传 File 后返回 Markweave 可显示 URL，并在入库前还原资产协议引用', async () => {
@@ -192,17 +196,25 @@ describe('useWorkspaceAssetUploader', () => {
     );
   });
 
-  it('把协议引用和旧相对路径解析成 Markweave 可显示 URL，并在保存时统一协议格式', async () => {
-    vi.mocked(resolveWorkspaceAsset).mockImplementation(
-      async (_rootPath, assetId) => ({
-        absolutePath:
-          assetId === 'legacy'
-            ? '/ws/.madora/assets/files/le/legacy.png'
-            : '/ws/.madora/assets/files/aa/new.png',
-        id: assetId,
-        mediaType: 'image/png',
-        name: `${assetId}.png`,
-        size: 10,
+  it('首帧立即返回存储 Markdown，并通过展示层 resolver 单批解析全部媒体', async () => {
+    vi.mocked(resolveWorkspaceAssets).mockImplementation(
+      async (_rootPath, assetIds) => ({
+        items: assetIds.map((assetId) => ({
+          asset: {
+            absolutePath:
+              assetId === 'legacy'
+                ? '/ws/.madora/assets/files/le/legacy.png'
+                : '/ws/.madora/assets/files/aa/new.png',
+            id: assetId,
+            height: 600,
+            mediaType: 'image/png',
+            name: `${assetId}.png`,
+            size: 10,
+            width: 800,
+          },
+          id: assetId,
+          status: 'resolved' as const,
+        })),
       }),
     );
     const markdown =
@@ -212,29 +224,73 @@ describe('useWorkspaceAssetUploader', () => {
       useWorkspaceAssetUploader('/ws/root', markdown),
     );
 
-    await waitFor(() => {
-      expect(result.current.editorMarkdown).toContain(
-        'asset:///ws/.madora/assets/files/le/legacy.png',
-      );
-      expect(result.current.editorMarkdown).toContain(
-        'asset:///ws/.madora/assets/files/aa/new.png',
-      );
+    expect(result.current.editorMarkdown).toBe(markdown);
+    const signal = new AbortController().signal;
+    await expect(
+      result.current.resolveMediaSource({
+        kind: 'image',
+        priority: 'visible',
+        signal,
+        src: 'madora-asset://legacy',
+      }),
+    ).resolves.toMatchObject({
+      src: 'asset:///ws/.madora/assets/files/le/legacy.png',
+    });
+    await expect(
+      result.current.resolveMediaSource({
+        kind: 'image',
+        priority: 'nearby',
+        signal,
+        src: '.madora/assets/files/aa/new.png',
+      }),
+    ).resolves.toMatchObject({
+      src: 'asset:///ws/.madora/assets/files/aa/new.png',
     });
 
-    expect(resolveWorkspaceAsset).toHaveBeenCalledWith('/ws/root', 'legacy');
-    expect(resolveWorkspaceAsset).toHaveBeenCalledWith('/ws/root', 'new');
+    expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(1);
+    expect(resolveWorkspaceAssets).toHaveBeenCalledWith(
+      '/ws/root',
+      expect.arrayContaining(['legacy', 'new']),
+    );
+    expect(result.current.editorMarkdown).toBe(markdown);
+    await expect(
+      result.current.resolveMediaSource({
+        kind: 'image',
+        priority: 'visible',
+        signal,
+        src: 'asset:///ws/.madora/assets/files/le/legacy.png',
+      }),
+    ).resolves.toEqual({
+      height: 600,
+      src: 'asset:///ws/.madora/assets/files/le/legacy.png',
+      width: 800,
+    });
+    await expect(
+      result.current.resolveMediaSource({
+        kind: 'image',
+        priority: 'visible',
+        signal,
+        src: 'https://example.com/remote.png',
+      }),
+    ).resolves.toEqual({ src: 'https://example.com/remote.png' });
     expect(result.current.toStorageMarkdown(result.current.editorMarkdown)).toBe(
       '![旧](madora-asset://legacy)\n![新](madora-asset://new)',
     );
   });
 
-  it('正文更新时同步复用已解析的显示地址且不重复读取同一资产', async () => {
-    vi.mocked(resolveWorkspaceAsset).mockResolvedValue({
-      absolutePath: '/ws/.madora/assets/files/aa/hash.png',
-      id: 'hash',
-      mediaType: 'image/png',
-      name: 'hash.png',
-      size: 10,
+  it('正文更新时复用展示层解析缓存且不重复读取同一资产', async () => {
+    vi.mocked(resolveWorkspaceAssets).mockResolvedValue({
+      items: [{
+        asset: {
+          absolutePath: '/ws/.madora/assets/files/aa/hash.png',
+          id: 'hash',
+          mediaType: 'image/png',
+          name: 'hash.png',
+          size: 10,
+        },
+        id: 'hash',
+        status: 'resolved',
+      }],
     });
     const initialMarkdown =
       '![图](madora-asset://hash)\n\n1. 第一项\n2. 第二项';
@@ -246,30 +302,32 @@ describe('useWorkspaceAssetUploader', () => {
       },
     );
 
-    await waitFor(() => {
-      expect(result.current.editorMarkdown).toContain(
-        'asset:///ws/.madora/assets/files/aa/hash.png',
-      );
+    const request = {
+      kind: 'image' as const,
+      priority: 'visible' as const,
+      signal: new AbortController().signal,
+      src: 'madora-asset://hash',
+    };
+    await expect(result.current.resolveMediaSource(request)).resolves.toMatchObject({
+      src: 'asset:///ws/.madora/assets/files/aa/hash.png',
     });
-    expect(resolveWorkspaceAsset).toHaveBeenCalledTimes(1);
+    expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(1);
 
     rerender({ markdown: nextMarkdown });
 
-    expect(result.current.editorMarkdown).toBe(
-      nextMarkdown.replace(
-        'madora-asset://hash',
-        'asset:///ws/.madora/assets/files/aa/hash.png',
-      ),
-    );
+    expect(result.current.editorMarkdown).toBe(nextMarkdown);
+    await expect(result.current.resolveMediaSource(request)).resolves.toMatchObject({
+      src: 'asset:///ws/.madora/assets/files/aa/hash.png',
+    });
     await waitFor(() => {
-      expect(resolveWorkspaceAsset).toHaveBeenCalledTimes(1);
+      expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(1);
     });
   });
 
   it('旧相对路径解析失败时保留原文，不执行破坏性规范化', async () => {
-    vi.mocked(resolveWorkspaceAsset).mockRejectedValueOnce(
-      new Error('资产不存在'),
-    );
+    vi.mocked(resolveWorkspaceAssets).mockResolvedValueOnce({
+      items: [{ id: 'missing', status: 'missing' }],
+    });
     const markdown = '![缺失](.madora/assets/files/aa/missing.png)';
 
     const { result } = renderHook(() =>
@@ -277,10 +335,14 @@ describe('useWorkspaceAssetUploader', () => {
     );
 
     await waitFor(() => {
-      expect(resolveWorkspaceAsset).toHaveBeenCalledWith('/ws/root', 'missing');
+      expect(resolveWorkspaceAssets).toHaveBeenCalledWith('/ws/root', [
+        'missing',
+      ]);
     });
 
-    expect(result.current.editorMarkdown).toBe(markdown);
+    await waitFor(() => {
+      expect(result.current.editorMarkdown).toBe(markdown);
+    });
     expect(result.current.toStorageMarkdown(markdown)).toBe(markdown);
   });
 
@@ -291,7 +353,7 @@ describe('useWorkspaceAssetUploader', () => {
     );
 
     expect(result.current.editorMarkdown).toBe(markdown);
-    expect(resolveWorkspaceAsset).not.toHaveBeenCalled();
+    expect(resolveWorkspaceAssets).not.toHaveBeenCalled();
   });
 
   it('切换文档时首帧立即返回新文档内容', () => {
@@ -312,5 +374,243 @@ describe('useWorkspaceAssetUploader', () => {
     rerender({ markdown: '# 新文档' });
 
     expect(renderedMarkdown[0]).toBe('# 新文档');
+  });
+
+  it('资源批量解析未完成时也立即返回正文', () => {
+    vi.mocked(resolveWorkspaceAssets).mockImplementation(
+      () => new Promise(() => {}),
+    );
+    const assetIds = Array.from(
+      { length: 421 },
+      (_, index) => `slow-${index}`,
+    );
+    const markdown = assetIds
+      .map((assetId) => `![图](madora-asset://${assetId})`)
+      .join('\n');
+    const { result } = renderHook(() =>
+      useWorkspaceAssetUploader('/ws/root', markdown),
+    );
+
+    expect(result.current.editorMarkdown).toBe(markdown);
+    expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(1);
+    expect(resolveWorkspaceAssets).toHaveBeenCalledWith(
+      '/ws/root',
+      assetIds,
+    );
+  });
+
+  it('卸载后再次挂载同一文档时复用成功和缺失资源缓存', async () => {
+    vi.mocked(resolveWorkspaceAssets).mockResolvedValue({
+      items: [
+        {
+          asset: {
+            absolutePath: '/ws/.madora/assets/files/aa/cached.png',
+            id: 'cached',
+            mediaType: 'image/png',
+            name: 'cached.png',
+            size: 10,
+          },
+          id: 'cached',
+          status: 'resolved',
+        },
+        { id: 'missing', status: 'missing' },
+      ],
+    });
+    const markdown =
+      '![有效](madora-asset://cached)\n![缺失](madora-asset://missing)';
+    const request = (src: string) => ({
+      kind: 'image' as const,
+      priority: 'visible' as const,
+      signal: new AbortController().signal,
+      src,
+    });
+    const first = renderHook(() =>
+      useWorkspaceAssetUploader('/ws/root', markdown),
+    );
+
+    await expect(
+      first.result.current.resolveMediaSource(
+        request('madora-asset://cached'),
+      ),
+    ).resolves.toMatchObject({
+      src: 'asset:///ws/.madora/assets/files/aa/cached.png',
+    });
+    await expect(
+      first.result.current.resolveMediaSource(
+        request('madora-asset://missing'),
+      ),
+    ).resolves.toBeNull();
+    first.unmount();
+
+    const second = renderHook(() =>
+      useWorkspaceAssetUploader('/ws/root', markdown),
+    );
+    await expect(
+      second.result.current.resolveMediaSource(
+        request('madora-asset://cached'),
+      ),
+    ).resolves.toMatchObject({
+      src: 'asset:///ws/.madora/assets/files/aa/cached.png',
+    });
+    await expect(
+      second.result.current.resolveMediaSource(
+        request('madora-asset://missing'),
+      ),
+    ).resolves.toBeNull();
+
+    expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(1);
+  });
+
+  it('资源仍在解析时快速卸载并重挂载只复用同一个批量请求', async () => {
+    let finishResolution:
+      | ((value: {
+          items: Array<{
+            asset: {
+              absolutePath: string;
+              id: string;
+              mediaType: string;
+              name: string;
+              size: number;
+            };
+            id: string;
+            status: 'resolved';
+          }>;
+        }) => void)
+      | undefined;
+    vi.mocked(resolveWorkspaceAssets).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishResolution = resolve;
+        }),
+    );
+    const markdown = '![图](madora-asset://pending)';
+    const first = renderHook(() =>
+      useWorkspaceAssetUploader('/ws/root', markdown),
+    );
+    first.unmount();
+    const second = renderHook(() =>
+      useWorkspaceAssetUploader('/ws/root', markdown),
+    );
+
+    expect(second.result.current.editorMarkdown).toBe(markdown);
+    expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finishResolution?.({
+        items: [
+          {
+            asset: {
+              absolutePath: '/ws/.madora/assets/files/aa/pending.png',
+              id: 'pending',
+              mediaType: 'image/png',
+              name: 'pending.png',
+              size: 10,
+            },
+            id: 'pending',
+            status: 'resolved',
+          },
+        ],
+      });
+    });
+
+    await expect(
+      second.result.current.resolveMediaSource({
+        kind: 'image',
+        priority: 'visible',
+        signal: new AbortController().signal,
+        src: 'madora-asset://pending',
+      }),
+    ).resolves.toMatchObject({
+      src: 'asset:///ws/.madora/assets/files/aa/pending.png',
+    });
+  });
+
+  it('相同资产 ID 在不同工作区使用隔离缓存', async () => {
+    vi.mocked(resolveWorkspaceAssets).mockImplementation(
+      async (rootPath, assetIds) => ({
+        items: assetIds.map((assetId) => ({
+          asset: {
+            absolutePath: `${rootPath}/.madora/assets/files/aa/${assetId}.png`,
+            id: assetId,
+            mediaType: 'image/png',
+            name: `${assetId}.png`,
+            size: 10,
+          },
+          id: assetId,
+          status: 'resolved' as const,
+        })),
+      }),
+    );
+    const markdown = '![图](madora-asset://shared)';
+    const { result, rerender } = renderHook(
+      ({ rootPath }) => useWorkspaceAssetUploader(rootPath, markdown),
+      { initialProps: { rootPath: '/ws/one' } },
+    );
+    const createRequest = () => ({
+      kind: 'image' as const,
+      priority: 'visible' as const,
+      signal: new AbortController().signal,
+      src: 'madora-asset://shared',
+    });
+
+    await expect(
+      result.current.resolveMediaSource(createRequest()),
+    ).resolves.toMatchObject({
+      src: 'asset:///ws/one/.madora/assets/files/aa/shared.png',
+    });
+
+    rerender({ rootPath: '/ws/two' });
+
+    await expect(
+      result.current.resolveMediaSource(createRequest()),
+    ).resolves.toMatchObject({
+      src: 'asset:///ws/two/.madora/assets/files/aa/shared.png',
+    });
+    expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(2);
+  });
+
+  it('批量解析失败后允许媒体 resolver 重试', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.mocked(resolveWorkspaceAssets)
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockResolvedValueOnce({
+        items: [
+          {
+            asset: {
+              absolutePath: '/ws/.madora/assets/files/aa/retry.png',
+              id: 'retry',
+              mediaType: 'image/png',
+              name: 'retry.png',
+              size: 10,
+            },
+            id: 'retry',
+            status: 'resolved',
+          },
+        ],
+      });
+    const { result } = renderHook(() =>
+      useWorkspaceAssetUploader(
+        '/ws/root',
+        '![图](madora-asset://retry)',
+      ),
+    );
+
+    await waitFor(() => {
+      expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalled();
+    });
+
+    await expect(
+      result.current.resolveMediaSource({
+        kind: 'image',
+        priority: 'visible',
+        signal: new AbortController().signal,
+        src: 'madora-asset://retry',
+      }),
+    ).resolves.toMatchObject({
+      src: 'asset:///ws/.madora/assets/files/aa/retry.png',
+    });
+    expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
   });
 });

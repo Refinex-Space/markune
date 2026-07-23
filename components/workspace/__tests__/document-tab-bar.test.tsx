@@ -2,7 +2,10 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import { DocumentTabBar } from '../document-tab-bar';
+import {
+  calculateResponsiveVisibleTabCount,
+  DocumentTabBar,
+} from '../document-tab-bar';
 import type { DocumentEditorTab } from '../document-tabs';
 
 function tabs(): DocumentEditorTab[] {
@@ -32,7 +35,7 @@ function tabs(): DocumentEditorTab[] {
 }
 
 describe('DocumentTabBar', () => {
-  it('renders integrated tabs without hard divider lines', () => {
+  it('renders integrated tabs with short fading separators', () => {
     render(
       <DocumentTabBar
         activeTabId="/repo/b.md"
@@ -52,7 +55,8 @@ describe('DocumentTabBar', () => {
     const inactiveTab = screen.getByRole('tab', { name: /A/ });
 
     expect(tabBar.className).not.toContain('border-b');
-    expect(tabBar.className).toContain('px-1.5');
+    expect(tabBar.className).toContain('h-full');
+    expect(screen.getAllByTestId('document-tab-separator')).toHaveLength(2);
     expect(activeTab.className).not.toContain('border-r');
     expect(inactiveTab.className).not.toContain('border-r');
     expect(activeTab.className).toContain('rounded-md');
@@ -137,8 +141,42 @@ describe('DocumentTabBar', () => {
     expect(screen.queryByRole('tab', { name: /C/ })).toBeNull();
 
     await user.click(screen.getByRole('button', { name: '显示更多打开的文档' }));
+    const overflowMenu = await screen.findByRole('menu');
+    expect(overflowMenu.className).toContain('max-h-72');
+    expect(overflowMenu.className).toContain('overflow-y-auto');
     await user.click(await screen.findByRole('menuitem', { name: 'C' }));
 
     expect(onSelectTab).toHaveBeenCalledWith('/repo/c.md');
+  });
+
+  it('keeps an active overflow tab visible and moves the displaced tab into the menu', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <DocumentTabBar
+        activeTabId="/repo/c.md"
+        tabs={tabs()}
+        visibleTabLimit={2}
+        onCloseAllTabs={vi.fn()}
+        onCloseOtherTabs={vi.fn()}
+        onCloseTab={vi.fn()}
+        onCloseTabsToLeft={vi.fn()}
+        onCloseTabsToRight={vi.fn()}
+        onSelectTab={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('tab', { name: /A/ })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /C/ })).toBeTruthy();
+    expect(screen.queryByRole('tab', { name: /B/ })).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: '显示更多打开的文档' }));
+    expect(await screen.findByRole('menuitem', { name: 'B' })).toBeTruthy();
+  });
+
+  it('calculates a responsive limit while reserving the overflow trigger', () => {
+    expect(calculateResponsiveVisibleTabCount([120, 120, 120], 300, 1)).toBe(2);
+    expect(calculateResponsiveVisibleTabCount([120, 120, 120], 360, 1)).toBe(3);
+    expect(calculateResponsiveVisibleTabCount([120, 200, 200], 300, 2)).toBe(1);
   });
 });

@@ -1,13 +1,12 @@
 allowBuilds:
-  msgpackr-extract: set this to true or false
-  msw: set this to true or false
-  sharp: set this to true or false
-  unrs-resolver: set this to true or false
+  msgpackr-extract: true
+  msw: false
+  sharp: true
+  tesseract.js: false
+  unrs-resolver: true
 overrides:
   '@excalidraw/mermaid-to-excalidraw>mermaid': 11.12.1
   '@tiptap/markdown': 3.27.3
 minimumReleaseAgeExclude:
-  - '@markweave/react@0.1.6 || 0.1.8 || 0.1.9 || 0.2.0'
-  - markweave@0.1.6 || 0.1.8 || 0.1.9 || 0.2.0
-patchedDependencies:
-  markweave@0.2.6: patches/markweave@0.2.6.patch
+  - '@markweave/react@0.1.6 || 0.1.8 || 0.1.9 || 0.2.0 || 0.3.0'
+  - markweave@0.1.6 || 0.1.8 || 0.1.9 || 0.2.0 || 0.3.0

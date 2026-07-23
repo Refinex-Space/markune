@@ -56,7 +56,7 @@ export function WorkspaceGlobalSearchDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="top-4 max-h-[calc(100vh-2rem)] w-[min(calc(100vw-1.5rem),48rem)] max-w-none translate-y-0 gap-0 overflow-hidden rounded-xl p-0 sm:top-[12vh] sm:max-w-none"
+        className="top-4 max-h-[calc(100vh-2rem)] w-[min(calc(100vw-1.5rem),48rem)] max-w-none translate-y-0 gap-0 overflow-hidden rounded-md p-0 shadow-none sm:top-[12vh] sm:max-w-none"
         showCloseButton={false}
       >
         <DialogHeader className="sr-only">

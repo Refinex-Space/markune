@@ -314,6 +314,18 @@ export interface ResolvedWorkspaceAsset {
   mediaType: string;
   name: string;
   size: number;
+  width?: number;
+  height?: number;
+}
+
+export interface WorkspaceAssetBatchResolutionItem {
+  id: string;
+  status: 'resolved' | 'missing' | 'unreadable';
+  asset?: ResolvedWorkspaceAsset;
+}
+
+export interface WorkspaceAssetBatchResolution {
+  items: WorkspaceAssetBatchResolutionItem[];
 }
 
 export interface WorkspaceAssetData {

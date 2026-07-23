@@ -590,8 +590,34 @@ describe('AI message rendering', () => {
     );
 
     const panelHeader = screen.getByRole('banner');
-    expect(panelHeader.className).toContain('h-12');
+    expect(panelHeader.className).toContain(
+      'h-[var(--workspace-main-header-height)]',
+    );
+    expect(
+      screen.getByRole('button', { name: '新任务' }).className,
+    ).toContain('size-7');
     expect(panelHeader.className).not.toContain('border-b');
+  });
+
+  it('为标题栏动作展示一致的悬停提示', async () => {
+    const user = userEvent.setup();
+
+    for (const label of ['AI 画图', '新任务', '历史记录']) {
+      const { unmount } = render(
+        <AiPanelHeader
+          activeThread={null}
+          presentation="panel"
+          view="chat"
+          onHistory={vi.fn()}
+          onNewChat={vi.fn()}
+          onNewDiagram={vi.fn()}
+        />,
+      );
+      const button = screen.getByRole('button', { name: label });
+      await user.hover(button);
+      expect((await screen.findByRole('tooltip')).textContent).toContain(label);
+      unmount();
+    }
   });
 
   it('大屏消息区与输入框使用同一宽度和水平内边距', () => {

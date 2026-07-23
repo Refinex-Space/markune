@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { ArrowUp } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import {
   MarkweaveEditor,
   type MarkweaveEditorUpdatePayload,
@@ -24,11 +25,29 @@ import {
   serializeFrontmatter,
 } from '@/components/editor/markdown-frontmatter';
 import { resolveMarkweaveLinkCard } from '@/components/editor/markweave-link-card-resolver';
+import type { MarkdownSourceEditorHandle } from '@/components/editor/markdown-source-editor';
 import { useWorkspaceAssetUploader } from '@/components/editor/use-workspace-asset-uploader';
 import type { PageWidthMode } from '@/components/workspace/workspace-types';
+import {
+  incrementWorkspacePerformanceCounter,
+  startWorkspacePerformanceMeasure,
+} from '@/components/workspace/workspace-performance';
 import { cn } from '@/lib/utils';
 
 export type MarkdownEditorChangeOrigin = 'source';
+
+export type MarkdownEditorFlushReason =
+  | 'ai-send'
+  | 'app-exit'
+  | 'document-switch'
+  | 'export'
+  | 'idle'
+  | 'manual-save'
+  | 'source-toggle';
+
+export interface MarkdownEditorHandle {
+  flushDraft: (reason: MarkdownEditorFlushReason) => Promise<boolean>;
+}
 
 interface MarkdownEditorProps {
   documentKey?: string;
@@ -38,7 +57,8 @@ interface MarkdownEditorProps {
   onMarkdownChange?: (
     markdown: string,
     origin?: MarkdownEditorChangeOrigin,
-  ) => void;
+    reason?: MarkdownEditorFlushReason,
+  ) => boolean | void | Promise<boolean | void>;
   readOnly?: boolean;
   themeOverride?: 'dark' | 'light';
   workspaceRootPath?: string | null;
@@ -47,8 +67,26 @@ interface MarkdownEditorProps {
 const BACK_TO_TOP_VISIBLE_OFFSET = 240;
 const BACK_TO_TOP_MIN_DURATION_MS = 360;
 const BACK_TO_TOP_MAX_DURATION_MS = 760;
+const LIVE_DRAFT_IDLE_MS = 500;
+const MarkdownSourceEditor = dynamic(
+  () =>
+    import('@/components/editor/markdown-source-editor').then(
+      (module) => module.MarkdownSourceEditor,
+    ),
+  {
+    loading: () => (
+      <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
+        正在加载源码编辑器...
+      </div>
+    ),
+    ssr: false,
+  },
+);
 
-export function MarkdownEditor({
+export const MarkdownEditor = React.forwardRef<
+  MarkdownEditorHandle,
+  MarkdownEditorProps
+>(function MarkdownEditor({
   documentKey,
   markdown,
   pageWidthMode = 'wide',
@@ -57,14 +95,28 @@ export function MarkdownEditor({
   readOnly = false,
   themeOverride,
   workspaceRootPath = null,
-}: MarkdownEditorProps) {
+}: MarkdownEditorProps, forwardedRef) {
   const { resolvedTheme } = useTheme();
   const editorRootRef = React.useRef<HTMLDivElement | null>(null);
   const markweaveModeRef = React.useRef<HTMLDivElement | null>(null);
   const scrollAreaRef = React.useRef<HTMLDivElement | null>(null);
   const findRequestRevisionRef = React.useRef(0);
   const sourceModeToggledRef = React.useRef(false);
-  const sourceTextareaRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const liveEditorRevisionRef = React.useRef(0);
+  const sourceEditorRef = React.useRef<MarkdownSourceEditorHandle | null>(null);
+  const sourceDraftMarkdownRef = React.useRef(markdown);
+  const pendingSourceMarkdownRef = React.useRef<string | null>(null);
+  const pendingPayloadRef = React.useRef<MarkweaveEditorUpdatePayload | null>(
+    null,
+  );
+  const activeEditorRef = React.useRef<
+    MarkweaveEditorUpdatePayload['editor'] | null
+  >(null);
+  const pendingUpdateRevisionRef = React.useRef(0);
+  const pendingFlushTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const flushInFlightRef = React.useRef<Promise<boolean> | null>(null);
   const cancelBackToTopAnimationRef = React.useRef<(() => void) | null>(
     null,
   );
@@ -74,10 +126,18 @@ export function MarkdownEditor({
   const [searchController, setSearchController] =
     React.useState<MarkweaveSearchController | null>(null);
   const [sourceMode, setSourceMode] = React.useState(false);
+  const [sourceFindText, setSourceFindText] = React.useState(markdown);
+  const loadedDocumentRef = React.useRef({ documentKey, markdown });
+
+  if (loadedDocumentRef.current.documentKey !== documentKey) {
+    loadedDocumentRef.current = { documentKey, markdown };
+  }
+
+  const loadedMarkdown = loadedDocumentRef.current.markdown;
 
   const normalizedMarkdown = React.useMemo(
-    () => normalizeDrawingMarkdownReferences(markdown),
-    [markdown],
+    () => normalizeDrawingMarkdownReferences(loadedMarkdown),
+    [loadedMarkdown],
   );
   const frontmatterView = React.useMemo(() => {
     const parsed = parseFrontmatter(normalizedMarkdown);
@@ -104,11 +164,26 @@ export function MarkdownEditor({
   const {
     editorMarkdown,
     onSlashCommandUpload,
+    resolveMediaSource,
     toStorageMarkdown,
   } = useWorkspaceAssetUploader(
     workspaceRootPath ?? null,
     projectedEditorBody,
   );
+
+  React.useEffect(() => {
+    if (pendingFlushTimerRef.current) {
+      clearTimeout(pendingFlushTimerRef.current);
+      pendingFlushTimerRef.current = null;
+    }
+    pendingPayloadRef.current = null;
+    pendingSourceMarkdownRef.current = null;
+    activeEditorRef.current = null;
+    sourceDraftMarkdownRef.current = normalizedMarkdown;
+    setSourceFindText(normalizedMarkdown);
+    setFindRequest(null);
+    setSourceMode(false);
+  }, [documentKey, normalizedMarkdown]);
 
   const serializeBody = React.useCallback(
     (body: string) => {
@@ -124,22 +199,170 @@ export function MarkdownEditor({
     [frontmatterView],
   );
 
+  const performDraftFlush = React.useCallback(
+    async (reason: MarkdownEditorFlushReason) => {
+      if (pendingFlushTimerRef.current) {
+        clearTimeout(pendingFlushTimerRef.current);
+        pendingFlushTimerRef.current = null;
+      }
+
+      const sourceMarkdown = pendingSourceMarkdownRef.current;
+      const payload = pendingPayloadRef.current;
+
+      if (
+        (!payload && sourceMarkdown === null) ||
+        readOnly ||
+        !onMarkdownChange
+      ) {
+        return true;
+      }
+
+      const revision = pendingUpdateRevisionRef.current;
+      const perf = startWorkspacePerformanceMeasure(
+        'workspace.editor.flush_draft',
+      );
+      incrementWorkspacePerformanceCounter('workspace.editor.flush_count');
+      if (sourceMarkdown === null) {
+        incrementWorkspacePerformanceCounter(
+          'workspace.editor.serialize_count',
+        );
+      }
+
+      try {
+        const markdown =
+          sourceMarkdown ??
+          serializeBody(
+            restoreDrawingMarkdownReferencesFromEditor(
+              toStorageMarkdown(payload!.markdown),
+            ),
+          );
+        const origin = sourceMarkdown === null ? undefined : 'source';
+        const result = await onMarkdownChange(markdown, origin, reason);
+
+        if (result === false) {
+          return false;
+        }
+
+        if (pendingUpdateRevisionRef.current === revision) {
+          pendingPayloadRef.current = null;
+          pendingSourceMarkdownRef.current = null;
+        }
+
+        sourceDraftMarkdownRef.current = markdown;
+        perf.finish({
+          characters: markdown.length,
+          origin: origin ?? 'live',
+          reason,
+          status: 'saved',
+        });
+
+        return true;
+      } catch {
+        perf.finish({ reason, status: 'failed' });
+        return false;
+      }
+    },
+    [onMarkdownChange, readOnly, serializeBody, toStorageMarkdown],
+  );
+
+  const flushDraft = React.useCallback(
+    (reason: MarkdownEditorFlushReason): Promise<boolean> => {
+      if (flushInFlightRef.current) {
+        return flushInFlightRef.current.then((flushed) => {
+          if (
+            flushed &&
+            (pendingPayloadRef.current ||
+              pendingSourceMarkdownRef.current !== null)
+          ) {
+            return flushDraft(reason);
+          }
+
+          return flushed;
+        });
+      }
+
+      const promise = performDraftFlush(reason).finally(() => {
+        if (flushInFlightRef.current === promise) {
+          flushInFlightRef.current = null;
+        }
+      });
+      flushInFlightRef.current = promise;
+      return promise;
+    },
+    [performDraftFlush],
+  );
+
   const handleEditorUpdate = React.useCallback(
     (payload: MarkweaveEditorUpdatePayload) => {
+      activeEditorRef.current = payload.editor;
+
       if (readOnly || !onMarkdownChange) {
         return;
       }
 
-      onMarkdownChange(
-        serializeBody(
-          restoreDrawingMarkdownReferencesFromEditor(
-            toStorageMarkdown(payload.markdown),
-          ),
-        ),
-      );
+      pendingPayloadRef.current = payload;
+      pendingUpdateRevisionRef.current += 1;
+
+      if (pendingFlushTimerRef.current) {
+        clearTimeout(pendingFlushTimerRef.current);
+      }
+
+      pendingFlushTimerRef.current = setTimeout(() => {
+        pendingFlushTimerRef.current = null;
+        void flushDraft('idle');
+      }, LIVE_DRAFT_IDLE_MS);
     },
-    [onMarkdownChange, readOnly, serializeBody, toStorageMarkdown],
+    [flushDraft, onMarkdownChange, readOnly],
   );
+
+  const handleSourceUpdate = React.useCallback(
+    (nextMarkdown: string) => {
+      if (readOnly || !onMarkdownChange) {
+        return;
+      }
+
+      sourceDraftMarkdownRef.current = nextMarkdown;
+      pendingSourceMarkdownRef.current = nextMarkdown;
+      pendingPayloadRef.current = null;
+      pendingUpdateRevisionRef.current += 1;
+
+      if (findRequest) {
+        setSourceFindText(nextMarkdown);
+      }
+
+      if (pendingFlushTimerRef.current) {
+        clearTimeout(pendingFlushTimerRef.current);
+      }
+
+      pendingFlushTimerRef.current = setTimeout(() => {
+        pendingFlushTimerRef.current = null;
+        void flushDraft('idle');
+      }, LIVE_DRAFT_IDLE_MS);
+    },
+    [findRequest, flushDraft, onMarkdownChange, readOnly],
+  );
+
+  React.useImperativeHandle(
+    forwardedRef,
+    () => ({ flushDraft }),
+    [flushDraft],
+  );
+
+  React.useEffect(
+    () => () => {
+      if (pendingFlushTimerRef.current) {
+        clearTimeout(pendingFlushTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  React.useEffect(() => {
+    if (!sourceMode && !pendingPayloadRef.current) {
+      sourceDraftMarkdownRef.current = normalizedMarkdown;
+      setSourceFindText(normalizedMarkdown);
+    }
+  }, [normalizedMarkdown, sourceMode]);
 
   const handleTocChange = React.useCallback(() => {
     // Markweave owns the visible inner TOC; this callback keeps the runtime
@@ -155,16 +378,7 @@ export function MarkdownEditor({
 
   const getSelectedText = React.useCallback(() => {
     if (sourceMode) {
-      const textarea = sourceTextareaRef.current;
-
-      if (!textarea || textarea.selectionStart === textarea.selectionEnd) {
-        return '';
-      }
-
-      return textarea.value.slice(
-        textarea.selectionStart,
-        textarea.selectionEnd,
-      );
+      return sourceEditorRef.current?.getSelectedText() ?? '';
     }
 
     const selection = window.getSelection();
@@ -191,21 +405,26 @@ export function MarkdownEditor({
         initialQuery: normalizeFindSeed(getSelectedText()),
         revision: findRequestRevisionRef.current,
       });
+      if (sourceMode) {
+        setSourceFindText(sourceDraftMarkdownRef.current);
+      }
     },
-    [documentKey, getSelectedText],
+    [documentKey, getSelectedText, sourceMode],
   );
 
   const closeFind = React.useCallback(() => {
     setFindRequest(null);
 
     requestAnimationFrame(() => {
-      const focusTarget = sourceMode
-        ? sourceTextareaRef.current
-        : markweaveModeRef.current?.querySelector<HTMLElement>(
+      if (sourceMode) {
+        sourceEditorRef.current?.focus();
+      } else {
+        const focusTarget =
+          markweaveModeRef.current?.querySelector<HTMLElement>(
             '.ProseMirror, [contenteditable], textarea',
           ) ?? editorRootRef.current;
-
-      focusTarget?.focus({ preventScroll: true });
+        focusTarget?.focus({ preventScroll: true });
+      }
     });
   }, [sourceMode]);
 
@@ -241,13 +460,15 @@ export function MarkdownEditor({
     }
 
     const frameId = requestAnimationFrame(() => {
-      const focusTarget = sourceMode
-        ? sourceTextareaRef.current
-        : markweaveModeRef.current?.querySelector<HTMLElement>(
+      if (sourceMode) {
+        sourceEditorRef.current?.focus();
+      } else {
+        const focusTarget =
+          markweaveModeRef.current?.querySelector<HTMLElement>(
             '.ProseMirror, [contenteditable], textarea',
           ) ?? editorRootRef.current;
-
-      focusTarget?.focus({ preventScroll: true });
+        focusTarget?.focus({ preventScroll: true });
+      }
     });
 
     return () => cancelAnimationFrame(frameId);
@@ -331,13 +552,43 @@ export function MarkdownEditor({
           event.preventDefault();
           event.stopPropagation();
           sourceModeToggledRef.current = true;
-          setSourceMode((current) => !current);
+
+          if (sourceMode) {
+            void flushDraft('source-toggle').then((flushed) => {
+              if (flushed) {
+                liveEditorRevisionRef.current += 1;
+                setSourceMode(false);
+              }
+            });
+          } else if (pendingPayloadRef.current) {
+            void flushDraft('source-toggle').then((flushed) => {
+              if (flushed) {
+                setSourceFindText(sourceDraftMarkdownRef.current);
+                setSourceMode(true);
+              }
+            });
+          } else {
+            sourceDraftMarkdownRef.current = normalizedMarkdown;
+            setSourceFindText(normalizedMarkdown);
+            setSourceMode(true);
+          }
           return;
         }
 
         if (primaryModifier && key === 's') {
           event.preventDefault();
-          onSaveRequested?.();
+          if (
+            !pendingPayloadRef.current &&
+            pendingSourceMarkdownRef.current === null
+          ) {
+            onSaveRequested?.();
+          } else {
+            void flushDraft('manual-save').then((flushed) => {
+              if (flushed) {
+                onSaveRequested?.();
+              }
+            });
+          }
         }
       }}
     >
@@ -356,20 +607,23 @@ export function MarkdownEditor({
             ariaLabel="Markdown 正文"
             canvasColor="var(--background)"
             className="madora-markweave-editor"
-            content={editorMarkdown}
-            contentFormat="markdown"
+            defaultContent={editorMarkdown}
+            defaultContentFormat="markdown"
             editable={!readOnly}
             innerToc
             innerTocPlacement="container"
-            key={documentKey}
+            key={`${documentKey ?? 'document'}:${liveEditorRevisionRef.current}`}
             lang="zh"
             mode={readOnly ? 'view' : 'live'}
             onSlashCommandUpload={onSlashCommandUpload}
+            {...{ resolveMediaSource }}
             onSearchControllerChange={handleSearchControllerChange}
             onTocChange={handleTocChange}
             onUpdate={handleEditorUpdate}
             linkCardResolver={resolveMarkweaveLinkCard}
-            theme={themeOverride ?? (resolvedTheme === 'dark' ? 'dark' : 'light')}
+            theme={
+              themeOverride ?? (resolvedTheme === 'dark' ? 'dark' : 'light')
+            }
           />
         </div>
 
@@ -386,21 +640,14 @@ export function MarkdownEditor({
                 {readOnly ? '只读' : '可编辑'} · Ctrl / Cmd + / 返回
               </span>
             </div>
-            <textarea
-              aria-label="Markdown 文档源码"
-              autoCapitalize="off"
-              autoCorrect="off"
-              className="min-h-0 flex-1 resize-none overflow-auto border-0 bg-transparent px-6 py-5 font-mono text-sm leading-6 text-foreground outline-none selection:bg-primary/20"
+            <MarkdownSourceEditor
+              editorRef={sourceEditorRef}
+              initialValue={sourceDraftMarkdownRef.current}
               readOnly={readOnly}
-              ref={sourceTextareaRef}
-              spellCheck={false}
-              value={normalizedMarkdown}
-              wrap="off"
               onChange={
                 readOnly || !onMarkdownChange
                   ? undefined
-                  : (event) =>
-                      onMarkdownChange(event.currentTarget.value, 'source')
+                  : handleSourceUpdate
               }
             />
           </section>
@@ -415,13 +662,14 @@ export function MarkdownEditor({
           onSourceChange={
             readOnly || !onMarkdownChange
               ? undefined
-              : (nextMarkdown) => onMarkdownChange(nextMarkdown, 'source')
+              : (nextMarkdown) =>
+                  sourceEditorRef.current?.setValue(nextMarkdown)
           }
           readOnly={readOnly}
           request={findRequest}
           sourceMode={sourceMode}
-          sourceText={normalizedMarkdown}
-          sourceTextareaRef={sourceTextareaRef}
+          sourceEditorRef={sourceEditorRef}
+          sourceText={sourceFindText}
         />
       ) : null}
 
@@ -437,7 +685,7 @@ export function MarkdownEditor({
       ) : null}
     </div>
   );
-}
+});
 
 function normalizeFindSeed(selection: string) {
   const normalized = selection.replace(/\s+/g, ' ').trim();

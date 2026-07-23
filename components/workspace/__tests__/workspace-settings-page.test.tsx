@@ -65,7 +65,9 @@ describe('WorkspaceSettingsPage', () => {
     expect(screen.getByTestId('workspace-settings-page').className).toContain(
       'min-w-0',
     );
-    expect(screen.getByTestId('workspace-editor-column')).toBeTruthy();
+    const editorColumn = screen.getByTestId('workspace-editor-column');
+    expect(editorColumn.className).toContain('m-2');
+    expect(editorColumn.className).not.toContain('shadow-[');
     expect(screen.getByTestId('workspace-settings-content').className).toContain(
       'max-w-[1120px]',
     );
@@ -92,6 +94,24 @@ describe('WorkspaceSettingsPage', () => {
     expect(
       screen.getByText('这是一段用于预览文档字体的文本。'),
     ).toBeTruthy();
+  });
+
+  it('uses the compact sidebar top inset below Windows titlebar controls', () => {
+    render(
+      <WorkspaceSettingsPage
+        initialSettings={initialSettings}
+        sessionCache={createWorkspaceSettingsSessionCache()}
+        windowsChromeInset
+        workspaceRootPath="D:/notes"
+        onBack={vi.fn()}
+      />,
+    );
+
+    const spacer = screen.getByTestId(
+      'workspace-settings-sidebar-titlebar-spacer',
+    );
+    expect(spacer.className).toContain('h-2');
+    expect(spacer.className).not.toContain('h-10');
   });
 
   it('shows the runtime Madora version from the last settings section', async () => {

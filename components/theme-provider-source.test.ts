@@ -61,6 +61,10 @@ describe('theme provider source contract', () => {
       'core:window:allow-toggle-maximize',
     );
     expect(tauriCapability.permissions).toContain('core:window:allow-close');
+    expect(tauriCapability.permissions).not.toContain(
+      'core:window:allow-destroy',
+    );
+    expect(tauriCapability.permissions).toContain('process:default');
     expect(tauriLibSource).toContain('cfg!(target_os = "windows")');
     expect(tauriLibSource).toContain('set_decorations(false)');
     expect(workspaceLayoutSource).toContain('data-tauri-drag-region="deep"');
@@ -68,8 +72,26 @@ describe('theme provider source contract', () => {
       'workspace-titlebar-drag-region',
     );
     expect(workspaceLayoutSource).toContain('windows-titlebar-controls');
-    expect(workspaceLayoutSource).toContain('flex h-8 shrink-0');
+    expect(workspaceLayoutSource).toContain(
+      'absolute inset-x-0 top-0 z-40 flex h-8 items-stretch',
+    );
     expect(workspaceLayoutSource).not.toContain('flex h-10 shrink-0');
+    expect(workspaceLayoutSource).toContain(
+      "isTauriRuntime && isWindowsRuntime && 'pt-8'",
+    );
+    expect(workspaceLayoutSource).toContain(
+      "'-mr-2 transition-opacity duration-300",
+    );
+    expect(workspaceLayoutSource).toContain(
+      'className="m-2 flex min-h-0 min-w-0 max-w-full flex-1',
+    );
+    expect(workspaceLayoutSource).toContain('event.preventDefault();');
+    expect(workspaceLayoutSource).toContain(
+      "await import('@tauri-apps/plugin-process')",
+    );
+    expect(workspaceLayoutSource).toContain('await exit(0)');
+    expect(workspaceLayoutSource).not.toContain('await appWindow.close()');
+    expect(workspaceLayoutSource).not.toContain('await appWindow.destroy()');
   });
 
   it('keeps web and desktop app icons sourced from the Madora asset set', () => {

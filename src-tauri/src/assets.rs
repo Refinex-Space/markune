@@ -13,6 +13,7 @@ const ASSET_URL_PREFIX: &str = "madora-asset://";
 const ASSET_RELATIVE_PREFIX: &str = ".madora/assets/files/";
 const WORKSPACE_PRIVATE_DIR: &str = ".madora";
 const MAX_LOCAL_ASSET_BYTES: usize = 100 * 1024 * 1024;
+const MAX_ASSET_RESOLUTION_BATCH: usize = 2_048;
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -54,7 +55,7 @@ pub struct UploadedWorkspaceAsset {
     pub absolute_path: String,
 }
 
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ResolvedWorkspaceAsset {
     pub id: String,
@@ -62,6 +63,25 @@ pub struct ResolvedWorkspaceAsset {
     pub media_type: String,
     pub name: String,
     pub size: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceAssetBatchResolutionItem {
+    pub id: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub asset: Option<ResolvedWorkspaceAsset>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceAssetBatchResolution {
+    pub items: Vec<WorkspaceAssetBatchResolutionItem>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -171,6 +191,85 @@ pub fn resolve_workspace_asset(
     Ok(resolved)
 }
 
+#[tauri::command]
+pub fn resolve_workspace_assets(
+    app: AppHandle,
+    root_path: String,
+    asset_ids: Vec<String>,
+) -> Result<WorkspaceAssetBatchResolution, String> {
+    let result = resolve_workspace_assets_impl(root_path, asset_ids)?;
+
+    for item in &result.items {
+        if let Some(asset) = &item.asset {
+            allow_asset_protocol_file(&app, Path::new(&asset.absolute_path))?;
+        }
+    }
+
+    Ok(result)
+}
+
+pub(crate) fn resolve_workspace_assets_impl(
+    root_path: String,
+    asset_ids: Vec<String>,
+) -> Result<WorkspaceAssetBatchResolution, String> {
+    if asset_ids.len() > MAX_ASSET_RESOLUTION_BATCH {
+        return Err("单次解析的资产数量过多".to_string());
+    }
+
+    if asset_ids.iter().any(|asset_id| !is_valid_asset_id(asset_id)) {
+        return Err("资产 ID 无效".to_string());
+    }
+
+    let root = canonical_workspace_root(&root_path)?;
+    let index = read_asset_index(&root).map_err(|_| "无法读取资产索引".to_string())?;
+    let unique_ids = asset_ids.into_iter().collect::<BTreeSet<_>>();
+    let mut items = Vec::with_capacity(unique_ids.len());
+
+    for asset_id in unique_ids {
+        let Some(record) = index.assets.get(&asset_id) else {
+            items.push(WorkspaceAssetBatchResolutionItem {
+                id: asset_id,
+                status: "missing".to_string(),
+                asset: None,
+            });
+            continue;
+        };
+
+        let absolute_path = match validate_asset_file_path(&root, &record.relative_path) {
+            Ok(path) => path,
+            Err(_) => {
+                items.push(WorkspaceAssetBatchResolutionItem {
+                    id: asset_id,
+                    status: "unreadable".to_string(),
+                    asset: None,
+                });
+                continue;
+            }
+        };
+        let dimensions = record
+            .media_type
+            .starts_with("image/")
+            .then(|| image::image_dimensions(&absolute_path).ok())
+            .flatten();
+
+        items.push(WorkspaceAssetBatchResolutionItem {
+            id: asset_id,
+            status: "resolved".to_string(),
+            asset: Some(ResolvedWorkspaceAsset {
+                id: record.id.clone(),
+                absolute_path: absolute_path.to_string_lossy().to_string(),
+                media_type: record.media_type.clone(),
+                name: record.original_name.clone(),
+                size: record.size,
+                width: dimensions.map(|value| value.0),
+                height: dimensions.map(|value| value.1),
+            }),
+        });
+    }
+
+    Ok(WorkspaceAssetBatchResolution { items })
+}
+
 pub(crate) fn resolve_workspace_asset_impl(
     root_path: String,
     asset_id: String,
@@ -189,6 +288,8 @@ pub(crate) fn resolve_workspace_asset_impl(
         media_type: record.media_type.clone(),
         name: record.original_name.clone(),
         size: record.size,
+        width: None,
+        height: None,
     })
 }
 
@@ -619,6 +720,56 @@ mod tests {
         .expect_err("不存在的资产不应解析成功");
 
         assert_eq!(error, "资产不存在");
+    }
+
+    #[test]
+    fn resolves_assets_in_one_bounded_batch_and_reports_missing_items() {
+        let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
+        let uploaded = upload_workspace_asset_impl(
+            temp_dir.path().to_string_lossy().to_string(),
+            UploadWorkspaceAssetInput {
+                file_name: "voice.mp3".to_string(),
+                media_type: "audio/mpeg".to_string(),
+                base64_data: encoded(b"audio"),
+            },
+        )
+        .expect("上传音频失败");
+
+        let result = resolve_workspace_assets_impl(
+            temp_dir.path().to_string_lossy().to_string(),
+            vec![uploaded.id.clone(), "missing".to_string(), uploaded.id.clone()],
+        )
+        .expect("批量解析资产失败");
+
+        assert_eq!(result.items.len(), 2);
+        assert_eq!(result.items[0].id, uploaded.id);
+        assert_eq!(result.items[0].status, "resolved");
+        assert_eq!(result.items[0].asset.as_ref().map(|asset| asset.name.as_str()), Some("voice.mp3"));
+        assert_eq!(result.items[1].id, "missing");
+        assert_eq!(result.items[1].status, "missing");
+        assert!(result.items[1].asset.is_none());
+    }
+
+    #[test]
+    fn rejects_invalid_or_oversized_asset_resolution_batches() {
+        let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
+        let root_path = temp_dir.path().to_string_lossy().to_string();
+
+        assert_eq!(
+            resolve_workspace_assets_impl(root_path.clone(), vec!["../escape".to_string()])
+                .expect_err("非法资产 ID 不应被接受"),
+            "资产 ID 无效"
+        );
+        assert_eq!(
+            resolve_workspace_assets_impl(
+                root_path,
+                (0..=MAX_ASSET_RESOLUTION_BATCH)
+                    .map(|index| format!("asset-{index}"))
+                    .collect(),
+            )
+            .expect_err("超量资产不应被接受"),
+            "单次解析的资产数量过多"
+        );
     }
 
     #[test]

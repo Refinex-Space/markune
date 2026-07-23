@@ -174,15 +174,11 @@ function DrawingGallery({
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       <header
-        className="flex h-10 shrink-0 items-center gap-3 border-b px-5"
+        className="flex h-10 shrink-0 items-center gap-3 px-5"
         data-testid="drawing-gallery-header"
       >
         <div className="min-w-0">
           <h1 className="truncate text-sm font-semibold">{title}</h1>
-          <p className="text-[11px] text-muted-foreground">
-            {drawings.length} 幅图稿
-            {trashAlbums.length > 0 ? ` · ${trashAlbums.length} 个图集` : ''}
-          </p>
         </div>
         <div className="ml-auto flex items-center gap-1">
           <DropdownMenu>

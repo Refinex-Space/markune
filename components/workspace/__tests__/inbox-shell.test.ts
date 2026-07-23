@@ -55,7 +55,7 @@ describe('Inbox workspace shell', () => {
     expect(page).not.toContain('管理 Capture 标签');
   });
 
-  it('reuses the sidebar search and tree region while Inbox is active', () => {
+  it('keeps Inbox local search in its own sidebar region', () => {
     const layout = readFileSync(
       join(workspaceRoot, 'components/workspace/workspace-layout.tsx'),
       'utf8',
@@ -64,11 +64,15 @@ describe('Inbox workspace shell', () => {
       join(workspaceRoot, 'components/workspace/workspace-sidebar.tsx'),
       'utf8',
     );
+    const inboxSidebar = readFileSync(
+      join(workspaceRoot, 'components/workspace/inbox-sidebar.tsx'),
+      'utf8',
+    );
 
     expect(layout).toContain("systemPage === 'inbox'");
-    expect(layout).toContain("? '搜索 Inbox'");
-    expect(layout).toContain('? inbox.query');
     expect(sidebar).toContain("workspace.snapshot && systemPage === 'inbox'");
     expect(sidebar).toContain("systemPage === 'inbox' || systemPage === 'drawings'");
+    expect(layout).not.toContain("? '搜索 Inbox'");
+    expect(inboxSidebar).toContain('aria-label="搜索 Inbox"');
   });
 });

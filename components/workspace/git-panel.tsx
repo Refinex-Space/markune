@@ -553,7 +553,7 @@ function PanelShell({
   title?: string;
 }) {
   return (
-    <aside className="flex h-full flex-col gap-3 rounded-lg border bg-background p-3 shadow-sm">
+    <aside className="flex h-full flex-col gap-3 rounded-lg border bg-background p-3">
       <header className="flex items-center justify-between border-b pb-3">
         {title ? <h2 className="text-sm font-semibold">{title}</h2> : <span />}
         {action}
