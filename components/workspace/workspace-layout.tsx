@@ -423,7 +423,7 @@ export function WorkspaceLayout({
   const activeMarkdownEditorRef = React.useRef<MarkdownEditorHandle | null>(
     null,
   );
-  const allowAppWindowCloseRef = React.useRef(false);
+  const appWindowExitPendingRef = React.useRef(false);
 
   React.useEffect(() => {
     currentDocumentPathRef.current = currentDocumentPath;
@@ -573,20 +573,22 @@ export function WorkspaceLayout({
       }
       const appWindow = getCurrentWindow();
       unlisten = await appWindow.onCloseRequested(async (event) => {
-        if (allowAppWindowCloseRef.current) {
-          return;
-        }
-
         event.preventDefault();
-        if (!(await flushActiveMarkdownEditor('app-exit'))) {
+        if (appWindowExitPendingRef.current) {
           return;
         }
 
-        allowAppWindowCloseRef.current = true;
+        appWindowExitPendingRef.current = true;
         try {
-          await appWindow.close();
+          if (!(await flushActiveMarkdownEditor('app-exit'))) {
+            appWindowExitPendingRef.current = false;
+            return;
+          }
+
+          const { exit } = await import('@tauri-apps/plugin-process');
+          await exit(0);
         } catch (error) {
-          allowAppWindowCloseRef.current = false;
+          appWindowExitPendingRef.current = false;
           console.error('关闭应用窗口失败', error);
         }
       });

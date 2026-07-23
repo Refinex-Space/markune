@@ -64,6 +64,7 @@ describe('theme provider source contract', () => {
     expect(tauriCapability.permissions).not.toContain(
       'core:window:allow-destroy',
     );
+    expect(tauriCapability.permissions).toContain('process:default');
     expect(tauriLibSource).toContain('cfg!(target_os = "windows")');
     expect(tauriLibSource).toContain('set_decorations(false)');
     expect(workspaceLayoutSource).toContain('data-tauri-drag-region="deep"');
@@ -73,7 +74,12 @@ describe('theme provider source contract', () => {
     expect(workspaceLayoutSource).toContain('windows-titlebar-controls');
     expect(workspaceLayoutSource).toContain('flex h-8 shrink-0');
     expect(workspaceLayoutSource).not.toContain('flex h-10 shrink-0');
-    expect(workspaceLayoutSource).toContain('await appWindow.close()');
+    expect(workspaceLayoutSource).toContain('event.preventDefault();');
+    expect(workspaceLayoutSource).toContain(
+      "await import('@tauri-apps/plugin-process')",
+    );
+    expect(workspaceLayoutSource).toContain('await exit(0)');
+    expect(workspaceLayoutSource).not.toContain('await appWindow.close()');
     expect(workspaceLayoutSource).not.toContain('await appWindow.destroy()');
   });
 
