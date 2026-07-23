@@ -96,6 +96,24 @@ describe('WorkspaceSettingsPage', () => {
     ).toBeTruthy();
   });
 
+  it('uses the compact sidebar top inset below Windows titlebar controls', () => {
+    render(
+      <WorkspaceSettingsPage
+        initialSettings={initialSettings}
+        sessionCache={createWorkspaceSettingsSessionCache()}
+        windowsChromeInset
+        workspaceRootPath="D:/notes"
+        onBack={vi.fn()}
+      />,
+    );
+
+    const spacer = screen.getByTestId(
+      'workspace-settings-sidebar-titlebar-spacer',
+    );
+    expect(spacer.className).toContain('h-2');
+    expect(spacer.className).not.toContain('h-10');
+  });
+
   it('shows the runtime Madora version from the last settings section', async () => {
     const user = userEvent.setup();
     renderSettingsPage();

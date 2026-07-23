@@ -2817,6 +2817,7 @@ export function WorkspaceLayout({
             }}
             sidebarWidth={leftSidebarWidth}
             sessionCache={settingsSessionCache}
+            windowsChromeInset={isTauriRuntime && isWindowsRuntime}
             workspaceRootPath={workspace.snapshot?.rootPath ?? null}
             onBack={() => setSystemPage(null)}
             onSettingsSaved={(settings) => {
@@ -2903,7 +2904,11 @@ export function WorkspaceLayout({
                 windowsChromeInset={isTauriRuntime && isWindowsRuntime}
               />
             ) : workspace.isSidebarCollapsed ? null : (
-              <div className="h-full shrink-0" style={{ width: leftSidebarWidth }}>
+              <div
+                className="my-2 ml-2 min-h-0 shrink-0"
+                data-testid="workspace-git-panel-column"
+                style={{ width: leftSidebarWidth }}
+              >
                 <GitPanel
                   error={gitError}
                   isLoading={gitLoading}

@@ -33,6 +33,9 @@ describe('Windows workspace titlebar', () => {
     expect(workspaceSidebarSource).toContain(
       "windowsChromeInset ? 'h-2' : 'h-10'",
     );
+    expect(workspaceLayoutSource).toContain(
+      'windowsChromeInset={isTauriRuntime && isWindowsRuntime}',
+    );
     expect(workspaceLayoutSource).toContain('documentTabs={');
     expect(workspaceLayoutSource).toContain(
       '<div className="min-w-0 flex-1">{documentTabs}</div>',
@@ -58,6 +61,17 @@ describe('Windows workspace titlebar', () => {
     expect(editorColumnClass).not.toContain('shadow-[');
     expect(workspaceLayoutSource.indexOf('data-testid="workspace-editor-column"'))
       .toBeLessThan(workspaceLayoutSource.indexOf('<RightSidePanel'));
+  });
+
+  it('insets the Git panel from the top, left and bottom workspace edges', () => {
+    const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
+
+    expect(workspaceLayoutSource).toContain(
+      'className="my-2 ml-2 min-h-0 shrink-0"',
+    );
+    expect(workspaceLayoutSource).toContain(
+      'data-testid="workspace-git-panel-column"',
+    );
   });
 
   it('moves global search to the workspace sidebar and removes the centered trigger', () => {

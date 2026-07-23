@@ -161,6 +161,14 @@ describe('GitPanel', () => {
     expect(screen.queryByRole('heading', { name: '提交' })).toBeNull();
   });
 
+  it('keeps the inset panel flush with the main surface without elevation', () => {
+    renderGitPanel();
+
+    expect(screen.getByRole('complementary').className).not.toContain(
+      'shadow-',
+    );
+  });
+
   it('moves selected file actions to the top toolbar', async () => {
     const user = userEvent.setup();
     const onStageSelected = vi.fn();
