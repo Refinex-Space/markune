@@ -25,6 +25,8 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 - `pnpm runtime:stage`：依次准备文档导入与 Excalidraw 离线运行时，是 Web 开发和构建的统一前置步骤。
 - `pnpm harness:check`：运行仓库治理检查。
 
+私有仓库 `.github/workflows/release.yml` 的 verify 和 publish job 都固定使用 Node.js 24、pnpm 11.12.0、`actions/checkout@v7`、`actions/setup-node@v7` 与 `pnpm/action-setup@v6`。pnpm 11.12.0 不支持 Node.js 20；不得把发布 job 单独降回 Node.js 20，否则 `setup-node` 的 pnpm cache 探测会在安装依赖前失败。
+
 ## Environment Variables
 
 - `NEXT_OUTPUT=export`：启用静态导出行为。

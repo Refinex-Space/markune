@@ -46,6 +46,19 @@ test('release workflow publishes to the public distribution repository without O
   assert.doesNotMatch(workflow, /APPLE_/);
 });
 
+test('release workflow uses Node 24 with current pnpm-compatible actions', async () => {
+  const workflow = await readFile(
+    new URL('../.github/workflows/release.yml', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(workflow.match(/actions\/checkout@v7/g)?.length, 2);
+  assert.equal(workflow.match(/pnpm\/action-setup@v6/g)?.length, 2);
+  assert.equal(workflow.match(/actions\/setup-node@v7/g)?.length, 2);
+  assert.equal(workflow.match(/node-version: 24/g)?.length, 2);
+  assert.doesNotMatch(workflow, /node-version: 20/);
+});
+
 test('version validation requires package, Tauri, and tag versions to match', () => {
   assert.equal(validateReleaseVersion('1.2.3', '1.2.3', 'v1.2.3'), '1.2.3');
   assert.throws(

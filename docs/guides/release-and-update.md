@@ -130,11 +130,11 @@ Madora 应用版本必须同时修改：
 
 使用 SemVer：
 
-- 补丁修复：`0.1.6 → 0.1.7`；
-- 向后兼容功能：`0.1.7 → 0.2.0`；
+- 补丁修复：`0.1.7 → 0.1.8`；
+- 向后兼容功能：`0.1.8 → 0.2.0`；
 - 不兼容变化：稳定版后提升主版本。
 
-Tag 必须精确为 `v<version>`，例如版本 `0.1.7` 只能使用 `v0.1.7`。发布脚本会拒绝版本不一致或 Tag 不匹配。
+Tag 必须精确为 `v<version>`，例如版本 `0.1.8` 只能使用 `v0.1.8`。发布脚本会拒绝版本不一致或 Tag 不匹配。
 
 `/Users/refinex/develop/project/madora/src-tauri/Cargo.toml` 是 Rust crate 的内部版本，不在此步骤修改。`/Users/refinex/develop/project/madora-site/site.config.ts` 的网站展示版本等 draft Release 资产确认后再按第 9 节更新，不能代替应用版本同步。
 
@@ -171,11 +171,13 @@ MADORA_UPDATER_PUBLIC_KEY="$(cat ~/.tauri/madora-updater.key.pub)" pnpm release:
 ```bash
 cd /Users/refinex/develop/project/madora
 git status --short
-git tag -a v0.1.7 -m "Madora v0.1.7"
-git push origin v0.1.7
+git tag -a v0.1.8 -m "Madora v0.1.8"
+git push origin v0.1.8
 ```
 
 把示例版本替换为本次真实版本。推送 Tag 会在私有 `madora` 启动 `Release Madora desktop` 工作流，并由工作流在公开 `madora-site` 创建同名 Release Tag 和 draft Release。不要在 `/Users/refinex/develop/project/madora-site` 手工创建或推送这个 Tag。不要在同一版本失败后反复删除并重建 Tag；先修复源码并提升版本，或在 draft 尚未公开且团队确认无外部消费时按组织流程处理。
+
+当前发布恢复基线：私有源码 Tag `v0.1.7` 已因 Node.js 20 与 pnpm 11.12.0 不兼容而失败，且未在公开 `madora-site` 创建 Tag、draft Release 或资产。保留 `v0.1.7` 作为不可变审计记录；修复工作流后从 `0.1.8` / `v0.1.8` 继续。不得移动、删除后重建或重新推送 `v0.1.7`。
 
 ## 7. 验收 draft Release
 
@@ -266,6 +268,7 @@ npx --yes pnpm@11.12.0 check:static
 
 ## 10. 故障、撤回与回滚
 
+- `GITHUB-APP` 验证阶段在创建公开 Tag/draft 前失败：保留失败的私有源码 Tag 作为审计记录；在 `APP-LOCAL` 修复源码与工作流、提升 SemVer、提交到目标分支，再创建更高版本 Tag。不要移动或复用失败 Tag。
 - `GITHUB-SITE` draft 失败：保持 draft，不发布；回到 `GITHUB-APP` 查看失败任务，在 `APP-LOCAL` 修复源码后重新运行工作流，先确认不会复用错误签名资产。
 - `GITHUB-APP` 中 `MADORA_RELEASES_TOKEN` 失效或权限不足：保持源码 Tag，不手工改用宽权限 Token；在 `GITHUB-ACCOUNT` 更新最小权限 Token，再回到 `GITHUB-APP` 更新 Secret 并重新运行失败任务。
 - `SITE-LOCAL` 链接错误：先停止部署网站，不移动或复制安装包；按第 9.2 节修正 `site.config.ts` 并重新执行站点五项验证。
