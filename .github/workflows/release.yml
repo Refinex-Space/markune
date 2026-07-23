@@ -2,8 +2,25 @@ name: Release Madora desktop
 
 on:
   push:
+    branches:
+      - dev
     tags:
       - 'v*'
+    paths:
+      - '.github/workflows/release.yml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'scripts/prepare-release-updater-config.mjs'
+      - 'scripts/prepare-release-updater-config.test.mjs'
+      - 'src-tauri/tauri.conf.json'
+      - 'src-tauri/Cargo.toml'
+      - 'src-tauri/Cargo.lock'
+      - 'src-tauri/src/app_update.rs'
+      - 'components/workspace/__tests__/use-app-update.test.tsx'
+      - 'components/workspace/__tests__/workspace-sidebar-update.test.tsx'
+      - 'components/workspace/__tests__/workspace-settings-page.test.tsx'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -20,7 +37,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
         with:
-          version: 11.12.0
+          version: 11.16.0
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -31,6 +48,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: pnpm install --frozen-lockfile
+      - name: Verify release configuration
+        run: pnpm release:prepare
+        env:
+          MADORA_UPDATER_PUBLIC_KEY: ${{ vars.MADORA_UPDATER_PUBLIC_KEY }}
       - run: node --test scripts/prepare-release-updater-config.test.mjs
       - run: pnpm exec vitest run components/workspace/__tests__/use-app-update.test.tsx components/workspace/__tests__/workspace-sidebar-update.test.tsx components/workspace/__tests__/workspace-settings-page.test.tsx
       - run: pnpm exec tsc --noEmit
@@ -39,6 +60,7 @@ jobs:
 
   publish:
     name: Build ${{ matrix.label }}
+    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     needs: verify
     strategy:
       fail-fast: false
@@ -58,7 +80,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
         with:
-          version: 11.12.0
+          version: 11.16.0
       - uses: actions/setup-node@v7
         with:
           node-version: 24

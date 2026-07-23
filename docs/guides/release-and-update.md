@@ -130,11 +130,11 @@ Madora 应用版本必须同时修改：
 
 使用 SemVer：
 
-- 补丁修复：`0.1.7 → 0.1.8`；
-- 向后兼容功能：`0.1.8 → 0.2.0`；
+- 补丁修复：`0.1.9 → 0.1.10`；
+- 向后兼容功能：`0.1.10 → 0.2.0`；
 - 不兼容变化：稳定版后提升主版本。
 
-Tag 必须精确为 `v<version>`，例如版本 `0.1.8` 只能使用 `v0.1.8`。发布脚本会拒绝版本不一致或 Tag 不匹配。
+Tag 必须精确为 `v<version>`，例如版本 `0.1.10` 只能使用 `v0.1.10`。发布脚本会拒绝版本不一致或 Tag 不匹配。
 
 `/Users/refinex/develop/project/madora/src-tauri/Cargo.toml` 是 Rust crate 的内部版本，不在此步骤修改。`/Users/refinex/develop/project/madora-site/site.config.ts` 的网站展示版本等 draft Release 资产确认后再按第 9 节更新，不能代替应用版本同步。
 
@@ -164,20 +164,26 @@ MADORA_UPDATER_PUBLIC_KEY="$(cat ~/.tauri/madora-updater.key.pub)" pnpm release:
 
 生成文件位于 `/Users/refinex/develop/project/madora/.tauri-build/tauri.release.generated.json`，已被 Git 忽略。检查它只包含 `madora-site` 的固定 HTTPS endpoint、单行 Base64 公钥、`createUpdaterArtifacts: true`、macOS ad-hoc identity `-` 和 Windows passive 安装模式。不要提交该文件，也不要在终端打印私钥或完整生成配置。
 
+完成本地验证后，先提交并推送到私有 `madora` 的 `dev` 分支，不要立即创建 Tag。release 关键文件的 `dev` push 会自动触发 `Release Madora desktop`：`Verify release source` 会使用 GitHub Actions Variable 中的公钥执行 `release:prepare`，提前校验应用版本、updater 配置、pnpm 安装和测试；该 job 必须成功，`Build ...` 在分支预检中显示 skipped 是预期行为。只有该次运行的 `headSha` 与准备创建 Tag 的提交一致时，才能进入第 6 节。
+
 ## 6. 创建发布 Tag
 
 执行位置：`APP-LOCAL`。确认版本变更、发布说明和验证结果已经提交到私有 `madora` 的目标分支后执行：
 
 ```bash
 cd /Users/refinex/develop/project/madora
+git fetch origin dev --tags
 git status --short
-git tag -a v0.1.8 -m "Madora v0.1.8"
-git push origin v0.1.8
+git rev-parse HEAD
+git rev-parse origin/dev
+git tag -l v0.1.10
+git tag -a v0.1.10 -m "Madora v0.1.10"
+git push origin v0.1.10
 ```
 
-把示例版本替换为本次真实版本。推送 Tag 会在私有 `madora` 启动 `Release Madora desktop` 工作流，并由工作流在公开 `madora-site` 创建同名 Release Tag 和 draft Release。不要在 `/Users/refinex/develop/project/madora-site` 手工创建或推送这个 Tag。不要在同一版本失败后反复删除并重建 Tag；先修复源码并提升版本，或在 draft 尚未公开且团队确认无外部消费时按组织流程处理。
+创建 Tag 前，`git status --short` 必须无输出，两个 `git rev-parse` 必须输出同一 commit，`git tag -l v0.1.10` 必须无输出，而且第 5 节中该 commit 的 `dev` 预检必须成功；任一条件不满足都停止。把示例版本替换为本次真实版本。推送 Tag 会在私有 `madora` 启动 `Release Madora desktop` 工作流，并由工作流在公开 `madora-site` 创建同名 Release Tag 和 draft Release。不要在 `/Users/refinex/develop/project/madora-site` 手工创建或推送这个 Tag。不要在同一版本失败后反复删除并重建 Tag；先修复源码并提升版本。
 
-当前发布恢复基线：私有源码 Tag `v0.1.7` 已因 Node.js 20 与 pnpm 11.12.0 不兼容而失败，且未在公开 `madora-site` 创建 Tag、draft Release 或资产。保留 `v0.1.7` 作为不可变审计记录；修复工作流后从 `0.1.8` / `v0.1.8` 继续。不得移动、删除后重建或重新推送 `v0.1.7`。
+当前发布恢复基线：`v0.1.7` 因 Node.js 20 与 pnpm 11 不兼容而失败；`v0.1.8` 误指向同一旧提交；`v0.1.9` 已包含 Node.js 24 修复，但因官方损坏的 pnpm 11.12.0 在 `action-setup` 自安装阶段失败。三个版本都没有在公开 `madora-site` 创建 Tag、draft Release 或资产，必须保留为不可变审计记录，不得移动、删除后重建或重新推送。修复从 `0.1.10` / `v0.1.10` 继续。
 
 ## 7. 验收 draft Release
 
@@ -255,11 +261,11 @@ https://github.com/Refinex-Space/madora-site/releases/latest/download/latest.jso
 
 ```bash
 cd /Users/refinex/develop/project/madora-site
-npx --yes pnpm@11.12.0 test:run
-npx --yes pnpm@11.12.0 lint
-npx --yes pnpm@11.12.0 typecheck
-npx --yes pnpm@11.12.0 build
-npx --yes pnpm@11.12.0 check:static
+npx --yes pnpm@11.16.0 test:run
+npx --yes pnpm@11.16.0 lint
+npx --yes pnpm@11.16.0 typecheck
+npx --yes pnpm@11.16.0 build
+npx --yes pnpm@11.16.0 check:static
 ```
 
 `madora-site` 页面应链接自身 GitHub Releases 的安装资产，不使用 GitHub Packages，也不把安装包复制进站点仓库。若以后修改 `/Users/refinex/develop/project/madora/.github/workflows/release.yml` 的 `releaseAssetNamePattern`，必须在同一次发布中回到 `/Users/refinex/develop/project/madora-site/site.config.ts` 更新链接并验证 302 跳转和最终下载。

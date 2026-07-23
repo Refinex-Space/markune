@@ -42,11 +42,12 @@ test('release workflow publishes to the public distribution repository without O
   assert.match(workflow, /repo: madora-site/);
   assert.match(workflow, /releaseCommitish: main/);
   assert.match(workflow, /github\.sha/);
+  assert.equal(workflow.match(/run: pnpm release:prepare/g)?.length, 2);
   assert.doesNotMatch(workflow, /secrets\.GITHUB_TOKEN/);
   assert.doesNotMatch(workflow, /APPLE_/);
 });
 
-test('release workflow uses Node 24 with current pnpm-compatible actions', async () => {
+test('release workflow uses Node 24 and a non-broken pnpm release', async () => {
   const workflow = await readFile(
     new URL('../.github/workflows/release.yml', import.meta.url),
     'utf8',
@@ -55,8 +56,24 @@ test('release workflow uses Node 24 with current pnpm-compatible actions', async
   assert.equal(workflow.match(/actions\/checkout@v7/g)?.length, 2);
   assert.equal(workflow.match(/pnpm\/action-setup@v6/g)?.length, 2);
   assert.equal(workflow.match(/actions\/setup-node@v7/g)?.length, 2);
+  assert.equal(workflow.match(/version: 11\.16\.0/g)?.length, 2);
   assert.equal(workflow.match(/node-version: 24/g)?.length, 2);
+  assert.doesNotMatch(workflow, /11\.12\.0/);
   assert.doesNotMatch(workflow, /node-version: 20/);
+});
+
+test('release workflow verifies dev before tags and publishes only tags', async () => {
+  const workflow = await readFile(
+    new URL('../.github/workflows/release.yml', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(workflow, /branches:\s+\- dev/);
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(
+    workflow,
+    /if: github\.event_name == 'push' && github\.ref_type == 'tag' && startsWith\(github\.ref_name, 'v'\)/,
+  );
 });
 
 test('version validation requires package, Tauri, and tag versions to match', () => {
