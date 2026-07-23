@@ -43,6 +43,11 @@ test('release workflow publishes to the public distribution repository without O
   assert.match(workflow, /releaseCommitish: main/);
   assert.match(workflow, /github\.sha/);
   assert.equal(workflow.match(/run: pnpm release:prepare/g)?.length, 2);
+  assert.equal(
+    workflow.match(/run: pnpm codex:stage && pnpm document-export:stage/g)
+      ?.length,
+    1,
+  );
   assert.doesNotMatch(workflow, /secrets\.GITHUB_TOKEN/);
   assert.doesNotMatch(workflow, /APPLE_/);
 });

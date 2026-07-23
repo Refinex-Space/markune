@@ -130,11 +130,11 @@ Madora 应用版本必须同时修改：
 
 使用 SemVer：
 
-- 补丁修复：`0.1.9 → 0.1.10`；
-- 向后兼容功能：`0.1.10 → 0.2.0`；
+- 补丁修复：`0.1.10 → 0.1.11`；
+- 向后兼容功能：`0.1.11 → 0.2.0`；
 - 不兼容变化：稳定版后提升主版本。
 
-Tag 必须精确为 `v<version>`，例如版本 `0.1.10` 只能使用 `v0.1.10`。发布脚本会拒绝版本不一致或 Tag 不匹配。
+Tag 必须精确为 `v<version>`，例如版本 `0.1.11` 只能使用 `v0.1.11`。发布脚本会拒绝版本不一致或 Tag 不匹配。
 
 `/Users/refinex/develop/project/madora/src-tauri/Cargo.toml` 是 Rust crate 的内部版本，不在此步骤修改。`/Users/refinex/develop/project/madora-site/site.config.ts` 的网站展示版本等 draft Release 资产确认后再按第 9 节更新，不能代替应用版本同步。
 
@@ -176,14 +176,14 @@ git fetch origin dev --tags
 git status --short
 git rev-parse HEAD
 git rev-parse origin/dev
-git tag -l v0.1.10
-git tag -a v0.1.10 -m "Madora v0.1.10"
-git push origin v0.1.10
+git tag -l v0.1.11
+git tag -a v0.1.11 -m "Madora v0.1.11"
+git push origin v0.1.11
 ```
 
-创建 Tag 前，`git status --short` 必须无输出，两个 `git rev-parse` 必须输出同一 commit，`git tag -l v0.1.10` 必须无输出，而且第 5 节中该 commit 的 `dev` 预检必须成功；任一条件不满足都停止。把示例版本替换为本次真实版本。推送 Tag 会在私有 `madora` 启动 `Release Madora desktop` 工作流，并由工作流在公开 `madora-site` 创建同名 Release Tag 和 draft Release。不要在 `/Users/refinex/develop/project/madora-site` 手工创建或推送这个 Tag。不要在同一版本失败后反复删除并重建 Tag；先修复源码并提升版本。
+创建 Tag 前，`git status --short` 必须无输出，两个 `git rev-parse` 必须输出同一 commit，`git tag -l v0.1.11` 必须无输出，而且第 5 节中该 commit 的 `dev` 预检必须成功；任一条件不满足都停止，尤其不得在预检仍为 queued、in progress、failure 或 cancelled 时创建 Tag。把示例版本替换为本次真实版本。推送 Tag 会在私有 `madora` 启动 `Release Madora desktop` 工作流，并由工作流在公开 `madora-site` 创建同名 Release Tag 和 draft Release。不要在 `/Users/refinex/develop/project/madora-site` 手工创建或推送这个 Tag。不要在同一版本失败后反复删除并重建 Tag；先修复源码并提升版本。
 
-当前发布恢复基线：`v0.1.7` 因 Node.js 20 与 pnpm 11 不兼容而失败；`v0.1.8` 误指向同一旧提交；`v0.1.9` 已包含 Node.js 24 修复，但因官方损坏的 pnpm 11.12.0 在 `action-setup` 自安装阶段失败。三个版本都没有在公开 `madora-site` 创建 Tag、draft Release 或资产，必须保留为不可变审计记录，不得移动、删除后重建或重新推送。修复从 `0.1.10` / `v0.1.10` 继续。
+当前发布恢复基线：`v0.1.7` 因 Node.js 20 与 pnpm 11 不兼容而失败；`v0.1.8` 误指向同一旧提交；`v0.1.9` 因官方损坏的 pnpm 11.12.0 在 `action-setup` 自安装阶段失败；`v0.1.10` 在 `dev` 预检失败后仍被创建，且 verify 因没有预先生成 Tauri 所需的 Codex/Pandoc/Typst sidecar 而在 Cargo 构建脚本阶段失败。四个版本都没有在公开 `madora-site` 创建 Tag、draft Release 或资产，必须保留为不可变审计记录，不得移动、删除后重建或重新推送。修复从 `0.1.11` / `v0.1.11` 继续。
 
 ## 7. 验收 draft Release
 
