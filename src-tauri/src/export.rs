@@ -217,7 +217,7 @@ impl ExportState {
 }
 
 #[tauri::command]
-pub fn select_document_export_directory(
+pub async fn select_document_export_directory(
     app: AppHandle,
     state: State<'_, ExportState>,
 ) -> Result<Option<ExportDirectoryGrant>, String> {
