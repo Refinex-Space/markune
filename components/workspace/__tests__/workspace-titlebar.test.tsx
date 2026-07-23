@@ -13,19 +13,17 @@ const workspaceSidebarPath = join(
 );
 
 describe('Windows workspace titlebar', () => {
-  it('places a Windows-only divider after the custom header tools', () => {
+  it('keeps native controls in an outer titlebar above the workspace panel', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
 
-    expect(workspaceLayoutSource).toMatch(
-      /\{children\}\s*\{windowsChromeInset \? \(\s*<span[\s\S]*?data-testid="windows-titlebar-tools-divider"/,
+    expect(workspaceLayoutSource).toContain(
+      'absolute inset-x-0 top-0 z-40 flex h-8 items-stretch',
     );
     expect(workspaceLayoutSource).toContain(
-      'className="mx-1 h-4 w-px shrink-0 bg-border/80"',
+      "isTauriRuntime && isWindowsRuntime && 'pt-8'",
     );
-    expect(workspaceLayoutSource).toContain(
-      "windowsChromeInset && 'mr-[136px]'",
-    );
-    expect(workspaceLayoutSource).not.toContain("windowsChromeInset && 'mr-[150px]'");
+    expect(workspaceLayoutSource).not.toContain('windows-titlebar-tools-divider');
+    expect(workspaceLayoutSource).not.toContain("windowsChromeInset && 'mr-[136px]'");
   });
 
   it('moves global search to the workspace sidebar and removes the centered trigger', () => {

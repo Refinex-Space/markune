@@ -2749,7 +2749,7 @@ export function WorkspaceLayout({
     >
       {isTauriRuntime && isWindowsRuntime ? (
         <div
-          className="absolute right-0 top-0 z-50 flex h-8 shrink-0 items-center bg-transparent"
+          className="absolute inset-x-0 top-0 z-40 flex h-8 items-stretch border-b border-sidebar-border/60 bg-sidebar"
           data-tauri-drag-region="deep"
           data-testid="workspace-titlebar-drag-region"
         >
@@ -2781,7 +2781,10 @@ export function WorkspaceLayout({
       />
 
       <div
-        className="flex min-h-0 min-w-0 flex-1 overflow-hidden"
+        className={cn(
+          'flex min-h-0 min-w-0 flex-1 overflow-hidden',
+          isTauriRuntime && isWindowsRuntime && 'pt-8',
+        )}
         data-testid="workspace-main-blocks"
       >
         {systemPage === 'settings' ? (
@@ -2916,7 +2919,7 @@ export function WorkspaceLayout({
               <WorkspaceResizeHandle
                 aria-label="调整左侧目录宽度"
                 className={cn(
-                  '-mx-2 transition-opacity duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
+                  '-mr-2 transition-opacity duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
                   workspace.isSidebarCollapsed
                     ? 'pointer-events-none opacity-0'
                     : 'opacity-100',
@@ -2930,7 +2933,7 @@ export function WorkspaceLayout({
             ) : null}
 
             <div
-              className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-background shadow-[0_1px_3px_rgba(15,23,42,0.05),0_18px_42px_-28px_rgba(15,23,42,0.45)]"
+              className="m-2 flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-background shadow-[0_1px_3px_rgba(15,23,42,0.05),0_18px_42px_-28px_rgba(15,23,42,0.45)]"
               data-testid="workspace-editor-column"
             >
               <section
@@ -3489,10 +3492,7 @@ function WorkspaceMainHeader({
     >
       <TooltipProvider>
         <div
-          className={cn(
-            'z-10 ml-auto flex items-center gap-0.5',
-            windowsChromeInset && 'mr-[136px]',
-          )}
+          className="z-10 ml-auto flex items-center gap-0.5"
           data-testid="right-header-tools"
         >
           <ThemeQuickMenu />
@@ -3527,13 +3527,6 @@ function WorkspaceMainHeader({
             </button>
           </HeaderToolTooltip>
           {children}
-          {windowsChromeInset ? (
-            <span
-              aria-hidden="true"
-              className="mx-1 h-4 w-px shrink-0 bg-border/80"
-              data-testid="windows-titlebar-tools-divider"
-            />
-          ) : null}
         </div>
       </TooltipProvider>
     </header>

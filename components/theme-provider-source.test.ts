@@ -72,8 +72,19 @@ describe('theme provider source contract', () => {
       'workspace-titlebar-drag-region',
     );
     expect(workspaceLayoutSource).toContain('windows-titlebar-controls');
-    expect(workspaceLayoutSource).toContain('flex h-8 shrink-0');
+    expect(workspaceLayoutSource).toContain(
+      'absolute inset-x-0 top-0 z-40 flex h-8 items-stretch',
+    );
     expect(workspaceLayoutSource).not.toContain('flex h-10 shrink-0');
+    expect(workspaceLayoutSource).toContain(
+      "isTauriRuntime && isWindowsRuntime && 'pt-8'",
+    );
+    expect(workspaceLayoutSource).toContain(
+      "'-mr-2 transition-opacity duration-300",
+    );
+    expect(workspaceLayoutSource).toContain(
+      'className="m-2 flex min-h-0 min-w-0 max-w-full flex-1',
+    );
     expect(workspaceLayoutSource).toContain('event.preventDefault();');
     expect(workspaceLayoutSource).toContain(
       "await import('@tauri-apps/plugin-process')",

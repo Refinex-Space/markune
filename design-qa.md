@@ -43,6 +43,58 @@
 
 final result: passed
 
+---
+
+# Windows 外层标题栏设计 QA
+
+- source visual truth:
+  - `C:\Users\Administrator\AppData\Local\Temp\codex-clipboard-5e9aaeed-85d5-491f-b8fc-1575c08cfc46.png`
+  - `C:\Users\Administrator\AppData\Local\Temp\codex-clipboard-14715a9e-a4f3-4210-96f0-ed99ae25a9ea.png`
+- implementation screenshot: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-windows-outer-titlebar.png`
+- full-view comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-windows-titlebar-full-comparison.png`
+- focused comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-windows-titlebar-focus-comparison.png`
+- viewport: implementation `1280 × 720` CSS px, `devicePixelRatio: 1`
+- pixel dimensions: source baseline `1920 × 704`, source reference `1600 × 154`, implementation `1280 × 720`
+- density normalization: full view preserves each screenshot's aspect ratio; focused comparison scales both titlebar regions to the same 1600 px width before comparison
+- state: Windows layout simulation, light theme, empty workspace, expanded left sidebar
+
+## Full-view comparison evidence
+
+- The prior Madora screen placed window controls inside the rounded main panel and reserved a visibly empty strip after the custom tools.
+- The implementation creates a dedicated `32px` outer titlebar. Window controls occupy the window's top-right edge while the rounded main panel begins at `y = 40`, preserving the existing `8px` panel gutter below the titlebar.
+- The sidebar begins below the outer titlebar, while its collapse, pin, and refresh controls remain in the outer strip. The content panel and sidebar therefore read as one workspace below a single window-level chrome row.
+
+## Focused comparison evidence
+
+- The reference and implementation titlebar regions were placed in one comparison image. Both show the native window group on the highest outer row and product-specific controls on the lower content row.
+- The implementation's custom header tools end at `x = 1259`; the main panel ends at `x = 1272`, leaving the existing 13 px optical inset without the former 136 px native-control reservation or divider.
+- The outer titlebar spans `x = 0–1280`, and the window controls span `x = 1148–1280`, so minimize, maximize, and close retain the Windows top-right edge target.
+
+## Required fidelity surfaces
+
+- Fonts and typography: unchanged; no text styles, weights, line heights, or wrapping changed.
+- Spacing and layout rhythm: the outer titlebar is 32 px high, the main panel starts 8 px below it, and custom tools align to the main panel's right padding.
+- Colors and visual tokens: the titlebar uses the existing `bg-sidebar` and `border-sidebar-border` tokens; the main panel's background, border, radius, and shadow are unchanged.
+- Image quality and asset fidelity: no raster assets, logos, or icons were added or replaced; existing Lucide controls are reused.
+- Copy and content: no product copy changed.
+
+## Primary interactions and runtime checks
+
+- Browser layout measurements confirmed the outer titlebar, main content block, main panel, native-control group, sidebar controls, and custom-tool group do not overlap.
+- Source tests confirm the Windows-only `pt-8` content offset, full-width outer titlebar, and removal of the old 136 px reservation and divider.
+- The browser-rendered simulation displayed no runtime error overlay.
+
+## Findings
+
+- No actionable P0, P1, or P2 mismatch remains.
+- The reference application's exact icon sizing differs slightly, but Madora intentionally keeps its established Windows control icons and hover behavior; this is not an actionable fidelity issue for the requested hierarchy change.
+
+## Comparison history
+
+- Iteration 1: the implementation moved the native control group to a full-width outer titlebar, moved workspace content below it, and allowed custom tools to use the main panel's full right edge. The combined full-view and focused comparisons showed no P0/P1/P2 issue, so no corrective visual iteration was required.
+
+final result: passed
+
 # Goal Mode Design QA
 
 - source visual truth paths:
@@ -215,5 +267,57 @@ final result: blocked
 ## Follow-up polish
 
 - 无阻塞项。若后续希望更接近完全直角，可单独评估 `4px` 圆角，但本轮按“轻微一点点、偏矩形”采用 `8px`，兼顾现有控件体系的一致性。
+
+final result: passed
+
+---
+
+# 主面板内嵌画布设计 QA
+
+- source visual truth:
+  - `C:\Users\Administrator\AppData\Local\Temp\codex-clipboard-96f7fb39-6561-481a-8062-9093419dd745.png`
+  - `C:\Users\Administrator\AppData\Local\Temp\codex-clipboard-2e0d131e-967f-4c8a-9b52-93824a05ed25.png`
+- implementation screenshot: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-main-panel-inset.png`
+- full-view comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-main-panel-comparison.png`
+- focused comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-main-panel-focus-comparison.png`
+- viewport: 1920 × 1032 CSS px
+- pixel dimensions: source 1920 × 1032; implementation 1920 × 1032
+- density normalization: source and implementation use matching dimensions; implementation `devicePixelRatio = 1`
+- state: light theme, empty workspace, expanded left sidebar
+
+## Full-view comparison evidence
+
+- The source Madora panel was flush with the top, right, and bottom window edges. The implementation places the main panel at `y = 8`, `right = 1912`, and `bottom = 1024`, producing an even 8 px outer gutter.
+- The expanded sidebar ends at `x = 280` and the main panel begins at `x = 288`, producing an 8 px left gutter that also contains the resize hit area.
+- The main panel remains a single restrained surface. Existing radius, border, shadow, content alignment, and empty-state placement are unchanged.
+
+## Focused comparison evidence
+
+- The top-left crop confirms that the main panel no longer touches the top or sidebar edge.
+- The bottom-right crop confirms a visible but restrained gutter without increasing shadow weight or corner radius.
+- The browser-rendered capture does not include Tauri's native Windows controls. Their `top-2 right-2` alignment is covered by the source contract test; a native-window visual glance remains optional P3 polish.
+
+## Required fidelity surfaces
+
+- Fonts and typography: unchanged; empty-state hierarchy, weight, line height, and wrapping match the existing Madora screen.
+- Spacing and layout rhythm: 8 px on all four main-panel edges; the same inset remains when the sidebar collapses. At 1366 × 768 there is no body overflow.
+- Colors and visual tokens: existing `bg-sidebar`, `bg-background`, border opacity, and shadow tokens are preserved, so the gutter reads as shell depth instead of a new color block.
+- Image quality and asset fidelity: no image, icon, logo, or generated asset changed.
+- Copy and content: no product copy changed.
+
+## Interaction and runtime checks
+
+- Sidebar collapse and expansion were exercised. Collapsed state keeps the panel at `x = 8`; expanded state keeps an 8 px gap after the sidebar.
+- 1920 × 1032 and 1366 × 768 layouts were measured with no horizontal or vertical document overflow.
+- Browser console warnings/errors checked: none.
+
+## Findings
+
+- No actionable P0, P1, or P2 visual mismatch remains.
+- P3: native Windows control alignment was not available in the browser-rendered capture; static layout coverage confirms the intended inset.
+
+## Comparison history
+
+- Iteration 1: the first rendered comparison showed the requested uniform inset, retained the existing visual language, and produced no P0/P1/P2 finding. No corrective visual iteration was required.
 
 final result: passed
