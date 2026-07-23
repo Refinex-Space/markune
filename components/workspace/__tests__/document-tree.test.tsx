@@ -427,15 +427,15 @@ describe('DocumentTree', () => {
     const exportTrigger = screen.getByRole('menuitem', { name: '导出' });
     await user.click(exportTrigger);
 
-    expect(screen.getByRole('menuitem', { name: '导出为 HTML' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: 'HTML' })).toBeTruthy();
     expect(
-      screen.getByRole('menuitem', { name: '导出为 Markdown' }),
+      screen.getByRole('menuitem', { name: 'Markdown' }),
     ).toBeTruthy();
-    expect(screen.getByRole('menuitem', { name: '导出为 PDF' })).toBeTruthy();
-    expect(screen.getByRole('menuitem', { name: '导出为 Word' })).toBeTruthy();
-    expect(screen.queryByRole('menuitem', { name: '导出为 Image' })).toBeNull();
+    expect(screen.getByRole('menuitem', { name: 'PDF' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: 'Word' })).toBeTruthy();
+    expect(screen.queryByRole('menuitem', { name: 'Image' })).toBeNull();
 
-    fireEvent.click(screen.getByRole('menuitem', { name: '导出为 HTML' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'HTML' }));
     expect(onExportNode).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'README.md' }),
       'html',

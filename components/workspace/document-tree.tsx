@@ -828,10 +828,10 @@ const EXPORT_ACTIONS: Array<{
   format: WorkspaceExportFormat;
   label: string;
 }> = [
-  { format: 'html', label: '导出为 HTML' },
-  { format: 'markdown', label: '导出为 Markdown' },
-  { format: 'pdf', label: '导出为 PDF' },
-  { format: 'word', label: '导出为 Word' },
+  { format: 'html', label: 'TML' },
+  { format: 'markdown', label: 'Markdown' },
+  { format: 'pdf', label: 'PDF' },
+  { format: 'word', label: 'Word' },
 ];
 
 const IMPORT_ACTIONS: Array<{
