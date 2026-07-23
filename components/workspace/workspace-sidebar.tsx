@@ -28,6 +28,7 @@ interface WorkspaceSidebarProps {
   drawingContent?: ReactNode;
   inboxContent?: ReactNode;
   width: number;
+  windowsChromeInset?: boolean;
   workspace: ReturnType<typeof useWorkspace>;
   onCreateDocument?: (parentPath: string) => Promise<WorkspaceNode | null> | void;
   onDeleteNode?: (node: WorkspaceNode) => Promise<void> | void;
@@ -92,6 +93,7 @@ export function WorkspaceSidebar({
   onTogglePinned,
   inboxActiveCount = 0,
   systemPage = null,
+  windowsChromeInset = false,
 }: WorkspaceSidebarProps) {
   const createDocument = onCreateDocument ?? workspace.createDocument;
   const deleteNode = onDeleteNode ?? workspace.deleteNode;
@@ -127,7 +129,11 @@ export function WorkspaceSidebar({
         data-testid="workspace-sidebar-content"
         style={{ width }}
       >
-        <header className="h-10 shrink-0" data-tauri-drag-region="deep" />
+        <header
+          className={cn('shrink-0', windowsChromeInset ? 'h-2' : 'h-10')}
+          data-tauri-drag-region="deep"
+          data-testid="workspace-sidebar-titlebar-spacer"
+        />
 
         <WorkspaceSidebarHeader
           workspace={workspace}

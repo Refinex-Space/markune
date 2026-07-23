@@ -69,7 +69,7 @@ describe('WorkspaceSwitcher', () => {
 
     expect(screen.queryByRole('button', { name: '新建文档' })).toBeNull();
     expect(screen.queryByRole('button', { name: '新建目录' })).toBeNull();
-    expect(screen.getByRole('button', { name: '选择其他目录' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '选择工作区' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '新建工作区' })).toBeTruthy();
   });
 

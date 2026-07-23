@@ -192,7 +192,7 @@ export function WorkspaceSwitcher({
                 }}
               >
                 <FolderOpen size={15} />
-                {currentWorkspace ? '选择其他目录' : '打开已有工作区'}
+                {currentWorkspace ? '选择工作区' : '打开已有工作区'}
               </Button>
               <Button
                 className="w-full justify-start"

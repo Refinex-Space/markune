@@ -321,3 +321,59 @@ final result: passed
 - Iteration 1: the first rendered comparison showed the requested uniform inset, retained the existing visual language, and produced no P0/P1/P2 finding. No corrective visual iteration was required.
 
 final result: passed
+
+---
+
+# Windows 工作区标题与响应式文档 Tab 设计 QA
+
+- source visual truth:
+  - `C:\Users\Administrator\AppData\Local\Temp\codex-clipboard-ebdff35c-0ada-4814-b39a-23e6eb7ffccd.png`
+  - `C:\Users\Administrator\AppData\Local\Temp\codex-clipboard-c412fd5b-c2f0-4fd0-a4fe-bd3fce80a8ff.png`
+- implementation screenshots:
+  - `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-tab-overflow-closed.png`
+  - `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-tab-overflow-open.png`
+- full-view comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-tab-header-full-comparison.png`
+- focused comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-tab-header-focus-comparison.png`
+- viewport: implementation `1280 × 720` CSS px, `devicePixelRatio: 1`
+- pixel dimensions: full source `1920 × 1038`, focused source `1920 × 366`, implementation captures `1280 × 720`
+- density normalization: the full source was proportionally reduced to 1280 px width; the focused header comparison uses the same 1280 px width for source, closed implementation, and open implementation
+- state: Windows layout simulation, light theme, expanded sidebar, fourteen representative document tabs; preview-only mock tabs were removed before final verification
+
+## Full-view comparison evidence
+
+- The prior Windows screen left a 40 px sidebar spacer below the outer titlebar and placed document tabs on a separate row below the main header.
+- The implementation reduces the Windows-only sidebar spacer to 8 px. The workspace title row begins at `y = 40`, matching the main panel header's `y = 41` optical edge.
+- Document tabs and the custom header tools now share the same row. Tab centers and tool-button centers both sit at approximately `y = 57`, while the content surface gains the former tab-row height.
+
+## Focused comparison evidence
+
+- The combined header comparison shows the source empty band, the closed responsive tab row, and the expanded overflow menu in one image.
+- At 1280 px viewport width, the tab bar receives 768 px, shows three 184 px representative tabs, and places the overflow trigger at `x = 1041–1069`; the custom tool group starts at `x = 1073`, leaving a consistent 4 px gap without overlap.
+- The open menu is `256 × 288` px, contains eleven overflow items, aligns to the trigger's right edge, and uses internal vertical scrolling. The page remains exactly `1280 × 720` with no body overflow.
+- Two short 16 px separators are visible between the three rendered tabs. Their transparent endpoints keep the division quieter than a full-height border.
+
+## Required fidelity surfaces
+
+- Fonts and typography: existing 14 px tab typography, truncation, active weight, and tool-icon sizing are preserved.
+- Spacing and layout rhythm: workspace title, tabs, overflow trigger, and header tools share one horizontal rhythm; the main panel retains its existing 8 px outer inset.
+- Colors and visual tokens: active and hover states continue using `muted`, `foreground`, `border`, and `popover` tokens; the separators use the existing border token with transparent endpoints.
+- Image quality and asset fidelity: no raster assets or custom icons were introduced; the existing Lucide ChevronDown, close, and plan icons are reused.
+- Copy and content: document titles remain unchanged and the overflow control keeps the accessible label `显示更多打开的文档`.
+
+## Primary interactions and runtime checks
+
+- Responsive measurement confirmed that the visible tab count contracts before the tool group and reserves 32 px for the overflow trigger.
+- Clicking the overflow trigger opens the bounded menu directly below the header; eleven additional tabs remain reachable through its scrollbar.
+- Automated interaction tests cover tab selection, tab closing, context-menu actions, overflow selection, active-tab promotion, responsive width calculation, and menu height/scroll classes.
+- The browser-rendered simulation displayed no runtime error overlay.
+
+## Findings
+
+- No actionable P0, P1, or P2 visual or interaction issue remains.
+- The focused source does not specify an overflow-menu treatment; the implementation follows Madora's existing popover surface, radius, shadow, and keyboard-accessible DropdownMenu behavior.
+
+## Comparison history
+
+- Iteration 1: the first combined comparison showed aligned workspace and main-header rows, a collision-free responsive tab limit, readable faded separators, and a bounded scroll menu. No P0/P1/P2 correction was required.
+
+final result: passed

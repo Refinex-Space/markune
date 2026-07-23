@@ -379,6 +379,9 @@ export function WorkspaceLayout({
   );
   const [documentEditorLayout, setDocumentEditorLayout] =
     React.useState<DocumentEditorLayout>(() => createInitialEditorLayout());
+  const [warmDocumentPaths, setWarmDocumentPaths] = React.useState<
+    readonly string[]
+  >([]);
   const [recentDocuments, setRecentDocuments] = React.useState<
     RecentWorkspaceDocument[]
   >([]);
@@ -626,6 +629,12 @@ export function WorkspaceLayout({
   const [leftPanelMode, setLeftPanelMode] =
     React.useState<LeftPanelMode>('workspace');
   const [systemPage, setSystemPage] = React.useState<WorkspaceSystemPage>(null);
+  const showDocumentTabs =
+    leftPanelMode === 'workspace' &&
+    systemPage === null &&
+    (activeEditorTab?.kind === 'plan' ||
+      Boolean(workspace.currentDocument) ||
+      (!workspace.currentDirectory && hasOpenDocumentTabs));
   const [aiPreviewDocumentPath, setAiPreviewDocumentPath] =
     React.useState<string | null>(null);
   const aiPreviewDocument = React.useMemo(
@@ -2295,6 +2304,9 @@ export function WorkspaceLayout({
         return false;
       }
 
+      setWarmDocumentPaths((current) =>
+        updateDocumentEditorWarmPaths(current, nextLayout),
+      );
       setDocumentEditorLayout(nextLayout);
       openActiveDocumentForLayout(nextLayout);
       return true;
@@ -2888,6 +2900,7 @@ export function WorkspaceLayout({
                     ? systemPage
                     : null
                 }
+                windowsChromeInset={isTauriRuntime && isWindowsRuntime}
               />
             ) : workspace.isSidebarCollapsed ? null : (
               <div className="h-full shrink-0" style={{ width: leftSidebarWidth }}>
@@ -2942,6 +2955,20 @@ export function WorkspaceLayout({
                 data-testid="workspace-editor-block"
               >
                 <WorkspaceMainHeader
+                  documentTabs={
+                    showDocumentTabs ? (
+                      <DocumentTabBar
+                        activeTabId={documentEditorLayout.activeTabId}
+                        tabs={documentEditorLayout.tabs}
+                        onCloseAllTabs={handleCloseAllDocumentTabs}
+                        onCloseOtherTabs={handleCloseOtherDocumentTabs}
+                        onCloseTab={handleCloseDocumentTab}
+                        onCloseTabsToLeft={handleCloseDocumentTabsToLeft}
+                        onCloseTabsToRight={handleCloseDocumentTabsToRight}
+                        onSelectTab={handleSelectDocumentTab}
+                      />
+                    ) : null
+                  }
                   gitLogOpen={gitLogOpen}
                   leftPanelMode={leftPanelMode}
                   terminalOpen={terminalOpen}
@@ -3009,13 +3036,9 @@ export function WorkspaceLayout({
                         draftMarkdown={workspace.draftDocument?.markdown ?? null}
                         editorSessions={editorSessions}
                         pageWidthMode={pageWidthMode}
+                        warmDocumentPaths={warmDocumentPaths}
                         workspaceRootPath={workspace.snapshot?.rootPath ?? null}
                         getDocumentReadOnly={getDocumentReadOnly}
-                        onCloseAllTabs={handleCloseAllDocumentTabs}
-                        onCloseOtherTabs={handleCloseOtherDocumentTabs}
-                        onCloseTab={handleCloseDocumentTab}
-                        onCloseTabsToLeft={handleCloseDocumentTabsToLeft}
-                        onCloseTabsToRight={handleCloseDocumentTabsToRight}
                         onMarkdownChange={handleEditorMarkdownChange}
                         onRetryDocument={workspace.retryCurrentDocument}
                         onSaveRequested={() =>
@@ -3464,6 +3487,7 @@ function WindowsTitlebarControls() {
 
 function WorkspaceMainHeader({
   children,
+  documentTabs,
   gitLogOpen,
   leftPanelMode,
   terminalOpen,
@@ -3473,6 +3497,7 @@ function WorkspaceMainHeader({
   onToggleTerminal,
 }: {
   children: React.ReactNode;
+  documentTabs?: React.ReactNode;
   gitLogOpen: boolean;
   leftPanelMode: LeftPanelMode;
   terminalOpen: boolean;
@@ -3490,6 +3515,7 @@ function WorkspaceMainHeader({
       data-tauri-drag-region="deep"
       data-testid="workspace-main-header"
     >
+      <div className="min-w-0 flex-1">{documentTabs}</div>
       <TooltipProvider>
         <div
           className="z-10 ml-auto flex items-center gap-0.5"
@@ -3644,13 +3670,9 @@ export function DocumentEditorSurface({
   draftMarkdown,
   editorSessions,
   pageWidthMode,
+  warmDocumentPaths,
   workspaceRootPath,
   getDocumentReadOnly,
-  onCloseAllTabs,
-  onCloseOtherTabs,
-  onCloseTab,
-  onCloseTabsToLeft,
-  onCloseTabsToRight,
   onMarkdownChange,
   onRetryDocument,
   onSaveRequested,
@@ -3666,13 +3688,9 @@ export function DocumentEditorSurface({
   draftMarkdown: string | null;
   editorSessions: Record<string, DocumentEditorSession>;
   pageWidthMode: PageWidthMode;
+  warmDocumentPaths: readonly string[];
   workspaceRootPath: string | null;
   getDocumentReadOnly: (documentPath: string) => boolean;
-  onCloseAllTabs: () => void;
-  onCloseOtherTabs: (tabPath: string) => void;
-  onCloseTab: (tabPath: string) => void;
-  onCloseTabsToLeft: (tabPath: string) => void;
-  onCloseTabsToRight: (tabPath: string) => void;
   onMarkdownChange: (
     documentPath: string,
     markdown: string,
@@ -3698,37 +3716,9 @@ export function DocumentEditorSurface({
         }
       : null;
   const editorSession = liveSession ?? cachedSession;
-  const [warmDocumentPaths, setWarmDocumentPaths] = React.useState<
-    readonly string[]
-  >(() => updateDocumentEditorWarmPaths([], documentEditorLayout));
   const renderedDocumentPaths = updateDocumentEditorWarmPaths(
     warmDocumentPaths,
     documentEditorLayout,
-  );
-  const handleSelectTab = React.useCallback(
-    (tabId: string) => {
-      const currentActiveDocumentPath = getActiveDocumentPath(
-        documentEditorLayout,
-      );
-      const nextLayout = {
-        ...documentEditorLayout,
-        activeTabId: tabId,
-      };
-      const nextActiveDocumentPath = getActiveDocumentPath(nextLayout);
-
-      setWarmDocumentPaths((current) =>
-        updateDocumentEditorWarmPaths(
-          [
-            ...(nextActiveDocumentPath ? [nextActiveDocumentPath] : []),
-            ...(currentActiveDocumentPath ? [currentActiveDocumentPath] : []),
-            ...current,
-          ],
-          nextLayout,
-        ),
-      );
-      onSelectTab(tabId);
-    },
-    [documentEditorLayout, onSelectTab],
   );
 
   return (
@@ -3736,16 +3726,6 @@ export function DocumentEditorSurface({
       className="flex h-full min-h-0 min-w-0 flex-col bg-background"
       data-testid="document-editor-surface"
     >
-      <DocumentTabBar
-        activeTabId={documentEditorLayout.activeTabId}
-        tabs={documentEditorLayout.tabs}
-        onCloseAllTabs={onCloseAllTabs}
-        onCloseOtherTabs={onCloseOtherTabs}
-        onCloseTab={onCloseTab}
-        onCloseTabsToLeft={onCloseTabsToLeft}
-        onCloseTabsToRight={onCloseTabsToRight}
-        onSelectTab={handleSelectTab}
-      />
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {renderedDocumentPaths.map((documentPath) => {
           const isActive = activeTabPath === documentPath;
@@ -3802,7 +3782,7 @@ export function DocumentEditorSurface({
           pageWidthMode,
           workspaceRootPath,
           onRetryDocument,
-          onSelectTab: handleSelectTab,
+          onSelectTab,
         })}
       </div>
     </div>

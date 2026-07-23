@@ -1,5 +1,6 @@
 'use client';
 
+import * as React from 'react';
 import { ChevronDown, Lightbulb, X } from 'lucide-react';
 
 import {
@@ -32,12 +33,56 @@ interface DocumentTabBarProps {
   onSelectTab: (tabId: string) => void;
 }
 
-const DEFAULT_VISIBLE_TAB_LIMIT = 8;
+const OVERFLOW_TRIGGER_WIDTH = 32;
+
+export function calculateResponsiveVisibleTabCount(
+  tabWidths: readonly number[],
+  containerWidth: number,
+  activeTabIndex: number,
+) {
+  if (tabWidths.length === 0) {
+    return 0;
+  }
+
+  const totalWidth = tabWidths.reduce((total, width) => total + width, 0);
+  if (totalWidth <= containerWidth) {
+    return tabWidths.length;
+  }
+
+  const availableWidth = Math.max(0, containerWidth - OVERFLOW_TRIGGER_WIDTH);
+  let visibleCount = 0;
+  let visibleWidth = 0;
+
+  for (const width of tabWidths) {
+    if (visibleWidth + width > availableWidth) {
+      break;
+    }
+
+    visibleWidth += width;
+    visibleCount += 1;
+  }
+
+  visibleCount = Math.max(1, visibleCount);
+
+  if (activeTabIndex >= visibleCount) {
+    while (visibleCount > 1) {
+      const leadingWidth = tabWidths
+        .slice(0, visibleCount - 1)
+        .reduce((total, width) => total + width, 0);
+      if (leadingWidth + tabWidths[activeTabIndex] <= availableWidth) {
+        break;
+      }
+      visibleCount -= 1;
+    }
+  }
+
+  return visibleCount;
+}
 
 export function DocumentTabBar({
   activeTabId,
   tabs,
-  visibleTabLimit = DEFAULT_VISIBLE_TAB_LIMIT,
+  visibleTabLimit,
   onCloseAllTabs,
   onCloseOtherTabs,
   onCloseTab,
@@ -45,8 +90,69 @@ export function DocumentTabBar({
   onCloseTabsToRight,
   onSelectTab,
 }: DocumentTabBarProps) {
-  const visibleTabs = tabs.slice(0, visibleTabLimit);
-  const overflowTabs = tabs.slice(visibleTabLimit);
+  const tabBarRef = React.useRef<HTMLDivElement>(null);
+  const measurementRefs = React.useRef(new Map<string, HTMLDivElement>());
+  const [responsiveVisibleTabCount, setResponsiveVisibleTabCount] =
+    React.useState(tabs.length);
+  const activeTabIndex = tabs.findIndex((tab) => tab.id === activeTabId);
+
+  const measureVisibleTabs = React.useCallback(() => {
+    if (visibleTabLimit !== undefined) {
+      return;
+    }
+
+    const tabBar = tabBarRef.current;
+    if (!tabBar) {
+      return;
+    }
+
+    const tabWidths = tabs.map(
+      (tab) => measurementRefs.current.get(tab.id)?.getBoundingClientRect().width ?? 0,
+    );
+    if (tabWidths.some((width) => width <= 0)) {
+      return;
+    }
+
+    setResponsiveVisibleTabCount(
+      calculateResponsiveVisibleTabCount(
+        tabWidths,
+        tabBar.clientWidth,
+        activeTabIndex,
+      ),
+    );
+  }, [activeTabIndex, tabs, visibleTabLimit]);
+
+  React.useLayoutEffect(() => {
+    if (visibleTabLimit !== undefined) {
+      return;
+    }
+
+    let animationFrame = window.requestAnimationFrame(measureVisibleTabs);
+    const resizeObserver =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(() => {
+            window.cancelAnimationFrame(animationFrame);
+            animationFrame = window.requestAnimationFrame(measureVisibleTabs);
+          });
+
+    if (tabBarRef.current) {
+      resizeObserver?.observe(tabBarRef.current);
+    }
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      resizeObserver?.disconnect();
+    };
+  }, [measureVisibleTabs, visibleTabLimit]);
+
+  const visibleTabCount = Math.min(
+    tabs.length,
+    visibleTabLimit ?? responsiveVisibleTabCount,
+  );
+  const visibleTabs = resolveVisibleTabs(tabs, visibleTabCount, activeTabId);
+  const visibleTabIds = new Set(visibleTabs.map((tab) => tab.id));
+  const overflowTabs = tabs.filter((tab) => !visibleTabIds.has(tab.id));
 
   if (tabs.length === 0) {
     return null;
@@ -54,22 +160,25 @@ export function DocumentTabBar({
 
   return (
     <div
-      className="flex h-9 shrink-0 items-center bg-background px-1.5"
+      className="relative flex h-full min-w-0 flex-1 items-center bg-background"
       data-testid="document-tab-bar"
+      ref={tabBarRef}
     >
-      <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">
-        {visibleTabs.map((tab) => (
-          <DocumentTabItem
-            activeTabId={activeTabId}
-            key={tab.id}
-            tab={tab}
-            onCloseAllTabs={onCloseAllTabs}
-            onCloseOtherTabs={onCloseOtherTabs}
-            onCloseTab={onCloseTab}
-            onCloseTabsToLeft={onCloseTabsToLeft}
-            onCloseTabsToRight={onCloseTabsToRight}
-            onSelectTab={onSelectTab}
-          />
+      <div className="flex min-w-0 flex-1 items-center overflow-hidden pl-1.5">
+        {visibleTabs.map((tab, index) => (
+          <div className="flex shrink-0 items-center" key={tab.id}>
+            {index > 0 ? <DocumentTabSeparator /> : null}
+            <DocumentTabItem
+              activeTabId={activeTabId}
+              tab={tab}
+              onCloseAllTabs={onCloseAllTabs}
+              onCloseOtherTabs={onCloseOtherTabs}
+              onCloseTab={onCloseTab}
+              onCloseTabsToLeft={onCloseTabsToLeft}
+              onCloseTabsToRight={onCloseTabsToRight}
+              onSelectTab={onSelectTab}
+            />
+          </div>
         ))}
       </div>
 
@@ -78,13 +187,16 @@ export function DocumentTabBar({
           <DropdownMenuTrigger asChild>
             <button
               aria-label="显示更多打开的文档"
-              className="ml-1 inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+              className="ml-1 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
               type="button"
             >
               <ChevronDown size={15} />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuContent
+            align="end"
+            className="max-h-72 w-64 overflow-y-auto"
+          >
             {overflowTabs.map((tab) => (
               <DropdownMenuItem
                 key={tab.id}
@@ -97,9 +209,79 @@ export function DocumentTabBar({
           </DropdownMenuContent>
         </DropdownMenu>
       ) : null}
+
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute left-0 top-0 -z-10 flex invisible"
+      >
+        {tabs.map((tab, index) => (
+          <DocumentTabMeasurement
+            key={tab.id}
+            ref={(element) => {
+              if (element) {
+                measurementRefs.current.set(tab.id, element);
+              } else {
+                measurementRefs.current.delete(tab.id);
+              }
+            }}
+            showSeparator={index > 0}
+            tab={tab}
+          />
+        ))}
+      </div>
     </div>
   );
 }
+
+function resolveVisibleTabs(
+  tabs: DocumentEditorTab[],
+  visibleTabCount: number,
+  activeTabId: string | null,
+) {
+  const visibleTabs = tabs.slice(0, visibleTabCount);
+  const activeTab = tabs.find((tab) => tab.id === activeTabId);
+
+  if (
+    !activeTab ||
+    visibleTabCount === 0 ||
+    visibleTabs.some((tab) => tab.id === activeTab.id)
+  ) {
+    return visibleTabs;
+  }
+
+  return [...visibleTabs.slice(0, -1), activeTab];
+}
+
+function DocumentTabSeparator({ measurement = false }: { measurement?: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="mx-1 h-4 w-px shrink-0 bg-gradient-to-b from-transparent via-border/80 to-transparent"
+      data-testid={measurement ? undefined : 'document-tab-separator'}
+    />
+  );
+}
+
+const DocumentTabMeasurement = React.forwardRef<
+  HTMLDivElement,
+  {
+    showSeparator: boolean;
+    tab: DocumentEditorTab;
+  }
+>(function DocumentTabMeasurement({ showSeparator, tab }, ref) {
+  return (
+    <div className="flex shrink-0 items-center" ref={ref}>
+      {showSeparator ? <DocumentTabSeparator measurement /> : null}
+      <div className="flex h-7 max-w-56 min-w-28 items-center pl-2.5 pr-1 text-sm">
+        {tab.kind === 'plan' ? (
+          <Lightbulb className="mr-1.5 shrink-0" size={13} />
+        ) : null}
+        <span className="min-w-0 flex-1 truncate">{tab.title}</span>
+        <span className="ml-auto size-5 shrink-0" />
+      </div>
+    </div>
+  );
+});
 
 type DocumentTabItemProps = Omit<
   DocumentTabBarProps,

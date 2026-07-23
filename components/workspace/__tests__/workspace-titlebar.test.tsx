@@ -26,6 +26,20 @@ describe('Windows workspace titlebar', () => {
     expect(workspaceLayoutSource).not.toContain("windowsChromeInset && 'mr-[136px]'");
   });
 
+  it('aligns the Windows workspace title and document tabs with the main header', () => {
+    const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
+    const workspaceSidebarSource = readFileSync(workspaceSidebarPath, 'utf8');
+
+    expect(workspaceSidebarSource).toContain(
+      "windowsChromeInset ? 'h-2' : 'h-10'",
+    );
+    expect(workspaceLayoutSource).toContain('documentTabs={');
+    expect(workspaceLayoutSource).toContain(
+      '<div className="min-w-0 flex-1">{documentTabs}</div>',
+    );
+    expect(workspaceLayoutSource.match(/<DocumentTabBar/g)).toHaveLength(1);
+  });
+
   it('moves global search to the workspace sidebar and removes the centered trigger', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
     const workspaceSidebarSource = readFileSync(workspaceSidebarPath, 'utf8');
