@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-21
+updated: 2026-07-23
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -53,16 +53,18 @@ For single-document export changes, run the focused suites first:
 ```bash
 pnpm test:run -- components/workspace/__tests__/document-export-core.test.ts components/workspace/__tests__/document-export-word.test.ts components/workspace/__tests__/use-document-export.test.tsx components/workspace/__tests__/document-tree.test.tsx
 cargo test --manifest-path src-tauri/Cargo.toml export::tests
+pnpm document-export:stage
+cargo test --manifest-path src-tauri/Cargo.toml staged_runtime_generates_real_word_and_pdf_files --lib -- --ignored
 ```
 
 Then use a Markdown acceptance document containing Chinese and English text, H1-H6, nested/task lists, quotes, callouts, highlighted code, merged tables, formulas, Mermaid, local/remote images, link cards and enough content for multiple A4 pages. Verify:
 
-- HTML follows the active Markweave theme, contains no runtime script, and opens with local images and attachment sidecars intact.
-- PDF is multi-page A4 with selectable text, 18 mm margins, print backgrounds, repeated table headers and no browser URL header/footer.
-- DOCX opens in Microsoft Word with heading hierarchy, nested lists, table merges, code/quote styles, embedded images and page numbers. Formula and Mermaid SVGs use 2× PNG fallback and are not expected to remain editable.
-- Existing names are never overwritten and produce `标题 (1)` together with a matching `标题 (1).assets` directory.
+- HTML follows the active Markweave theme, uses 64 rem standard width, contains no editor TOC/runtime script/large-document placeholder attributes, and opens with local images and attachment sidecars intact.
+- 专业 PDF 由 Pandoc→Typst 生成多页 A4 可选文本，正文和中文字体完整，图片、公式、代码、表格及 Mermaid 静态图不出现灰色占位；设置 `MADORA_DOCUMENT_EXPORT_ENGINE=legacy` 后兼容 WebView PDF 仍可完成且不阻塞 UI。
+- 专业 DOCX 能在 Microsoft Word 打开，保留标题层级、列表、表格、代码、引用、公式和嵌入图片；样式来自固定 `reference.docx`，Mermaid 使用 2× PNG，不要求可编辑。
+- Existing names are never overwritten. Markdown/HTML sidecars use the same suffixed stem; professional PDF/DOCX embed their assets and do not leave a sidecar directory.
 
-Windows native PDF must be exercised in a packaged or desktop-dev WebView2 runtime. The macOS WKWebView path is complete only after compiling and exporting on a real Mac; Windows or cross-target checks do not replace that acceptance step.
+Windows ARM64 当前使用官方 x64 Pandoc 包并依赖系统 x64 emulation，必须单独验收；不可用时应报告专业运行时缺失并回退。macOS、Windows 和 Linux 还必须分别验证 Typst 字体探测，缺少受支持中文字体的平台只能降级 PDF，不能生成缺字产物。兼容 WebView PDF 仍需分别在真实 WKWebView/WebView2 验收，当前平台不能替代另一平台。
 
 For multi-format document import changes, stage local runtime resources and run the focused suites first:
 
@@ -207,8 +209,8 @@ pnpm build:desktop:web
 Then run the desktop build target required by the task, for example:
 
 ```bash
-pnpm desktop:build -- --no-bundle
-pnpm desktop:build -- --bundles dmg --no-sign
+pnpm exec tauri build --no-bundle
+pnpm exec tauri build --bundles dmg --no-sign
 ```
 
 ## Rollback

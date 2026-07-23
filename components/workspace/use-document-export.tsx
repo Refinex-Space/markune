@@ -17,7 +17,10 @@ import {
   buildWordSemanticDocument,
   packWordDocument,
 } from './document-export-word';
+import { prepareProfessionalDocument } from './document-export-professional';
 import {
+  convertDocumentExport,
+  getDocumentExportRuntimeInfo,
   isTauriRuntime,
   openPathInFileManager,
   printDocumentPdf,
@@ -27,6 +30,7 @@ import {
 import type {
   PageWidthMode,
   DocumentExportResult,
+  DocumentExportRuntimeInfo,
   WorkspaceExportFormat,
   WorkspaceNode,
 } from './workspace-types';
@@ -155,6 +159,12 @@ export function useDocumentExport({
       });
 
       try {
+        let professionalRuntime: DocumentExportRuntimeInfo | null = null;
+        if (format === 'pdf' || format === 'word') {
+          phase = '检查专业导出运行时';
+          professionalRuntime = await getDocumentExportRuntimeInfo();
+        }
+
         const markdown = await request.loadMarkdown();
         const title =
           request.node.title?.trim() ||
@@ -195,23 +205,75 @@ export function useDocumentExport({
           }
 
           if (format === 'word') {
-            phase = '构建语义 Word 文档';
-            const semantic = buildWordSemanticDocument(snapshot);
-            const packed = await packWordDocument(semantic, title);
+            if (professionalRuntime?.professionalWord) {
+              phase = '规范化专业 Word 文档';
+              const professional = await prepareProfessionalDocument({
+                markdown: prepared.portableMarkdown,
+                reservedRelativePaths: prepared.allAssetFiles.map(
+                  (file) => file.relativePath,
+                ),
+                snapshot,
+              });
 
-            warnings.push(...packed.warnings);
-            phase = '写入 Word 文件';
-            result = await writeDocumentExportBundle(
+              warnings.push(...professional.warnings);
+              phase = '调用 Pandoc 生成 Word';
+              result = await convertDocumentExport(
+                grant.grantId,
+                format,
+                fileStem,
+                professional.markdown,
+                [...prepared.allAssetFiles, ...professional.files],
+              );
+            } else {
+              warnings.push(
+                '专业 Word 运行时不可用，已使用兼容导出引擎。',
+              );
+              phase = '构建兼容 Word 文档';
+              const semantic = buildWordSemanticDocument(snapshot);
+              const packed = await packWordDocument(semantic, title);
+
+              warnings.push(...packed.warnings);
+              phase = '写入 Word 文件';
+              result = await writeDocumentExportBundle(
+                grant.grantId,
+                format,
+                fileStem,
+                [createPrimaryExportFile(`${fileStem}.docx`, packed.bytes)],
+              );
+            }
+          } else if (
+            format === 'pdf' &&
+            professionalRuntime?.professionalPdf
+          ) {
+            phase = '规范化专业 PDF 文档';
+            const professional = await prepareProfessionalDocument({
+              markdown: prepared.portableMarkdown,
+              reservedRelativePaths: prepared.allAssetFiles.map(
+                (file) => file.relativePath,
+              ),
+              snapshot,
+            });
+
+            warnings.push(...professional.warnings);
+            phase = '调用 Pandoc 与 Typst 生成 PDF';
+            result = await convertDocumentExport(
               grant.grantId,
               format,
               fileStem,
-              [createPrimaryExportFile(`${fileStem}.docx`, packed.bytes)],
+              professional.markdown,
+              [...prepared.allAssetFiles, ...professional.files],
             );
           } else {
+            if (format === 'pdf') {
+              warnings.push(
+                '专业 PDF 运行时不可用，已使用系统兼容打印引擎。',
+              );
+            }
             phase = format === 'pdf' ? '构建打印页面' : '构建静态 HTML';
             const staticPage = await createStaticExportHtml({
               content: snapshot,
               forPrint: format === 'pdf',
+              pageWidthMode,
               theme: format === 'pdf' ? 'light' : theme,
               title,
             });
@@ -277,7 +339,7 @@ export function useDocumentExport({
         clearRenderer();
       }
     },
-    [available, clearRenderer, renderMarkdown, rootPath, theme],
+    [available, clearRenderer, pageWidthMode, renderMarkdown, rootPath, theme],
   );
 
   return {
@@ -357,8 +419,8 @@ function DocumentExportRenderer({
       style={{
         contain: 'layout paint style',
         height: 1123,
-        left: '-100000px',
-        opacity: 0.01,
+        left: 0,
+        opacity: 0,
         pointerEvents: 'none',
         position: 'fixed',
         top: 0,

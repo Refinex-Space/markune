@@ -17,11 +17,14 @@ use tauri::{
 use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
+use crate::document_converter::{self, DocumentExportRuntimeInfo, ProfessionalExportFormat};
+
 const GRANT_TTL: Duration = Duration::from_secs(15 * 60);
 const PDF_TIMEOUT: Duration = Duration::from_secs(30);
 const EXPORT_STEM_PLACEHOLDER: &str = "__MADORA_EXPORT_STEM__";
 const MAX_FILE_BYTES: usize = 200 * 1024 * 1024;
 const MAX_BUNDLE_BYTES: usize = 500 * 1024 * 1024;
+const MAX_PROFESSIONAL_MARKDOWN_BYTES: usize = 20 * 1024 * 1024;
 
 #[derive(Clone, Default)]
 pub struct ExportState {
@@ -74,6 +77,36 @@ enum BundleFormat {
     Html,
     Markdown,
     Word,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ProfessionalBundleFormat {
+    Pdf,
+    Word,
+}
+
+impl ProfessionalBundleFormat {
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "pdf" => Ok(Self::Pdf),
+            "word" => Ok(Self::Word),
+            _ => Err("专业导出仅支持 PDF 或 Word。".to_string()),
+        }
+    }
+
+    fn extension(self) -> &'static str {
+        match self {
+            Self::Pdf => "pdf",
+            Self::Word => "docx",
+        }
+    }
+
+    fn converter_format(self) -> ProfessionalExportFormat {
+        match self {
+            Self::Pdf => ProfessionalExportFormat::Pdf,
+            Self::Word => ProfessionalExportFormat::Word,
+        }
+    }
 }
 
 impl BundleFormat {
@@ -217,7 +250,7 @@ impl ExportState {
 }
 
 #[tauri::command]
-pub fn select_document_export_directory(
+pub async fn select_document_export_directory(
     app: AppHandle,
     state: State<'_, ExportState>,
 ) -> Result<Option<ExportDirectoryGrant>, String> {
@@ -237,6 +270,39 @@ pub fn select_document_export_directory(
         .map_err(|_| "所选导出目录不是本地文件系统路径。".to_string())?;
 
     state.issue_grant(selected).map(Some)
+}
+
+#[tauri::command]
+pub async fn document_export_runtime_info(
+    app: AppHandle,
+) -> Result<DocumentExportRuntimeInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || document_converter::runtime_info(&app))
+        .await
+        .map_err(|error| format!("检查专业文档导出运行时失败：{error}"))
+}
+
+#[tauri::command]
+pub async fn convert_document_export(
+    app: AppHandle,
+    state: State<'_, ExportState>,
+    grant_id: String,
+    format: String,
+    file_stem: String,
+    markdown: String,
+    files: Vec<DocumentExportFile>,
+) -> Result<DocumentExportResult, String> {
+    let format = ProfessionalBundleFormat::parse(&format)?;
+    let runtime =
+        tauri::async_runtime::spawn_blocking(move || document_converter::resolve_runtime(&app))
+            .await
+            .map_err(|error| format!("检查专业文档导出运行时失败：{error}"))??;
+    let directory = state.take_grant(&grant_id)?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        convert_professional_document(&directory, &runtime, format, &file_stem, &markdown, files)
+    })
+    .await
+    .map_err(|error| format!("专业文档导出后台任务异常：{error}"))?
 }
 
 #[tauri::command]
@@ -290,6 +356,102 @@ pub async fn print_document_pdf(
         created_paths: vec![destination.to_string_lossy().into_owned()],
         warnings: Vec::new(),
     })
+}
+
+fn convert_professional_document(
+    directory: &Path,
+    runtime: &document_converter::DocumentConverterRuntime,
+    format: ProfessionalBundleFormat,
+    file_stem: &str,
+    markdown: &str,
+    files: Vec<DocumentExportFile>,
+) -> Result<DocumentExportResult, String> {
+    validate_file_stem(file_stem)?;
+    validate_professional_input(markdown, &files)?;
+
+    let actual_stem = choose_available_stem(directory, file_stem, format.extension(), false)?;
+    let staging = create_staging_directory(directory)?;
+    let source = staging.join("source.md");
+    let output = staging.join(format!("document.{}", format.extension()));
+
+    let result = (|| -> Result<Vec<String>, String> {
+        let asset_root = staging.join("assets");
+        fs::create_dir(&asset_root)
+            .map_err(|error| format!("无法创建专业导出资源目录：{error}"))?;
+
+        for file in files {
+            let relative = validated_relative_path(&file.relative_path)?;
+            let target = asset_root.join(relative);
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent)
+                    .map_err(|error| format!("无法创建专业导出资源子目录：{error}"))?;
+            }
+            ensure_parent_within(&staging, &target)?;
+            let bytes = BASE64_STANDARD
+                .decode(file.base64_data.as_bytes())
+                .map_err(|error| format!("{} 的 base64 数据无效：{error}", file.relative_path))?;
+            write_new_file(&target, &bytes)?;
+        }
+
+        let source_markdown = rewrite_professional_asset_paths(markdown);
+        write_new_file(&source, source_markdown.as_bytes())?;
+        document_converter::convert(
+            runtime,
+            format.converter_format(),
+            &staging,
+            &source,
+            &output,
+        )
+    })();
+
+    let warnings = match result {
+        Ok(warnings) => warnings,
+        Err(error) => {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(error);
+        }
+    };
+    let destination = directory.join(format!("{actual_stem}.{}", format.extension()));
+    if let Err(error) = commit_staged_file(&output, &destination) {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(error);
+    }
+    let _ = fs::remove_dir_all(&staging);
+
+    Ok(DocumentExportResult {
+        primary_path: destination.to_string_lossy().into_owned(),
+        created_paths: vec![destination.to_string_lossy().into_owned()],
+        warnings,
+    })
+}
+
+fn validate_professional_input(markdown: &str, files: &[DocumentExportFile]) -> Result<(), String> {
+    if markdown.len() > MAX_PROFESSIONAL_MARKDOWN_BYTES {
+        return Err("专业导出的 Markdown 超过 20 MB 限制。".to_string());
+    }
+    if markdown.contains('\0') {
+        return Err("专业导出的 Markdown 包含无效空字符。".to_string());
+    }
+
+    files.iter().try_fold(0usize, |total, file| {
+        if file.role != ExportFileRole::Asset {
+            return Err("专业导出只接受资源文件，主文件由应用内部生成。".to_string());
+        }
+        validate_relative_path(&file.relative_path, file.role)?;
+        let estimated = file.base64_data.len().saturating_mul(3) / 4;
+        if estimated > MAX_FILE_BYTES {
+            return Err(format!("导出文件过大：{}", file.relative_path));
+        }
+        total
+            .checked_add(estimated)
+            .filter(|value| *value <= MAX_BUNDLE_BYTES)
+            .ok_or_else(|| "导出文件包超过 500 MB 限制。".to_string())
+    })?;
+    Ok(())
+}
+
+fn rewrite_professional_asset_paths(markdown: &str) -> String {
+    markdown.replace(&format!("./{EXPORT_STEM_PLACEHOLDER}.assets/"), "assets/")
 }
 
 fn write_bundle(
@@ -745,47 +907,121 @@ async fn print_webview_pdf(window: &WebviewWindow, output: &Path) -> Result<(), 
 }
 
 #[cfg(target_os = "macos")]
+mod macos_pdf_print {
+    use std::{ffi::c_void, sync::mpsc::SyncSender};
+
+    use objc2::{
+        define_class, msg_send, rc::Retained, runtime::Bool, DefinedClass, MainThreadOnly,
+    };
+    use objc2_app_kit::NSPrintOperation;
+    use objc2_foundation::{MainThreadMarker, NSObject, NSObjectProtocol};
+
+    pub(super) struct PdfPrintDelegateIvars {
+        sender: SyncSender<Result<(), String>>,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[ivars = PdfPrintDelegateIvars]
+        pub(super) struct PdfPrintDelegate;
+
+        impl PdfPrintDelegate {
+            #[unsafe(method(printOperationDidRun:success:contextInfo:))]
+            fn print_operation_did_run(
+                &self,
+                _operation: &NSPrintOperation,
+                success: Bool,
+                context_info: *mut c_void,
+            ) {
+                let result = if success.as_bool() {
+                    Ok(())
+                } else {
+                    Err("WKWebView 未生成 PDF 文件。".to_string())
+                };
+                let _ = self.ivars().sender.send(result);
+
+                if !context_info.is_null() {
+                    // SAFETY: `context_info` comes from `Retained::into_raw` below and the
+                    // print operation invokes this completion selector at most once.
+                    drop(unsafe { Retained::<Self>::from_raw(context_info.cast()) });
+                }
+            }
+        }
+
+        unsafe impl NSObjectProtocol for PdfPrintDelegate {}
+    );
+
+    impl PdfPrintDelegate {
+        pub(super) fn new(
+            sender: SyncSender<Result<(), String>>,
+            mtm: MainThreadMarker,
+        ) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(PdfPrintDelegateIvars { sender });
+            // SAFETY: `NSObject` implements `init` with this signature.
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
 async fn print_webview_pdf(window: &WebviewWindow, output: &Path) -> Result<(), String> {
-    use objc2::msg_send;
+    use macos_pdf_print::PdfPrintDelegate;
+    use objc2::{msg_send, rc::Retained, runtime::AnyObject};
     use objc2_app_kit::{NSPrintHeaderAndFooter, NSPrintInfo, NSPrintJobSavingURL, NSPrintSaveJob};
-    use objc2_foundation::{NSCopying, NSNumber, NSSize, NSString, NSURL};
+    use objc2_foundation::{MainThreadMarker, NSCopying, NSNumber, NSSize, NSString, NSURL};
 
     let output = output.to_string_lossy().into_owned();
     let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
     window
         .with_webview(move |webview| {
-            let result = unsafe {
-                let view: &objc2_web_kit::WKWebView = &*webview.inner().cast();
-                let print_info = NSPrintInfo::sharedPrintInfo().copy();
-                print_info.setPaperSize(NSSize::new(595.275_6, 841.889_8));
-                print_info.setTopMargin(0.0);
-                print_info.setBottomMargin(0.0);
-                print_info.setLeftMargin(0.0);
-                print_info.setRightMargin(0.0);
-                print_info.setJobDisposition(NSPrintSaveJob);
-                let dictionary = print_info.dictionary();
-                let path = NSString::from_str(&output);
-                let url = NSURL::fileURLWithPath(&path);
-                let hide_headers_and_footers = NSNumber::new_bool(false);
+            let result = (|| -> Result<(), String> {
+                unsafe {
+                    let view: &objc2_web_kit::WKWebView = &*webview.inner().cast();
+                    let mtm = MainThreadMarker::new()
+                        .ok_or_else(|| "WKWebView PDF 打印未运行在主线程。".to_string())?;
+                    let print_info = NSPrintInfo::sharedPrintInfo().copy();
+                    print_info.setPaperSize(NSSize::new(595.275_6, 841.889_8));
+                    print_info.setTopMargin(0.0);
+                    print_info.setBottomMargin(0.0);
+                    print_info.setLeftMargin(0.0);
+                    print_info.setRightMargin(0.0);
+                    print_info.setJobDisposition(NSPrintSaveJob);
+                    let dictionary = print_info.dictionary();
+                    let path = NSString::from_str(&output);
+                    let url = NSURL::fileURLWithPath(&path);
+                    let hide_headers_and_footers = NSNumber::new_bool(false);
 
-                let _: () = msg_send![&*dictionary, setObject: &*url, forKey: NSPrintJobSavingURL];
-                let _: () = msg_send![
-                    &*dictionary,
-                    setObject: &*hide_headers_and_footers,
-                    forKey: NSPrintHeaderAndFooter
-                ];
-                let operation = view.printOperationWithPrintInfo(&print_info);
-                operation.setShowsPrintPanel(false);
-                operation.setShowsProgressPanel(false);
-                let success = operation.runOperation();
+                    let _: () =
+                        msg_send![&*dictionary, setObject: &*url, forKey: NSPrintJobSavingURL];
+                    let _: () = msg_send![
+                        &*dictionary,
+                        setObject: &*hide_headers_and_footers,
+                        forKey: NSPrintHeaderAndFooter
+                    ];
+                    let operation = view.printOperationWithPrintInfo(&print_info);
+                    operation.setShowsPrintPanel(false);
+                    operation.setShowsProgressPanel(false);
+                    operation.setCanSpawnSeparateThread(true);
 
-                if success {
+                    let window = view
+                        .window()
+                        .ok_or_else(|| "WKWebView PDF 打印窗口不可用。".to_string())?;
+                    let delegate = PdfPrintDelegate::new(tx.clone(), mtm);
+                    let delegate_ptr = Retained::into_raw(delegate);
+                    let delegate_object = &*delegate_ptr.cast::<AnyObject>();
+                    operation.runOperationModalForWindow_delegate_didRunSelector_contextInfo(
+                        &window,
+                        Some(delegate_object),
+                        Some(objc2::sel!(printOperationDidRun:success:contextInfo:)),
+                        delegate_ptr.cast(),
+                    );
                     Ok(())
-                } else {
-                    Err("WKWebView 未生成 PDF 文件。".to_string())
                 }
-            };
-            let _ = tx.send(result);
+            })();
+            if let Err(error) = result {
+                let _ = tx.send(Err(error));
+            }
         })
         .map_err(|error| format!("无法访问 WKWebView 打印接口：{error}"))?;
 
@@ -901,6 +1137,41 @@ mod tests {
     fn rejects_unknown_bundle_format() {
         assert!(BundleFormat::parse("pdf").is_err());
         assert!(BundleFormat::parse("image").is_err());
+        assert_eq!(
+            ProfessionalBundleFormat::parse("pdf").unwrap(),
+            ProfessionalBundleFormat::Pdf
+        );
+        assert_eq!(
+            ProfessionalBundleFormat::parse("word").unwrap(),
+            ProfessionalBundleFormat::Word
+        );
+        assert!(ProfessionalBundleFormat::parse("html").is_err());
+    }
+
+    #[test]
+    fn professional_input_only_accepts_bounded_assets() {
+        let asset = DocumentExportFile {
+            base64_data: BASE64_STANDARD.encode(b"png"),
+            relative_path: "diagram.png".to_string(),
+            role: ExportFileRole::Asset,
+        };
+        assert!(validate_professional_input("# Document", &[asset]).is_ok());
+
+        let primary = primary("md", "# Document");
+        assert!(validate_professional_input("# Document", &[primary]).is_err());
+        assert!(validate_professional_input("invalid\0markdown", &[]).is_err());
+    }
+
+    #[test]
+    fn professional_export_rewrites_only_the_internal_asset_placeholder() {
+        let markdown = concat!(
+            "![local](./__MADORA_EXPORT_STEM__.assets/image.png)\n",
+            "![other](./other.assets/image.png)"
+        );
+        assert_eq!(
+            rewrite_professional_asset_paths(markdown),
+            "![local](assets/image.png)\n![other](./other.assets/image.png)"
+        );
     }
 
     #[test]

@@ -1,5 +1,6 @@
 import type {
   DocumentExportFile,
+  PageWidthMode,
   WorkspaceAssetData,
 } from './workspace-types';
 import { readWorkspaceAssetData } from './workspace-api';
@@ -143,20 +144,6 @@ export function sanitizeMarkweaveSnapshot(source: HTMLElement) {
     checkbox.replaceWith(marker);
   }
 
-  for (const button of clone.querySelectorAll<HTMLButtonElement>(
-    '[data-toc] button, .markweave-inner-toc button, [class*="toc"] button',
-  )) {
-    const anchor = document.createElement('a');
-    const target =
-      button.dataset.target ??
-      button.getAttribute('aria-controls') ??
-      slugifyHeading(button.textContent ?? '');
-
-    anchor.href = `#${target.replace(/^#/u, '')}`;
-    anchor.textContent = button.textContent;
-    button.replaceWith(anchor);
-  }
-
   clone
     .querySelectorAll(
       [
@@ -170,6 +157,10 @@ export function sanitizeMarkweaveSnapshot(source: HTMLElement) {
         '[role="toolbar"]',
         '[data-floating-ui-portal]',
         '[data-radix-popper-content-wrapper]',
+        '[data-toc]',
+        '.markweave-inner-toc',
+        '.markweave-codeblock-overlay',
+        '.markweave-mermaid-tabs',
         '.ProseMirror-menubar',
         '.tippy-box',
         'button',
@@ -178,8 +169,15 @@ export function sanitizeMarkweaveSnapshot(source: HTMLElement) {
     .forEach((element) => element.remove());
 
   clone.removeAttribute('contenteditable');
+  clone.removeAttribute('data-markweave-inner-toc');
+  clone.removeAttribute('data-markweave-inner-toc-placement');
+  clone.removeAttribute('data-markweave-large-document');
+  clone.removeAttribute('data-markweave-large-document-loading');
+  clone.style.removeProperty('--markweave-inner-toc-right');
   for (const element of clone.querySelectorAll<HTMLElement>('*')) {
     element.removeAttribute('contenteditable');
+    element.removeAttribute('data-markweave-large-document');
+    element.removeAttribute('data-markweave-large-document-loading');
     element.removeAttribute('draggable');
     element.removeAttribute('spellcheck');
 
@@ -229,6 +227,7 @@ export function sanitizeMarkweaveSnapshot(source: HTMLElement) {
 
 export async function createStaticExportHtml(options: {
   content: HTMLElement;
+  pageWidthMode: PageWidthMode;
   theme: 'dark' | 'light';
   title: string;
   forPrint?: boolean;
@@ -244,7 +243,7 @@ export async function createStaticExportHtml(options: {
   const rootVariables = collectRootVariables();
   const printCss = options.forPrint ? PROFESSIONAL_PRINT_CSS : '';
   const html = `<!doctype html>
-<html class="${options.theme}" lang="zh-CN">
+<html class="${options.theme}" data-page-width-mode="${options.pageWidthMode}" lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -279,6 +278,17 @@ export async function waitForExportRender(
   const images = Array.from(root.querySelectorAll('img'));
   await Promise.all(
     images.map(async (image) => {
+      const sourceStatus = await waitForExportImageSource(
+        image,
+        Math.max(0, timeoutMs - (performance.now() - startedAt)),
+      );
+      if (sourceStatus === 'timeout') {
+        timedOut = true;
+      }
+      if (sourceStatus !== 'ready') {
+        return;
+      }
+
       if (image.complete) {
         try {
           await image.decode?.();
@@ -303,7 +313,11 @@ export async function waitForExportRender(
   );
 
   for (const image of images) {
-    if (!image.complete || image.naturalWidth === 0) {
+    if (
+      !image.getAttribute('src') ||
+      !image.complete ||
+      image.naturalWidth === 0
+    ) {
       image.dataset.exportMissing = 'true';
     }
   }
@@ -317,6 +331,59 @@ export async function waitForExportRender(
   }
 
   return timedOut;
+}
+
+type ExportImageSourceStatus = 'missing' | 'ready' | 'timeout';
+
+function waitForExportImageSource(
+  image: HTMLImageElement,
+  timeoutMs: number,
+): Promise<ExportImageSourceStatus> {
+  const mediaNode = image.closest<HTMLElement>('[data-markweave-lightweight-image]');
+  const currentStatus = readExportImageSourceStatus(image, mediaNode);
+
+  if (currentStatus || timeoutMs <= 0) {
+    return Promise.resolve(currentStatus ?? 'timeout');
+  }
+
+  return new Promise((resolve) => {
+    const observer = new MutationObserver(() => {
+      const status = readExportImageSourceStatus(image, mediaNode);
+
+      if (status) {
+        finish(status);
+      }
+    });
+    const timeout = window.setTimeout(() => finish('timeout'), timeoutMs);
+
+    observer.observe(image, { attributes: true, attributeFilter: ['src'] });
+    if (mediaNode) {
+      observer.observe(mediaNode, {
+        attributes: true,
+        attributeFilter: ['data-media-state'],
+      });
+    }
+
+    function finish(status: ExportImageSourceStatus) {
+      observer.disconnect();
+      window.clearTimeout(timeout);
+      resolve(status);
+    }
+  });
+}
+
+function readExportImageSourceStatus(
+  image: HTMLImageElement,
+  mediaNode: HTMLElement | null,
+): ExportImageSourceStatus | null {
+  if (image.getAttribute('src')) {
+    return 'ready';
+  }
+
+  return mediaNode?.dataset.mediaState === 'missing' ||
+    mediaNode?.dataset.mediaState === 'unreadable'
+    ? 'missing'
+    : null;
 }
 
 function makeUniqueAssetName(value: string, usedNames: Set<string>) {
@@ -475,10 +542,6 @@ function waitForMutationQuietPeriod(
   });
 }
 
-function slugifyHeading(value: string) {
-  return value.trim().toLocaleLowerCase().replace(/\s+/gu, '-');
-}
-
 function escapeHtml(value: string) {
   return value
     .replaceAll('&', '&amp;')
@@ -521,9 +584,11 @@ function bytesToBase64(value: Uint8Array) {
 }
 
 const BASE_EXPORT_CSS = `
+html[data-page-width-mode="standard"]{--madora-export-content-max:64rem}
+html[data-page-width-mode="wide"]{--madora-export-content-max:88rem}
 html,body{margin:0;min-height:100%;background:var(--background);color:var(--foreground)}
 body{font-family:var(--madora-document-font,var(--font-sans));line-height:1.75}
-.madora-export-document{box-sizing:border-box;margin:0 auto;max-width:1120px;padding:48px 64px 80px}
+.madora-export-document{box-sizing:border-box;margin:0 auto;max-width:calc(var(--madora-export-content-max) + 128px);padding:48px 64px 80px}
 .madora-export-document img,.madora-export-document svg{max-width:100%;height:auto}
 .madora-export-document pre{overflow:auto}
 .madora-export-document table{max-width:100%;border-collapse:collapse}

@@ -3,6 +3,12 @@
 # dependencies
 /node_modules
 /src-tauri/binaries/codex-*
+/src-tauri/binaries/pandoc-*
+/src-tauri/binaries/typst-*
+/src-tauri/resources/document-export/licenses/Pandoc-COPYING.md
+/src-tauri/resources/document-export/licenses/Pandoc-COPYRIGHT
+/src-tauri/resources/document-export/licenses/Typst-LICENSE
+/src-tauri/resources/document-export/licenses/Typst-NOTICE
 /.pnp
 .pnp.*
 .yarn/*

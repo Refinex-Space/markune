@@ -144,6 +144,14 @@ export interface DocumentExportResult {
   warnings: string[];
 }
 
+export interface DocumentExportRuntimeInfo {
+  engine: 'legacy' | 'pandoc';
+  pandocVersion: string | null;
+  professionalPdf: boolean;
+  professionalWord: boolean;
+  typstVersion: string | null;
+}
+
 export interface DocumentImportSource {
   fileName: string;
   format: WorkspaceImportFormat;

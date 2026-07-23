@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-22
+updated: 2026-07-23
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -58,9 +58,11 @@ Markdown/HTML 相对图片只能从已授权源文档目录内读取；跨工作
 
 单文档导出由 `components/workspace/use-document-export.tsx` 统一编排，文档树右键菜单与省略号菜单只传入文档节点和格式。导出源按当前未保存草稿、已打开标签缓存、磁盘 Markdown 的顺序解析，继续保持 Markdown-first 边界。
 
-`document-export-core.ts` 负责可移植 Markdown 资源包、只读 Markweave DOM 快照、静态 HTML 清理与打印 CSS；`document-export-word.ts` 将清理后的语义 DOM 映射为定制 DOCX。HTML 跟随当前主题，PDF 与 Word 固定使用浅色 A4 排版。HTML/PDF 复用同一 Markweave 快照，PDF 通过平台 WebView 原生打印，禁止整页截图。
+`document-export-core.ts` 负责可移植 Markdown 资源包、只读 Markweave DOM 快照与静态 HTML 清理。HTML 跟随当前主题并使用 64 rem 标准正文宽度；导出快照必须移除编辑器目录、工具栏、大文档 `content-visibility` 属性和其他运行时 UI，但保留正文语义与内联图片。`document-export-professional.ts` 是 Madora 方言到通用 Markdown 的受控适配层：本地资产只映射到 staging，相同的 frontmatter 标题/H1 去重，Wiki 链接转为可读文本，远程图片转为普通链接，已成功渲染的 Mermaid 预览转为静态 PNG。
 
-原生边界集中在 `src-tauri/src/export.rs`。渲染器只能先取得一次性目录授权，再提交格式、文件 stem 和相对文件包；不能把任意目标绝对路径传给写入或打印命令。PDF 的隐藏 WebView 只访问一次性 `madora-export://` 会话，完成、失败或超时后销毁。
+Word 与 PDF 默认使用固定版本 sidecar：Pandoc 3.10.1 负责 Markdown AST、DOCX writer 和 Typst writer，Word 套用固定 `reference.docx`，PDF 再由 Typst 0.15.1 和固定 A4 模板排版。运行时缺失、平台没有可用中文字体或显式设置 legacy 开关时，Word 回退到 `document-export-word.ts` 的兼容 DOCX writer，PDF 回退到平台 WebView 原生打印；兼容链保留一个迁移周期，不作为继续堆叠专业排版能力的主线。HTML 不经过 Pandoc，文档导入仍维持 Mammoth/PDF.js 的现有安全与交互边界，避免在同一变更中重写成熟的批量导入提交协议。
+
+原生边界集中在 `src-tauri/src/export.rs` 与 `document_converter.rs`。渲染器只能先取得一次性目录授权，再提交格式、文件 stem、规范化 Markdown 和相对资产；不能传入目标绝对路径、sidecar 路径、模板路径、过滤器或任意命令参数。专业转换在有界后台任务中执行，所有输入先写入随机 staging；Pandoc reader 先在 sandbox 中生成 AST，Rust 再把图片目标收敛为 staging 资产白名单，writer 才读取该安全 AST 和固定资源根。sidecar 只使用固定参数、内存上限与 45 秒超时，输出签名通过后再以 `create_new` 提交。兼容 PDF 的隐藏 WebView 只访问一次性 `madora-export://` 会话，完成、失败或超时后销毁。
 
 ## Codex AI Boundary
 

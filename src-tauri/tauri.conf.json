@@ -7,7 +7,7 @@
     "frontendDist": "../out",
     "devUrl": "http://localhost:3000",
     "beforeDevCommand": "pnpm dev",
-    "beforeBuildCommand": "pnpm codex:stage && pnpm build:desktop:web"
+    "beforeBuildCommand": "pnpm codex:stage && pnpm document-export:stage && pnpm build:desktop:web"
   },
   "app": {
     "windows": [
@@ -42,9 +42,12 @@
     "active": true,
     "targets": "all",
     "externalBin": [
-      "binaries/codex"
+      "binaries/codex",
+      "binaries/pandoc",
+      "binaries/typst"
     ],
     "resources": [
+      "resources/document-export/",
       "resources/skills/"
     ],
     "icon": [

@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-21
+updated: 2026-07-23
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -100,11 +100,21 @@ interface DocumentExportResult {
   createdPaths: string[];
   warnings: string[];
 }
+
+interface DocumentExportRuntimeInfo {
+  engine: 'pandoc' | 'legacy';
+  pandocVersion: string | null;
+  professionalPdf: boolean;
+  professionalWord: boolean;
+  typstVersion: string | null;
+}
 ```
 
 - `select_document_export_directory() -> ExportDirectoryGrant | null`：由 Rust 打开原生文件夹选择器，默认 Downloads；取消返回 `null`。
+- `document_export_runtime_info() -> DocumentExportRuntimeInfo`：只报告锁定 sidecar、模板与中文字体是否就绪，不暴露物理路径。
+- `convert_document_export(grantId, format, fileStem, markdown, files) -> DocumentExportResult`：只接受 `pdf`/`word`、规范化 Markdown 和相对资产；固定模板和转换参数由 Rust 决定。
 - `write_document_export_bundle(grantId, format, fileStem, files) -> DocumentExportResult`：只接受 `html`、`markdown`、`word` 和相对文件包。
-- `print_document_pdf(grantId, fileStem, html) -> DocumentExportResult`：通过隐藏平台 WebView 生成矢量 PDF。
+- `print_document_pdf(grantId, fileStem, html) -> DocumentExportResult`：仅作为兼容回退，通过隐藏平台 WebView 生成矢量 PDF。
 
 目录授权只能使用一次且 15 分钟过期。命令返回最终实际路径；同名时由 Rust 生成 `标题 (n)`，调用方不得假设请求 stem 就是最终 stem。旧 `write_export_file` 仍只服务既有资源下载，不得接入文档导出流程。
 
