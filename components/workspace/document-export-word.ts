@@ -819,7 +819,7 @@ async function createImageParagraphs(
 
 async function createImageRun(block: WordImageBlock) {
   if (block.svg) {
-    const fallback = await rasterizeSvg(block.svg, block.width, block.height);
+    const fallback = await rasterizeSvgToPng(block.svg, block.width, block.height);
 
     return new ImageRun({
       type: 'svg',
@@ -836,7 +836,7 @@ async function createImageRun(block: WordImageBlock) {
   const parsed = parseDataUrl(block.dataUrl);
   if (parsed.type === 'svg') {
     const svg = new TextDecoder().decode(parsed.data);
-    const fallback = await rasterizeSvg(svg, block.width, block.height);
+    const fallback = await rasterizeSvgToPng(svg, block.width, block.height);
 
     return new ImageRun({
       type: 'svg',
@@ -882,7 +882,11 @@ function parseDataUrl(value: string) {
   return { data, type: typeByMedia[match[1].toLocaleLowerCase()] ?? 'other' };
 }
 
-async function rasterizeSvg(svg: string, width: number, height: number) {
+export async function rasterizeSvgToPng(
+  svg: string,
+  width: number,
+  height: number,
+) {
   return rasterizeDataUrl(
     `data:image/svg+xml;base64,${bytesToBase64(
       new TextEncoder().encode(svg),

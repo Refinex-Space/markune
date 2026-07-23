@@ -144,20 +144,6 @@ export function sanitizeMarkweaveSnapshot(source: HTMLElement) {
     checkbox.replaceWith(marker);
   }
 
-  for (const button of clone.querySelectorAll<HTMLButtonElement>(
-    '[data-toc] button, .markweave-inner-toc button, [class*="toc"] button',
-  )) {
-    const anchor = document.createElement('a');
-    const target =
-      button.dataset.target ??
-      button.getAttribute('aria-controls') ??
-      slugifyHeading(button.textContent ?? '');
-
-    anchor.href = `#${target.replace(/^#/u, '')}`;
-    anchor.textContent = button.textContent;
-    button.replaceWith(anchor);
-  }
-
   clone
     .querySelectorAll(
       [
@@ -171,7 +157,10 @@ export function sanitizeMarkweaveSnapshot(source: HTMLElement) {
         '[role="toolbar"]',
         '[data-floating-ui-portal]',
         '[data-radix-popper-content-wrapper]',
+        '[data-toc]',
         '.markweave-inner-toc',
+        '.markweave-codeblock-overlay',
+        '.markweave-mermaid-tabs',
         '.ProseMirror-menubar',
         '.tippy-box',
         'button',
@@ -182,9 +171,13 @@ export function sanitizeMarkweaveSnapshot(source: HTMLElement) {
   clone.removeAttribute('contenteditable');
   clone.removeAttribute('data-markweave-inner-toc');
   clone.removeAttribute('data-markweave-inner-toc-placement');
+  clone.removeAttribute('data-markweave-large-document');
+  clone.removeAttribute('data-markweave-large-document-loading');
   clone.style.removeProperty('--markweave-inner-toc-right');
   for (const element of clone.querySelectorAll<HTMLElement>('*')) {
     element.removeAttribute('contenteditable');
+    element.removeAttribute('data-markweave-large-document');
+    element.removeAttribute('data-markweave-large-document-loading');
     element.removeAttribute('draggable');
     element.removeAttribute('spellcheck');
 
@@ -549,10 +542,6 @@ function waitForMutationQuietPeriod(
   });
 }
 
-function slugifyHeading(value: string) {
-  return value.trim().toLocaleLowerCase().replace(/\s+/gu, '-');
-}
-
 function escapeHtml(value: string) {
   return value
     .replaceAll('&', '&amp;')
@@ -595,7 +584,7 @@ function bytesToBase64(value: Uint8Array) {
 }
 
 const BASE_EXPORT_CSS = `
-html[data-page-width-mode="standard"]{--madora-export-content-max:48rem}
+html[data-page-width-mode="standard"]{--madora-export-content-max:64rem}
 html[data-page-width-mode="wide"]{--madora-export-content-max:88rem}
 html,body{margin:0;min-height:100%;background:var(--background);color:var(--foreground)}
 body{font-family:var(--madora-document-font,var(--font-sans));line-height:1.75}

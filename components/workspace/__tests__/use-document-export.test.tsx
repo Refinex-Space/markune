@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDocumentExport } from '../use-document-export';
 
 const api = vi.hoisted(() => ({
+  convertDocumentExport: vi.fn(),
+  getDocumentExportRuntimeInfo: vi.fn(),
   isTauriRuntime: vi.fn(() => true),
   openPathInFileManager: vi.fn(),
   printDocumentPdf: vi.fn(),
@@ -45,6 +47,13 @@ describe('useDocumentExport', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.isTauriRuntime.mockReturnValue(true);
+    api.getDocumentExportRuntimeInfo.mockResolvedValue({
+      engine: 'pandoc',
+      pandocVersion: '3.10.1',
+      professionalPdf: true,
+      professionalWord: true,
+      typstVersion: '0.15.1',
+    });
     vi.stubGlobal(
       'requestAnimationFrame',
       (callback: FrameRequestCallback) =>
@@ -207,5 +216,67 @@ describe('useDocumentExport', () => {
     const html = window.atob(files[0].base64Data);
 
     expect(html).toContain('data-page-width-mode="wide"');
+  });
+
+  it('uses the controlled Pandoc converter for professional Word export', async () => {
+    api.selectDocumentExportDirectory.mockResolvedValueOnce({
+      grantId: 'grant',
+      displayPath: 'Downloads',
+    });
+    api.convertDocumentExport.mockResolvedValueOnce({
+      primaryPath: 'Downloads/标题.docx',
+      createdPaths: ['Downloads/标题.docx'],
+      warnings: [],
+    });
+    const loadMarkdown = vi.fn().mockResolvedValue('# 标题\n\n正文');
+
+    function ExportHarness() {
+      const documentExport = useDocumentExport({
+        pageWidthMode: 'standard',
+        rootPath: '/repo',
+        theme: 'dark',
+      });
+
+      return (
+        <>
+          <button
+            type="button"
+            onClick={() =>
+              void documentExport.exportDocument(
+                {
+                  loadMarkdown,
+                  node: {
+                    id: 'note',
+                    name: 'note.md',
+                    title: '标题',
+                    kind: 'document',
+                    relativePath: 'note.md',
+                    absolutePath: '/repo/note.md',
+                  },
+                },
+                'word',
+              )
+            }
+          >
+            导出 Word
+          </button>
+          {documentExport.renderer}
+        </>
+      );
+    }
+
+    render(<ExportHarness />);
+    fireEvent.click(screen.getByRole('button', { name: '导出 Word' }));
+
+    await waitFor(() => expect(api.convertDocumentExport).toHaveBeenCalled());
+    expect(api.getDocumentExportRuntimeInfo).toHaveBeenCalledOnce();
+    expect(api.convertDocumentExport).toHaveBeenCalledWith(
+      'grant',
+      'word',
+      '标题',
+      '# 标题\n\n正文',
+      [],
+    );
+    expect(api.writeDocumentExportBundle).not.toHaveBeenCalled();
   });
 });

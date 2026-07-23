@@ -6,6 +6,7 @@ import type {
   DeletedWorkspaceNode,
   DocumentExportFile,
   DocumentExportResult,
+  DocumentExportRuntimeInfo,
   DocumentImportGrant,
   DocumentImportManifest,
   DrawingDocumentDescriptor,
@@ -1011,6 +1012,30 @@ export async function selectDocumentExportDirectory() {
   return invoke<ExportDirectoryGrant | null>(
     'select_document_export_directory',
   );
+}
+
+export async function getDocumentExportRuntimeInfo() {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<DocumentExportRuntimeInfo>('document_export_runtime_info');
+}
+
+export async function convertDocumentExport(
+  grantId: string,
+  format: Extract<WorkspaceExportFormat, 'pdf' | 'word'>,
+  fileStem: string,
+  markdown: string,
+  files: DocumentExportFile[],
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<DocumentExportResult>('convert_document_export', {
+    grantId,
+    format,
+    fileStem,
+    markdown,
+    files,
+  });
 }
 
 export async function writeDocumentExportBundle(

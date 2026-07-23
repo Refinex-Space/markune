@@ -1,5 +1,6 @@
 mod assets;
 mod codex;
+mod document_converter;
 mod drawings;
 mod export;
 mod git;
@@ -95,6 +96,8 @@ pub fn run() {
             drawings::begin_drawing_markdown_snapshot,
             drawings::create_drawing_markdown_snapshot,
             export::select_document_export_directory,
+            export::document_export_runtime_info,
+            export::convert_document_export,
             export::write_document_export_bundle,
             export::print_document_pdf,
             import::select_document_import_sources,

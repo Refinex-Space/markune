@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-21
+updated: 2026-07-23
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -75,7 +75,10 @@ referenced_by: AGENTS.md#knowledge-map
 - Rust 必须重新验证格式白名单、跨平台文件名、相对路径、目录 canonical path、符号链接与文件包大小；拒绝绝对路径、`..` 和覆盖已有文件。
 - 多文件导出先写入所选目录内的随机临时目录，再以 `create_new` 语义提交。任一步失败必须清理临时内容和已经提交的本次资源目录。
 - `madora-export://` 只提供一次性内存页面，响应必须带 `no-store` 和禁止脚本、连接、对象、表单的 CSP；隐藏 WebView 在完成、失败或 30 秒超时后关闭。
-- HTML/PDF 可保留已渲染的远程资源 URL，但导出实现不得新增任意远程抓取。Word 无法安全取得远程图片字节时保留普通链接并返回警告。
+- 专业转换只能启动构建阶段校验并随包发布的 Pandoc/Typst 精确版本；运行时不得查询 PATH、接受 sidecar/模板/过滤器路径或拼接渲染器提供的命令参数。Windows 子进程必须禁用控制台窗口。
+- Pandoc Markdown reader 必须启用 sandbox，关闭 raw HTML/raw TeX/raw attributes，并先输出 AST；Rust 必须递归检查 AST 中的图片目标，只允许 staging 资产白名单或有界 `data:image/`。DOCX/Typst writer 只接收过滤后的 AST，工作目录和 `resource-path` 固定为 staging；Typst root 同样固定为 staging。每个进程 45 秒超时，Pandoc RTS 内存上限 512 MB，诊断必须限长并脱敏 staging 路径，输出必须验证 DOCX/PDF 签名。
+- 专业转换必须在后台阻塞池执行，不得阻塞 Tauri UI/main thread。Markdown 上限 20 MB，资产继续遵守单文件 200 MB、总量 500 MB；远程图片只能转为链接和警告，不得由 Madora、Pandoc 或 Typst 下载。
+- 分发构建必须包含固定版本的 Pandoc GPL/COPYRIGHT 与 Typst Apache/NOTICE 文本；升级版本时同步更新下载 SHA-256、许可证资源和第三方通知。
 - 文档导出不得修改 Tauri capability、文件系统插件权限或资产协议 scope。
 
 ## Document Import

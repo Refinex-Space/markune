@@ -104,13 +104,18 @@ describe('document export core', () => {
     const source = document.createElement('article');
     source.dataset.markweaveInnerToc = 'true';
     source.dataset.markweaveInnerTocPlacement = 'container';
+    source.dataset.markweaveLargeDocument = 'true';
+    source.dataset.markweaveLargeDocumentLoading = 'false';
     source.style.setProperty('--markweave-inner-toc-right', '1468px');
     source.innerHTML = `
       <h1 contenteditable="true">标题</h1>
+      <div data-markweave-large-document="true"><p>离屏正文</p></div>
       <input type="checkbox" checked>
       <a href="javascript:alert(1)">bad</a>
       <a href="https://example.com">good</a>
       <nav class="markweave-inner-toc"><button data-target="section">编辑器目录</button></nav>
+      <nav data-toc><button data-target="section">浮动目录</button></nav>
+      <div class="markweave-codeblock-overlay">编辑器悬浮层</div>
       <nav data-user-toc><a href="#section">手写目录</a></nav>
       <button>复制</button>
       <script>alert(1)</script>
@@ -121,16 +126,28 @@ describe('document export core', () => {
     expect(snapshot.querySelector('button')).toBeNull();
     expect(snapshot.querySelector('[contenteditable]')).toBeNull();
     expect(snapshot.querySelector('.markweave-inner-toc')).toBeNull();
+    expect(snapshot.querySelector('[data-toc]')).toBeNull();
+    expect(snapshot.querySelector('.markweave-codeblock-overlay')).toBeNull();
     expect(snapshot.hasAttribute('data-markweave-inner-toc')).toBe(false);
     expect(snapshot.hasAttribute('data-markweave-inner-toc-placement')).toBe(
       false,
     );
+    expect(snapshot.hasAttribute('data-markweave-large-document')).toBe(false);
+    expect(
+      snapshot.hasAttribute('data-markweave-large-document-loading'),
+    ).toBe(false);
+    expect(
+      snapshot.querySelector('[data-markweave-large-document]'),
+    ).toBeNull();
     expect(snapshot.style.getPropertyValue('--markweave-inner-toc-right')).toBe(
       '',
     );
     expect(snapshot.querySelector('[data-user-toc]')?.textContent).toBe(
       '手写目录',
     );
+    expect(snapshot.textContent).not.toContain('编辑器目录');
+    expect(snapshot.textContent).not.toContain('浮动目录');
+    expect(snapshot.textContent).not.toContain('编辑器悬浮层');
     expect(snapshot.textContent).toContain('☑');
     expect(snapshot.querySelector('a')?.hasAttribute('href')).toBe(false);
     expect(snapshot.querySelectorAll('a')[1].rel).toBe('noopener noreferrer');
@@ -173,6 +190,12 @@ describe('document export core', () => {
       theme: 'dark',
       title: '标题',
     });
+    const standard = await createStaticExportHtml({
+      content,
+      pageWidthMode: 'standard',
+      theme: 'light',
+      title: '标题',
+    });
     const print = await createStaticExportHtml({
       content,
       forPrint: true,
@@ -184,6 +207,7 @@ describe('document export core', () => {
     expect(dark.html).toContain('<html class="dark"');
     expect(dark.html).toContain('data-page-width-mode="wide"');
     expect(dark.html).toContain('--madora-export-content-max:88rem');
+    expect(standard.html).toContain('--madora-export-content-max:64rem');
     expect(dark.html).toContain("script-src 'none'");
     expect(dark.html).not.toContain('<script');
     expect(print.html).toContain('@page{size:A4;margin:18mm}');

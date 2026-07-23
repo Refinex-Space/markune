@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "desktop:build": "tauri build",
-    "desktop:dev": "pnpm codex:stage && tauri dev",
+    "desktop:dev": "pnpm codex:stage && pnpm document-export:stage && tauri dev",
     "codex:stage": "node scripts/stage-codex-sidecar.mjs",
+    "document-export:stage": "node scripts/stage-document-export-runtime.mjs",
     "build:desktop:web": "node scripts/build-tauri-web.mjs",
     "dev": "pnpm runtime:stage && next dev --port 3000",
     "build": "pnpm runtime:stage && next build",
