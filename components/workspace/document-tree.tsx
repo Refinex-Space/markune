@@ -828,7 +828,7 @@ const EXPORT_ACTIONS: Array<{
   format: WorkspaceExportFormat;
   label: string;
 }> = [
-  { format: 'html', label: 'TML' },
+  { format: 'html', label: 'HTML' },
   { format: 'markdown', label: 'Markdown' },
   { format: 'pdf', label: 'PDF' },
   { format: 'word', label: 'Word' },
