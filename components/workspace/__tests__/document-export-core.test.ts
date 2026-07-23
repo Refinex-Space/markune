@@ -7,6 +7,7 @@ import {
   resolveDocumentExportMarkdown,
   sanitizeExportFileStem,
   sanitizeMarkweaveSnapshot,
+  waitForExportRender,
 } from '../document-export-core';
 
 describe('document export core', () => {
@@ -101,11 +102,16 @@ describe('document export core', () => {
 
   it('removes editor controls and scripts while preserving task state and safe links', () => {
     const source = document.createElement('article');
+    source.dataset.markweaveInnerToc = 'true';
+    source.dataset.markweaveInnerTocPlacement = 'container';
+    source.style.setProperty('--markweave-inner-toc-right', '1468px');
     source.innerHTML = `
       <h1 contenteditable="true">标题</h1>
       <input type="checkbox" checked>
       <a href="javascript:alert(1)">bad</a>
       <a href="https://example.com">good</a>
+      <nav class="markweave-inner-toc"><button data-target="section">编辑器目录</button></nav>
+      <nav data-user-toc><a href="#section">手写目录</a></nav>
       <button>复制</button>
       <script>alert(1)</script>
     `;
@@ -114,9 +120,46 @@ describe('document export core', () => {
     expect(snapshot.querySelector('script')).toBeNull();
     expect(snapshot.querySelector('button')).toBeNull();
     expect(snapshot.querySelector('[contenteditable]')).toBeNull();
+    expect(snapshot.querySelector('.markweave-inner-toc')).toBeNull();
+    expect(snapshot.hasAttribute('data-markweave-inner-toc')).toBe(false);
+    expect(snapshot.hasAttribute('data-markweave-inner-toc-placement')).toBe(
+      false,
+    );
+    expect(snapshot.style.getPropertyValue('--markweave-inner-toc-right')).toBe(
+      '',
+    );
+    expect(snapshot.querySelector('[data-user-toc]')?.textContent).toBe(
+      '手写目录',
+    );
     expect(snapshot.textContent).toContain('☑');
     expect(snapshot.querySelector('a')?.hasAttribute('href')).toBe(false);
     expect(snapshot.querySelectorAll('a')[1].rel).toBe('noopener noreferrer');
+  });
+
+  it('waits for a lazy image source before deciding that the image is missing', async () => {
+    const root = document.createElement('article');
+    const image = document.createElement('img');
+    let loaded = false;
+
+    Object.defineProperties(image, {
+      complete: {
+        get: () => !image.hasAttribute('src') || loaded,
+      },
+      naturalWidth: {
+        get: () => (loaded ? 320 : 0),
+      },
+    });
+    root.append(image);
+
+    window.setTimeout(() => {
+      image.src = 'data:image/png;base64,cG5n';
+      loaded = true;
+      image.dispatchEvent(new Event('load'));
+    }, 20);
+
+    await waitForExportRender(root, 1_000);
+
+    expect(image.dataset.exportMissing).toBeUndefined();
   });
 
   it('builds script-free current-theme HTML and professional A4 print HTML', async () => {
@@ -126,17 +169,21 @@ describe('document export core', () => {
 
     const dark = await createStaticExportHtml({
       content,
+      pageWidthMode: 'wide',
       theme: 'dark',
       title: '标题',
     });
     const print = await createStaticExportHtml({
       content,
       forPrint: true,
+      pageWidthMode: 'wide',
       theme: 'light',
       title: '标题',
     });
 
     expect(dark.html).toContain('<html class="dark"');
+    expect(dark.html).toContain('data-page-width-mode="wide"');
+    expect(dark.html).toContain('--madora-export-content-max:88rem');
     expect(dark.html).toContain("script-src 'none'");
     expect(dark.html).not.toContain('<script');
     expect(print.html).toContain('@page{size:A4;margin:18mm}');

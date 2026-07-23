@@ -212,6 +212,7 @@ export function useDocumentExport({
             const staticPage = await createStaticExportHtml({
               content: snapshot,
               forPrint: format === 'pdf',
+              pageWidthMode,
               theme: format === 'pdf' ? 'light' : theme,
               title,
             });
@@ -277,7 +278,7 @@ export function useDocumentExport({
         clearRenderer();
       }
     },
-    [available, clearRenderer, renderMarkdown, rootPath, theme],
+    [available, clearRenderer, pageWidthMode, renderMarkdown, rootPath, theme],
   );
 
   return {
@@ -357,8 +358,8 @@ function DocumentExportRenderer({
       style={{
         contain: 'layout paint style',
         height: 1123,
-        left: '-100000px',
-        opacity: 0.01,
+        left: 0,
+        opacity: 0,
         pointerEvents: 'none',
         position: 'fixed',
         top: 0,
