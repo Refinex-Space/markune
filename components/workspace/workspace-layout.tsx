@@ -2946,9 +2946,19 @@ export function WorkspaceLayout({
             ) : null}
 
             <div
-              className="m-2 flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-background shadow-[0_1px_3px_rgba(15,23,42,0.05),0_18px_42px_-28px_rgba(15,23,42,0.45)]"
-              data-testid="workspace-editor-column"
+              className="relative m-2 flex min-h-0 min-w-0 max-w-full flex-1 gap-2 overflow-hidden"
+              data-testid="workspace-panel-group"
+              style={
+                {
+                  '--workspace-main-header-height':
+                    isTauriRuntime && isWindowsRuntime ? '2rem' : '2.75rem',
+                } as React.CSSProperties
+              }
             >
+              <div
+                className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-background shadow-[0_1px_3px_rgba(15,23,42,0.05),0_18px_42px_-28px_rgba(15,23,42,0.45)]"
+                data-testid="workspace-editor-column"
+              >
               <section
                 className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
                 data-chrome="workspace-main-surface"
@@ -3084,68 +3094,6 @@ export function WorkspaceLayout({
                     )}
                   </div>
 
-                  {systemPage !== 'codex' && workspace.rightPanelMode ? (
-                    <WorkspaceResizeHandle
-                      aria-label="调整右侧面板宽度"
-                      className="-mx-1"
-                      direction="right"
-                      max={rightPanelWidthLimits.max}
-                      min={rightPanelWidthLimits.min}
-                      value={rightPanelWidth}
-                      onResize={handleRightPanelResize}
-                    />
-                  ) : null}
-
-                  <RightSidePanel
-                    activeDrawing={activeAiDrawing}
-                    aiPresentation={
-                      systemPage === 'codex' ? 'workspace' : 'panel'
-                    }
-                    aiWorkspacePreview={
-                      systemPage === 'codex' && aiPreviewDocument ? (
-                        <AiDocumentPreview
-                          document={aiPreviewDocument}
-                          markdownOverride={aiPreviewMarkdownOverride}
-                          pageWidthMode={pageWidthMode}
-                          workspaceRootPath={workspaceRootPath}
-                          onClose={() => setAiPreviewDocumentPath(null)}
-                          onOpenInEditor={handleOpenAiPreviewInEditor}
-                        />
-                      ) : null
-                    }
-                    aiWorkspacePreviewWidth={aiWorkspacePreviewWidth}
-                    currentDocument={activePanelDocument}
-                    currentDocumentPath={activePanelDocumentPath}
-                    documentPanelData={documentPanelData}
-                    documents={
-                      workspace.snapshot
-                        ? flattenDocuments(workspace.snapshot.nodes)
-                        : []
-                    }
-                    drawings={aiDrawingReferences}
-                    documentReadOnly={
-                      activePanelDocument
-                        ? getDocumentReadOnly(activePanelDocument.absolutePath)
-                        : false
-                    }
-                    mode={effectiveRightPanelMode}
-                    width={rightPanelWidth}
-                    workspaceRootPath={workspaceRootPath}
-                    onBeforeTurnStart={handleBeforeAiTurnStart}
-                    onDrawingToolCall={handleAiDrawingToolCall}
-                    onAiWorkspacePreviewResize={setAiWorkspacePreviewWidth}
-                    onOpenDocument={handleOpenAiDocument}
-                    onOpenPlanPreview={handleOpenPlanPreview}
-                    onWorkspaceChanged={handleAiWorkspaceChanged}
-                    onToggleDocumentReadOnly={
-                      activePanelDocument
-                        ? () =>
-                            handleToggleDocumentReadOnly(
-                              activePanelDocument.absolutePath,
-                            )
-                        : undefined
-                    }
-                  />
                 </div>
 
                 {workspace.externalDocumentConflict ? (
@@ -3250,6 +3198,70 @@ export function WorkspaceLayout({
                   </TerminalPanel>
                 </div>
               ) : null}
+              </div>
+
+              {systemPage !== 'codex' && workspace.rightPanelMode ? (
+                <WorkspaceResizeHandle
+                  aria-label="调整右侧面板宽度"
+                  className="-mx-2"
+                  direction="right"
+                  max={rightPanelWidthLimits.max}
+                  min={rightPanelWidthLimits.min}
+                  value={rightPanelWidth}
+                  onResize={handleRightPanelResize}
+                />
+              ) : null}
+
+              <RightSidePanel
+                activeDrawing={activeAiDrawing}
+                aiPresentation={
+                  systemPage === 'codex' ? 'workspace' : 'panel'
+                }
+                aiWorkspacePreview={
+                  systemPage === 'codex' && aiPreviewDocument ? (
+                    <AiDocumentPreview
+                      document={aiPreviewDocument}
+                      markdownOverride={aiPreviewMarkdownOverride}
+                      pageWidthMode={pageWidthMode}
+                      workspaceRootPath={workspaceRootPath}
+                      onClose={() => setAiPreviewDocumentPath(null)}
+                      onOpenInEditor={handleOpenAiPreviewInEditor}
+                    />
+                  ) : null
+                }
+                aiWorkspacePreviewWidth={aiWorkspacePreviewWidth}
+                currentDocument={activePanelDocument}
+                currentDocumentPath={activePanelDocumentPath}
+                documentPanelData={documentPanelData}
+                documents={
+                  workspace.snapshot
+                    ? flattenDocuments(workspace.snapshot.nodes)
+                    : []
+                }
+                drawings={aiDrawingReferences}
+                documentReadOnly={
+                  activePanelDocument
+                    ? getDocumentReadOnly(activePanelDocument.absolutePath)
+                    : false
+                }
+                mode={effectiveRightPanelMode}
+                width={rightPanelWidth}
+                workspaceRootPath={workspaceRootPath}
+                onBeforeTurnStart={handleBeforeAiTurnStart}
+                onDrawingToolCall={handleAiDrawingToolCall}
+                onAiWorkspacePreviewResize={setAiWorkspacePreviewWidth}
+                onOpenDocument={handleOpenAiDocument}
+                onOpenPlanPreview={handleOpenPlanPreview}
+                onWorkspaceChanged={handleAiWorkspaceChanged}
+                onToggleDocumentReadOnly={
+                  activePanelDocument
+                    ? () =>
+                        handleToggleDocumentReadOnly(
+                          activePanelDocument.absolutePath,
+                        )
+                    : undefined
+                }
+              />
             </div>
         </div>
         )}

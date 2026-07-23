@@ -40,6 +40,20 @@ describe('Windows workspace titlebar', () => {
     expect(workspaceLayoutSource.match(/<DocumentTabBar/g)).toHaveLength(1);
   });
 
+  it('renders the compact AI and metadata panels beside the rounded main panel', () => {
+    const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
+
+    expect(workspaceLayoutSource).toContain(
+      'data-testid="workspace-panel-group"',
+    );
+    expect(workspaceLayoutSource).toContain(
+      'relative m-2 flex min-h-0 min-w-0 max-w-full flex-1 gap-2 overflow-hidden',
+    );
+    expect(workspaceLayoutSource).toContain('className="-mx-2"');
+    expect(workspaceLayoutSource.indexOf('data-testid="workspace-editor-column"'))
+      .toBeLessThan(workspaceLayoutSource.indexOf('<RightSidePanel'));
+  });
+
   it('moves global search to the workspace sidebar and removes the centered trigger', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
     const workspaceSidebarSource = readFileSync(workspaceSidebarPath, 'utf8');

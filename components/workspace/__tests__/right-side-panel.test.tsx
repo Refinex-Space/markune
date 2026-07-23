@@ -121,10 +121,19 @@ describe('right AI panel integration', () => {
       />,
     );
 
-    expect(screen.getByTestId('ai-side-panel')).toBeTruthy();
+    const aiSidePanel = screen.getByTestId('ai-side-panel');
+    expect(aiSidePanel).toBeTruthy();
     expect(
-      screen.getByTestId('ai-side-panel').getAttribute('data-presentation'),
+      aiSidePanel.getAttribute('data-presentation'),
     ).toBe('panel');
+    expect(aiSidePanel.getAttribute('data-chrome')).toBe(
+      'workspace-side-panel',
+    );
+    expect(aiSidePanel.className).toContain('rounded-xl');
+    expect(aiSidePanel.className).toContain('border-border/70');
+    expect(aiSidePanel.className).toContain(
+      'shadow-[0_1px_3px_rgba(15,23,42,0.05),0_18px_42px_-28px_rgba(15,23,42,0.45)]',
+    );
     expect(screen.getByText('AI:/workspace')).toBeTruthy();
     expect(screen.queryByTestId('document-meta-panel')).toBeNull();
     screen.getByRole('button', { name: '打开提及文档' }).click();
@@ -165,7 +174,11 @@ describe('right AI panel integration', () => {
     expect(screen.getByTestId('ai-side-panel').hasAttribute('hidden')).toBe(
       true,
     );
-    expect(screen.getByTestId('document-meta-panel')).toBeTruthy();
+    const metaPanel = screen.getByTestId('document-meta-panel');
+    expect(metaPanel).toBeTruthy();
+    expect(metaPanel.getAttribute('data-chrome')).toBe('workspace-side-panel');
+    expect(metaPanel.className).toContain('rounded-xl');
+    expect(metaPanel.className).toContain('border-border/70');
   });
 
   it('在紧凑侧栏和 Codex 工作区之间复用同一个 AI 面板实例', () => {
@@ -206,6 +219,13 @@ describe('right AI panel integration', () => {
     expect(
       screen.getByTestId('ai-side-panel').getAttribute('data-presentation'),
     ).toBe('workspace');
+    expect(
+      screen.getByTestId('ai-side-panel').getAttribute('data-chrome'),
+    ).toBe('workspace-ai-surface');
+    expect(screen.getByTestId('ai-side-panel').className).toContain('absolute');
+    expect(screen.getByTestId('ai-side-panel').className).toContain(
+      'top-[var(--workspace-main-header-height)]',
+    );
     expect(screen.getByText('文档预览')).toBeTruthy();
     const previewShell = screen.getByRole('complementary', {
       name: '文档预览',

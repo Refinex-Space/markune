@@ -377,3 +377,37 @@ final result: passed
 - Iteration 1: the first combined comparison showed aligned workspace and main-header rows, a collision-free responsive tab limit, readable faded separators, and a bounded scroll menu. No P0/P1/P2 correction was required.
 
 final result: passed
+
+---
+
+# 独立 AI 与元信息侧边面板设计 QA
+
+- source visual truth: `C:\Users\ADMINI~1\AppData\Local\Temp\codex-clipboard-b951e5cf-acd7-4428-b6e4-65182d85786e.png`
+- implementation capture: 运行中的 Windows Tauri 桌面窗口，`1920 × 1032`，深色主题
+- states: AI 紧凑面板、元信息紧凑面板
+
+## Full-view comparison evidence
+
+- 原界面把右侧内容包在主编辑面板内部，顶部与底部边界连续，无法形成独立的侧边层级。
+- AI 状态下，主面板和右侧面板现在分别拥有完整四边圆角、边框与轻阴影；两者垂直边界同高，视觉间距约 8 px。
+- 元信息状态复用同一独立面板外壳。主面板根据元信息面板宽度自然收缩，圆角、边框、阴影和外侧留白与 AI 状态保持一致。
+- 面板间的拖拽热区位于间距内部，没有增加额外可见分割线或破坏留白。
+
+## Required fidelity surfaces
+
+- Spacing and layout rhythm: 主面板、侧边面板与窗口边缘继续使用既有 8 px 节奏；面板间距保持轻微且清晰。
+- Colors and visual tokens: 两块面板共用 `bg-background`、`border-border/70` 和同一组阴影 token，没有引入新的色块或高浮阴影。
+- Border and radius: AI 与元信息面板均使用 `rounded-xl`，四角完整可见；主面板原有圆角不再被右侧内容吞并。
+- Interaction continuity: AI 面板继续保持持续挂载；切换元信息面板不会重建 AI 运行实例。现有宽度状态与拖拽限制保持不变。
+- Copy and assets: 没有修改产品文字、图标或内容资源。
+
+## Findings
+
+- No actionable P0, P1, or P2 visual or interaction issue remains.
+- P3: 本轮桌面实拍使用深色主题；浅色主题未单独实拍，但两种面板复用已覆盖的主题 token 与相同结构类。
+
+## Comparison history
+
+- Iteration 1: Windows 桌面实拍确认 AI 和元信息面板均成为与主面板同高的独立圆角卡片，约 8 px 间距稳定，没有双边框、重叠或窗口溢出，无需进一步视觉修正。
+
+final result: passed
