@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-23
+updated: 2026-07-24
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -62,7 +62,7 @@ test -s ~/.tauri/madora-updater.key.pub
 必须遵守以下规则：
 
 - 私钥和密码只进入密码管理器、离线备份和 GitHub Actions Secrets，绝不能写入仓库、Issue、Release、日志或聊天。
-- 公钥可以公开，但必须保留完整两行 minisign 内容，包括 `untrusted comment:` 行。
+- `madora-updater.key.pub` 是 Tauri CLI 生成的单行 Base64 公钥；它解码后才是两行 minisign 文本。公钥可以公开，但发布配置必须使用 `.pub` 文件中的原始单行内容，不要手工解码、换行或重新编码。
 - 私钥至少保留两份受控备份。私钥丢失后，已安装旧版本不能验证由新密钥签名的更新。
 - 不要为每个版本生成新密钥。
 
@@ -111,7 +111,7 @@ test -s ~/.tauri/madora-updater.key.pub
 
 | 名称 | 内容 |
 | --- | --- |
-| `MADORA_UPDATER_PUBLIC_KEY` | `madora-updater.key.pub` 的完整两行内容 |
+| `MADORA_UPDATER_PUBLIC_KEY` | `madora-updater.key.pub` 文件中的完整单行 Base64 内容；不要填解码后的两行文本 |
 
 工作流自身的默认 `GITHUB_TOKEN` 权限固定为 `contents: read`，只用于检出私有源码。`tauri-action` 的 `GITHUB_TOKEN` 环境变量实际接收 `MADORA_RELEASES_TOKEN`，并通过固定 `owner: Refinex-Space`、`repo: madora-site`、`releaseCommitish: main` 跨仓库创建 Release。不要把 Token 暴露给应用运行时或前端。
 
@@ -160,7 +160,9 @@ cd /Users/refinex/develop/project/madora
 MADORA_UPDATER_PUBLIC_KEY="$(cat ~/.tauri/madora-updater.key.pub)" pnpm release:prepare
 ```
 
-生成文件位于 `/Users/refinex/develop/project/madora/.tauri-build/tauri.release.generated.json`，已被 Git 忽略。检查它只包含 `madora-site` 的固定 HTTPS endpoint、公钥、`createUpdaterArtifacts: true`、macOS ad-hoc identity `-` 和 Windows passive 安装模式。不要提交该文件，也不要在终端打印私钥。
+该命令直接读取 Tauri 生成的 `.pub` 文件，不需要 `base64 --decode`。发布脚本会验证 Base64 解码后的 minisign 结构；为兼容旧配置，它也能接收完整两行 minisign 文本，但写入 Tauri 配置前仍会规范化为单行 Base64。GitHub Actions Variable 应始终使用 `.pub` 文件的原始单行内容。
+
+生成文件位于 `/Users/refinex/develop/project/madora/.tauri-build/tauri.release.generated.json`，已被 Git 忽略。检查它只包含 `madora-site` 的固定 HTTPS endpoint、单行 Base64 公钥、`createUpdaterArtifacts: true`、macOS ad-hoc identity `-` 和 Windows passive 安装模式。不要提交该文件，也不要在终端打印私钥或完整生成配置。
 
 ## 6. 创建发布 Tag
 

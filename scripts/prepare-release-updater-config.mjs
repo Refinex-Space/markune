@@ -30,7 +30,25 @@ export function validateReleaseVersion(packageVersion, tauriVersion, tagName) {
 }
 
 export function normalizeUpdaterPublicKey(value) {
-  const lines = String(value ?? '')
+  const rawValue = String(value ?? '').trim();
+  let minisignPublicKey;
+
+  if (rawValue.includes('\n') || rawValue.includes('\r')) {
+    minisignPublicKey = normalizeMinisignPublicKey(rawValue);
+  } else {
+    if (!isCanonicalBase64(rawValue)) {
+      throwInvalidUpdaterPublicKey();
+    }
+
+    const decodedValue = Buffer.from(rawValue, 'base64').toString('utf8');
+    minisignPublicKey = normalizeMinisignPublicKey(decodedValue);
+  }
+
+  return Buffer.from(minisignPublicKey, 'utf8').toString('base64');
+}
+
+function normalizeMinisignPublicKey(value) {
+  const lines = value
     .trim()
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -38,15 +56,32 @@ export function normalizeUpdaterPublicKey(value) {
 
   if (
     lines.length !== 2 ||
-    !lines[0].startsWith('untrusted comment:') ||
-    !/^RW[A-Za-z0-9+/=]{20,}$/.test(lines[1])
+    !lines[0].startsWith('untrusted comment: minisign public key:') ||
+    !lines[1].startsWith('RW') ||
+    lines[1].length < 22 ||
+    !isCanonicalBase64(lines[1])
   ) {
-    throw new Error(
-      'MADORA_UPDATER_PUBLIC_KEY must contain the complete two-line minisign public key.',
-    );
+    throwInvalidUpdaterPublicKey();
   }
 
   return `${lines[0]}\n${lines[1]}`;
+}
+
+function isCanonicalBase64(value) {
+  if (
+    !value ||
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)
+  ) {
+    return false;
+  }
+
+  return Buffer.from(value, 'base64').toString('base64') === value;
+}
+
+function throwInvalidUpdaterPublicKey() {
+  throw new Error(
+    'MADORA_UPDATER_PUBLIC_KEY must be the Base64 content of the Tauri-generated .key.pub file or a complete two-line minisign public key.',
+  );
 }
 
 export function createReleaseUpdaterConfig(publicKey) {
