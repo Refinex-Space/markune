@@ -1,3 +1,4 @@
+mod app_update;
 mod assets;
 mod codex;
 mod document_converter;
@@ -20,6 +21,7 @@ pub fn run() {
     let export_protocol_state = export_state.clone();
 
     tauri::Builder::default()
+        .manage(app_update::AppUpdateState::default())
         .manage(terminal::TerminalState::default())
         .manage(codex::CodexState::default())
         .manage(drawings::DrawingState::default())
@@ -37,7 +39,11 @@ pub fn run() {
         )
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            app_update::app_update_check,
+            app_update::app_update_install,
+            app_update::app_update_restart,
             assets::upload_workspace_asset,
             assets::resolve_workspace_asset,
             assets::resolve_workspace_assets,

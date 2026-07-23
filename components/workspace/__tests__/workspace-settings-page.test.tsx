@@ -4,11 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createWorkspaceSettingsSessionCache } from '../workspace-settings-cache';
 import { WorkspaceSettingsPage } from '../workspace-settings-page';
+import type { AppUpdateController } from '../use-app-update';
 import type { AppSettings } from '../workspace-types';
 
 const themeState = vi.hoisted(() => ({ setTheme: vi.fn() }));
 const workspaceApiState = vi.hoisted(() => ({
-  getMadoraVersion: vi.fn(() => Promise.resolve<string | null>('0.1.0')),
   isTauriRuntime: vi.fn(() => false),
   openUrlInDefaultBrowser: vi.fn(() => Promise.resolve()),
 }));
@@ -19,7 +19,6 @@ vi.mock('next-themes', () => ({
 
 vi.mock('../workspace-api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../workspace-api')>()),
-  getMadoraVersion: workspaceApiState.getMadoraVersion,
   isTauriRuntime: workspaceApiState.isTauriRuntime,
   openUrlInDefaultBrowser: workspaceApiState.openUrlInDefaultBrowser,
 }));
@@ -37,9 +36,24 @@ const initialSettings: AppSettings = {
   storage: { defaultProvider: 'local' },
 };
 
+const appUpdateController: AppUpdateController = {
+  available: false,
+  check: vi.fn(() => Promise.resolve()),
+  currentVersion: '0.1.0',
+  downloadedBytes: 0,
+  error: null,
+  install: vi.fn(() => Promise.resolve()),
+  lastCheckedAt: null,
+  phase: 'idle',
+  restart: vi.fn(() => Promise.resolve()),
+  totalBytes: null,
+  update: null,
+};
+
 function renderSettingsPage() {
   return render(
     <WorkspaceSettingsPage
+      appUpdate={appUpdateController}
       initialSettings={initialSettings}
       sessionCache={createWorkspaceSettingsSessionCache()}
       workspaceRootPath="D:/notes"
@@ -50,8 +64,19 @@ function renderSettingsPage() {
 
 describe('WorkspaceSettingsPage', () => {
   beforeEach(() => {
-    workspaceApiState.getMadoraVersion.mockClear();
-    workspaceApiState.getMadoraVersion.mockResolvedValue('0.1.0');
+    Object.assign(appUpdateController, {
+      available: false,
+      check: vi.fn(() => Promise.resolve()),
+      currentVersion: '0.1.0',
+      downloadedBytes: 0,
+      error: null,
+      install: vi.fn(() => Promise.resolve()),
+      lastCheckedAt: null,
+      phase: 'idle',
+      restart: vi.fn(() => Promise.resolve()),
+      totalBytes: null,
+      update: null,
+    } satisfies AppUpdateController);
     workspaceApiState.isTauriRuntime.mockReturnValue(false);
     workspaceApiState.openUrlInDefaultBrowser.mockClear();
   });
@@ -99,6 +124,7 @@ describe('WorkspaceSettingsPage', () => {
   it('uses the compact sidebar top inset below Windows titlebar controls', () => {
     render(
       <WorkspaceSettingsPage
+        appUpdate={appUpdateController}
         initialSettings={initialSettings}
         sessionCache={createWorkspaceSettingsSessionCache()}
         windowsChromeInset
@@ -130,16 +156,14 @@ describe('WorkspaceSettingsPage', () => {
     expect((await screen.findByTestId('madora-version')).textContent).toBe(
       '0.1.0',
     );
-    expect(workspaceApiState.getMadoraVersion).toHaveBeenCalledTimes(1);
   });
 
   it('shows an unavailable state when the runtime version cannot be read', async () => {
-    workspaceApiState.getMadoraVersion.mockRejectedValueOnce(
-      new Error('version unavailable'),
-    );
+    appUpdateController.currentVersion = null;
 
     render(
       <WorkspaceSettingsPage
+        appUpdate={appUpdateController}
         initialSectionId="version"
         initialSettings={initialSettings}
         sessionCache={createWorkspaceSettingsSessionCache()}
@@ -151,6 +175,67 @@ describe('WorkspaceSettingsPage', () => {
     expect((await screen.findByTestId('madora-version')).textContent).toBe(
       '版本信息不可用',
     );
+  });
+
+  it('shows release metadata and starts an explicitly selected update', async () => {
+    const user = userEvent.setup();
+    Object.assign(appUpdateController, {
+      available: true,
+      phase: 'available',
+      update: {
+        body: '修复导出稳定性问题。',
+        currentVersion: '0.1.0',
+        date: Date.UTC(2026, 6, 23, 8),
+        version: '0.1.1',
+      },
+    });
+
+    render(
+      <WorkspaceSettingsPage
+        appUpdate={appUpdateController}
+        initialSectionId="version"
+        initialSettings={initialSettings}
+        sessionCache={createWorkspaceSettingsSessionCache()}
+        workspaceRootPath="D:/notes"
+        onBack={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('0.1.1')).toBeTruthy();
+    expect(screen.getByText('修复导出稳定性问题。')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '下载并安装' }));
+    expect(appUpdateController.install).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the installed update in the explicit restart state', async () => {
+    const user = userEvent.setup();
+    Object.assign(appUpdateController, {
+      available: true,
+      phase: 'ready-to-restart',
+      update: {
+        body: null,
+        currentVersion: '0.1.0',
+        date: null,
+        version: '0.1.1',
+      },
+    });
+
+    render(
+      <WorkspaceSettingsPage
+        appUpdate={appUpdateController}
+        initialSectionId="version"
+        initialSettings={initialSettings}
+        sessionCache={createWorkspaceSettingsSessionCache()}
+        workspaceRootPath="D:/notes"
+        onBack={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: '检查更新' })).toBeNull();
+    await user.click(
+      screen.getByRole('button', { name: '重启并完成更新' }),
+    );
+    expect(appUpdateController.restart).toHaveBeenCalledTimes(1);
   });
 
   it('keeps storage and Git Sync information in structured cards', async () => {
@@ -217,6 +302,7 @@ describe('WorkspaceSettingsPage', () => {
 
     render(
       <WorkspaceSettingsPage
+        appUpdate={appUpdateController}
         initialSectionId="git-sync"
         initialSettings={initialSettings}
         sessionCache={sessionCache}

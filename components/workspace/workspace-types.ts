@@ -563,3 +563,26 @@ export interface TerminalErrorEvent {
   sessionId: string;
   message: string;
 }
+
+export interface AppUpdateRelease {
+  body: string | null;
+  currentVersion: string;
+  date: number | null;
+  version: string;
+}
+
+export interface AppUpdateCheckResult {
+  currentVersion: string;
+  update: AppUpdateRelease | null;
+}
+
+export type AppUpdateDownloadEvent =
+  | {
+      event: 'started';
+      data: { contentLength: number | null };
+    }
+  | {
+      event: 'progress';
+      data: { chunkLength: number };
+    }
+  | { event: 'finished' };

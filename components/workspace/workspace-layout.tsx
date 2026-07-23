@@ -94,6 +94,7 @@ import { useAiDrawingTools } from './use-ai-drawing-tools';
 import { drawingReferenceFromDescriptor } from './ai-drawing-inspector';
 import { useDrawingController } from './use-drawing-controller';
 import { useInboxController } from './use-inbox-controller';
+import { useAppUpdate } from './use-app-update';
 import { WorkspaceGlobalSearchDialog } from './workspace-global-search-dialog';
 import { useDocumentExport } from './use-document-export';
 import { useDocumentImport } from './use-document-import';
@@ -150,7 +151,10 @@ import {
   observeWorkspaceLongTasks,
   startWorkspacePerformanceMeasure,
 } from './workspace-performance';
-import { WorkspaceSettingsPage } from './workspace-settings-page';
+import {
+  WorkspaceSettingsPage,
+  type SettingsSectionId,
+} from './workspace-settings-page';
 import { createWorkspaceSettingsSessionCache } from './workspace-settings-cache';
 import { createTerminalOutputStore } from './terminal-output-store';
 import { WorkspaceResizeHandle } from './workspace-resize-handle';
@@ -333,7 +337,7 @@ export function WorkspaceLayout({
       AI_WORKSPACE_PREVIEW_WIDTH.max,
     );
   const [settingsInitialSectionId, setSettingsInitialSectionId] =
-    React.useState<'appearance' | 'storage' | 'git-sync'>('appearance');
+    React.useState<SettingsSectionId>('appearance');
   const [settingsVersion, setSettingsVersion] = React.useState(0);
   const [gitLogDetailWidth, setGitLogDetailWidth] = useStoredPanelWidth(
     WORKSPACE_PANEL_WIDTH_STORAGE_KEYS.gitLogDetailWidth,
@@ -673,6 +677,32 @@ export function WorkspaceLayout({
     active: systemPage === 'drawings' || effectiveRightPanelMode === 'ai',
     rootPath: workspaceRootPath,
   });
+  const flushActiveDrawing = drawings.flush;
+  const prepareForAppUpdateInstall = React.useCallback(async () => {
+    const confirmed = await confirmAction({
+      cancelLabel: '稍后更新',
+      confirmLabel: '保存并安装',
+      description:
+        'Madora 会先保存当前文档和图稿，再下载并验证更新包。Windows 安装时应用可能自动退出；macOS 安装完成后会提示重启。',
+      title: '安装 Madora 更新？',
+    });
+    if (!confirmed) return false;
+
+    if (!(await flushActiveMarkdownEditor('app-exit'))) {
+      throw new Error('当前文档未能安全保存，更新已取消。');
+    }
+
+    try {
+      await flushActiveDrawing();
+    } catch {
+      throw new Error('当前图稿未能安全保存，更新已取消。');
+    }
+
+    return true;
+  }, [confirmAction, flushActiveDrawing, flushActiveMarkdownEditor]);
+  const appUpdate = useAppUpdate({
+    onBeforeInstall: prepareForAppUpdateInstall,
+  });
   const openDrawingFromLibrary = drawings.openDrawing;
   const handleAiDrawingCreated = React.useCallback(
     async (drawing: { meta: { id: string } }) => {
@@ -771,7 +801,7 @@ export function WorkspaceLayout({
   const terminalOpen = bottomPanelMode === 'terminal';
 
   const openSettingsPage = React.useCallback(
-    (sectionId: 'appearance' | 'storage' | 'git-sync' = 'appearance') => {
+    (sectionId: SettingsSectionId = 'appearance') => {
       setSettingsInitialSectionId(sectionId);
       setSystemPage('settings');
     },
@@ -2801,6 +2831,7 @@ export function WorkspaceLayout({
       >
         {systemPage === 'settings' ? (
           <WorkspaceSettingsPage
+            appUpdate={appUpdate}
             header={
               <header
                 className="h-11 shrink-0"
@@ -2831,6 +2862,7 @@ export function WorkspaceLayout({
         <div className="flex min-w-0 flex-1 overflow-hidden">
             {leftPanelMode === 'workspace' ? (
               <WorkspaceSidebar
+                appUpdateAvailable={appUpdate.available}
                 dailyCalendar={
                   workspace.snapshot ? (
                     <DailyNoteCalendar
@@ -2883,7 +2915,7 @@ export function WorkspaceLayout({
                 onOpenGlobalSearch={openGlobalSearch}
                 onOpenViews={handleOpenViewsPage}
                 onOpenInFileManager={handleOpenNodeInFileManager}
-                onOpenSettings={() => openSettingsPage('appearance')}
+                onOpenSettings={openSettingsPage}
                 onRemoveWorkspace={handleRemoveWorkspace}
                 onDeleteNode={handleDeleteWorkspaceNode}
                 onRenameNode={handleRenameWorkspaceNode}

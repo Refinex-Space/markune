@@ -18,6 +18,17 @@ referenced_by: AGENTS.md#knowledge-map
 - 未经明确批准不得扩大文件系统、进程、shell、opener 或资源协议权限。
 - 终端和 Git 操作只可作用于已选择工作区根目录。
 
+## Release And Update
+
+- updater minisign 私钥及密码只能进入 GitHub Actions Secrets 或受控本机发布环境；公钥使用 Actions Variable。任何生成配置、构建日志、Release Notes 和前端状态都不得包含私钥。
+- 生产 endpoint 固定为公开 `Refinex-Space/madora-site` 的 GitHub Releases `latest.json` 且必须使用 HTTPS。私有 `madora` 仓库只负责构建，不能作为匿名客户端的下载源。渲染器不能提交 endpoint、公钥、headers、代理、target、降级比较器或安装参数。
+- 私有源码工作流的默认 `GITHUB_TOKEN` 只保留 `contents: read`。跨仓库发布只能使用仅授权 `Refinex-Space/madora-site` Contents read/write 的 `MADORA_RELEASES_TOKEN`；该 Secret 不得进入构建参数、应用环境、Release 资产或日志。
+- Rust 必须在内存中保存经检查得到的 pending update，并使用 Tauri updater 完成下载和签名校验；前端只接收元数据和进度。更新说明按纯文本渲染且在 Rust 限制为 32 KiB。
+- 检查、下载和安装必须串行。用户未确认、Markdown flush 失败或图稿 flush 失败时不得开始下载。自动检查不得演变为强制更新或静默安装。
+- updater minisign、macOS Developer ID/公证和 Windows Authenticode 是三种独立安全控制。当前早期分发阶段明确采用 macOS ad-hoc、无公证和 Windows 无 Authenticode，必须记录 Gatekeeper/SmartScreen 限制并做人工放行验收；不得把这种状态描述为受信任发行者。updater minisign 仍然强制启用，不能用系统签名缺失作为关闭理由。
+- 更新密钥轮换必须经过旧密钥签名的过渡版本；直接替换公钥会切断所有旧客户端。密钥泄露按安全事件处理，流程见 `docs/guides/release-and-update.md`。
+- 应用更新不得扩大 `capabilities/default.json`、文件系统、shell/process、opener 或资源协议权限。
+
 ## Codex Runtime
 
 - Codex App Server 必须由 Tauri 在本地通过 stdio 启动；不得监听 TCP，也不得把 API key、登录 Token 或认证响应传入 React state、local storage 或日志。

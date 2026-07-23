@@ -1,4 +1,6 @@
 import type {
+  AppUpdateCheckResult,
+  AppUpdateDownloadEvent,
   CreatedMarkdownDocument,
   AppSettings,
   DailyNoteDocument,
@@ -78,6 +80,37 @@ export async function getMadoraVersion() {
 
   const { getVersion } = await import('@tauri-apps/api/app');
   return getVersion();
+}
+
+export async function checkAppUpdate() {
+  if (!isTauriRuntime()) {
+    throw new Error('当前环境不支持应用更新。');
+  }
+
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<AppUpdateCheckResult>('app_update_check');
+}
+
+export async function installAppUpdate(
+  onEvent: (event: AppUpdateDownloadEvent) => void,
+) {
+  if (!isTauriRuntime()) {
+    throw new Error('当前环境不支持应用更新。');
+  }
+
+  const { Channel, invoke } = await import('@tauri-apps/api/core');
+  const channel = new Channel<AppUpdateDownloadEvent>();
+  channel.onmessage = onEvent;
+  return invoke<void>('app_update_install', { onEvent: channel });
+}
+
+export async function restartAppAfterUpdate() {
+  if (!isTauriRuntime()) {
+    throw new Error('当前环境不支持应用更新。');
+  }
+
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<void>('app_update_restart');
 }
 
 export function getRecentWorkspacePath() {

@@ -21,6 +21,14 @@ referenced_by: AGENTS.md#knowledge-map
 - `system_fonts.rs` 仅可返回字体家族名称与推荐元数据，不得暴露字体文件路径或内容。
 - 桌面端网络功能应走 Tauri 命令；生产桌面构建使用静态导出，不包含 Next API routes。
 
+## Application Update Commands
+
+- `app_update_check() -> AppUpdateCheckResult`：使用 Rust release 配置中的固定 endpoint 和公钥检查更新，返回当前版本及有界的版本、日期、纯文本说明；不得接受渲染器 URL、请求头、代理、target 或降级参数。
+- `app_update_install(onEvent: Channel<AppUpdateDownloadEvent>)`：只消费 Rust 内存中最近一次检查得到的 pending update，串行下载、验签并安装；事件只包含开始时的可选总字节数、分块字节数和下载完成标记。
+- `app_update_restart()`：只在前端已进入安装完成状态后调用 Tauri restart，不接受参数。
+
+检查和安装不能并发。安装失败会消费 pending update，用户必须重新检查，防止复用状态不明的下载任务。前端 bridge 只能位于 `workspace-api.ts`，不得直接使用 `@tauri-apps/plugin-updater` 绕过 Rust 边界。
+
 ## Codex App Server Bridge
 
 - Codex 协议封装位于 `components/workspace/codex-app-server.ts` 与 `src-tauri/src/codex.rs`；不得从 React 组件直接启动进程或写入 stdio。

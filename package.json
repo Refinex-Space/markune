@@ -13,6 +13,7 @@
     "import:stage": "node scripts/stage-document-import-runtime.mjs",
     "excalidraw:stage": "node scripts/stage-excalidraw-runtime.mjs",
     "runtime:stage": "pnpm import:stage && pnpm excalidraw:stage",
+    "release:prepare": "node scripts/prepare-release-updater-config.mjs",
     "start": "next start",
     "lint": "eslint",
     "harness:check": "python3 ops/harness/check-harness.py",

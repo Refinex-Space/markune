@@ -17,6 +17,7 @@ referenced_by: AGENTS.md#knowledge-map
 - `pnpm lint`：运行 ESLint。
 - `pnpm build`：先执行 `pnpm runtime:stage`，再运行 Next.js build。
 - `pnpm build:desktop:web`：运行 Tauri 静态导出。
+- `pnpm release:prepare`：校验 `package.json`、`tauri.conf.json` 与发布 Tag 版本一致，从 `MADORA_UPDATER_PUBLIC_KEY` 生成被 Git 忽略的 release-only Tauri updater 配置；不会读取或打印私钥。
 - `pnpm import:stage`：从锁定依赖复制 PDF.js/Tesseract Worker、PDF CMap/字体/WASM 和 `eng+chi_sim` OCR 模型到 `public/import-runtime`。该目录不进入 Git，也不参与 ESLint；文件缺失时脚本立即失败。
 - `pnpm excalidraw:stage`：从精确锁定的 `@excalidraw/excalidraw@0.18.1` 复制生产 CSS 和字体到 `public/excalidraw-runtime`。该目录不进入 Git；源文件缺失时脚本立即失败。
 
@@ -33,6 +34,9 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 - `MADORA_DOCUMENT_EXPORT_ENGINE=legacy`：运行时诊断/紧急回滚开关，使 PDF 与 Word 使用原兼容引擎；默认值和其他值都优先使用专业引擎。
 - `CODEX_HOME`：可选的共享 Codex 用户状态目录。未设置时 Madora 使用 `~/.codex`；显式值必须是工作区之外的既有绝对目录。Madora 会把解析后的值显式传给 App Server sidecar，以共享 ChatGPT/Codex CLI 的认证、配置、技能、MCP 与线程历史。
 - `CODEX_SQLITE_HOME`：不控制 Madora 启动的 sidecar。Madora 会从子进程环境移除此变量，并以 `-c sqlite_home="<CODEX_HOME>"` 固定 SQLite 投影目录，防止相对路径按工作区 `cwd` 解析或项目配置把运行时状态写入知识库。
+- `MADORA_UPDATER_PUBLIC_KEY`：只在发布构建时提供完整两行 minisign 公钥，由 `release:prepare` 写入 `.tauri-build/tauri.release.generated.json`。普通开发和 Web 构建不需要该变量。
+- `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`：只允许存在于 GitHub Actions Secrets 或受控本机发布环境，用于生成 updater artifact 签名；不得写入仓库、生成配置或日志。
+- `MADORA_RELEASES_TOKEN`：只允许存在于私有 `madora` 仓库的 GitHub Actions Secret；使用仅可写 `Refinex-Space/madora-site` Contents 的 fine-grained PAT，把私有源码构建产物上传到公开 Releases。它不是应用运行时环境变量，不得进入前端或安装包。
 
 ## Tauri Config
 
@@ -48,6 +52,7 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 - 多格式导入不新增文件协议或 capability。源文件访问只通过 `src-tauri/src/import.rs` 的限时授权与 Raw IPC；`assetProtocol.scope` 保持不变。
 - 画板不新增文件协议或 capability。图稿场景、预览和组件库只通过 `src-tauri/src/drawings.rs` 的受限 Raw IPC 传输；缩略图以可撤销 Blob URL 展示，`assetProtocol.scope` 保持不变。
 - `src-tauri/resources/skills/` 作为只读 Tauri bundle resource 随应用发布。运行时只解析其中的 `madora-diagram/SKILL.md` 根目录，不读取渲染器提供的 Skill 物理路径。
+- 基础 `src-tauri/tauri.conf.json` 不包含生产 updater endpoint 或公钥，避免本地开发构建误连生产更新服务。Tag 发布时 `scripts/prepare-release-updater-config.mjs` 生成 `.tauri-build/tauri.release.generated.json`，只注入 `Refinex-Space/madora-site` 的固定 GitHub Releases endpoint、公钥、updater artifacts、macOS ad-hoc identity `-` 和 Windows passive 模式。
 - Rust 侧 Tauri 依赖固定在 `2.11.x`，以约束 `with_webview` 平台类型；Windows 直接使用与当前 Wry 对齐的 `webview2-com 0.38.2`，macOS 使用 `objc2 0.6.4` 与 `objc2-*-kit 0.3.2`。Word 生成依赖精确锁定为 `docx 9.7.1`。
 
 ## Document Import Dependencies

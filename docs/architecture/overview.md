@@ -132,6 +132,14 @@ Markweave 只接收 frontmatter 解析后的正文；保存时必须重新序列
 
 Madora 的每次按键不得读取 `payload.markdown`、复制完整草稿到父级状态或产生资产 IPC。`?madoraPerf=1` 开启脱敏诊断，`window.__MadoraPerformanceReport()` 返回仅含数量、耗时、原因和状态的 JSON；不得记录正文或路径。Markweave 0.3 在大 Markdown 上使用安全标题边界的渐进解析、增量 TOC、轻量媒体 DOM NodeView、受控 `content-visibility` 与无事务级 React 重渲染。工作区以 LRU 方式保留最近 3 个已打开文档的 EditorView；切换 Tab 只改变可见性和活动编辑器 ref，关闭或超过上限才销毁实例，文档版本键必须在 live draft 与缓存 session 之间保持稳定。Madora 的 0.3 集成必须先通过本地 tarball 验证，npm 发布与 Madora 依赖升级仍是独立发布动作。
 
+## Desktop Update Boundary
+
+应用更新由 `components/workspace/use-app-update.ts` 统一持有状态：桌面启动 5 秒后自动检查，每 6 小时复查，并允许用户在设置页手动检查。检查到新版本只在左下角设置入口显示“更新”，不会自动下载；版本页以纯文本展示版本、日期和有界更新说明。用户明确选择安装后，工作区壳层先确认并 flush 当前 Markdown 与图稿，任一保存失败都取消安装。
+
+`src-tauri/src/app_update.rs` 是唯一 updater 边界。固定 endpoint 和 minisign 公钥只由 release build 生成配置注入；渲染器不能提供 URL、公钥、请求头、代理、target、降级策略或安装参数。Rust 保存当前已检查的 `Update`，串行执行下载、验签和安装，并通过 Tauri Channel 返回有界进度。macOS 安装完成后由用户显式重启；Windows 使用 passive NSIS 流程。该能力不向 `capabilities/default.json` 增加 updater 权限。
+
+私有 `Refinex-Space/madora` 是源码与构建边界，公开 `Refinex-Space/madora-site` 的 GitHub Releases 是安装器、签名和 `latest.json` 的权威分发源；GitHub Packages 不参与桌面更新。`.github/workflows/release.yml` 只在版本 Tag 上构建 macOS 两种原生架构和 Windows x64，并通过最小权限跨仓库 Token 在 `madora-site` 创建 draft Release。当前 macOS 使用 ad-hoc 签名且不公证，Windows 不做 Authenticode；两者都不能替代强制的 updater minisign。生产发布与密钥操作遵循 `docs/guides/release-and-update.md`。
+
 ## Desktop Build Boundary
 
 `scripts/stage-document-import-runtime.mjs` 在开发和构建前从锁定依赖复制 PDF Worker、CMap、标准字体、WASM、Tesseract Worker 与中英文模型到忽略版本控制的 `public/import-runtime`；任一源文件缺失都会使启动或构建失败。`scripts/build-tauri-web.mjs` 在 Tauri 静态导出时临时移出 `app/api`，设置 `NEXT_OUTPUT=export`，运行 Web build 后在 `finally` 中恢复。改动此流程时必须同时验证 Web build 与桌面静态导出。
