@@ -119,11 +119,11 @@ export function RightSidePanel({
       <aside
         aria-hidden={!aiVisible}
         className={cn(
-          'h-full min-h-0 min-w-0 overflow-hidden bg-background',
+          'min-h-0 min-w-0 overflow-hidden bg-background',
           aiVisible ? 'flex' : 'hidden',
           workspacePresentation
             ? 'absolute inset-x-px bottom-px top-[var(--workspace-main-header-height)] z-20 rounded-b-[11px]'
-            : 'shrink-0 rounded-xl border border-border/70',
+            : 'h-full shrink-0 rounded-xl border border-border/70',
         )}
         data-chrome={
           workspacePresentation ? 'workspace-ai-surface' : 'workspace-side-panel'
