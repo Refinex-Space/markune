@@ -13,6 +13,8 @@ on:
       - 'pnpm-workspace.yaml'
       - 'scripts/prepare-release-updater-config.mjs'
       - 'scripts/prepare-release-updater-config.test.mjs'
+      - 'scripts/verify-release-assets.mjs'
+      - 'scripts/verify-release-assets.test.mjs'
       - 'src-tauri/tauri.conf.json'
       - 'src-tauri/Cargo.toml'
       - 'src-tauri/Cargo.lock'
@@ -47,7 +49,7 @@ jobs:
         run: pnpm release:prepare
         env:
           MADORA_UPDATER_PUBLIC_KEY: ${{ vars.MADORA_UPDATER_PUBLIC_KEY }}
-      - run: node --test scripts/prepare-release-updater-config.test.mjs
+      - run: node --test scripts/prepare-release-updater-config.test.mjs scripts/verify-release-assets.test.mjs
       - run: pnpm exec vitest run components/workspace/__tests__/use-app-update.test.tsx components/workspace/__tests__/workspace-sidebar-update.test.tsx components/workspace/__tests__/workspace-settings-page.test.tsx
       - run: pnpm exec tsc --noEmit
       - run: pnpm lint
@@ -62,10 +64,10 @@ jobs:
         include:
           - label: macOS Apple Silicon
             runner: macos-15
-            bundles: dmg
+            bundles: app,dmg
           - label: macOS Intel
             runner: macos-15-intel
-            bundles: dmg
+            bundles: app,dmg
           - label: Windows x64
             runner: windows-latest
             bundles: nsis
@@ -122,3 +124,18 @@ jobs:
           updaterJsonPreferNsis: true
           uploadUpdaterJson: true
           uploadUpdaterSignatures: true
+
+  verify_release:
+    name: Verify draft release assets
+    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    needs: publish
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Verify complete cross-platform draft release
+        run: node scripts/verify-release-assets.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.MADORA_RELEASES_TOKEN }}

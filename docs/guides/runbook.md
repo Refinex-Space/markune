@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-23
+updated: 2026-07-24
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -203,7 +203,7 @@ pnpm build:desktop:web
 发布操作、GitHub Secrets/Variables、版本同步、Tag、draft Release、签名、N-1→N 验收和回滚统一遵循 `docs/guides/release-and-update.md`。聚焦自动化先执行：
 
 ```bash
-node --test scripts/prepare-release-updater-config.test.mjs
+node --test scripts/prepare-release-updater-config.test.mjs scripts/verify-release-assets.test.mjs
 pnpm exec vitest run components/workspace/__tests__/use-app-update.test.tsx components/workspace/__tests__/workspace-sidebar-update.test.tsx components/workspace/__tests__/workspace-settings-page.test.tsx
 cargo test --manifest-path src-tauri/Cargo.toml app_update
 pnpm exec tsc --noEmit

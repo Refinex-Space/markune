@@ -53,13 +53,29 @@ test('release workflow uses Node 24 and a non-broken pnpm release', async () => 
     'utf8',
   );
 
-  assert.equal(workflow.match(/actions\/checkout@v7/g)?.length, 2);
+  assert.equal(workflow.match(/actions\/checkout@v7/g)?.length, 3);
   assert.equal(workflow.match(/pnpm\/action-setup@v6/g)?.length, 2);
-  assert.equal(workflow.match(/actions\/setup-node@v7/g)?.length, 2);
+  assert.equal(workflow.match(/actions\/setup-node@v7/g)?.length, 3);
   assert.equal(workflow.match(/version: 11\.16\.0/g)?.length, 2);
-  assert.equal(workflow.match(/node-version: 24/g)?.length, 2);
+  assert.equal(workflow.match(/node-version: 24/g)?.length, 3);
   assert.doesNotMatch(workflow, /11\.12\.0/);
   assert.doesNotMatch(workflow, /node-version: 20/);
+});
+
+test('release workflow builds macOS updater bundles and gates the completed draft', async () => {
+  const workflow = await readFile(
+    new URL('../.github/workflows/release.yml', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(workflow.match(/bundles: app,dmg/g)?.length, 2);
+  assert.doesNotMatch(workflow, /bundles: dmg(?:\s|$)/);
+  assert.match(workflow, /verify_release:\s+name: Verify draft release assets/);
+  assert.match(workflow, /needs: publish/);
+  assert.match(workflow, /run: node scripts\/verify-release-assets\.mjs/);
+  assert.match(workflow, /GITHUB_TOKEN: \$\{\{ secrets\.MADORA_RELEASES_TOKEN \}\}/);
+  assert.match(workflow, /scripts\/verify-release-assets\.mjs/);
+  assert.match(workflow, /scripts\/verify-release-assets\.test\.mjs/);
 });
 
 test('release workflow verifies dev before tags and publishes only tags', async () => {
