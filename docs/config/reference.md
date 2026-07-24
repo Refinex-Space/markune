@@ -25,7 +25,7 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 - `pnpm runtime:stage`：依次准备文档导入与 Excalidraw 离线运行时，是 Web 开发和构建的统一前置步骤。
 - `pnpm harness:check`：运行仓库治理检查。
 
-私有仓库 `.github/workflows/release.yml` 的 verify 和 publish job 都固定使用 Node.js 24、pnpm 11.16.0、`actions/checkout@v7`、`actions/setup-node@v7` 与 `pnpm/action-setup@v6`。pnpm 11.12.0 是官方弃用的损坏发布，会让 `action-setup` 自安装失败；不得重新固定到 11.12.0。release 关键文件推送到 `dev` 或手工触发工作流时只运行 verify，publish 仅允许 `v*` Tag 执行。verify 在运行 Cargo 前必须执行 `pnpm codex:stage && pnpm document-export:stage`，因为 Tauri `externalBin` 会在构建脚本阶段校验当前 runner 的 Codex、Pandoc 和 Typst sidecar。
+私有仓库 `.github/workflows/release.yml` 的 verify 和 publish job 都固定使用 Node.js 24、pnpm 11.16.0、`actions/checkout@v7`、`actions/setup-node@v7` 与 `pnpm/action-setup@v6`。pnpm 11.12.0 是官方弃用的损坏发布，会让 `action-setup` 自安装失败；不得重新固定到 11.12.0。release 关键文件推送到 `dev` 或手工触发工作流时只运行 verify，publish 仅允许 `v*` Tag 执行。verify 在运行 Cargo 前必须执行 `pnpm codex:stage && pnpm document-export:stage`，因为 Tauri `externalBin` 会在构建脚本阶段校验当前 runner 的 Codex、Pandoc 和 Typst sidecar。标准私有 Linux runner 的 Rust 预检只运行当前承载实际测试的 library target，并固定使用 `--locked --jobs 1`、`CARGO_INCREMENTAL=0`、`CARGO_PROFILE_TEST_DEBUG=0` 和 45 分钟步骤超时；该约束用于降低冷构建的磁盘、链接内存和并发压力，不替代本机完整 `cargo test`。预检会先输出 CPU、内存和磁盘基线，Runner 失联时不得把未完成步骤视为测试通过。
 
 ## Environment Variables
 

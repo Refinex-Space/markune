@@ -81,6 +81,29 @@ test('release workflow verifies dev before tags and publishes only tags', async 
   );
 });
 
+test('release workflow bounds Rust verification for the standard private runner', async () => {
+  const workflow = await readFile(
+    new URL('../.github/workflows/release.yml', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(workflow, /name: Report Rust runner resources/);
+  assert.match(workflow, /nproc --all/);
+  assert.match(workflow, /free --human/);
+  assert.match(workflow, /df --human-readable \./);
+  assert.match(workflow, /name: Run Rust unit tests\s+timeout-minutes: 45/);
+  assert.match(workflow, /CARGO_INCREMENTAL: '0'/);
+  assert.match(workflow, /CARGO_PROFILE_TEST_DEBUG: '0'/);
+  assert.match(
+    workflow,
+    /cargo test --manifest-path src-tauri\/Cargo\.toml --lib --locked --jobs 1/,
+  );
+  assert.doesNotMatch(
+    workflow,
+    /run: cargo test --manifest-path src-tauri\/Cargo\.toml\s*$/m,
+  );
+});
+
 test('version validation requires package, Tauri, and tag versions to match', () => {
   assert.equal(validateReleaseVersion('1.2.3', '1.2.3', 'v1.2.3'), '1.2.3');
   assert.throws(

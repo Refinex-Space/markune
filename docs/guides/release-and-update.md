@@ -32,7 +32,7 @@ referenced_by: AGENTS.md#knowledge-map
 - 更新清单：`https://github.com/Refinex-Space/madora-site/releases/latest/download/latest.json`。
 - 构建目标：macOS Apple Silicon、macOS Intel、Windows x64。
 - 安装包：macOS DMG、Windows NSIS。由于 Codex、Pandoc、Typst sidecar 按架构打包，不生成 macOS universal DMG。
-- 发布工作流：私有仓库的 `.github/workflows/release.yml` 只响应 `v*` Tag，先验证源码，再并行原生构建，最终在公开仓库创建 draft Release。
+- 发布工作流：私有仓库的 `.github/workflows/release.yml` 在 release 关键文件推送到 `dev` 时只验证源码；`v*` Tag 才会在验证后并行原生构建，并在公开仓库创建 draft Release。
 - 更新签名：Tauri updater minisign 密钥。它保证更新包未被替换，不等同于 Apple Developer ID 或 Windows Authenticode 代码签名。
 - 当前系统签名阶段：macOS 使用 ad-hoc 签名且不公证；Windows 不做 Authenticode。两者均会产生系统信任警告，只适合当前早期分发阶段。
 - 用户策略：应用自动检查，但不自动下载或强制安装；用户从左下角“更新”入口查看说明并明确选择安装。
@@ -166,6 +166,8 @@ MADORA_UPDATER_PUBLIC_KEY="$(cat ~/.tauri/madora-updater.key.pub)" pnpm release:
 
 完成本地验证后，先提交并推送到私有 `madora` 的 `dev` 分支，不要立即创建 Tag。release 关键文件的 `dev` push 会自动触发 `Release Madora desktop`：`Verify release source` 会使用 GitHub Actions Variable 中的公钥执行 `release:prepare`，提前校验应用版本、updater 配置、pnpm 安装和测试；该 job 必须成功，`Build ...` 在分支预检中显示 skipped 是预期行为。只有该次运行的 `headSha` 与准备创建 Tag 的提交一致时，才能进入第 6 节。
 
+`GITHUB-APP` 的标准私有 Linux runner 资源低于开发机，Rust 预检因此使用 `cargo test --manifest-path src-tauri/Cargo.toml --lib --locked --jobs 1`，并关闭增量编译和 test profile 调试信息。当前实际 Rust 测试都在 library target；本机仍执行上方完整 `cargo test`，不能用 CI 的收窄命令替代本地发布验证。工作流会在 Rust 测试前输出 CPU、内存和磁盘基线，并为该步骤设置 45 分钟超时。若页面显示 `The hosted runner lost communication with the server`、Rust 步骤没有完成时间或后置清理未执行，该次预检属于失败，不是测试通过；不要创建 Tag，也不要仅凭重跑偶然成功就忽略资源问题。
+
 ## 6. 创建发布 Tag
 
 执行位置：`APP-LOCAL`。确认版本变更、发布说明和验证结果已经提交到私有 `madora` 的目标分支后执行：
@@ -274,7 +276,9 @@ npx --yes pnpm@11.16.0 check:static
 
 ## 10. 故障、撤回与回滚
 
-- `GITHUB-APP` 验证阶段在创建公开 Tag/draft 前失败：保留失败的私有源码 Tag 作为审计记录；在 `APP-LOCAL` 修复源码与工作流、提升 SemVer、提交到目标分支，再创建更高版本 Tag。不要移动或复用失败 Tag。
+- `GITHUB-APP` 的 `dev` 分支预检在创建 Tag 前失败：此时没有需要保留的发布 Tag。在 `APP-LOCAL` 修复源码或工作流，保持当前尚未使用的应用版本，提交并推送到 `dev`；只有同一 commit 的新预检成功后才创建 Tag。
+- `GITHUB-APP` 的 `v*` Tag 工作流失败：保留失败的私有源码 Tag 作为审计记录；在 `APP-LOCAL` 修复源码与工作流、提升 SemVer、提交到目标分支，再创建更高版本 Tag。不要移动或复用失败 Tag。
+- `GITHUB-APP` 的 Rust 步骤超过 45 分钟、Runner 失联或资源基线异常：保持未完成状态为失败，不创建 Tag。先检查该步开始前的 `free --human`、`df --human-readable .` 输出；修复资源占用并通过新的 `dev` 预检。不要通过删除测试、关闭 updater 签名或跳过 Tauri sidecar 校验来换取成功。
 - `GITHUB-SITE` draft 失败：保持 draft，不发布；回到 `GITHUB-APP` 查看失败任务，在 `APP-LOCAL` 修复源码后重新运行工作流，先确认不会复用错误签名资产。
 - `GITHUB-APP` 中 `MADORA_RELEASES_TOKEN` 失效或权限不足：保持源码 Tag，不手工改用宽权限 Token；在 `GITHUB-ACCOUNT` 更新最小权限 Token，再回到 `GITHUB-APP` 更新 Secret 并重新运行失败任务。
 - `SITE-LOCAL` 链接错误：先停止部署网站，不移动或复制安装包；按第 9.2 节修正 `site.config.ts` 并重新执行站点五项验证。

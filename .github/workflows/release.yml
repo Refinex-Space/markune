@@ -58,7 +58,17 @@ jobs:
       - run: pnpm exec vitest run components/workspace/__tests__/use-app-update.test.tsx components/workspace/__tests__/workspace-sidebar-update.test.tsx components/workspace/__tests__/workspace-settings-page.test.tsx
       - run: pnpm exec tsc --noEmit
       - run: pnpm lint
-      - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Report Rust runner resources
+        run: |
+          nproc --all
+          free --human
+          df --human-readable .
+      - name: Run Rust unit tests
+        timeout-minutes: 45
+        env:
+          CARGO_INCREMENTAL: '0'
+          CARGO_PROFILE_TEST_DEBUG: '0'
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib --locked --jobs 1
 
   publish:
     name: Build ${{ matrix.label }}
