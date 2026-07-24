@@ -30,6 +30,17 @@ test('release config contains only the fixed HTTPS updater endpoint', () => {
   assert.equal(config.bundle.macOS.signingIdentity, '-');
 });
 
+test('base Tauri config keeps updater inert but structurally valid for local development', async () => {
+  const tauriConfig = JSON.parse(
+    await readFile(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8'),
+  );
+
+  assert.deepEqual(tauriConfig.plugins?.updater, {
+    endpoints: [],
+    pubkey: '',
+  });
+});
+
 test('release workflow publishes to the public distribution repository without OS signing secrets', async () => {
   const workflow = await readFile(
     new URL('../.github/workflows/release.yml', import.meta.url),

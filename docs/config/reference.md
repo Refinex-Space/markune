@@ -54,7 +54,7 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 - 多格式导入不新增文件协议或 capability。源文件访问只通过 `src-tauri/src/import.rs` 的限时授权与 Raw IPC；`assetProtocol.scope` 保持不变。
 - 画板不新增文件协议或 capability。图稿场景、预览和组件库只通过 `src-tauri/src/drawings.rs` 的受限 Raw IPC 传输；缩略图以可撤销 Blob URL 展示，`assetProtocol.scope` 保持不变。
 - `src-tauri/resources/skills/` 作为只读 Tauri bundle resource 随应用发布。运行时只解析其中的 `madora-diagram/SKILL.md` 根目录，不读取渲染器提供的 Skill 物理路径。
-- 基础 `src-tauri/tauri.conf.json` 不包含生产 updater endpoint 或公钥，避免本地开发构建误连生产更新服务。Tag 发布时 `scripts/prepare-release-updater-config.mjs` 生成 `.tauri-build/tauri.release.generated.json`，只注入 `Refinex-Space/madora-site` 的固定 GitHub Releases endpoint、公钥、updater artifacts、macOS ad-hoc identity `-` 和 Windows passive 模式。
+- 基础 `src-tauri/tauri.conf.json` 使用 `endpoints: []` 与空 `pubkey` 保留结构有效但不可用的 updater 配置，使本地开发和未附加 release override 的构建可以初始化插件、但不会连接更新服务。Tag 发布时 `scripts/prepare-release-updater-config.mjs` 生成 `.tauri-build/tauri.release.generated.json`，只注入 `Refinex-Space/madora-site` 的固定 GitHub Releases endpoint、公钥、updater artifacts、macOS ad-hoc identity `-` 和 Windows passive 模式。
 - Rust 侧 Tauri 依赖固定在 `2.11.x`，以约束 `with_webview` 平台类型；Windows 直接使用与当前 Wry 对齐的 `webview2-com 0.38.2`，macOS 使用 `objc2 0.6.4` 与 `objc2-*-kit 0.3.2`。Word 生成依赖精确锁定为 `docx 9.7.1`。
 
 ## Document Import Dependencies
