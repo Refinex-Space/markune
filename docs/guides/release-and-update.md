@@ -164,9 +164,9 @@ MADORA_UPDATER_PUBLIC_KEY="$(cat ~/.tauri/madora-updater.key.pub)" pnpm release:
 
 生成文件位于 `/Users/refinex/develop/project/madora/.tauri-build/tauri.release.generated.json`，已被 Git 忽略。检查它只包含 `madora-site` 的固定 HTTPS endpoint、单行 Base64 公钥、`createUpdaterArtifacts: true`、macOS ad-hoc identity `-` 和 Windows passive 安装模式。不要提交该文件，也不要在终端打印私钥或完整生成配置。
 
-完成本地验证后，先提交并推送到私有 `madora` 的 `dev` 分支，不要立即创建 Tag。release 关键文件的 `dev` push 会自动触发 `Release Madora desktop`：`Verify release source` 会使用 GitHub Actions Variable 中的公钥执行 `release:prepare`，提前校验应用版本、updater 配置、pnpm 安装和测试；该 job 必须成功，`Build ...` 在分支预检中显示 skipped 是预期行为。只有该次运行的 `headSha` 与准备创建 Tag 的提交一致时，才能进入第 6 节。
+完成本地验证后，先提交并推送到私有 `madora` 的 `dev` 分支，不要立即创建 Tag。release 关键文件的 `dev` push 会自动触发 `Release Madora desktop`：`Verify release source` 会使用 GitHub Actions Variable 中的公钥执行 `release:prepare`，校验应用版本、updater 配置、pnpm 安装、发布脚本、更新前端测试、TypeScript 和 Lint；该 job 必须成功，`Build ...` 在分支预检中显示 skipped 是预期行为。只有该次运行的 `headSha` 与准备创建 Tag 的提交一致时，才能进入第 6 节。
 
-`GITHUB-APP` 的标准私有 Linux runner 资源低于开发机，Rust 预检因此使用 `cargo test --manifest-path src-tauri/Cargo.toml --lib --locked --jobs 1`，并关闭增量编译和 test profile 调试信息。当前实际 Rust 测试都在 library target；本机仍执行上方完整 `cargo test`，不能用 CI 的收窄命令替代本地发布验证。工作流会在 Rust 测试前输出 CPU、内存和磁盘基线，并为该步骤设置 45 分钟超时。若页面显示 `The hosted runner lost communication with the server`、Rust 步骤没有完成时间或后置清理未执行，该次预检属于失败，不是测试通过；不要创建 Tag，也不要仅凭重跑偶然成功就忽略资源问题。
+`Verify release source` 不安装 Rust toolchain 或 Linux Tauri 依赖，不准备 sidecar，也不执行 `cargo test`/`cargo check`。这是发布配置门禁，不是通用 Rust CI；标准私有 Linux runner 的 Tauri 冷编译曾超过 45 分钟并在取消期间失联，因此不得把完整 Rust 构建重新塞回该 job。本节开头的本机完整 `cargo test` 仍是创建 Tag 前的强制门禁，不能跳过或替换。Tag publish 使用 macOS/Windows 原生 Runner，`tauri build` 会通过 `beforeBuildCommand` 准备 Codex、Pandoc 和 Typst sidecar，并完成三个发布目标的生产编译。
 
 ## 6. 创建发布 Tag
 
@@ -278,7 +278,7 @@ npx --yes pnpm@11.16.0 check:static
 
 - `GITHUB-APP` 的 `dev` 分支预检在创建 Tag 前失败：此时没有需要保留的发布 Tag。在 `APP-LOCAL` 修复源码或工作流，保持当前尚未使用的应用版本，提交并推送到 `dev`；只有同一 commit 的新预检成功后才创建 Tag。
 - `GITHUB-APP` 的 `v*` Tag 工作流失败：保留失败的私有源码 Tag 作为审计记录；在 `APP-LOCAL` 修复源码与工作流、提升 SemVer、提交到目标分支，再创建更高版本 Tag。不要移动或复用失败 Tag。
-- `GITHUB-APP` 的 Rust 步骤超过 45 分钟、Runner 失联或资源基线异常：保持未完成状态为失败，不创建 Tag。先检查该步开始前的 `free --human`、`df --human-readable .` 输出；修复资源占用并通过新的 `dev` 预检。不要通过删除测试、关闭 updater 签名或跳过 Tauri sidecar 校验来换取成功。
+- `APP-LOCAL` 的完整 Rust 测试失败：停止发布，不创建 Tag；修复 Rust 代码后重新执行第 5 节全部本地验证。不要把 Cargo 冷构建重新加入 release verify，也不要通过删除测试、关闭 updater 签名或跳过 publish 的 Tauri sidecar staging 来换取成功。
 - `GITHUB-SITE` draft 失败：保持 draft，不发布；回到 `GITHUB-APP` 查看失败任务，在 `APP-LOCAL` 修复源码后重新运行工作流，先确认不会复用错误签名资产。
 - `GITHUB-APP` 中 `MADORA_RELEASES_TOKEN` 失效或权限不足：保持源码 Tag，不手工改用宽权限 Token；在 `GITHUB-ACCOUNT` 更新最小权限 Token，再回到 `GITHUB-APP` 更新 Secret 并重新运行失败任务。
 - `SITE-LOCAL` 链接错误：先停止部署网站，不移动或复制安装包；按第 9.2 节修正 `site.config.ts` 并重新执行站点五项验证。

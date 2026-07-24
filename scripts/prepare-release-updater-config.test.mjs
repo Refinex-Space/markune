@@ -43,11 +43,6 @@ test('release workflow publishes to the public distribution repository without O
   assert.match(workflow, /releaseCommitish: main/);
   assert.match(workflow, /github\.sha/);
   assert.equal(workflow.match(/run: pnpm release:prepare/g)?.length, 2);
-  assert.equal(
-    workflow.match(/run: pnpm codex:stage && pnpm document-export:stage/g)
-      ?.length,
-    1,
-  );
   assert.doesNotMatch(workflow, /secrets\.GITHUB_TOKEN/);
   assert.doesNotMatch(workflow, /APPLE_/);
 });
@@ -81,27 +76,33 @@ test('release workflow verifies dev before tags and publishes only tags', async 
   );
 });
 
-test('release workflow bounds Rust verification for the standard private runner', async () => {
-  const workflow = await readFile(
-    new URL('../.github/workflows/release.yml', import.meta.url),
-    'utf8',
+test('release verification avoids a Linux Tauri cold build while native builds stage sidecars', async () => {
+  const [workflow, tauriConfig] = await Promise.all([
+    readFile(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8'),
+    readFile(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8'),
+  ]);
+  const verifyJob = workflow.slice(
+    workflow.indexOf('  verify:'),
+    workflow.indexOf('\n  publish:'),
   );
 
-  assert.match(workflow, /name: Report Rust runner resources/);
-  assert.match(workflow, /nproc --all/);
-  assert.match(workflow, /free --human/);
-  assert.match(workflow, /df --human-readable \./);
-  assert.match(workflow, /name: Run Rust unit tests\s+timeout-minutes: 45/);
-  assert.match(workflow, /CARGO_INCREMENTAL: '0'/);
-  assert.match(workflow, /CARGO_PROFILE_TEST_DEBUG: '0'/);
-  assert.match(
-    workflow,
-    /cargo test --manifest-path src-tauri\/Cargo\.toml --lib --locked --jobs 1/,
+  assert.doesNotMatch(verifyJob, /dtolnay\/rust-toolchain/);
+  assert.doesNotMatch(verifyJob, /apt-get/);
+  assert.doesNotMatch(verifyJob, /cargo (?:test|check|build)/);
+  assert.doesNotMatch(verifyJob, /pnpm codex:stage/);
+  assert.match(workflow, /dtolnay\/rust-toolchain@stable/);
+  assert.match(workflow, /tauri-apps\/tauri-action@v1/);
+
+  const parsedTauriConfig = JSON.parse(tauriConfig);
+  assert.equal(
+    parsedTauriConfig.build.beforeBuildCommand,
+    'pnpm codex:stage && pnpm document-export:stage && pnpm build:desktop:web',
   );
-  assert.doesNotMatch(
-    workflow,
-    /run: cargo test --manifest-path src-tauri\/Cargo\.toml\s*$/m,
-  );
+  assert.deepEqual(parsedTauriConfig.bundle.externalBin, [
+    'binaries/codex',
+    'binaries/pandoc',
+    'binaries/typst',
+  ]);
 });
 
 test('version validation requires package, Tauri, and tag versions to match', () => {

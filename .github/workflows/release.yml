@@ -42,14 +42,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install Tauri Linux test dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: pnpm install --frozen-lockfile
-      - name: Stage Tauri sidecars required by Cargo
-        run: pnpm codex:stage && pnpm document-export:stage
       - name: Verify release configuration
         run: pnpm release:prepare
         env:
@@ -58,17 +51,6 @@ jobs:
       - run: pnpm exec vitest run components/workspace/__tests__/use-app-update.test.tsx components/workspace/__tests__/workspace-sidebar-update.test.tsx components/workspace/__tests__/workspace-settings-page.test.tsx
       - run: pnpm exec tsc --noEmit
       - run: pnpm lint
-      - name: Report Rust runner resources
-        run: |
-          nproc --all
-          free --human
-          df --human-readable .
-      - name: Run Rust unit tests
-        timeout-minutes: 45
-        env:
-          CARGO_INCREMENTAL: '0'
-          CARGO_PROFILE_TEST_DEBUG: '0'
-        run: cargo test --manifest-path src-tauri/Cargo.toml --lib --locked --jobs 1
 
   publish:
     name: Build ${{ matrix.label }}
