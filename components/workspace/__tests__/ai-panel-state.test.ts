@@ -20,6 +20,151 @@ import {
 } from '../ai-panel-state';
 
 describe('AI panel event reducer', () => {
+  it('在活动 turn 尚无 item 时立即生成等待响应的处理轨迹', () => {
+    const state = reduceCodexProtocolMessage(createEmptyConversation(), {
+      method: 'turn/started',
+      params: {
+        turn: { id: 'turn-waiting', status: 'inProgress', startedAt: 10 },
+      },
+    });
+
+    expect(buildConversationBlocks(state)).toContainEqual(
+      expect.objectContaining({
+        id: 'trace-turn-waiting',
+        segments: [],
+        status: 'inProgress',
+        turnId: 'turn-waiting',
+        type: 'trace',
+      }),
+    );
+  });
+
+  it('投影 Codex 自动重试通知，并在恢复响应或最终失败时更新状态', () => {
+    let state = reduceCodexProtocolMessage(createEmptyConversation(), {
+      method: 'turn/started',
+      params: {
+        threadId: 'thread-1',
+        turn: { id: 'turn-error', status: 'inProgress' },
+      },
+    });
+    state = reduceCodexProtocolMessage(state, {
+      method: 'error',
+      params: {
+        error: {
+          additionalDetails: 'upstream unavailable',
+          codexErrorInfo: 'serverOverloaded',
+          message: 'server is overloaded',
+        },
+        threadId: 'thread-1',
+        turnId: 'turn-error',
+        willRetry: true,
+      },
+    });
+
+    expect(state.turns['turn-error'].error).toEqual({
+      additionalDetails: 'upstream unavailable',
+      codexErrorInfo: 'serverOverloaded',
+      message: 'server is overloaded',
+      willRetry: true,
+    });
+    expect(buildConversationBlocks(state)).toContainEqual(
+      expect.objectContaining({
+        status: 'retrying',
+        turnId: 'turn-error',
+        type: 'turnError',
+      }),
+    );
+
+    state = reduceCodexProtocolMessage(state, {
+      method: 'item/started',
+      params: {
+        item: { id: 'message-recovered', text: '', type: 'agentMessage' },
+        turnId: 'turn-error',
+      },
+    });
+    expect(state.turns['turn-error'].error).toBeNull();
+
+    state = reduceCodexProtocolMessage(state, {
+      method: 'turn/completed',
+      params: {
+        threadId: 'thread-1',
+        turn: {
+          error: {
+            additionalDetails: null,
+            codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: 502 } },
+            message: 'stream disconnected',
+          },
+          id: 'turn-error',
+          status: 'failed',
+        },
+      },
+    });
+
+    expect(state.turns['turn-error']).toMatchObject({
+      error: {
+        message: 'stream disconnected',
+        willRetry: false,
+      },
+      status: 'failed',
+    });
+    expect(buildConversationBlocks(state)).toContainEqual(
+      expect.objectContaining({
+        status: 'failed',
+        turnId: 'turn-error',
+        type: 'turnError',
+      }),
+    );
+  });
+
+  it('恢复历史失败 turn 的错误，并为缺少详情的失败提供兜底', () => {
+    const withError = conversationFromThread({
+      createdAt: 0,
+      cwd: '/workspace',
+      id: 'thread-error',
+      name: '失败任务',
+      preview: '',
+      status: 'idle',
+      turns: [
+        {
+          error: {
+            additionalDetails: 'request id: req-1',
+            codexErrorInfo: 'usageLimitExceeded',
+            message: 'usage limit exceeded',
+          },
+          id: 'turn-history-error',
+          items: [],
+          status: 'failed',
+        },
+      ],
+      updatedAt: 0,
+    });
+    const withoutError = conversationFromThread({
+      createdAt: 0,
+      cwd: '/workspace',
+      id: 'thread-fallback',
+      name: '旧任务',
+      preview: '',
+      status: 'idle',
+      turns: [{ id: 'turn-no-error', items: [], status: 'failed' }],
+      updatedAt: 0,
+    });
+
+    expect(buildConversationBlocks(withError)).toContainEqual(
+      expect.objectContaining({
+        message: 'usage limit exceeded',
+        status: 'failed',
+        type: 'turnError',
+      }),
+    );
+    expect(buildConversationBlocks(withoutError)).toContainEqual(
+      expect.objectContaining({
+        message: 'Codex 未能完成本次响应。',
+        status: 'failed',
+        type: 'turnError',
+      }),
+    );
+  });
+
   it('合并流式助手消息', () => {
     const first = reduceCodexProtocolMessage(createEmptyConversation(), {
       method: 'item/agentMessage/delta',

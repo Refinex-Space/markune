@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-23
+updated: 2026-07-24
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -77,6 +77,10 @@ Codex 运行时在工作区根目录就绪后后台预热，关闭右侧 AI 面�
 Codex 同时提供右侧紧凑面板和主工作区两种展示形态，但两者必须复用同一个持续挂载的 `AiPanel` 实例；从左侧固定的“Codex”入口进入主工作区时，只切换 presentation，不新建运行时、线程或消息状态，也不清空当前文档与已打开标签。主工作区中的文档动作先打开右侧只读预览检查器，不立即替换编辑器当前文档；预览优先使用当前未保存草稿或已缓存编辑器 session，否则通过既有 `readMarkdownDocument` 读取磁盘内容。用户只有显式选择“在编辑器中打开”时，才把该文档提升为普通编辑器标签。预览宽度只保存在浏览器 local storage，不属于工作区或 AI 会话状态。
 
 会话渲染保留 App Server 的 `Turn -> Item` 层级。`agentMessage.phase=commentary`、工具活动、计划和上下文压缩组成可折叠的处理过程，`phase=final_answer` 保持为独立最终回答；未提供 phase 的旧消息按普通助手消息兼容。连续工具只在视图投影层分组，底层有序 item 不重排。命令输出增量、文件 patch、MCP progress、耗时、退出码和审批请求都更新原 item；历史恢复使用同一映射逻辑。内部 reasoning 不进入界面，命令输出只保留有界首尾预览，避免大输出占用无界内存。
+
+用户提交采用本地乐观投递：通过同步输入校验后，前端立即把用户消息以 `sending` 状态写入当前会话投影、清空输入编辑区并恢复视口跟随，然后才等待核心运行时、当前文档或图稿 flush、`thread/start` 与 `turn/start`。消息快照包含原始文字、原子提及、附件元数据和预览；附件的 opaque 授权在 `turn/start` 被 App Server 接受前不能释放。预发送阶段任一步失败时，同一条消息转为 `failed`，错误显示在消息旁，并从快照恢复输入内容、提及和附件；不得回滚整段会话或把该错误重复写入全局 `runtimeError`。接受成功后消息关联真实 `turnId` 并转为 `sent`，此时才清理附件授权和预览。没有任何 item 的活动 turn 仍投影一个“正在处理，等待 Codex 响应”的空处理轨迹，首个 commentary、工具或流式回答到达后由同一 turn 轨迹自然接管，不创建第二个等待状态。
+
+任务错误是会话协议状态而不是全局运行时错误。实时 `error` 通知按 `turnId` 保存结构化的 `message`、`additionalDetails`、`codexErrorInfo` 与 `willRetry`；`willRetry=true` 显示非终态的自动重试提示，后续 item、delta、plan 或 diff 进度会清除该提示。`turn/completed.status=failed` 以 `turn.error` 作为最终权威错误并显示红色卡片；`thread/read` 历史使用同一解析规则，旧失败 turn 缺少详情时使用统一兜底。界面只对已知错误类型提供中文摘要，原始字段保留在可展开、可复制的技术详情中。`runtimeError` 仅用于 App Server 启动、登录、线程控制和其他非消息投递操作，避免同一发送或 turn 错误在会话与面板底部重复展示。
 
 上下文用量只消费 App Server 的 `thread/tokenUsage/updated`：输入框显示 `last.totalTokens / modelContextWindow`，累计的 `total.totalTokens` 不作为当前窗口占比。最新用量按 thread ID 保留在面板运行时内存中，用于线程恢复通知与界面切换，不写入 Madora 数据库、local storage 或会话副本。手动压缩只调用受控的 `thread/compact/start { threadId }`，并以 `contextCompaction` item 的 started/completed 生命周期展示状态；旧 `thread/compacted` 仅作完成兼容。自动压缩阈值及触发时机由 Codex Core 和 `model_auto_compact_token_limit` 配置所有，Madora 不创建第二套阈值、定时器或重试循环。
 

@@ -78,12 +78,19 @@ export interface CodexThread {
 }
 
 export interface CodexTurn {
+  error?: CodexTurnError | null;
   id: string;
   status: string;
   items: CodexThreadItem[];
   startedAt?: number | null;
   completedAt?: number | null;
   durationMs?: number | null;
+}
+
+export interface CodexTurnError {
+  additionalDetails?: string | null;
+  codexErrorInfo?: unknown;
+  message: string;
 }
 
 export interface CodexTokenUsageBreakdown {
