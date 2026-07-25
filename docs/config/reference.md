@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-24
+updated: 2026-07-25
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -24,6 +24,8 @@ referenced_by: AGENTS.md#knowledge-map
 AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由于其 Mermaid DOM 解析器与 `mermaid@11.15.0` 会把 class、ER 和 state 图降级为 SVG image，`pnpm-workspace.yaml` 只对该依赖的内部 Mermaid 锁定为 `11.12.1`；应用自身的 `mermaid@11.15.0` 不降级。升级任一版本时必须在真实浏览器重新验证五类图型均返回零 files 的可编辑元素。
 - `pnpm runtime:stage`：依次准备文档导入与 Excalidraw 离线运行时，是 Web 开发和构建的统一前置步骤。
 - `pnpm harness:check`：运行仓库治理检查。
+
+`pnpm-workspace.yaml` 的 `minimumReleaseAgeExclude` 只豁免 Madora 已完成源码、发布包和真实桌面验收的 Markweave 版本。升级 `markweave` 与 `@markweave/react` 时必须同步更新两个版本范围，并保持二者版本一致，避免刚发布的受控版本在全新安装中被 pnpm 发布年龄策略拒绝。
 
 私有仓库 `.github/workflows/release.yml` 的 verify 和 publish job 都固定使用 Node.js 24、pnpm 11.16.0、`actions/checkout@v7`、`actions/setup-node@v7` 与 `pnpm/action-setup@v6`。pnpm 11.12.0 是官方弃用的损坏发布，会让 `action-setup` 自安装失败；不得重新固定到 11.12.0。release 关键文件推送到 `dev` 或手工触发工作流时只运行 verify，publish 仅允许 `v*` Tag 执行。verify 只校验版本/updater 配置、发布脚本、Release 资产校验器、更新前端测试、TypeScript 和 Lint，不安装 Rust toolchain 或 Linux Tauri 依赖，不准备 sidecar，也不执行 Cargo 冷构建。完整 `cargo test --manifest-path src-tauri/Cargo.toml` 是 `APP-LOCAL` 创建 Tag 前的强制门禁；Tag 触发的 publish job 使用目标平台原生 Runner，Tauri `beforeBuildCommand` 会准备 Codex、Pandoc、Typst sidecar 并完成生产构建。macOS 必须同时构建 `app,dmg`：DMG 用于手工安装，app bundle 用于生成 updater 的 `.app.tar.gz` 与 `.sig`。三个原生构建完成后，`verify_release` 必须使用最小权限 `MADORA_RELEASES_TOKEN` 读取公开仓库的 draft，核对 9 个固定资产、6 个 updater target、签名内容，并拒绝 Release 正文或 `latest.json.notes` 暴露私有源码仓库、Git commit SHA 或内部验收指令；任何缺失或内部信息泄露都会让工作流失败。源码与二进制的对应关系只由私有源码 Tag 和 `GITHUB-APP` workflow run 的 `headSha` 在内部追溯。
 
