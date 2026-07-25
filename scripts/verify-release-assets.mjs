@@ -45,6 +45,22 @@ const REQUIRED_UPDATER_PLATFORMS = Object.freeze({
   },
 });
 
+const PRIVATE_RELEASE_BODY_PATTERNS = Object.freeze([
+  /Refinex-Space\/madora(?=$|[\s`/#?])/i,
+  /私有\s*`?madora`?\s*仓库/i,
+  /构建来源\s*[:：]/,
+  /正式发布前必须/,
+  /(?:commit|提交)[^\n]{0,80}\b[0-9a-f]{7,64}\b/i,
+]);
+
+function containsPrivateSourceMetadata(value, expectedSourceSha) {
+  return (
+    typeof value === 'string' &&
+    (value.includes(expectedSourceSha) ||
+      PRIVATE_RELEASE_BODY_PATTERNS.some((pattern) => pattern.test(value)))
+  );
+}
+
 const scriptPath = fileURLToPath(import.meta.url);
 
 export function validateReleaseSnapshot({
@@ -88,8 +104,11 @@ export function validateReleaseSnapshot({
       `release target must be madora-site main, received ${String(release.target_commitish)}`,
     );
   }
-  if (typeof release.body !== 'string' || !release.body.includes(expectedSourceSha)) {
-    errors.push('release body does not contain the private source commit');
+  const releaseBody = typeof release.body === 'string' ? release.body : '';
+  if (releaseBody.trim().length === 0) {
+    errors.push('release body must contain user-visible release notes');
+  } else if (containsPrivateSourceMetadata(releaseBody, expectedSourceSha)) {
+    errors.push('release body must not expose private source metadata');
   }
 
   const assets = Array.isArray(release.assets) ? release.assets : [];
@@ -142,6 +161,13 @@ export function validateReleaseSnapshot({
       Number.isNaN(Date.parse(latestJson.pub_date))
     ) {
       errors.push('latest.json pub_date must be a valid RFC 3339 timestamp');
+    }
+    const latestNotes =
+      typeof latestJson.notes === 'string' ? latestJson.notes : '';
+    if (latestNotes.trim().length === 0) {
+      errors.push('latest.json notes must contain user-visible release notes');
+    } else if (containsPrivateSourceMetadata(latestNotes, expectedSourceSha)) {
+      errors.push('latest.json notes must not expose private source metadata');
     }
 
     const platforms =

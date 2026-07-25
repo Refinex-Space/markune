@@ -37,7 +37,7 @@ referenced_by: AGENTS.md#knowledge-map
 - 当前系统签名阶段：macOS 使用 ad-hoc 签名且不公证；Windows 不做 Authenticode。两者均会产生系统信任警告，只适合当前早期分发阶段。
 - 用户策略：应用自动检查，但不自动下载或强制安装；用户从左下角“更新”入口查看说明并明确选择安装。
 
-`madora-site` 必须是有 `main` 分支和至少一个提交的公开仓库。Draft 发布时创建的公开 Tag 会指向该仓库的 `main`，但 Release 正文必须记录私有源码 commit，确保二进制可追溯。安装包只作为 Release Assets 上传，不提交到网站 Git 历史或 `public/` 目录。
+`madora-site` 必须是有 `main` 分支和至少一个提交的公开仓库。Draft 发布时创建的公开 Tag 会指向该仓库的 `main`。Release 正文及由其生成的应用内更新说明只能包含用户可见内容，不得出现私有源码仓库、Git commit SHA、私有 workflow 地址或内部验收指令。二进制可追溯性由同版本私有源码 Tag 和 `GITHUB-APP` 对应 workflow run 的 `headSha` 保证，这些信息只保留在内部发布记录。安装包只作为 Release Assets 上传，不提交到网站 Git 历史或 `public/` 目录。
 
 只有已发布且不是 prerelease 的 Release 才会成为 `/releases/latest`。Draft 阶段可以由已登录且有权限的维护者通过其 `untagged-*` 地址安全检查资产，但普通访客、官网使用的公开 Releases API 和生产客户端都不会把它识别为新版本。
 
@@ -199,11 +199,11 @@ git push origin v0.1.12
 
 - 三个构建任务均成功：macOS Apple Silicon、macOS Intel、Windows x64；最终 `Verify draft release assets` 也必须成功。
 - Draft 的 `tag_name`、标题版本与私有源码 Tag 一致；公开 Git Tag 在 Draft 发布后再检查。
-- Release 正文记录了触发构建的私有源码 commit；把对应私有 workflow run URL 写入内部发布记录，不公开内部日志。
+- 在 `GITHUB-APP` 核对私有源码 Tag、workflow run 的 `headSha` 和本次发布版本一致，并把 workflow run URL 保留在内部发布记录；不要复制到公开 Release Notes。
 - 资产必须精确包含 9 个文件：`Madora_aarch64.dmg`、`Madora_aarch64.app.tar.gz`、`Madora_aarch64.app.tar.gz.sig`、`Madora_x64.dmg`、`Madora_x64.app.tar.gz`、`Madora_x64.app.tar.gz.sig`、`Madora_x64-setup.exe`、`Madora_x64-setup.exe.sig`、`latest.json`。
 - `latest.json` 的版本必须与 Tag 一致；`darwin-aarch64`、`darwin-aarch64-app`、`darwin-x86_64`、`darwin-x86_64-app`、`windows-x86_64`、`windows-x86_64-nsis` 六个 target 必须完整，URL 必须指向当前 Draft 的对应 updater asset，签名必须与对应 `.sig` 内容一致。
 - 安装包名称由 `Madora_[arch][setup][ext]` 固定模式生成；官网按公开 Releases API、架构别名和扩展名动态匹配，不为每个版本硬编码 `/releases/latest/download/<文件名>`。
-- Release Notes 只包含本版本用户可感知变化、升级注意事项和已知限制，不写内部密钥或本地路径。
+- Release Notes 只包含本版本用户可感知变化、升级注意事项、支持平台和已知限制，不得写入私有仓库信息、Git commit SHA、私有 workflow 地址、内部验收指令、密钥、Token 或本地路径。应用会把该正文作为更新说明展示给用户。
 
 操作系统签名验收必须与 updater minisign 分开：
 
@@ -235,7 +235,33 @@ macOS Apple Silicon、macOS Intel、Windows x64 必须分别验收，不能互�
 
 ### 9.1 发布 Release
 
-执行位置：`GITHUB-SITE`。完成 draft 验收后，在 `https://github.com/Refinex-Space/madora-site/releases` 打开本版本 draft，补全用户可见 Release Notes，然后点击发布。发布后在浏览器验证：
+执行位置：`GITHUB-SITE`。完成 draft 验收后，在 `https://github.com/Refinex-Space/madora-site/releases` 打开本版本 draft，按实际用户可感知变化补全 Release Notes，然后点击发布。工作流生成的默认正文是公开安全的兜底说明，不包含内部追溯信息；正式发布前仍应将“本次更新”改成本版本的真实内容。可使用以下公开模板，替换版本和条目后删除所有占位符：
+
+```markdown
+## Madora vX.Y.Z
+
+### 本次更新
+
+- <用户可感知的功能或体验改进>
+- <本版本修复的问题>
+
+### 支持平台
+
+- macOS Apple Silicon
+- macOS Intel
+- Windows x64
+
+### 升级提示
+
+安装前请保存当前工作。Madora 不会静默下载或强制安装更新。
+
+### 已知限制
+
+- macOS 版本当前未进行 Apple 公证，首次启动可能需要在“系统设置 → 隐私与安全性”中手动允许。
+- Windows 安装包当前未使用 Authenticode 签名，安装时可能出现 SmartScreen 或“未知发布者”提示。
+```
+
+发布后在浏览器验证：
 
 ```text
 https://github.com/Refinex-Space/madora-site/releases/latest
@@ -277,6 +303,7 @@ npx --yes pnpm@11.16.0 check:static
 - `GITHUB-APP` 中 `MADORA_RELEASES_TOKEN` 失效或权限不足：保持源码 Tag，不手工改用宽权限 Token；在 `GITHUB-ACCOUNT` 更新最小权限 Token，再回到 `GITHUB-APP` 更新 Secret 并重新运行失败任务。
 - `SITE-LOCAL` 链接错误：先停止部署网站，不移动或复制安装包；按第 9.2 节修正 `site.config.ts` 并重新执行站点五项验证。
 - `GITHUB-SITE` 已发布版本存在严重缺陷：立即在 Release Notes 标记并让 `SITE-LOCAL` 停止推荐；在 `APP-LOCAL` 提升 SemVer，按完整流程发布热修复。不要依赖降级，因为 updater 默认只接受更高版本。
+- `GITHUB-SITE` 已发布版本的更新说明包含内部信息：编辑 GitHub Release 正文不会自动改写已经上传的 `latest.json.notes`，不能把只改正文视为修复完成。优先在 `APP-LOCAL` 使用已修正的工作流发布更高补丁版本，使生产 `/releases/latest/download/latest.json` 切换到公开安全的说明；同时编辑旧 Release 正文，清除公开页面中的内部信息。若组织要求连旧版本资产也彻底清理，必须在明确维护窗口内只替换该版本的 `latest.json`，除 `notes` 外保持版本、发布日期、六个平台 URL 和签名原样，并在替换后重新执行第 7 节资产校验；该操作会短暂移除更新清单，不得未经单独确认执行。
 - 删除或改回旧的 latest Release 不能修复已经安装坏版本的用户，也可能造成 endpoint 短暂不一致；优先从 `APP-LOCAL` 发布更高版本热修复。
 - 单个平台资产错误：不得在 `GITHUB-SITE` 手工替换同名二进制而沿用旧 `.sig`/`latest.json`。必须从 `APP-LOCAL` 修复并重新生成匹配的 updater artifact、签名和清单，再完成三平台验收。
 - 更新私钥疑似泄露：立即停止 `GITHUB-APP` 发布并按安全事件处理。密钥轮换不能直接替换，因为旧客户端固定信任旧公钥；需要先用旧密钥从 `APP-LOCAL` 发布一个嵌入新公钥的过渡版本，确认覆盖率后才切换新私钥。旧私钥不可用时，无法通过原 updater 安全迁移，只能要求用户手工安装新版本。
@@ -288,8 +315,8 @@ npx --yes pnpm@11.16.0 check:static
 | 证据 | 保存位置 |
 | --- | --- |
 | 用户可见版本、更新内容、已知限制、安装说明 | `GITHUB-SITE` 对应版本的 Release Notes |
-| 私有源码 commit、源码 Tag、三平台构建结果和 workflow 日志 | `GITHUB-APP` 对应 `Release Madora desktop` workflow run；Release Notes 同时保留工作流自动写入的源码 commit SHA |
-| `latest.json` target、URL、签名检查结果 | `GITHUB-SITE` 对应 Release Assets；在 Release Notes 的维护者验收段记录结论，不粘贴私钥或敏感日志 |
+| 私有源码 commit、源码 Tag、三平台构建结果和 workflow 日志 | 仅保存在 `GITHUB-APP` 对应 `Release Madora desktop` workflow run 和组织内部发布记录；不得复制到公开 Release Notes、`latest.json` 或应用更新说明 |
+| `latest.json` target、URL、签名检查结果 | `GITHUB-SITE` 对应 Release Assets 及 `GITHUB-APP` 的 `Verify draft release assets` 结果；Release Notes 只写用户需要了解的兼容性或限制，不粘贴内部校验详情 |
 | macOS ad-hoc/Gatekeeper、Windows `NotSigned`/SmartScreen、三平台安装结果 | `GITHUB-SITE` Release Notes 的“验收与已知限制”段；失败时不得发布 |
 | N-1→N 更新结果 | `GITHUB-SITE` Release Notes 的“更新验收”段；首次发布明确写“不适用：无 N-1” |
 | 官网下载链接和静态构建结果 | `SITE-LOCAL` 的提交记录，以及对应 `madora-site` GitHub Actions/部署记录（若该仓库尚未配置部署工作流，则保留本机五项验证结果并在提交说明中注明） |

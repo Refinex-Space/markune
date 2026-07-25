@@ -41,10 +41,14 @@ test('base Tauri config keeps updater inert but structurally valid for local dev
   });
 });
 
-test('release workflow publishes to the public distribution repository without OS signing secrets', async () => {
+test('release workflow publishes public-safe notes without OS signing secrets', async () => {
   const workflow = await readFile(
     new URL('../.github/workflows/release.yml', import.meta.url),
     'utf8',
+  );
+  const releaseBody = workflow.slice(
+    workflow.indexOf('          releaseBody: |'),
+    workflow.indexOf('          releaseCommitish: main'),
   );
 
   assert.match(workflow, /contents: read/);
@@ -52,7 +56,9 @@ test('release workflow publishes to the public distribution repository without O
   assert.match(workflow, /owner: Refinex-Space/);
   assert.match(workflow, /repo: madora-site/);
   assert.match(workflow, /releaseCommitish: main/);
-  assert.match(workflow, /github\.sha/);
+  assert.match(releaseBody, /本版本包含功能改进、体验优化和问题修复/);
+  assert.doesNotMatch(releaseBody, /github\.sha/);
+  assert.doesNotMatch(releaseBody, /构建来源|私有 madora 仓库|正式发布前必须/);
   assert.equal(workflow.match(/run: pnpm release:prepare/g)?.length, 2);
   assert.doesNotMatch(workflow, /secrets\.GITHUB_TOKEN/);
   assert.doesNotMatch(workflow, /APPLE_/);

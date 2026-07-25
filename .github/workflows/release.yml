@@ -110,11 +110,19 @@ jobs:
           prerelease: false
           releaseAssetNamePattern: Madora_[arch][setup][ext]
           releaseBody: |
-            Madora ${{ github.ref_name }} 安装包与自动更新资源。
+            ## Madora ${{ github.ref_name }}
 
-            构建来源：私有 madora 仓库 commit `${{ github.sha }}`。
+            本版本包含功能改进、体验优化和问题修复。
 
-            正式发布前必须补充用户可见的更新说明并完成手册中的验收。
+            ### 支持平台
+
+            - macOS Apple Silicon
+            - macOS Intel
+            - Windows x64
+
+            ### 升级提示
+
+            安装前请保存当前工作。Madora 不会静默下载或强制安装更新。
           releaseCommitish: main
           releaseDraft: true
           releaseName: Madora v__VERSION__

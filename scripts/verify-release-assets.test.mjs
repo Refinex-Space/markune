@@ -36,7 +36,7 @@ function createValidSnapshot() {
 
   return {
     release: {
-      body: `Madora ${tag}\n\n构建来源：私有 madora 仓库 commit \`${sourceSha}\`。`,
+      body: `## Madora ${tag}\n\n本版本包含功能改进、体验优化和问题修复。`,
       draft: true,
       name: 'Madora v0.1.12',
       prerelease: false,
@@ -143,11 +143,10 @@ test('rejects updater URLs or signatures that do not match release assets', () =
   );
 });
 
-test('rejects a published, prerelease, or untraceable release', () => {
+test('rejects a published or prerelease release', () => {
   const snapshot = createValidSnapshot();
   snapshot.release.draft = false;
   snapshot.release.prerelease = true;
-  snapshot.release.body = 'missing source commit';
 
   assert.throws(
     () =>
@@ -159,9 +158,61 @@ test('rejects a published, prerelease, or untraceable release', () => {
     (error) => {
       assert.match(error.message, /must remain a draft/);
       assert.match(error.message, /must not be a prerelease/);
-      assert.match(error.message, /source commit/);
       return true;
     },
+  );
+});
+
+test('rejects private source metadata in user-visible release notes', () => {
+  const snapshot = createValidSnapshot();
+  snapshot.release.body = [
+    `Madora ${tag} 安装包与自动更新资源。`,
+    '',
+    `构建来源：私有 madora 仓库 commit \`${sourceSha}\`。`,
+    '',
+    '正式发布前必须补充用户可见的更新说明并完成手册中的验收。',
+  ].join('\n');
+
+  assert.throws(
+    () =>
+      validateReleaseSnapshot({
+        ...snapshot,
+        expectedSourceSha: sourceSha,
+        expectedTag: tag,
+      }),
+    /release body must not expose private source metadata/,
+  );
+});
+
+test('rejects private source metadata in latest.json notes', () => {
+  const snapshot = createValidSnapshot();
+  snapshot.latestJson.notes = `构建来源：私有 madora 仓库 commit \`${sourceSha}\`。`;
+
+  assert.throws(
+    () =>
+      validateReleaseSnapshot({
+        ...snapshot,
+        expectedSourceSha: sourceSha,
+        expectedTag: tag,
+      }),
+    /latest\.json notes must not expose private source metadata/,
+  );
+});
+
+test('allows the public madora-site release URL in user-visible release notes', () => {
+  const snapshot = createValidSnapshot();
+  snapshot.release.body = [
+    `## Madora ${tag}`,
+    '',
+    '下载地址：https://github.com/Refinex-Space/madora-site/releases',
+  ].join('\n');
+
+  assert.doesNotThrow(() =>
+    validateReleaseSnapshot({
+      ...snapshot,
+      expectedSourceSha: sourceSha,
+      expectedTag: tag,
+    }),
   );
 });
 
