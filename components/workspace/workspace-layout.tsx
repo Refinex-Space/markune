@@ -564,6 +564,7 @@ export function WorkspaceLayout({
     [workspace.draftDocument, workspace.rightPanelMode],
   );
   const isTauriRuntime = useIsTauriRuntime();
+  const isMacRuntime = useIsMacRuntime();
   const isWindowsRuntime = useIsWindowsRuntime();
 
   React.useEffect(() => {
@@ -2937,7 +2938,12 @@ export function WorkspaceLayout({
               />
             ) : workspace.isSidebarCollapsed ? null : (
               <div
-                className="my-2 ml-2 min-h-0 shrink-0"
+                className={cn(
+                  'min-h-0 shrink-0',
+                  isTauriRuntime && isMacRuntime
+                    ? 'mt-10 [&>aside]:rounded-none [&>aside]:border-0 [&>aside]:bg-transparent'
+                    : 'my-2 ml-2',
+                )}
                 data-testid="workspace-git-panel-column"
                 style={{ width: leftSidebarWidth }}
               >
@@ -3469,6 +3475,36 @@ function getTauriRuntimeSnapshot() {
 }
 
 function getServerTauriRuntimeSnapshot() {
+  return false;
+}
+
+function useIsMacRuntime() {
+  return React.useSyncExternalStore(
+    subscribeToStaticRuntimeSnapshot,
+    getMacRuntimeSnapshot,
+    getServerMacRuntimeSnapshot,
+  );
+}
+
+function getMacRuntimeSnapshot() {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const navigatorWithUserAgentData = navigator as Navigator & {
+    userAgentData?: { platform?: string };
+  };
+  const platform =
+    navigatorWithUserAgentData.userAgentData?.platform ??
+    navigator.platform ??
+    '';
+
+  return (
+    /mac/i.test(platform) || /macintosh|mac os x/i.test(navigator.userAgent)
+  );
+}
+
+function getServerMacRuntimeSnapshot() {
   return false;
 }
 

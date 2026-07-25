@@ -63,14 +63,23 @@ describe('Windows workspace titlebar', () => {
       .toBeLessThan(workspaceLayoutSource.indexOf('<RightSidePanel'));
   });
 
-  it('insets the Git panel from the top, left and bottom workspace edges', () => {
+  it('keeps the Git panel below macOS window controls without changing other runtimes', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
 
     expect(workspaceLayoutSource).toContain(
-      'className="my-2 ml-2 min-h-0 shrink-0"',
+      "'min-h-0 shrink-0'",
+    );
+    expect(workspaceLayoutSource).toContain(
+      "'mt-10 [&>aside]:rounded-none [&>aside]:border-0 [&>aside]:bg-transparent'",
+    );
+    expect(workspaceLayoutSource).toContain(
+      ": 'my-2 ml-2'",
     );
     expect(workspaceLayoutSource).toContain(
       'data-testid="workspace-git-panel-column"',
+    );
+    expect(workspaceLayoutSource).not.toContain(
+      "'mb-2 ml-2 min-h-0 shrink-0'",
     );
   });
 
