@@ -136,6 +136,12 @@ test('promotion workflow uses protected OIDC and pinned Alibaba tooling', async 
     workflow,
     /3ae4d9fc85a7a6e9f5654d1599766f1a3a42a3692870887b5ae9338d582ef65a/,
   );
+  assert.match(workflow, /minisign-0\.12-linux\.tar\.gz/);
+  assert.match(
+    workflow,
+    /9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73/,
+  );
+  assert.doesNotMatch(workflow, /apt-get/);
   assert.match(workflow, /scripts\/print-oidc-claims\.mjs/);
   assert.doesNotMatch(workflow, /ACCESS_KEY_ID|ACCESS_KEY_SECRET/);
 });
