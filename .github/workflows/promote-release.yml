@@ -1,0 +1,84 @@
+name: Promote Madora release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing Madora source tag and GitHub draft release (vX.Y.Z)
+        required: true
+        type: string
+      print_oidc_claims:
+        description: Print only validated iss, aud, and sub claims
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: promote-production-release
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Promote to Shanghai OSS and publish
+    runs-on: ubuntu-22.04
+    environment: production-release
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Validate distribution variables
+        run: node --input-type=module -e "import('./scripts/release-distribution.mjs').then(({validateDistributionEnvironment}) => validateDistributionEnvironment())"
+        env:
+          MADORA_OSS_BUCKET: ${{ vars.MADORA_OSS_BUCKET }}
+          MADORA_OSS_ENDPOINT: ${{ vars.MADORA_OSS_ENDPOINT }}
+          MADORA_OSS_OIDC_PROVIDER_ARN: ${{ vars.MADORA_OSS_OIDC_PROVIDER_ARN }}
+          MADORA_OSS_PUBLIC_BASE_URL: ${{ vars.MADORA_OSS_PUBLIC_BASE_URL }}
+          MADORA_OSS_REGION: ${{ vars.MADORA_OSS_REGION }}
+          MADORA_OSS_ROLE_ARN: ${{ vars.MADORA_OSS_ROLE_ARN }}
+      - name: Obtain Alibaba Cloud temporary credentials through OIDC
+        uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6 # v1
+        with:
+          audience: sts.aliyuncs.com
+          oidc-provider-arn: ${{ vars.MADORA_OSS_OIDC_PROVIDER_ARN }}
+          role-session-expiration: 3600
+          role-session-name: madora-production-release
+          role-to-assume: ${{ vars.MADORA_OSS_ROLE_ARN }}
+      - name: Print safe OIDC claims
+        if: inputs.print_oidc_claims
+        run: node scripts/print-oidc-claims.mjs
+      - name: Install pinned ossutil and minisign
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            --output "$RUNNER_TEMP/ossutil.zip" \
+            https://gosspublic.alicdn.com/ossutil/v2/2.3.0/ossutil-2.3.0-linux-amd64.zip
+          echo "3ae4d9fc85a7a6e9f5654d1599766f1a3a42a3692870887b5ae9338d582ef65a  $RUNNER_TEMP/ossutil.zip" | sha256sum --check --strict
+          unzip -q "$RUNNER_TEMP/ossutil.zip" -d "$RUNNER_TEMP/ossutil-package"
+          mkdir -p "$RUNNER_TEMP/ossutil-bin"
+          install -m 0755 "$RUNNER_TEMP/ossutil-package/ossutil-2.3.0-linux-amd64/ossutil" "$RUNNER_TEMP/ossutil-bin/ossutil"
+          echo "$RUNNER_TEMP/ossutil-bin" >> "$GITHUB_PATH"
+          sudo apt-get update
+          sudo apt-get install --yes minisign
+      - name: Promote verified release
+        shell: bash
+        run: |
+          set -euo pipefail
+          export MADORA_SOURCE_SHA="$(git rev-parse HEAD)"
+          node scripts/promote-release-distribution.mjs --tag "${{ inputs.tag }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.MADORA_RELEASES_TOKEN }}
+          MADORA_OSS_BUCKET: ${{ vars.MADORA_OSS_BUCKET }}
+          MADORA_OSS_ENDPOINT: ${{ vars.MADORA_OSS_ENDPOINT }}
+          MADORA_OSS_OIDC_PROVIDER_ARN: ${{ vars.MADORA_OSS_OIDC_PROVIDER_ARN }}
+          MADORA_OSS_PUBLIC_BASE_URL: ${{ vars.MADORA_OSS_PUBLIC_BASE_URL }}
+          MADORA_OSS_REGION: ${{ vars.MADORA_OSS_REGION }}
+          MADORA_OSS_ROLE_ARN: ${{ vars.MADORA_OSS_ROLE_ARN }}
+          MADORA_UPDATER_PUBLIC_KEY: ${{ vars.MADORA_UPDATER_PUBLIC_KEY }}
