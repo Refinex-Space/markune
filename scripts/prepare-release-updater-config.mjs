@@ -2,8 +2,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const UPDATER_ENDPOINT =
-  'https://github.com/Refinex-Space/madora-site/releases/latest/download/latest.json';
+export const GITHUB_UPDATER_FALLBACK_ENDPOINT =
+  'https://github.com/Refinex-Space/madora-site/releases/latest/download/latest-github.json';
 
 const scriptPath = fileURLToPath(import.meta.url);
 const projectRoot = dirname(dirname(scriptPath));
@@ -84,7 +84,43 @@ function throwInvalidUpdaterPublicKey() {
   );
 }
 
-export function createReleaseUpdaterConfig(publicKey) {
+export function normalizeOssPublicBaseUrl(value) {
+  const rawValue = String(value ?? '').trim();
+  let url;
+
+  try {
+    url = new URL(rawValue);
+  } catch {
+    throwInvalidOssPublicBaseUrl();
+  }
+
+  if (
+    url.protocol !== 'https:' ||
+    url.username ||
+    url.password ||
+    url.port ||
+    url.search ||
+    url.hash ||
+    url.pathname !== '/' ||
+    !/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]\.oss-cn-shanghai\.aliyuncs\.com$/.test(
+      url.hostname,
+    )
+  ) {
+    throwInvalidOssPublicBaseUrl();
+  }
+
+  return `https://${url.hostname}`;
+}
+
+function throwInvalidOssPublicBaseUrl() {
+  throw new Error(
+    'MADORA_OSS_PUBLIC_BASE_URL must be the HTTPS public domain of a cn-shanghai OSS bucket without a path, query, fragment, port, or credentials.',
+  );
+}
+
+export function createReleaseUpdaterConfig(publicKey, ossPublicBaseUrl) {
+  const primaryEndpoint = `${normalizeOssPublicBaseUrl(ossPublicBaseUrl)}/updates/stable/latest.json`;
+
   return {
     bundle: {
       createUpdaterArtifacts: true,
@@ -94,7 +130,7 @@ export function createReleaseUpdaterConfig(publicKey) {
     },
     plugins: {
       updater: {
-        endpoints: [UPDATER_ENDPOINT],
+        endpoints: [primaryEndpoint, GITHUB_UPDATER_FALLBACK_ENDPOINT],
         pubkey: normalizeUpdaterPublicKey(publicKey),
         windows: {
           installMode: 'passive',
@@ -118,7 +154,10 @@ export async function prepareReleaseUpdaterConfig({
     tauriConfig.version,
     tagName,
   );
-  const config = createReleaseUpdaterConfig(env.MADORA_UPDATER_PUBLIC_KEY);
+  const config = createReleaseUpdaterConfig(
+    env.MADORA_UPDATER_PUBLIC_KEY,
+    env.MADORA_OSS_PUBLIC_BASE_URL,
+  );
   const outputPath = join(root, '.tauri-build', 'tauri.release.generated.json');
 
   await mkdir(dirname(outputPath), { recursive: true });

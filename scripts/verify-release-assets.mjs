@@ -1,49 +1,18 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import {
+  BUILD_RELEASE_ASSET_NAMES,
+  UPDATER_TARGETS,
+} from './release-distribution.mjs';
+
 const DISTRIBUTION_OWNER = 'Refinex-Space';
 const DISTRIBUTION_REPO = 'madora-site';
 const GITHUB_API_ROOT = 'https://api.github.com';
 const REQUEST_TIMEOUT_MS = 30_000;
 
-export const EXPECTED_RELEASE_ASSET_NAMES = Object.freeze([
-  'Madora_aarch64.dmg',
-  'Madora_aarch64.app.tar.gz',
-  'Madora_aarch64.app.tar.gz.sig',
-  'Madora_x64.dmg',
-  'Madora_x64.app.tar.gz',
-  'Madora_x64.app.tar.gz.sig',
-  'Madora_x64-setup.exe',
-  'Madora_x64-setup.exe.sig',
-  'latest.json',
-]);
-
-const REQUIRED_UPDATER_PLATFORMS = Object.freeze({
-  'darwin-aarch64': {
-    assetName: 'Madora_aarch64.app.tar.gz',
-    signatureName: 'Madora_aarch64.app.tar.gz.sig',
-  },
-  'darwin-aarch64-app': {
-    assetName: 'Madora_aarch64.app.tar.gz',
-    signatureName: 'Madora_aarch64.app.tar.gz.sig',
-  },
-  'darwin-x86_64': {
-    assetName: 'Madora_x64.app.tar.gz',
-    signatureName: 'Madora_x64.app.tar.gz.sig',
-  },
-  'darwin-x86_64-app': {
-    assetName: 'Madora_x64.app.tar.gz',
-    signatureName: 'Madora_x64.app.tar.gz.sig',
-  },
-  'windows-x86_64': {
-    assetName: 'Madora_x64-setup.exe',
-    signatureName: 'Madora_x64-setup.exe.sig',
-  },
-  'windows-x86_64-nsis': {
-    assetName: 'Madora_x64-setup.exe',
-    signatureName: 'Madora_x64-setup.exe.sig',
-  },
-});
+export const EXPECTED_RELEASE_ASSET_NAMES = BUILD_RELEASE_ASSET_NAMES;
+const REQUIRED_UPDATER_PLATFORMS = UPDATER_TARGETS;
 
 const PRIVATE_RELEASE_BODY_PATTERNS = Object.freeze([
   /Refinex-Space\/madora(?=$|[\s`/#?])/i,

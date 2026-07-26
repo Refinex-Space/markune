@@ -6,9 +6,10 @@ import test from 'node:test';
 
 import {
   createReleaseUpdaterConfig,
+  GITHUB_UPDATER_FALLBACK_ENDPOINT,
+  normalizeOssPublicBaseUrl,
   normalizeUpdaterPublicKey,
   prepareReleaseUpdaterConfig,
-  UPDATER_ENDPOINT,
   validateReleaseVersion,
 } from './prepare-release-updater-config.mjs';
 
@@ -16,18 +17,39 @@ const minisignPublicKey =
   'untrusted comment: minisign public key: 0123456789ABCDEF\nRWRmYWRvcmFVcGRhdGVyUHVibGljS2V5MDEyMzQ1Njc4OQ==';
 const publicKey = Buffer.from(minisignPublicKey, 'utf8').toString('base64');
 
-test('release config contains only the fixed HTTPS updater endpoint', () => {
-  const config = createReleaseUpdaterConfig(publicKey);
+const ossPublicBaseUrl =
+  'https://madora-releases-example.oss-cn-shanghai.aliyuncs.com';
+
+test('release config uses Shanghai OSS first and GitHub as metadata fallback', () => {
+  const config = createReleaseUpdaterConfig(publicKey, ossPublicBaseUrl);
 
   assert.equal(
-    UPDATER_ENDPOINT,
-    'https://github.com/Refinex-Space/madora-site/releases/latest/download/latest.json',
+    GITHUB_UPDATER_FALLBACK_ENDPOINT,
+    'https://github.com/Refinex-Space/madora-site/releases/latest/download/latest-github.json',
   );
-  assert.deepEqual(config.plugins.updater.endpoints, [UPDATER_ENDPOINT]);
+  assert.deepEqual(config.plugins.updater.endpoints, [
+    `${ossPublicBaseUrl}/updates/stable/latest.json`,
+    GITHUB_UPDATER_FALLBACK_ENDPOINT,
+  ]);
+  assert.equal(
+    normalizeOssPublicBaseUrl(`${ossPublicBaseUrl}/`),
+    ossPublicBaseUrl,
+  );
   assert.equal(config.plugins.updater.pubkey, publicKey);
   assert.equal(config.plugins.updater.windows.installMode, 'passive');
   assert.equal(config.bundle.createUpdaterArtifacts, true);
   assert.equal(config.bundle.macOS.signingIdentity, '-');
+});
+
+test('release config rejects non-Shanghai or ambiguous OSS public URLs', () => {
+  for (const value of [
+    'http://madora-releases-example.oss-cn-shanghai.aliyuncs.com',
+    'https://madora-releases-example.oss-cn-hangzhou.aliyuncs.com',
+    'https://madora-releases-example.oss-cn-shanghai.aliyuncs.com/prefix',
+    'https://user@example.com',
+  ]) {
+    assert.throws(() => normalizeOssPublicBaseUrl(value), /cn-shanghai/);
+  }
 });
 
 test('base Tauri config keeps updater inert but structurally valid for local development', async () => {
@@ -93,6 +115,29 @@ test('release workflow builds macOS updater bundles and gates the completed draf
   assert.match(workflow, /GITHUB_TOKEN: \$\{\{ secrets\.MADORA_RELEASES_TOKEN \}\}/);
   assert.match(workflow, /scripts\/verify-release-assets\.mjs/);
   assert.match(workflow, /scripts\/verify-release-assets\.test\.mjs/);
+});
+
+test('promotion workflow uses protected OIDC and pinned Alibaba tooling', async () => {
+  const workflow = await readFile(
+    new URL('../.github/workflows/promote-release.yml', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(workflow, /environment: production-release/);
+  assert.match(workflow, /id-token: write/);
+  assert.match(workflow, /contents: read/);
+  assert.match(
+    workflow,
+    /aliyun\/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6/,
+  );
+  assert.match(workflow, /audience: sts\.aliyuncs\.com/);
+  assert.match(workflow, /ossutil-2\.3\.0-linux-amd64\.zip/);
+  assert.match(
+    workflow,
+    /3ae4d9fc85a7a6e9f5654d1599766f1a3a42a3692870887b5ae9338d582ef65a/,
+  );
+  assert.match(workflow, /scripts\/print-oidc-claims\.mjs/);
+  assert.doesNotMatch(workflow, /ACCESS_KEY_ID|ACCESS_KEY_SECRET/);
 });
 
 test('release workflow verifies dev before tags and publishes only tags', async () => {
@@ -200,6 +245,7 @@ test('release preparation writes an ignored Tauri override without private data'
       env: {
         GITHUB_REF_NAME: 'v1.2.3',
         GITHUB_REF_TYPE: 'tag',
+        MADORA_OSS_PUBLIC_BASE_URL: ossPublicBaseUrl,
         MADORA_UPDATER_PUBLIC_KEY: publicKey,
       },
       root,
@@ -209,7 +255,8 @@ test('release preparation writes an ignored Tauri override without private data'
     assert.equal(result.version, '1.2.3');
     const generatedConfig = JSON.parse(generated);
 
-    assert.match(generated, /releases\/latest\/download\/latest\.json/);
+    assert.match(generated, /updates\/stable\/latest\.json/);
+    assert.match(generated, /releases\/latest\/download\/latest-github\.json/);
     assert.equal(generatedConfig.plugins.updater.pubkey, publicKey);
     assert.doesNotMatch(generated, /untrusted comment:/);
     assert.doesNotMatch(generated, /TAURI_SIGNING_PRIVATE_KEY/);

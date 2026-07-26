@@ -8,11 +8,17 @@ on:
       - 'v*'
     paths:
       - '.github/workflows/release.yml'
+      - '.github/workflows/promote-release.yml'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
       - 'scripts/prepare-release-updater-config.mjs'
       - 'scripts/prepare-release-updater-config.test.mjs'
+      - 'scripts/print-oidc-claims.mjs'
+      - 'scripts/print-oidc-claims.test.mjs'
+      - 'scripts/promote-release-distribution.mjs'
+      - 'scripts/release-distribution.mjs'
+      - 'scripts/release-distribution.test.mjs'
       - 'scripts/verify-release-assets.mjs'
       - 'scripts/verify-release-assets.test.mjs'
       - 'src-tauri/tauri.conf.json'
@@ -48,8 +54,9 @@ jobs:
       - name: Verify release configuration
         run: pnpm release:prepare
         env:
+          MADORA_OSS_PUBLIC_BASE_URL: ${{ vars.MADORA_OSS_PUBLIC_BASE_URL }}
           MADORA_UPDATER_PUBLIC_KEY: ${{ vars.MADORA_UPDATER_PUBLIC_KEY }}
-      - run: node --test scripts/prepare-release-updater-config.test.mjs scripts/verify-release-assets.test.mjs
+      - run: node --test scripts/prepare-release-updater-config.test.mjs scripts/release-distribution.test.mjs scripts/print-oidc-claims.test.mjs scripts/verify-release-assets.test.mjs
       - run: pnpm exec vitest run components/workspace/__tests__/use-app-update.test.tsx components/workspace/__tests__/workspace-sidebar-update.test.tsx components/workspace/__tests__/workspace-settings-page.test.tsx
       - run: pnpm exec tsc --noEmit
       - run: pnpm lint
@@ -86,6 +93,7 @@ jobs:
       - name: Prepare signed updater configuration
         run: pnpm release:prepare
         env:
+          MADORA_OSS_PUBLIC_BASE_URL: ${{ vars.MADORA_OSS_PUBLIC_BASE_URL }}
           MADORA_UPDATER_PUBLIC_KEY: ${{ vars.MADORA_UPDATER_PUBLIC_KEY }}
       - name: Validate release credentials
         shell: bash

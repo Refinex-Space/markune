@@ -1,13 +1,13 @@
 ---
 owner: refinex
-updated: 2026-07-24
+updated: 2026-07-25
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
 
 # Madora 版本更新、发布与上传标准手册
 
-本文是 Madora Windows/macOS 桌面版本的唯一发布操作手册。应用源码保存在私有 `Refinex-Space/madora`，安装包和 Tauri 更新清单统一发布到公开 `Refinex-Space/madora-site` 的 GitHub Releases。GitHub Packages 只用于 npm、Maven、NuGet、容器镜像等包注册表场景，不用于桌面安装器分发。
+本文是 Madora Windows/macOS 桌面版本的唯一发布操作手册。应用源码保存在私有 `Refinex-Space/madora`；公开 `Refinex-Space/madora-site` 的 GitHub Release 继续作为版本、Release Notes、构建资产和审计权威；华东 2（上海）OSS 是自动更新和官网大文件的主分发源，GitHub 是备用源。Bucket 的一次性创建、权限与 OIDC 配置必须先按 [上海 OSS 初始化手册](aliyun-oss-release-bucket.md) 完成。GitHub Packages 不用于桌面安装器分发。
 
 ## 0. 执行位置约定
 
@@ -20,6 +20,7 @@ referenced_by: AGENTS.md#knowledge-map
 | `GITHUB-ACCOUNT` | GitHub 个人设置网页 | 创建 fine-grained personal access token |
 | `GITHUB-APP` | 私有仓库 `https://github.com/Refinex-Space/madora` 的 Settings/Actions 页面 | 配置构建 Secrets/Variables，查看私有源码 workflow run |
 | `GITHUB-SITE` | 公开仓库 `https://github.com/Refinex-Space/madora-site` 的 Releases 页面 | 验收和发布 draft Release；用户从这里下载安装包 |
+| `ALIYUN-OSS` | 阿里云 OSS/RAM/云监控/费用控制台 | 配置上海 Bucket、OIDC、最小 Role、监控与回滚 |
 | `MAC-TEST` | Apple Silicon 或 Intel 测试机的 Terminal 与系统设置 | 验证 DMG、ad-hoc 签名、Gatekeeper 和更新安装 |
 | `WINDOWS-TEST` | Windows 11 x64 测试机的 PowerShell 与系统界面 | 验证 NSIS、`NotSigned`、SmartScreen 和更新安装 |
 
@@ -28,18 +29,21 @@ referenced_by: AGENTS.md#knowledge-map
 ## 1. 发布架构与边界
 
 - 私有源码和构建工作流：`Refinex-Space/madora`。
-- 公开安装包：`https://github.com/Refinex-Space/madora-site/releases`。
-- 更新清单：`https://github.com/Refinex-Space/madora-site/releases/latest/download/latest.json`。
+- 发布权威：`https://github.com/Refinex-Space/madora-site/releases`，保留全部构建资产、最终 Release Notes、`latest.json` 和 `latest-github.json`。
+- 主更新清单：`https://<Bucket>.oss-cn-shanghai.aliyuncs.com/updates/stable/latest.json`。
+- 备用更新清单：`https://github.com/Refinex-Space/madora-site/releases/latest/download/latest-github.json`。
+- 官网主下载清单：`https://<Bucket>.oss-cn-shanghai.aliyuncs.com/downloads/stable.json`；失败后回退 GitHub Releases API。
 - 构建目标：macOS Apple Silicon、macOS Intel、Windows x64。
 - 安装包：macOS DMG、Windows NSIS。由于 Codex、Pandoc、Typst sidecar 按架构打包，不生成 macOS universal DMG。
-- 发布工作流：私有仓库的 `.github/workflows/release.yml` 在 release 关键文件推送到 `dev` 时只验证源码；`v*` Tag 才会在验证后并行原生构建，并在公开仓库创建 draft Release。macOS 必须构建 `app,dmg`，Windows 构建 `nsis`；三平台结束后 `verify_release` 会检查 Draft 的安装器、updater artifact、签名和 `latest.json`，缺少任一项都会让工作流失败。
+- 构建工作流：`.github/workflows/release.yml` 在 release 关键文件推送到 `dev` 时只验证源码；`v*` Tag 才并行原生构建，并在公开仓库创建 9 资产 draft Release。三平台结束后 `verify_release` 检查安装器、updater artifact、签名和构建期 `latest.json`。
+- Promotion 工作流：`.github/workflows/promote-release.yml` 只能手工运行于受保护的 `production-release` Environment。它通过阿里云 OIDC 临时承担最小 RAM Role，把 8 个版本化资产上传至 `releases/vX.Y.Z/`，从公网回读 SHA-256 并验证三个 minisign；随后以最终 Draft body 同源生成 OSS 主清单、GitHub 主/备清单和官网下载清单，发布 GitHub Release，最后更新 OSS stable 清单。
 - 更新签名：Tauri updater minisign 密钥。它保证更新包未被替换，不等同于 Apple Developer ID 或 Windows Authenticode 代码签名。
 - 当前系统签名阶段：macOS 使用 ad-hoc 签名且不公证；Windows 不做 Authenticode。两者均会产生系统信任警告，只适合当前早期分发阶段。
 - 用户策略：应用自动检查，但不自动下载或强制安装；用户从左下角“更新”入口查看说明并明确选择安装。
 
 `madora-site` 必须是有 `main` 分支和至少一个提交的公开仓库。Draft 发布时创建的公开 Tag 会指向该仓库的 `main`。Release 正文及由其生成的应用内更新说明只能包含用户可见内容，不得出现私有源码仓库、Git commit SHA、私有 workflow 地址或内部验收指令。二进制可追溯性由同版本私有源码 Tag 和 `GITHUB-APP` 对应 workflow run 的 `headSha` 保证，这些信息只保留在内部发布记录。安装包只作为 Release Assets 上传，不提交到网站 Git 历史或 `public/` 目录。
 
-只有已发布且不是 prerelease 的 Release 才会成为 `/releases/latest`。Draft 阶段可以由已登录且有权限的维护者通过其 `untagged-*` 地址安全检查资产，但普通访客、官网使用的公开 Releases API 和生产客户端都不会把它识别为新版本。
+只有已发布且不是 prerelease 的 Release 才会成为 `/releases/latest`。Draft 阶段可以由维护者检查资产，但普通访客、官网 GitHub 回退和生产客户端都不会把它识别为新版本。OSS 的 stable 清单必须最后更新，任何前序失败都继续指向上一稳定版本。
 
 ## 2. 一次性初始化更新签名密钥
 
@@ -112,6 +116,14 @@ test -s ~/.tauri/madora-updater.key.pub
 | 名称 | 内容 |
 | --- | --- |
 | `MADORA_UPDATER_PUBLIC_KEY` | `madora-updater.key.pub` 文件中的完整单行 Base64 内容；不要填解码后的两行文本 |
+| `MADORA_OSS_REGION` | 固定 `cn-shanghai` |
+| `MADORA_OSS_ENDPOINT` | 固定 `https://oss-cn-shanghai.aliyuncs.com` |
+| `MADORA_OSS_BUCKET` | 上海专用 Bucket 的实际名称 |
+| `MADORA_OSS_PUBLIC_BASE_URL` | `https://<Bucket>.oss-cn-shanghai.aliyuncs.com` |
+| `MADORA_OSS_ROLE_ARN` | `madora-github-release` 的实际 ARN |
+| `MADORA_OSS_OIDC_PROVIDER_ARN` | `github-actions` OIDC Provider 的实际 ARN |
+
+同时创建受保护的 GitHub Environment `production-release`，启用发布负责人审批。OIDC、Bucket Policy、CORS、生命周期、Role 信任策略和最小权限必须逐项执行 [上海 OSS 初始化手册](aliyun-oss-release-bucket.md)，不得在仓库中保存长期阿里云 AccessKey。
 
 工作流自身的默认 `GITHUB_TOKEN` 权限固定为 `contents: read`，只用于检出私有源码。`tauri-action` 的 `GITHUB_TOKEN` 环境变量实际接收 `MADORA_RELEASES_TOKEN`，并通过固定 `owner: Refinex-Space`、`repo: madora-site`、`releaseCommitish: main` 跨仓库创建 Release。不要把 Token 暴露给应用运行时或前端。
 
@@ -145,7 +157,7 @@ Tag 必须精确为 `v<version>`，例如版本 `0.1.12` 只能使用 `v0.1.12`�
 ```bash
 cd /Users/refinex/develop/project/madora
 pnpm install
-node --test scripts/prepare-release-updater-config.test.mjs scripts/verify-release-assets.test.mjs
+node --test scripts/prepare-release-updater-config.test.mjs scripts/release-distribution.test.mjs scripts/print-oidc-claims.test.mjs scripts/verify-release-assets.test.mjs
 pnpm exec vitest run components/workspace/__tests__/use-app-update.test.tsx components/workspace/__tests__/workspace-sidebar-update.test.tsx components/workspace/__tests__/workspace-settings-page.test.tsx
 pnpm exec tsc --noEmit
 pnpm lint
@@ -157,12 +169,14 @@ pnpm build:desktop:web
 
 ```bash
 cd /Users/refinex/develop/project/madora
-MADORA_UPDATER_PUBLIC_KEY="$(cat ~/.tauri/madora-updater.key.pub)" pnpm release:prepare
+MADORA_OSS_PUBLIC_BASE_URL="https://<实际 Bucket>.oss-cn-shanghai.aliyuncs.com" \
+MADORA_UPDATER_PUBLIC_KEY="$(cat ~/.tauri/madora-updater.key.pub)" \
+pnpm release:prepare
 ```
 
 该命令直接读取 Tauri 生成的 `.pub` 文件，不需要 `base64 --decode`。发布脚本会验证 Base64 解码后的 minisign 结构；为兼容旧配置，它也能接收完整两行 minisign 文本，但写入 Tauri 配置前仍会规范化为单行 Base64。GitHub Actions Variable 应始终使用 `.pub` 文件的原始单行内容。
 
-生成文件位于 `/Users/refinex/develop/project/madora/.tauri-build/tauri.release.generated.json`，已被 Git 忽略。检查它只包含 `madora-site` 的固定 HTTPS endpoint、单行 Base64 公钥、`createUpdaterArtifacts: true`、macOS ad-hoc identity `-` 和 Windows passive 安装模式。不要提交该文件，也不要在终端打印私钥或完整生成配置。
+生成文件位于 `/Users/refinex/develop/project/madora/.tauri-build/tauri.release.generated.json`，已被 Git 忽略。检查 updater endpoints 顺序固定为上海 OSS `updates/stable/latest.json`、GitHub `latest-github.json`，并包含单行 Base64 公钥、`createUpdaterArtifacts: true`、macOS ad-hoc identity `-` 和 Windows passive 安装模式。不要提交该文件，也不要在终端打印私钥或完整生成配置。
 
 完成本地验证后，先提交并推送到私有 `madora` 的 `dev` 分支，不要立即创建 Tag。release 关键文件的 `dev` push 会自动触发 `Release Madora desktop`：`Verify release source` 会使用 GitHub Actions Variable 中的公钥执行 `release:prepare`，校验应用版本、updater 配置、pnpm 安装、发布脚本、Release 资产校验器、更新前端测试、TypeScript 和 Lint；该 job 必须成功，`Build ...` 和 `Verify draft release assets` 在分支预检中显示 skipped 是预期行为。只有该次运行的 `headSha` 与准备创建 Tag 的提交一致时，才能进入第 6 节。
 
@@ -231,11 +245,13 @@ git push origin v0.1.12
 
 macOS Apple Silicon、macOS Intel、Windows x64 必须分别验收，不能互相替代。未完成真实 N-1→N 验收时，只能声明“发布管线已验证”，不能声明“自动更新端到端已验证”。
 
-## 9. 正式发布与 madora-site 接入
+## 9. Promotion、正式发布与 madora-site 接入
 
-### 9.1 发布 Release
+### 9.1 补全最终 Release Notes
 
-执行位置：`GITHUB-SITE`。完成 draft 验收后，在 `https://github.com/Refinex-Space/madora-site/releases` 打开本版本 draft，按实际用户可感知变化补全 Release Notes，然后点击发布。工作流生成的默认正文是公开安全的兜底说明，不包含内部追溯信息；正式发布前仍应将“本次更新”改成本版本的真实内容。可使用以下公开模板，替换版本和条目后删除所有占位符：
+执行位置：`GITHUB-SITE`。完成第 7 节 draft 验收后，打开本版本 Draft，按实际用户可感知变化补全 Release Notes，但保持 Draft，不要手工点击发布。Promotion 会读取最终 Draft body，同时写入 GitHub Release 和三份公开清单，防止应用内说明与 Release 页面分叉。工作流生成的默认正文只是公开安全兜底，Promotion 会拒绝未编辑的兜底正文和尖括号占位符。
+
+可使用以下模板，替换版本和条目后删除所有占位符：
 
 ```markdown
 ## Madora vX.Y.Z
@@ -261,23 +277,56 @@ macOS Apple Silicon、macOS Intel、Windows x64 必须分别验收，不能互�
 - Windows 安装包当前未使用 Authenticode 签名，安装时可能出现 SmartScreen 或“未知发布者”提示。
 ```
 
-发布后在浏览器验证：
+### 9.2 执行 Promotion
+
+执行位置：`GITHUB-APP`。打开 `Actions → Promote Madora release → Run workflow`：
+
+1. `tag` 输入已验收的精确版本，如 `vX.Y.Z`；
+2. 首次 OIDC 联调可启用 `print_oidc_claims`，输出只能包含 `iss`、`aud`、`sub`；
+3. 等待 `production-release` Environment reviewer 批准；
+4. 工作流必须从该 Tag checkout，OIDC subject 必须是 `repo:Refinex-Space/madora:environment:production-release`；
+5. 工作流完成前不要同时运行另一次 Promotion，不要手工发布 Draft，不要修改 stable 清单。
+
+Promotion 固定顺序：
+
+1. 重新校验 GitHub Draft 的 9 个构建资产和公开安全正文；
+2. 上传 8 个安装器、updater 包和 `.sig` 到上海 OSS `releases/vX.Y.Z/`；
+3. 从 OSS 公网逐对象回读并校验 SHA-256，对 3 个 updater 包执行 minisign 验证；
+4. 用最终 Draft body 生成 GitHub `latest.json`（URL 指向 OSS）和 `latest-github.json`（URL 指向 GitHub）；
+5. 发布 GitHub Release；
+6. 验证公开 `latest-github.json`；
+7. 最后覆盖 OSS `updates/stable/latest.json` 和 `downloads/stable.json` 并回读校验。
+
+在第 7 步之前失败时，旧 stable 清单保持不变。工作流重跑时允许复用内容完全相同的版本化对象；若同一 `releases/vX.Y.Z/<name>` 已存在但 SHA-256 不同，必须失败，不能覆盖。若 GitHub 已发布而 stable 写入失败，可用同一 Tag 重跑；脚本只允许已发布清单与预期完全一致，不会改写已发布二进制。
+
+成功后在浏览器验证：
 
 ```text
 https://github.com/Refinex-Space/madora-site/releases/latest
 https://github.com/Refinex-Space/madora-site/releases/latest/download/latest.json
+https://github.com/Refinex-Space/madora-site/releases/latest/download/latest-github.json
+https://<Bucket>.oss-cn-shanghai.aliyuncs.com/updates/stable/latest.json
+https://<Bucket>.oss-cn-shanghai.aliyuncs.com/downloads/stable.json
 ```
 
-### 9.2 修改网站下载入口
+GitHub `latest.json` 与 OSS `latest.json` 都必须指向 OSS 版本对象；`latest-github.json` 必须指向 GitHub 资产。三份 updater 清单的版本、日期、说明和签名必须一致。GitHub Release 最终精确包含原 9 个资产加 `latest-github.json`，共 10 个。
 
-执行位置：`SITE-LOCAL`。Release Assets 是 GitHub 元数据，不会产生 `madora-site` Git commit；网站也不会展示 Draft。当前站点已经通过公开 Releases API 动态选择最新的非 Draft、非 Prerelease Release，并按 macOS arm64、macOS x64、Windows x64 三个目标解析实际资产，所以正常发版不再为每个版本硬编码下载 URL。
+### 9.3 修改网站下载入口
+
+执行位置：`SITE-LOCAL`。站点优先读取 `NEXT_PUBLIC_MADORA_DOWNLOAD_MANIFEST_URL` 指向的上海 OSS `downloads/stable.json`；请求失败、格式错误、目标不全、哈希字段非法或资产 URL 不属于上海 OSS 时，整份回退到公开 GitHub Releases API，不混用不同版本的主备资产。
 
 只有在第 7 节 Draft 资产验收通过后，才在 `/Users/refinex/develop/project/madora-site/site.config.ts` 把 `version` 更新为本次应用版本，用于页脚等静态展示；在 Draft 不完整或工作流失败时不得提前更新。随后检查：
 
-- `/Users/refinex/develop/project/madora-site/site.config.ts` 的 `repositoryUrl`、`releasesUrl` 和 `releasesApiUrl` 仍指向公开 `Refinex-Space/madora-site`，`downloads` 仍只包含三个真实目标；
-- `/Users/refinex/develop/project/madora-site/lib/downloads.ts` 继续排除 Draft/Prerelease，并能按 `aarch64`、`x64` 和 `x64-setup.exe` 解析本次真实资产；
+- `/Users/refinex/develop/project/madora-site/site.config.ts` 的 `repositoryUrl`、`releasesUrl` 和 `releasesApiUrl` 仍指向公开 `madora-site`，`downloadManifestUrl` 从生产环境变量读取，`downloads` 仍只有三个真实目标；
+- `/Users/refinex/develop/project/madora-site/lib/downloads.ts` 校验 OSS manifest schema、上海 HTTPS 域名、三个目标、size 和 SHA-256；GitHub 回退继续排除 Draft/Prerelease；
 - `/Users/refinex/develop/project/madora-site/content/docs/zh-CN/install.md`、`content/docs/en/install.md`、中英文 FAQ 继续说明 Gatekeeper/SmartScreen 限制，不出现私有 `madora` 下载地址；
-- `/Users/refinex/develop/project/madora-site/tests/downloads.test.ts` 继续覆盖三个实际目标、Draft 排除和资产匹配。只有资产命名、支持平台或系统限制发生变化时，才同步修改这些逻辑、文档和测试。
+- `/Users/refinex/develop/project/madora-site/tests/downloads.test.ts` 覆盖 OSS 主清单、整体 GitHub 回退、三个实际目标、Draft 排除和资产匹配。
+
+在官网生产构建环境设置：
+
+```text
+NEXT_PUBLIC_MADORA_DOWNLOAD_MANIFEST_URL=https://<Bucket>.oss-cn-shanghai.aliyuncs.com/downloads/stable.json
+```
 
 完成修改后，在 macOS Terminal 执行：
 
@@ -290,7 +339,7 @@ npx --yes pnpm@11.16.0 build
 npx --yes pnpm@11.16.0 check:static
 ```
 
-`madora-site` 页面应解析自身 GitHub Releases 的安装资产，不使用 GitHub Packages，也不把安装包复制进站点仓库。若以后修改 `/Users/refinex/develop/project/madora/.github/workflows/release.yml` 的 `releaseAssetNamePattern`，必须在同一次发布中更新 `/Users/refinex/develop/project/madora-site` 的资产匹配规则和测试，并验证三个下载按钮的最终文件。
+`madora-site` 不使用 GitHub Packages，也不把安装包复制进站点仓库。若以后修改 `releaseAssetNamePattern`、OSS 路径或清单 schema，必须在同一次变更中更新 Promotion、站点解析与测试，并验证三个下载按钮的最终文件。
 
 站点只展示当前实际支持的三个目标，不提供 universal macOS 或 Windows ARM64 占位下载。网站发布属于独立仓库流程，本手册不授权从 Madora 仓库自动部署网站。
 
@@ -301,9 +350,13 @@ npx --yes pnpm@11.16.0 check:static
 - `APP-LOCAL` 的完整 Rust 测试失败：停止发布，不创建 Tag；修复 Rust 代码后重新执行第 5 节全部本地验证。不要把 Cargo 冷构建重新加入 release verify，也不要通过删除测试、关闭 updater 签名或跳过 publish 的 Tauri sidecar staging 来换取成功。
 - `GITHUB-SITE` Draft 或最终资产门禁失败：保持 Draft，不发布。若只是同一源码 commit 的网络抖动，可以重新运行失败任务；若要修改源码或工作流，必须提升 SemVer、提交到目标分支并创建更高版本 Tag，不能让旧 Tag 指向新提交，也不能沿用错误签名资产。
 - `GITHUB-APP` 中 `MADORA_RELEASES_TOKEN` 失效或权限不足：保持源码 Tag，不手工改用宽权限 Token；在 `GITHUB-ACCOUNT` 更新最小权限 Token，再回到 `GITHUB-APP` 更新 Secret 并重新运行失败任务。
+- OIDC 或 OSS 权限失败：保持 GitHub Draft 和旧 stable 清单，不创建长期 AccessKey、不扩大到 `oss:*`。按 [上海 OSS 初始化手册](aliyun-oss-release-bucket.md) 核对 `iss`/`aud`/`sub`、Role ARN、三个前缀和临时 STS 凭据；修复后用同一 Draft 重跑 Promotion。
+- OSS 版本对象上传或回读失败：不要手工写 stable 清单。若已有对象与本地 SHA-256 相同可重跑；若不同，停止并提升补丁版本，不覆盖 `releases/vX.Y.Z/`。
+- GitHub Release 已发布但 OSS stable 更新失败：同一 Tag 重跑 Promotion，脚本会验证已发布的 10 个资产和主备清单完全一致后只补齐 stable；不得删除 Release 或版本对象。
+- OSS stable 清单误指向不完整版本：从 Bucket 版本控制恢复上一有效 `updates/stable/latest.json` 与 `downloads/stable.json`，公网回读验证后再排障；不删除 GitHub Release。
 - `SITE-LOCAL` 链接错误：先停止部署网站，不移动或复制安装包；按第 9.2 节修正 `site.config.ts` 并重新执行站点五项验证。
 - `GITHUB-SITE` 已发布版本存在严重缺陷：立即在 Release Notes 标记并让 `SITE-LOCAL` 停止推荐；在 `APP-LOCAL` 提升 SemVer，按完整流程发布热修复。不要依赖降级，因为 updater 默认只接受更高版本。
-- `GITHUB-SITE` 已发布版本的更新说明包含内部信息：编辑 GitHub Release 正文不会自动改写已经上传的 `latest.json.notes`，不能把只改正文视为修复完成。优先在 `APP-LOCAL` 使用已修正的工作流发布更高补丁版本，使生产 `/releases/latest/download/latest.json` 切换到公开安全的说明；同时编辑旧 Release 正文，清除公开页面中的内部信息。若组织要求连旧版本资产也彻底清理，必须在明确维护窗口内只替换该版本的 `latest.json`，除 `notes` 外保持版本、发布日期、六个平台 URL 和签名原样，并在替换后重新执行第 7 节资产校验；该操作会短暂移除更新清单，不得未经单独确认执行。
+- 已发布版本的更新说明包含内部信息：编辑 GitHub Release 正文不会自动改写 GitHub `latest.json`、`latest-github.json` 和 OSS stable 清单，不能把只改正文视为修复完成。优先发布更高补丁版本，让四个公开说明面同时切换；旧 Release 页面正文可同步清理。未经单独批准不得替换已发布清单资产或版本化对象。
 - 删除或改回旧的 latest Release 不能修复已经安装坏版本的用户，也可能造成 endpoint 短暂不一致；优先从 `APP-LOCAL` 发布更高版本热修复。
 - 单个平台资产错误：不得在 `GITHUB-SITE` 手工替换同名二进制而沿用旧 `.sig`/`latest.json`。必须从 `APP-LOCAL` 修复并重新生成匹配的 updater artifact、签名和清单，再完成三平台验收。
 - 更新私钥疑似泄露：立即停止 `GITHUB-APP` 发布并按安全事件处理。密钥轮换不能直接替换，因为旧客户端固定信任旧公钥；需要先用旧密钥从 `APP-LOCAL` 发布一个嵌入新公钥的过渡版本，确认覆盖率后才切换新私钥。旧私钥不可用时，无法通过原 updater 安全迁移，只能要求用户手工安装新版本。
@@ -316,7 +369,7 @@ npx --yes pnpm@11.16.0 check:static
 | --- | --- |
 | 用户可见版本、更新内容、已知限制、安装说明 | `GITHUB-SITE` 对应版本的 Release Notes |
 | 私有源码 commit、源码 Tag、三平台构建结果和 workflow 日志 | 仅保存在 `GITHUB-APP` 对应 `Release Madora desktop` workflow run 和组织内部发布记录；不得复制到公开 Release Notes、`latest.json` 或应用更新说明 |
-| `latest.json` target、URL、签名检查结果 | `GITHUB-SITE` 对应 Release Assets 及 `GITHUB-APP` 的 `Verify draft release assets` 结果；Release Notes 只写用户需要了解的兼容性或限制，不粘贴内部校验详情 |
+| GitHub 主/备清单、OSS stable 清单、SHA-256 与 minisign 结果 | `GITHUB-SITE` 对应 Release Assets、`GITHUB-APP` 的 Draft verify 与 Promotion workflow；Release Notes 不粘贴内部校验详情 |
 | macOS ad-hoc/Gatekeeper、Windows `NotSigned`/SmartScreen、三平台安装结果 | `GITHUB-SITE` Release Notes 的“验收与已知限制”段；失败时不得发布 |
 | N-1→N 更新结果 | `GITHUB-SITE` Release Notes 的“更新验收”段；首次发布明确写“不适用：无 N-1” |
 | 官网下载链接和静态构建结果 | `SITE-LOCAL` 的提交记录，以及对应 `madora-site` GitHub Actions/部署记录（若该仓库尚未配置部署工作流，则保留本机五项验证结果并在提交说明中注明） |

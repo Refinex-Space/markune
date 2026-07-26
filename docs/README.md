@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-23
+updated: 2026-07-25
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -19,6 +19,7 @@ This directory contains routed repository knowledge for agent work. Root instruc
 - Domain glossary: `docs/domain/glossary.md`: [open](domain/glossary.md)
 - Runbook: `docs/guides/runbook.md`: [open](guides/runbook.md)
 - Release and update manual: `docs/guides/release-and-update.md`: [open](guides/release-and-update.md)
+- Alibaba Cloud OSS release bucket setup: `docs/guides/aliyun-oss-release-bucket.md`: [open](guides/aliyun-oss-release-bucket.md)
 
 ## Validation Artifacts
 
