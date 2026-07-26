@@ -37,6 +37,26 @@ const GITHUB_UPLOADS_ROOT = 'https://uploads.github.com';
 const REQUEST_TIMEOUT_MS = 60_000;
 const scriptPath = fileURLToPath(import.meta.url);
 
+export function decodeUpdaterSignature(value) {
+  const encoded = String(value ?? '').trim();
+  if (
+    !encoded ||
+    encoded.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)
+  ) {
+    throw new Error('Updater signature must be canonical Base64');
+  }
+
+  const decoded = Buffer.from(encoded, 'base64').toString('utf8');
+  if (
+    !decoded.startsWith('untrusted comment: ') ||
+    !decoded.includes('\ntrusted comment: ')
+  ) {
+    throw new Error('Updater signature must decode to a Minisign signature file');
+  }
+  return decoded;
+}
+
 export async function promoteReleaseDistribution({
   env = process.env,
   fetchImpl = fetch,
@@ -182,16 +202,25 @@ export async function promoteReleaseDistribution({
     );
     for (const { assetName, signatureName } of uniqueUpdaterArtifacts()) {
       const readbackPath = join(workdir, `readback-${basename(assetName)}`);
+      const decodedSignaturePath = join(
+        workdir,
+        `decoded-${basename(signatureName)}`,
+      );
       await downloadPublicFile(artifactMetadata[assetName].url, readbackPath, {
         fetchImpl,
       });
+      await writeFile(
+        decodedSignaturePath,
+        decodeUpdaterSignature(signatureContents[signatureName]),
+        { encoding: 'utf8', mode: 0o600 },
+      );
       await runCommand(
         minisignBin,
         [
           '-Vm',
           readbackPath,
           '-x',
-          localArtifactPaths[signatureName],
+          decodedSignaturePath,
           '-p',
           publicKeyPath,
         ],
