@@ -143,6 +143,12 @@ test('promotion workflow uses protected OIDC and pinned Alibaba tooling', async 
   );
   assert.doesNotMatch(workflow, /apt-get/);
   assert.match(workflow, /scripts\/print-oidc-claims\.mjs/);
+  assert.match(workflow, /fetch-depth: 0/);
+  assert.doesNotMatch(workflow, /ref: \$\{\{ inputs\.tag \}\}/);
+  assert.match(
+    workflow,
+    /refs\/tags\/\$\{MADORA_RELEASE_TAG\}\^\{commit\}/,
+  );
   assert.doesNotMatch(workflow, /ACCESS_KEY_ID|ACCESS_KEY_SECRET/);
 });
 
