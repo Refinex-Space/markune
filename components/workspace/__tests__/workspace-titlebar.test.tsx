@@ -11,8 +11,9 @@ const workspaceSidebarPath = join(
   process.cwd(),
   'components/workspace/workspace-sidebar.tsx',
 );
+const tauriConfigPath = join(process.cwd(), 'src-tauri/tauri.conf.json');
 
-describe('Windows workspace titlebar', () => {
+describe('Workspace titlebar', () => {
   it('keeps native controls in an outer titlebar above the workspace panel', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
 
@@ -41,6 +42,39 @@ describe('Windows workspace titlebar', () => {
       '<div className="min-w-0 flex-1">{documentTabs}</div>',
     );
     expect(workspaceLayoutSource.match(/<DocumentTabBar/g)).toHaveLength(1);
+  });
+
+  it('reserves the macOS left chrome area when the workspace sidebar is collapsed', () => {
+    const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
+
+    expect(workspaceLayoutSource).toMatch(
+      /macChromeInset=\{\s*isTauriRuntime\s*&&\s*isMacRuntime\s*&&\s*workspace\.isSidebarCollapsed\s*\}/,
+    );
+    expect(workspaceLayoutSource).toContain(
+      "macChromeInset ? 'pl-44' : 'pl-3'",
+    );
+  });
+
+  it('moves the macOS traffic lights and left chrome tools below the panel edge', () => {
+    const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
+    const tauriConfig = JSON.parse(readFileSync(tauriConfigPath, 'utf8')) as {
+      app: {
+        windows: Array<{
+          trafficLightPosition?: { x: number; y: number };
+        }>;
+      };
+    };
+
+    expect(tauriConfig.app.windows[0]?.trafficLightPosition).toEqual({
+      x: 15,
+      y: 32,
+    });
+    expect(workspaceLayoutSource).toMatch(
+      /macChromeOffset=\{\s*isTauriRuntime\s*&&\s*isMacRuntime\s*\}/,
+    );
+    expect(workspaceLayoutSource).toContain(
+      "macChromeOffset ? 'top-3.5' : 'top-0'",
+    );
   });
 
   it('renders the compact AI and metadata panels beside the rounded main panel', () => {

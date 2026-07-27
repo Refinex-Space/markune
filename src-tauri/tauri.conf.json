@@ -21,6 +21,10 @@
         "maximized": true,
         "fullscreen": false,
         "titleBarStyle": "Overlay",
+        "trafficLightPosition": {
+          "x": 15,
+          "y": 32
+        },
         "hiddenTitle": true,
         "dragDropEnabled": false,
         "backgroundColor": "#fafafa"

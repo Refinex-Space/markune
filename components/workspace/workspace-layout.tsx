@@ -2803,6 +2803,7 @@ export function WorkspaceLayout({
       {systemPage === 'settings' ? null : (
         <SidebarChromeToggle
           collapsed={workspace.isSidebarCollapsed}
+          macChromeOffset={isTauriRuntime && isMacRuntime}
           refreshing={isRefreshingWorkspaceTree}
           windowsChromeInset={isTauriRuntime && isWindowsRuntime}
           pinnedNodes={pinnedNodes}
@@ -3024,6 +3025,11 @@ export function WorkspaceLayout({
                   }
                   gitLogOpen={gitLogOpen}
                   leftPanelMode={leftPanelMode}
+                  macChromeInset={
+                    isTauriRuntime &&
+                    isMacRuntime &&
+                    workspace.isSidebarCollapsed
+                  }
                   terminalOpen={terminalOpen}
                   windowsChromeInset={isTauriRuntime && isWindowsRuntime}
                   onOpenGitPanel={openGitPanel}
@@ -3329,6 +3335,7 @@ function useIsTauriRuntime() {
 
 function SidebarChromeToggle({
   collapsed,
+  macChromeOffset,
   refreshing,
   windowsChromeInset,
   pinnedNodes,
@@ -3338,6 +3345,7 @@ function SidebarChromeToggle({
   onUnpinNode,
 }: {
   collapsed: boolean;
+  macChromeOffset: boolean;
   refreshing: boolean;
   windowsChromeInset: boolean;
   pinnedNodes: WorkspaceNode[];
@@ -3351,7 +3359,8 @@ function SidebarChromeToggle({
   return (
     <div
       className={cn(
-        'absolute top-0 z-50 flex h-8 items-center gap-1',
+        'absolute z-50 flex h-8 items-center gap-1',
+        macChromeOffset ? 'top-3.5' : 'top-0',
         windowsChromeInset ? 'left-2' : 'left-[80px]',
       )}
       data-testid="sidebar-chrome-toggle"
@@ -3575,6 +3584,7 @@ function WorkspaceMainHeader({
   documentTabs,
   gitLogOpen,
   leftPanelMode,
+  macChromeInset,
   terminalOpen,
   windowsChromeInset,
   onOpenGitPanel,
@@ -3585,6 +3595,7 @@ function WorkspaceMainHeader({
   documentTabs?: React.ReactNode;
   gitLogOpen: boolean;
   leftPanelMode: LeftPanelMode;
+  macChromeInset: boolean;
   terminalOpen: boolean;
   windowsChromeInset: boolean;
   onOpenGitPanel: () => void;
@@ -3594,8 +3605,9 @@ function WorkspaceMainHeader({
   return (
     <header
       className={cn(
-        'relative flex shrink-0 items-center gap-1 px-3',
+        'relative flex shrink-0 items-center gap-1 pr-3',
         windowsChromeInset ? 'h-8' : 'h-11',
+        macChromeInset ? 'pl-44' : 'pl-3',
       )}
       data-tauri-drag-region="deep"
       data-testid="workspace-main-header"
