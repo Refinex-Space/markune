@@ -77,6 +77,17 @@ describe('Workspace titlebar', () => {
     );
   });
 
+  it('does not reset the macOS traffic light position when the document title changes', () => {
+    const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
+
+    expect(workspaceLayoutSource).toMatch(
+      /if \(isTauriRuntime && isMacRuntime\) \{\s*return;\s*\}\s*void setAppWindowTitle\(pageTitle \?\? 'Madora'\)/,
+    );
+    expect(workspaceLayoutSource).toContain(
+      '[isMacRuntime, isTauriRuntime, pageTitle]',
+    );
+  });
+
   it('renders the compact AI and metadata panels beside the rounded main panel', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
 

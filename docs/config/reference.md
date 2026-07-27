@@ -53,7 +53,7 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 ## Tauri Config
 
 - `src-tauri/tauri.conf.json` 的 `devUrl` 为 `http://localhost:3000`。
-- macOS 主窗口使用 `titleBarStyle: Overlay`、隐藏系统标题，并通过 `trafficLightPosition: { x: 15, y: 32 }` 将原生红绿灯移入 44px 工作区标题栏的安全区域；前端左上角工作区按钮使用 `14px` 顶部偏移，使图标视觉中心与原生红绿灯对齐，并在侧边栏折叠时避开圆角面板顶边。Windows 自绘标题栏不应用该偏移。
+- macOS 主窗口使用 `titleBarStyle: Overlay`、隐藏系统标题，并通过 `trafficLightPosition: { x: 15, y: 32 }` 将原生红绿灯移入 44px 工作区标题栏的安全区域；前端左上角工作区按钮使用 `14px` 顶部偏移，使图标视觉中心与原生红绿灯对齐，并在侧边栏折叠时避开圆角面板顶边。macOS 原生标题保持为 `Madora`，文档切换不调用 `setTitle`，避免系统重新布局红绿灯；文档标题继续由标签页展示。Windows 和 Linux 仍同步原生窗口标题，且不应用 macOS 偏移。
 - Next.js 开发产物写入 `.next-dev`，生产构建与桌面静态导出仍写入 `.next`；两者必须保持隔离，避免运行中的开发服务因并行构建清理产物而失效。
 - 普通开发与 Web 构建使用 `tsconfig.json`，桌面静态导出在 `NEXT_OUTPUT=export` 时改用 `tsconfig.desktop.json`；桌面配置只检查 `.next` 类型并明确排除 `.next-dev`，避免临时移走 `app/api` 时读取开发服务生成的路由校验文件。
 - `frontendDist` 为 `../out`，桌面构建依赖静态导出产物。

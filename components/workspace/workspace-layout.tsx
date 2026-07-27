@@ -919,8 +919,12 @@ export function WorkspaceLayout({
   }, [dailyCalendarMonth, loadDailyNotesForMonth]);
 
   React.useEffect(() => {
+    if (isTauriRuntime && isMacRuntime) {
+      return;
+    }
+
     void setAppWindowTitle(pageTitle ?? 'Madora');
-  }, [pageTitle]);
+  }, [isMacRuntime, isTauriRuntime, pageTitle]);
 
   React.useEffect(() => {
     terminalTabsRef.current = terminalTabs;
