@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-27
+updated: 2026-07-28
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -72,9 +72,9 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 
 导入转换依赖精确锁定为 `mammoth 1.12.0`、`pdfjs-dist 6.1.200`、`tesseract.js 7.0.0`、`@tesseract.js-data/eng 1.0.0`、`@tesseract.js-data/chi_sim 1.0.0`、`unified 11.0.5`、`rehype-parse 9.0.1`、`rehype-sanitize 6.0.0`、`rehype-remark 10.0.1`、`remark-parse 11.0.0`、`remark-frontmatter 5.0.0` 和 `remark-stringify 11.0.0`。DOCX 原生预检使用兼容 Rust 1.77 的 `zip 2.4.2`，只启用 `deflate`。
 
-## Editor Dependency Patches
+## Editor Dependency Integration
 
-`markweave@0.2.6` 通过 `pnpm.patchedDependencies` 应用仓库内版本锁定补丁。补丁只允许图片剪贴板解析受控 `madora-asset://` 地址，并识别严格匹配 64 位资产 ID 与 UUID Drawing ID 的规范图稿引用；不得借此接受 `asset://`、`file://` 或任意自定义协议。升级 Markweave 时必须重新核对补丁上下文并执行图稿富文本、纯文本粘贴回归测试。
+`markweave@0.3.3` 已在上游正式包含 Madora 图片剪贴板桥接：只解析受控 `madora-asset://` 地址，并识别严格匹配 64 位资产 ID 与 UUID Drawing ID 的规范图稿引用；不得借此接受 `asset://`、`file://` 或任意自定义协议。Madora 不再应用历史 `markweave@0.2.6` 本地补丁。升级 Markweave 时必须核对 npm tarball 与上游源码一致，并执行图稿富文本、纯文本粘贴回归测试。
 
 ## App Settings
 

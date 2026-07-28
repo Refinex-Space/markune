@@ -83,7 +83,7 @@ describe('theme provider source contract', () => {
       "'-mr-2 transition-opacity duration-300",
     );
     expect(workspaceLayoutSource).toContain(
-      'className="m-2 flex min-h-0 min-w-0 max-w-full flex-1',
+      'className="relative m-2 flex min-h-0 min-w-0 max-w-full flex-1',
     );
     expect(workspaceLayoutSource).toContain('event.preventDefault();');
     expect(workspaceLayoutSource).toContain(
