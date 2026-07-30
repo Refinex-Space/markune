@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import {
+  Copy,
   Download,
   ExternalLink,
   FileCode2,
@@ -17,6 +18,7 @@ import {
   Pin,
   Trash2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 import {
   AlertDialog,
@@ -1187,6 +1189,7 @@ function NodeContextActions({
           <Pencil />
           重命名
         </ContextMenuItem>
+        <CopyPathContextMenu node={node} />
         {onOpenInFileManager ? (
           <ContextMenuItem
             onSelect={() => void onOpenInFileManager(node)}
@@ -1246,6 +1249,7 @@ function NodeContextActions({
         <Pencil />
         重命名
       </ContextMenuItem>
+      <CopyPathContextMenu node={node} />
       {onOpenInFileManager ? (
         <ContextMenuItem
           onSelect={() => void onOpenInFileManager(node)}
@@ -1288,6 +1292,37 @@ function NodeContextActions({
       </ContextMenuSub>
     </>
   );
+}
+
+function CopyPathContextMenu({ node }: { node: WorkspaceNode }) {
+  return (
+    <ContextMenuSub>
+      <ContextMenuSubTrigger>
+        <Copy />
+        复制路径
+      </ContextMenuSubTrigger>
+      <ContextMenuSubContent className="w-32">
+        <ContextMenuItem
+          onSelect={() => void copyNodePath(node.relativePath)}
+        >
+          相对路径
+        </ContextMenuItem>
+        <ContextMenuItem
+          onSelect={() => void copyNodePath(node.absolutePath)}
+        >
+          绝对路径
+        </ContextMenuItem>
+      </ContextMenuSubContent>
+    </ContextMenuSub>
+  );
+}
+
+async function copyNodePath(path: string) {
+  try {
+    await navigator.clipboard.writeText(path);
+  } catch {
+    toast.error('复制路径失败');
+  }
 }
 
 function DeleteNodeDialog({
