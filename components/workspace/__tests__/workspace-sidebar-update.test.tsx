@@ -30,6 +30,16 @@ function createWorkspaceStub() {
   } as unknown as ReturnType<typeof useWorkspace>;
 }
 
+function createOpenWorkspaceStub() {
+  const workspace = createWorkspaceStub();
+  workspace.snapshot = {
+    nodes: [],
+    rootName: 'refinex-vault',
+    rootPath: '/workspace',
+  };
+  return workspace;
+}
+
 describe('WorkspaceSidebar update entry', () => {
   it('shows a blue update action and opens the version settings section', async () => {
     const user = userEvent.setup();
@@ -64,5 +74,28 @@ describe('WorkspaceSidebar update entry', () => {
     );
 
     expect(screen.queryByRole('button', { name: '打开版本更新' })).toBeNull();
+  });
+
+  it('keeps system entries as compact and subdued as document tree rows', () => {
+    render(
+      <WorkspaceSidebar
+        width={280}
+        workspace={createOpenWorkspaceStub()}
+        onOpenGlobalSearch={vi.fn()}
+      />,
+    );
+
+    for (const name of ['日程', 'Inbox', '画板', '视图', 'Codex']) {
+      const entry = screen.getByRole('button', { name });
+      expect(entry.className).toContain('h-7');
+      expect(entry.className).toContain('gap-1.5');
+      expect(entry.className).toContain('px-[11px]');
+      expect(entry.className).toContain('text-[13px]');
+      expect(entry.className).toContain('text-sidebar-foreground/80');
+    }
+
+    expect(screen.getByRole('button', { name: 'Inbox' }).className).toContain(
+      'mt-0.5',
+    );
   });
 });

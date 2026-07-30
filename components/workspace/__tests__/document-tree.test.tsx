@@ -534,6 +534,59 @@ describe('DocumentTree', () => {
     );
   });
 
+  it('copies directory relative paths and document absolute paths from context menus', async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const originalClipboard = Object.getOwnPropertyDescriptor(
+      navigator,
+      'clipboard',
+    );
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+
+    try {
+      render(
+        <DocumentTree
+          currentDocumentPath={null}
+          nodes={nodes}
+          searchQuery=""
+          onCreateDirectory={vi.fn()}
+          onCreateDocument={vi.fn()}
+          onDeleteNode={vi.fn()}
+          onImportMarkdown={vi.fn()}
+          onRenameNode={vi.fn()}
+          onSelectDocument={vi.fn()}
+        />,
+      );
+
+      await user.pointer({
+        keys: '[MouseRight]',
+        target: screen.getByText('Guides'),
+      });
+      await user.click(screen.getByRole('menuitem', { name: '复制路径' }));
+      fireEvent.click(await screen.findByRole('menuitem', { name: '相对路径' }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith('Guides'));
+
+      await user.pointer({
+        keys: '[MouseRight]',
+        target: screen.getByText('项目说明'),
+      });
+      await user.click(screen.getByRole('menuitem', { name: '复制路径' }));
+      fireEvent.click(await screen.findByRole('menuitem', { name: '绝对路径' }));
+      await waitFor(() =>
+        expect(writeText).toHaveBeenCalledWith('/repo/README.md'),
+      );
+    } finally {
+      if (originalClipboard) {
+        Object.defineProperty(navigator, 'clipboard', originalClipboard);
+      } else {
+        delete (navigator as { clipboard?: Clipboard }).clipboard;
+      }
+    }
+  });
+
   it('starts inline rename after creating a directory', async () => {
     const user = userEvent.setup();
     const onCreateDirectory = vi.fn().mockResolvedValue({
