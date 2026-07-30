@@ -144,38 +144,31 @@ export function WorkspaceSidebar({
         />
 
         {workspace.snapshot ? (
-          <div className="border-y border-sidebar-border/45 px-2 py-2">
+          <div className="border-y border-sidebar-border/45 px-2 py-1">
             <button
               aria-current={isDailyActive ? 'page' : undefined}
-              className={cn(
-                'flex h-8 w-[calc(100%-0.75rem)] items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors',
-                isDailyActive
-                  ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                  : 'text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-accent-foreground',
-              )}
+              className={getSystemEntryClassName(isDailyActive)}
               data-testid="daily-note-entry"
               type="button"
               onClick={onOpenDailyNote}
             >
-              <CalendarDays size={15} strokeWidth={1.75} />
+              <CalendarDays size={13} strokeWidth={1.75} />
               <span className="truncate">日程</span>
             </button>
             <button
               aria-current={systemPage === 'inbox' ? 'page' : undefined}
               className={cn(
-                'mt-1 flex h-8 w-[calc(100%-0.75rem)] items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors',
-                systemPage === 'inbox'
-                  ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                  : 'text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-accent-foreground',
+                'mt-0.5',
+                getSystemEntryClassName(systemPage === 'inbox'),
               )}
               data-testid="inbox-entry"
               type="button"
               onClick={onOpenInbox}
             >
-              <Inbox size={15} strokeWidth={1.75} />
+              <Inbox size={13} strokeWidth={1.75} />
               <span className="truncate">Inbox</span>
               {inboxActiveCount > 0 ? (
-                <span className="ml-auto min-w-5 px-1.5 text-center text-[10px] font-medium leading-5 text-sidebar-foreground/55 tabular-nums">
+                <span className="ml-auto min-w-5 px-1.5 text-center text-[10px] font-medium leading-4 text-sidebar-foreground/55 tabular-nums">
                   {inboxActiveCount > 99 ? '99+' : inboxActiveCount}
                 </span>
               ) : null}
@@ -183,46 +176,40 @@ export function WorkspaceSidebar({
             <button
               aria-current={systemPage === 'drawings' ? 'page' : undefined}
               className={cn(
-                'mt-1 flex h-8 w-[calc(100%-0.75rem)] items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors',
-                systemPage === 'drawings'
-                  ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                  : 'text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-accent-foreground',
+                'mt-0.5',
+                getSystemEntryClassName(systemPage === 'drawings'),
               )}
               data-testid="drawing-entry"
               type="button"
               onClick={onOpenDrawings}
             >
-              <Paintbrush size={15} strokeWidth={1.75} />
+              <Paintbrush size={13} strokeWidth={1.75} />
               <span className="truncate">画板</span>
             </button>
             <button
               aria-current={systemPage === 'views' ? 'page' : undefined}
               className={cn(
-                'mt-1 flex h-8 w-[calc(100%-0.75rem)] items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors',
-                systemPage === 'views'
-                  ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                  : 'text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-accent-foreground',
+                'mt-0.5',
+                getSystemEntryClassName(systemPage === 'views'),
               )}
               data-testid="workspace-views-entry"
               type="button"
               onClick={onOpenViews}
             >
-              <Sheet size={15} strokeWidth={1.75} />
+              <Sheet size={13} strokeWidth={1.75} />
               <span className="truncate">视图</span>
             </button>
             <button
               aria-current={systemPage === 'codex' ? 'page' : undefined}
               className={cn(
-                'mt-1 flex h-8 w-[calc(100%-0.75rem)] items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors',
-                systemPage === 'codex'
-                  ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                  : 'text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-accent-foreground',
+                'mt-0.5',
+                getSystemEntryClassName(systemPage === 'codex'),
               )}
               data-testid="codex-workspace-entry"
               type="button"
               onClick={onOpenCodex}
             >
-              <Openai className="size-[15px]" variant="light" />
+              <Openai className="size-[13px]" variant="light" />
               <span className="truncate">Codex</span>
             </button>
           </div>
@@ -357,6 +344,15 @@ function WorkspaceSidebarHeader({
         </button>
       </div>
     </div>
+  );
+}
+
+function getSystemEntryClassName(active: boolean) {
+  return cn(
+    'flex h-7 w-[calc(100%-0.75rem)] items-center gap-1.5 rounded-md px-[11px] text-[13px] transition-colors',
+    active
+      ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+      : 'text-sidebar-foreground/80 hover:bg-sidebar-accent/75 hover:text-sidebar-accent-foreground',
   );
 }
 
