@@ -2,6 +2,7 @@ import type {
   CodexProtocolMessage,
   CodexThread,
   CodexThreadItem,
+  CodexTurnError,
   CodexUserInputRequest,
 } from './codex-app-server';
 
@@ -28,6 +29,8 @@ export type AiMessagePhase = 'commentary' | 'final_answer' | null;
 export interface AiChatMessage {
   attachments?: AiMessageAttachment[];
   createdAtMs?: number | null;
+  deliveryError?: AiTurnError | null;
+  deliveryStatus?: 'failed' | 'sending' | 'sent';
   id: string;
   mentions?: AiMessageMention[];
   phase?: AiMessagePhase;
@@ -223,11 +226,18 @@ export interface AiUserInputRequest extends CodexUserInputRequest {
 export interface AiTurnState {
   completedAtMs: number | null;
   durationMs: number | null;
+  error: AiTurnError | null;
   historical: boolean;
   id: string;
   startedAtMs: number | null;
   status: 'completed' | 'failed' | 'inProgress' | 'interrupted';
   diff: string | null;
+}
+
+export interface AiTurnError extends CodexTurnError {
+  additionalDetails: string | null;
+  codexErrorInfo: unknown;
+  willRetry: boolean;
 }
 
 export interface AiConversationState {
@@ -296,6 +306,37 @@ export function reduceCodexProtocolMessage(
     return next;
   }
 
+  if (message.method === 'error') {
+    const turnId = getString(params, 'turnId');
+    const error = parseTurnError(params.error, getBoolean(params, 'willRetry'));
+    if (turnId && error) {
+      const previous = next.turns[turnId];
+      next.turns[turnId] = {
+        completedAtMs: previous?.completedAtMs ?? null,
+        diff: previous?.diff ?? null,
+        durationMs: previous?.durationMs ?? null,
+        error,
+        historical: previous?.historical ?? false,
+        id: turnId,
+        startedAtMs: previous?.startedAtMs ?? null,
+        status: previous?.status ?? 'inProgress',
+      };
+    }
+    return next;
+  }
+
+  const progressingTurnId = getString(params, 'turnId');
+  if (
+    progressingTurnId &&
+    isTurnRecoveryProgressMessage(message.method) &&
+    next.turns[progressingTurnId]?.error?.willRetry
+  ) {
+    next.turns[progressingTurnId] = {
+      ...next.turns[progressingTurnId],
+      error: null,
+    };
+  }
+
   if (message.method === 'turn/completed') {
     const turn = getRecord(params, 'turn');
     const turnState = turn ? turnStateFromRecord(turn, false) : null;
@@ -303,6 +344,10 @@ export function reduceCodexProtocolMessage(
       next.turns[turnState.id] = {
         ...turnState,
         diff: next.turns[turnState.id]?.diff ?? turnState.diff,
+        error:
+          turnState.status === 'failed'
+            ? turnState.error ?? next.turns[turnState.id]?.error ?? null
+            : null,
       };
       if (next.activeTurnId === turnState.id) {
         next.activeTurnId = null;
@@ -1032,11 +1077,19 @@ export interface AiChangeSummaryBlock {
   type: 'changes';
 }
 
+export interface AiTurnErrorBlock extends AiTurnError {
+  id: string;
+  status: 'failed' | 'retrying';
+  turnId: string;
+  type: 'turnError';
+}
+
 export type AiConversationBlock =
   | AiMessageEntry
   | AiProposedPlanEntry
   | AiTraceBlock
-  | AiChangeSummaryBlock;
+  | AiChangeSummaryBlock
+  | AiTurnErrorBlock;
 
 export function buildConversationBlocks(
   state: AiConversationState,
@@ -1044,7 +1097,39 @@ export function buildConversationBlocks(
   const blocks: AiConversationBlock[] = [];
   const consumedApprovals = new Set<string>();
   const consumedChangeSummaries = new Set<string>();
+  const emittedTurnTails = new Set<string>();
+  const tracedTurnIds = new Set<string>();
   let index = 0;
+
+  const appendTurnTail = (turnId: string | null) => {
+    if (!turnId || emittedTurnTails.has(turnId)) return;
+    const turn = state.turns[turnId];
+    if (!turn) return;
+
+    if (
+      state.activeTurnId === turnId &&
+      turn.status === 'inProgress' &&
+      !tracedTurnIds.has(turnId)
+    ) {
+      blocks.push({
+        ...createTraceBlock([], [], state.turns, turnId),
+        id: `trace-${turnId}`,
+      });
+      tracedTurnIds.add(turnId);
+    }
+
+    const error = turn.error ?? fallbackTurnError(turn);
+    if (error) {
+      blocks.push({
+        ...error,
+        id: `turn-error-${turnId}`,
+        status: error.willRetry ? 'retrying' : 'failed',
+        turnId,
+        type: 'turnError',
+      });
+    }
+    emittedTurnTails.add(turnId);
+  };
 
   while (index < state.entries.length) {
     const entry = state.entries[index];
@@ -1068,6 +1153,12 @@ export function buildConversationBlocks(
         blocks.push(entry);
       }
       index += 1;
+      if (
+        entry.turnId &&
+        !hasRemainingEntryForTurn(state.entries, index, entry.turnId)
+      ) {
+        appendTurnTail(entry.turnId);
+      }
       continue;
     }
 
@@ -1099,6 +1190,10 @@ export function buildConversationBlocks(
       return matches;
     });
     blocks.push(createTraceBlock(traceEntries, approvals, state.turns, turnId));
+    if (turnId) tracedTurnIds.add(turnId);
+    if (turnId && !hasRemainingEntryForTurn(state.entries, index, turnId)) {
+      appendTurnTail(turnId);
+    }
   }
 
   const orphanApprovals = state.approvals.filter(
@@ -1108,11 +1203,15 @@ export function buildConversationBlocks(
     blocks.push(
       createTraceBlock([], orphanApprovals, state.turns, state.activeTurnId),
     );
+    if (state.activeTurnId) tracedTurnIds.add(state.activeTurnId);
   }
   for (const turnId of Object.keys(state.turns)) {
     if (consumedChangeSummaries.has(turnId)) continue;
     const summary = createChangeSummaryBlock(state, turnId);
     if (summary) blocks.push(summary);
+  }
+  for (const turnId of Object.keys(state.turns)) {
+    appendTurnTail(turnId);
   }
   return blocks;
 }
@@ -2055,11 +2154,59 @@ function turnStateFromRecord(value: unknown, historical: boolean): AiTurnState {
     completedAtMs: secondsToMilliseconds(getNumber(record, 'completedAt')),
     diff: getString(record, 'diff'),
     durationMs: getNumber(record, 'durationMs'),
+    error: parseTurnError(record.error, false),
     historical,
     id,
     startedAtMs: secondsToMilliseconds(getNumber(record, 'startedAt')),
     status: parseTurnStatus(record.status),
   };
+}
+
+function parseTurnError(value: unknown, willRetry: boolean): AiTurnError | null {
+  if (!isRecord(value)) return null;
+  const message = getString(value, 'message');
+  if (!message) return null;
+  return {
+    additionalDetails: getString(value, 'additionalDetails'),
+    codexErrorInfo: value.codexErrorInfo ?? null,
+    message,
+    willRetry,
+  };
+}
+
+function fallbackTurnError(turn: AiTurnState): AiTurnError | null {
+  if (turn.status !== 'failed') return null;
+  return {
+    additionalDetails: null,
+    codexErrorInfo: null,
+    message: 'Codex 未能完成本次响应。',
+    willRetry: false,
+  };
+}
+
+function isTurnRecoveryProgressMessage(method: string | undefined) {
+  return matches(method, [
+    'item/started',
+    'item/completed',
+    'item/agentMessage/delta',
+    'item/plan/delta',
+    'item/commandExecution/outputDelta',
+    'item/commandExecution/terminalInteraction',
+    'item/fileChange/patchUpdated',
+    'item/mcpToolCall/progress',
+    'turn/plan/updated',
+    'turn/diff/updated',
+  ]);
+}
+
+function hasRemainingEntryForTurn(
+  entries: AiConversationEntry[],
+  startIndex: number,
+  turnId: string,
+) {
+  return entries
+    .slice(startIndex)
+    .some((entry) => entry.turnId === turnId);
 }
 
 function secondsToMilliseconds(value: number | null) {
@@ -2552,6 +2699,10 @@ function getNumber(value: Record<string, unknown>, key: string) {
   return typeof value[key] === 'number' && Number.isFinite(value[key])
     ? value[key]
     : null;
+}
+
+function getBoolean(value: Record<string, unknown>, key: string) {
+  return value[key] === true;
 }
 
 function getOptionalNumber(value: unknown) {

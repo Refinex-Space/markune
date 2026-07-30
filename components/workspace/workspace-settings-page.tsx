@@ -36,7 +36,6 @@ import { cn } from '@/lib/utils';
 
 import {
   ensureWorkspace,
-  getMadoraVersion,
   gitProbe,
   gitRemoteInfo,
   gitSyncNow,
@@ -46,6 +45,7 @@ import {
   saveAppSettings,
   saveWorkspaceGitSyncSettings,
 } from './workspace-api';
+import type { AppUpdateController } from './use-app-update';
 import type {
   WorkspaceSettingsCacheEntry,
   WorkspaceSettingsSessionCache,
@@ -77,6 +77,7 @@ type GitActionState =
   | 'error';
 
 interface WorkspaceSettingsPageProps {
+  appUpdate: AppUpdateController;
   header?: React.ReactNode;
   initialSettings: AppSettings;
   initialSectionId?: SettingsSectionId;
@@ -139,11 +140,12 @@ const SETTINGS_SECTIONS: Array<{
     id: 'version',
     icon: Info,
     label: '版本',
-    searchTerms: ['版本', '关于', 'madora', 'logo'],
+    searchTerms: ['版本', '关于', 'madora', 'logo', '更新', '下载', '安装'],
   },
 ];
 
 export function WorkspaceSettingsPage({
+  appUpdate,
   header,
   initialSettings,
   initialSectionId = 'appearance',
@@ -528,7 +530,9 @@ export function WorkspaceSettingsPage({
                   onSyncNow={() => void syncNow()}
                 />
               ) : null}
-              {effectiveSection === 'version' ? <VersionSection /> : null}
+              {effectiveSection === 'version' ? (
+                <VersionSection appUpdate={appUpdate} />
+              ) : null}
               {!effectiveSection ? (
                 <div className="flex min-h-[360px] flex-col items-center justify-center text-center">
                   <Search className="mb-3 text-muted-foreground" size={26} />
@@ -751,35 +755,29 @@ function StorageSection({
   );
 }
 
-function VersionSection() {
-  const [version, setVersion] = React.useState<string | null>(null);
-  const [loadState, setLoadState] = React.useState<
-    'loading' | 'loaded' | 'unavailable'
-  >('loading');
-
-  React.useEffect(() => {
-    let cancelled = false;
-
-    void getMadoraVersion()
-      .then((resolvedVersion) => {
-        if (cancelled) return;
-        setVersion(resolvedVersion);
-        setLoadState(resolvedVersion ? 'loaded' : 'unavailable');
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setLoadState('unavailable');
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+function VersionSection({
+  appUpdate,
+}: {
+  appUpdate: AppUpdateController;
+}) {
+  const busy =
+    appUpdate.phase === 'checking' ||
+    appUpdate.phase === 'downloading' ||
+    appUpdate.phase === 'installing';
+  const progress =
+    appUpdate.totalBytes && appUpdate.totalBytes > 0
+      ? Math.min(
+          100,
+          Math.round(
+            (appUpdate.downloadedBytes / appUpdate.totalBytes) * 100,
+          ),
+        )
+      : null;
 
   return (
     <div className="space-y-6 pb-8" data-testid="version-settings-shell">
       <SettingsSectionHeader
-        description="查看当前 Madora 桌面应用的版本信息。"
+        description="检查、下载并安装经过签名验证的 Madora 桌面更新。"
         title="版本"
       />
 
@@ -821,16 +819,164 @@ function VersionSection() {
             className="font-mono text-sm text-foreground sm:text-right"
             data-testid="madora-version"
           >
-            {loadState === 'loading'
-              ? '正在读取...'
-              : loadState === 'loaded' && version
-                ? version
-                : '版本信息不可用'}
+            {appUpdate.currentVersion ?? '版本信息不可用'}
           </code>
         </div>
+
+        {appUpdate.update ? (
+          <>
+            <VersionMetadataRow
+              label="最新版本"
+              value={appUpdate.update.version}
+            />
+            <VersionMetadataRow
+              label="发布日期"
+              value={formatUpdateDate(appUpdate.update.date)}
+            />
+          </>
+        ) : null}
       </section>
+
+      <section className="rounded-xl bg-muted/30 p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h3 className="text-sm font-medium">应用更新</h3>
+            <p
+              aria-live="polite"
+              className="mt-1 text-xs leading-5 text-muted-foreground"
+            >
+              {getAppUpdateStatus(appUpdate)}
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            {appUpdate.phase !== 'ready-to-restart' ? (
+              <Button
+                disabled={busy}
+                type="button"
+                variant="outline"
+                onClick={() => void appUpdate.check()}
+              >
+                {appUpdate.phase === 'checking' ? (
+                  <Loader2 className="animate-spin" size={14} />
+                ) : (
+                  <RefreshCw size={14} />
+                )}
+                {appUpdate.phase === 'checking' ? '正在检查' : '检查更新'}
+              </Button>
+            ) : null}
+            {appUpdate.update && appUpdate.phase !== 'ready-to-restart' ? (
+              <Button
+                disabled={busy}
+                type="button"
+                onClick={() => void appUpdate.install()}
+              >
+                {appUpdate.phase === 'downloading' ||
+                appUpdate.phase === 'installing' ? (
+                  <Loader2 className="animate-spin" size={14} />
+                ) : null}
+                下载并安装
+              </Button>
+            ) : null}
+            {appUpdate.phase === 'ready-to-restart' ? (
+              <Button type="button" onClick={() => void appUpdate.restart()}>
+                重启并完成更新
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
+        {appUpdate.phase === 'downloading' ? (
+          <div className="mt-4" data-testid="app-update-progress">
+            <div className="mb-1 flex justify-between text-[11px] text-muted-foreground">
+              <span>{formatBytes(appUpdate.downloadedBytes)}</span>
+              <span>
+                {progress === null
+                  ? '正在下载'
+                  : `${progress}% · ${formatBytes(appUpdate.totalBytes ?? 0)}`}
+              </span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-border/70">
+              <div
+                className={cn(
+                  'h-full rounded-full bg-[#3574f0] transition-[width]',
+                  progress === null && 'w-1/3 animate-pulse',
+                )}
+                style={progress === null ? undefined : { width: `${progress}%` }}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        {appUpdate.error ? (
+          <p
+            className="mt-4 rounded-lg bg-destructive/10 px-3 py-2 text-xs leading-5 text-destructive"
+            role="alert"
+          >
+            {appUpdate.error}
+          </p>
+        ) : null}
+      </section>
+
+      {appUpdate.update?.body ? (
+        <section className="rounded-xl bg-muted/30 p-5">
+          <h3 className="text-sm font-medium">更新说明</h3>
+          <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">
+            {appUpdate.update.body}
+          </p>
+        </section>
+      ) : null}
     </div>
   );
+}
+
+function VersionMetadataRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid gap-3 border-t border-border/60 px-5 py-4 text-sm sm:grid-cols-[160px_minmax(0,1fr)] sm:items-center">
+      <span className="text-muted-foreground">{label}</span>
+      <code className="font-mono text-sm text-foreground sm:text-right">
+        {value}
+      </code>
+    </div>
+  );
+}
+
+function getAppUpdateStatus(appUpdate: AppUpdateController) {
+  switch (appUpdate.phase) {
+    case 'checking':
+      return '正在连接 GitHub Releases 检查新版本…';
+    case 'up-to-date':
+      return '当前已是最新版本。';
+    case 'available':
+      return appUpdate.update
+        ? `发现新版本 ${appUpdate.update.version}，安装前会先保存当前工作。`
+        : '发现可用更新。';
+    case 'downloading':
+      return '正在下载并校验更新包，请保持应用运行。';
+    case 'installing':
+      return '更新包校验通过，正在安装。';
+    case 'ready-to-restart':
+      return '更新已安装，重启 Madora 后生效。';
+    case 'error':
+      return '检查更新失败，可稍后手动重试。';
+    default:
+      return 'Madora 会在启动后自动检查，也可立即手动检查。';
+  }
+}
+
+function formatUpdateDate(value: number | null) {
+  if (!value) return '未提供';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '未提供';
+  return new Intl.DateTimeFormat('zh-CN', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
+}
+
+function formatBytes(value: number) {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function GitSyncSection({

@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Madora",
-  "version": "0.1.6",
+  "version": "0.1.15",
   "identifier": "com.madora.app",
   "build": {
     "frontendDist": "../out",
@@ -21,6 +21,10 @@
         "maximized": true,
         "fullscreen": false,
         "titleBarStyle": "Overlay",
+        "trafficLightPosition": {
+          "x": 15,
+          "y": 32
+        },
         "hiddenTitle": true,
         "dragDropEnabled": false,
         "backgroundColor": "#fafafa"
@@ -59,6 +63,12 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [],
+      "pubkey": ""
     }
   }
 }

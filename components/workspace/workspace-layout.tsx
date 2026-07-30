@@ -94,6 +94,7 @@ import { useAiDrawingTools } from './use-ai-drawing-tools';
 import { drawingReferenceFromDescriptor } from './ai-drawing-inspector';
 import { useDrawingController } from './use-drawing-controller';
 import { useInboxController } from './use-inbox-controller';
+import { useAppUpdate } from './use-app-update';
 import { WorkspaceGlobalSearchDialog } from './workspace-global-search-dialog';
 import { useDocumentExport } from './use-document-export';
 import { useDocumentImport } from './use-document-import';
@@ -150,7 +151,10 @@ import {
   observeWorkspaceLongTasks,
   startWorkspacePerformanceMeasure,
 } from './workspace-performance';
-import { WorkspaceSettingsPage } from './workspace-settings-page';
+import {
+  WorkspaceSettingsPage,
+  type SettingsSectionId,
+} from './workspace-settings-page';
 import { createWorkspaceSettingsSessionCache } from './workspace-settings-cache';
 import { createTerminalOutputStore } from './terminal-output-store';
 import { WorkspaceResizeHandle } from './workspace-resize-handle';
@@ -333,7 +337,7 @@ export function WorkspaceLayout({
       AI_WORKSPACE_PREVIEW_WIDTH.max,
     );
   const [settingsInitialSectionId, setSettingsInitialSectionId] =
-    React.useState<'appearance' | 'storage' | 'git-sync'>('appearance');
+    React.useState<SettingsSectionId>('appearance');
   const [settingsVersion, setSettingsVersion] = React.useState(0);
   const [gitLogDetailWidth, setGitLogDetailWidth] = useStoredPanelWidth(
     WORKSPACE_PANEL_WIDTH_STORAGE_KEYS.gitLogDetailWidth,
@@ -560,6 +564,7 @@ export function WorkspaceLayout({
     [workspace.draftDocument, workspace.rightPanelMode],
   );
   const isTauriRuntime = useIsTauriRuntime();
+  const isMacRuntime = useIsMacRuntime();
   const isWindowsRuntime = useIsWindowsRuntime();
 
   React.useEffect(() => {
@@ -673,6 +678,32 @@ export function WorkspaceLayout({
     active: systemPage === 'drawings' || effectiveRightPanelMode === 'ai',
     rootPath: workspaceRootPath,
   });
+  const flushActiveDrawing = drawings.flush;
+  const prepareForAppUpdateInstall = React.useCallback(async () => {
+    const confirmed = await confirmAction({
+      cancelLabel: '稍后更新',
+      confirmLabel: '保存并安装',
+      description:
+        'Madora 会先保存当前文档和图稿，再下载并验证更新包。Windows 安装时应用可能自动退出；macOS 安装完成后会提示重启。',
+      title: '安装 Madora 更新？',
+    });
+    if (!confirmed) return false;
+
+    if (!(await flushActiveMarkdownEditor('app-exit'))) {
+      throw new Error('当前文档未能安全保存，更新已取消。');
+    }
+
+    try {
+      await flushActiveDrawing();
+    } catch {
+      throw new Error('当前图稿未能安全保存，更新已取消。');
+    }
+
+    return true;
+  }, [confirmAction, flushActiveDrawing, flushActiveMarkdownEditor]);
+  const appUpdate = useAppUpdate({
+    onBeforeInstall: prepareForAppUpdateInstall,
+  });
   const openDrawingFromLibrary = drawings.openDrawing;
   const handleAiDrawingCreated = React.useCallback(
     async (drawing: { meta: { id: string } }) => {
@@ -771,7 +802,7 @@ export function WorkspaceLayout({
   const terminalOpen = bottomPanelMode === 'terminal';
 
   const openSettingsPage = React.useCallback(
-    (sectionId: 'appearance' | 'storage' | 'git-sync' = 'appearance') => {
+    (sectionId: SettingsSectionId = 'appearance') => {
       setSettingsInitialSectionId(sectionId);
       setSystemPage('settings');
     },
@@ -888,8 +919,12 @@ export function WorkspaceLayout({
   }, [dailyCalendarMonth, loadDailyNotesForMonth]);
 
   React.useEffect(() => {
+    if (isTauriRuntime && isMacRuntime) {
+      return;
+    }
+
     void setAppWindowTitle(pageTitle ?? 'Madora');
-  }, [pageTitle]);
+  }, [isMacRuntime, isTauriRuntime, pageTitle]);
 
   React.useEffect(() => {
     terminalTabsRef.current = terminalTabs;
@@ -2772,6 +2807,7 @@ export function WorkspaceLayout({
       {systemPage === 'settings' ? null : (
         <SidebarChromeToggle
           collapsed={workspace.isSidebarCollapsed}
+          macChromeOffset={isTauriRuntime && isMacRuntime}
           refreshing={isRefreshingWorkspaceTree}
           windowsChromeInset={isTauriRuntime && isWindowsRuntime}
           pinnedNodes={pinnedNodes}
@@ -2801,6 +2837,7 @@ export function WorkspaceLayout({
       >
         {systemPage === 'settings' ? (
           <WorkspaceSettingsPage
+            appUpdate={appUpdate}
             header={
               <header
                 className="h-11 shrink-0"
@@ -2831,6 +2868,7 @@ export function WorkspaceLayout({
         <div className="flex min-w-0 flex-1 overflow-hidden">
             {leftPanelMode === 'workspace' ? (
               <WorkspaceSidebar
+                appUpdateAvailable={appUpdate.available}
                 dailyCalendar={
                   workspace.snapshot ? (
                     <DailyNoteCalendar
@@ -2883,7 +2921,7 @@ export function WorkspaceLayout({
                 onOpenGlobalSearch={openGlobalSearch}
                 onOpenViews={handleOpenViewsPage}
                 onOpenInFileManager={handleOpenNodeInFileManager}
-                onOpenSettings={() => openSettingsPage('appearance')}
+                onOpenSettings={openSettingsPage}
                 onRemoveWorkspace={handleRemoveWorkspace}
                 onDeleteNode={handleDeleteWorkspaceNode}
                 onRenameNode={handleRenameWorkspaceNode}
@@ -2905,7 +2943,12 @@ export function WorkspaceLayout({
               />
             ) : workspace.isSidebarCollapsed ? null : (
               <div
-                className="my-2 ml-2 min-h-0 shrink-0"
+                className={cn(
+                  'min-h-0 shrink-0',
+                  isTauriRuntime && isMacRuntime
+                    ? 'mt-10 [&>aside]:rounded-none [&>aside]:border-0 [&>aside]:bg-transparent'
+                    : 'my-2 ml-2',
+                )}
                 data-testid="workspace-git-panel-column"
                 style={{ width: leftSidebarWidth }}
               >
@@ -2986,6 +3029,11 @@ export function WorkspaceLayout({
                   }
                   gitLogOpen={gitLogOpen}
                   leftPanelMode={leftPanelMode}
+                  macChromeInset={
+                    isTauriRuntime &&
+                    isMacRuntime &&
+                    workspace.isSidebarCollapsed
+                  }
                   terminalOpen={terminalOpen}
                   windowsChromeInset={isTauriRuntime && isWindowsRuntime}
                   onOpenGitPanel={openGitPanel}
@@ -3291,6 +3339,7 @@ function useIsTauriRuntime() {
 
 function SidebarChromeToggle({
   collapsed,
+  macChromeOffset,
   refreshing,
   windowsChromeInset,
   pinnedNodes,
@@ -3300,6 +3349,7 @@ function SidebarChromeToggle({
   onUnpinNode,
 }: {
   collapsed: boolean;
+  macChromeOffset: boolean;
   refreshing: boolean;
   windowsChromeInset: boolean;
   pinnedNodes: WorkspaceNode[];
@@ -3313,7 +3363,8 @@ function SidebarChromeToggle({
   return (
     <div
       className={cn(
-        'absolute top-0 z-50 flex h-8 items-center gap-1',
+        'absolute z-50 flex h-8 items-center gap-1',
+        macChromeOffset ? 'top-3.5' : 'top-0',
         windowsChromeInset ? 'left-2' : 'left-[80px]',
       )}
       data-testid="sidebar-chrome-toggle"
@@ -3440,6 +3491,36 @@ function getServerTauriRuntimeSnapshot() {
   return false;
 }
 
+function useIsMacRuntime() {
+  return React.useSyncExternalStore(
+    subscribeToStaticRuntimeSnapshot,
+    getMacRuntimeSnapshot,
+    getServerMacRuntimeSnapshot,
+  );
+}
+
+function getMacRuntimeSnapshot() {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const navigatorWithUserAgentData = navigator as Navigator & {
+    userAgentData?: { platform?: string };
+  };
+  const platform =
+    navigatorWithUserAgentData.userAgentData?.platform ??
+    navigator.platform ??
+    '';
+
+  return (
+    /mac/i.test(platform) || /macintosh|mac os x/i.test(navigator.userAgent)
+  );
+}
+
+function getServerMacRuntimeSnapshot() {
+  return false;
+}
+
 function useIsWindowsRuntime() {
   return React.useSyncExternalStore(
     subscribeToStaticRuntimeSnapshot,
@@ -3507,6 +3588,7 @@ function WorkspaceMainHeader({
   documentTabs,
   gitLogOpen,
   leftPanelMode,
+  macChromeInset,
   terminalOpen,
   windowsChromeInset,
   onOpenGitPanel,
@@ -3517,6 +3599,7 @@ function WorkspaceMainHeader({
   documentTabs?: React.ReactNode;
   gitLogOpen: boolean;
   leftPanelMode: LeftPanelMode;
+  macChromeInset: boolean;
   terminalOpen: boolean;
   windowsChromeInset: boolean;
   onOpenGitPanel: () => void;
@@ -3526,8 +3609,9 @@ function WorkspaceMainHeader({
   return (
     <header
       className={cn(
-        'relative flex shrink-0 items-center gap-1 px-3',
+        'relative flex shrink-0 items-center gap-1 pr-3',
         windowsChromeInset ? 'h-8' : 'h-11',
+        macChromeInset ? 'pl-44' : 'pl-3',
       )}
       data-tauri-drag-region="deep"
       data-testid="workspace-main-header"

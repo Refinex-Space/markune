@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-23
+updated: 2026-07-24
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -198,6 +198,21 @@ pnpm lint
 pnpm build:desktop:web
 ```
 
+## Release And Update Acceptance
+
+发布操作、GitHub Secrets/Variables、版本同步、Tag、draft Release、签名、N-1→N 验收和回滚统一遵循 `docs/guides/release-and-update.md`。聚焦自动化先执行：
+
+```bash
+node --test scripts/prepare-release-updater-config.test.mjs scripts/verify-release-assets.test.mjs
+pnpm exec vitest run components/workspace/__tests__/use-app-update.test.tsx components/workspace/__tests__/workspace-sidebar-update.test.tsx components/workspace/__tests__/workspace-settings-page.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml app_update
+pnpm exec tsc --noEmit
+pnpm lint
+pnpm build:desktop:web
+```
+
+本机只验证当前架构和未发布配置。完整门禁必须由 GitHub Actions 的 macOS Apple Silicon、macOS Intel、Windows x64 三个原生 runner 完成。没有已发布的 N-1 版本与生产更新密钥时，不能声称真实自动更新端到端通过。
+
 ## Desktop Packaging
 
 Build the Tauri web export first when debugging static export issues:
@@ -212,6 +227,8 @@ Then run the desktop build target required by the task, for example:
 pnpm exec tauri build --no-bundle
 pnpm exec tauri build --bundles dmg --no-sign
 ```
+
+`--no-sign` 只允许用于本地打包诊断，不能发布或用于自动更新验收。正式 Tag 构建必须通过 `pnpm release:prepare` 注入 updater minisign、公钥、公开 `madora-site` endpoint 和 macOS ad-hoc identity，再由发布工作流生成 `.sig` 与 `latest.json`。
 
 ## Rollback
 

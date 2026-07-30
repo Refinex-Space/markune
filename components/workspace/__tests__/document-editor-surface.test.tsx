@@ -65,34 +65,48 @@ function SurfaceHarness() {
   const activePath = layout.activeTabId;
 
   return (
-    <DocumentEditorSurface
-      activeDocumentPath={activePath}
-      activeEditorRef={{ current: null }}
-      currentDocumentPath={activePath}
-      documentEditorLayout={layout}
-      documentLoadError={null}
-      documentLoadState="ready"
-      documentVersion={1}
-      draftMarkdown={activePath === '/repo/a.md' ? 'A' : 'B'}
-      editorSessions={{
-        '/repo/a.md': { documentVersion: 10, markdown: 'A' },
-        '/repo/b.md': { documentVersion: 20, markdown: 'B' },
-      }}
-      getDocumentReadOnly={() => false}
-      pageWidthMode="wide"
-      workspaceRootPath="/repo"
-      onCloseAllTabs={() => {}}
-      onCloseOtherTabs={() => {}}
-      onCloseTab={() => {}}
-      onCloseTabsToLeft={() => {}}
-      onCloseTabsToRight={() => {}}
-      onMarkdownChange={() => true}
-      onRetryDocument={() => {}}
-      onSaveRequested={() => {}}
-      onSelectTab={(tabId) =>
-        setLayout((current) => selectDocumentTab(current, tabId))
-      }
-    />
+    <>
+      <button
+        type="button"
+        onClick={() =>
+          setLayout((current) => selectDocumentTab(current, '/repo/a.md'))
+        }
+      >
+        a
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          setLayout((current) => selectDocumentTab(current, '/repo/b.md'))
+        }
+      >
+        b
+      </button>
+      <DocumentEditorSurface
+        activeDocumentPath={activePath}
+        activeEditorRef={{ current: null }}
+        currentDocumentPath={activePath}
+        documentEditorLayout={layout}
+        documentLoadError={null}
+        documentLoadState="ready"
+        documentVersion={1}
+        draftMarkdown={activePath === '/repo/a.md' ? 'A' : 'B'}
+        editorSessions={{
+          '/repo/a.md': { documentVersion: 10, markdown: 'A' },
+          '/repo/b.md': { documentVersion: 20, markdown: 'B' },
+        }}
+        getDocumentReadOnly={() => false}
+        pageWidthMode="wide"
+        warmDocumentPaths={['/repo/a.md', '/repo/b.md']}
+        workspaceRootPath="/repo"
+        onMarkdownChange={() => true}
+        onRetryDocument={() => {}}
+        onSaveRequested={() => {}}
+        onSelectTab={(tabId) =>
+          setLayout((current) => selectDocumentTab(current, tabId))
+        }
+      />
+    </>
   );
 }
 
@@ -105,8 +119,8 @@ describe('DocumentEditorSurface', () => {
   it('切换已打开 Tab 时保留两个编辑器实例', () => {
     render(<SurfaceHarness />);
 
-    fireEvent.click(screen.getByRole('tab', { name: /b/iu }));
-    fireEvent.click(screen.getByRole('tab', { name: /a/iu }));
+    fireEvent.click(screen.getByRole('button', { name: 'b' }));
+    fireEvent.click(screen.getByRole('button', { name: 'a' }));
 
     expect(editorMounts).toHaveBeenCalledTimes(2);
     expect(editorUnmounts).not.toHaveBeenCalled();

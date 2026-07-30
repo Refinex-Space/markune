@@ -16,6 +16,7 @@ import {
   ProcessingTrace,
   ProposedPlanCard,
   TaskProgressIndicator,
+  TurnErrorCard,
   UserInputDecisionCard,
   UserMessageContent,
 } from '../ai-panel';
@@ -95,6 +96,117 @@ function change(
 }
 
 describe('AI message rendering', () => {
+  it('无活动明细时仍显示等待 Codex 响应', () => {
+    render(
+      <ProcessingTrace
+        trace={{
+          approvals: [],
+          durationMs: null,
+          historical: false,
+          id: 'trace-waiting',
+          segments: [],
+          startedAtMs: Date.now(),
+          status: 'inProgress',
+          turnId: 'turn-waiting',
+          type: 'trace',
+        }}
+        onApprove={vi.fn()}
+        onOpenDocument={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('status').textContent).toContain(
+      '等待 Codex 响应',
+    );
+  });
+
+  it('错误卡片区分自动重试和最终失败，并允许复制技术详情', async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const { rerender } = render(
+      <TurnErrorCard
+        error={{
+          additionalDetails: 'upstream unavailable',
+          codexErrorInfo: 'serverOverloaded',
+          message: 'server is overloaded',
+          willRetry: true,
+        }}
+        status="retrying"
+      />,
+    );
+
+    expect(screen.getByRole('status').textContent).toContain(
+      '连接中断，Codex 正在自动重试',
+    );
+
+    rerender(
+      <TurnErrorCard
+        error={{
+          additionalDetails: 'request id: req-1',
+          codexErrorInfo: 'usageLimitExceeded',
+          message: 'usage limit exceeded',
+          willRetry: false,
+        }}
+        status="failed"
+      />,
+    );
+    expect(screen.getByRole('alert').textContent).toContain(
+      '当前账户的 Codex 使用额度已达到限制',
+    );
+    await user.click(screen.getByRole('button', { name: '查看错误详情' }));
+    expect(screen.getByText('usage limit exceeded')).toBeTruthy();
+    expect(screen.getByText('request id: req-1')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '复制错误详情' }));
+    expect(writeText).toHaveBeenCalledWith(
+      expect.stringContaining('usage limit exceeded'),
+    );
+  });
+
+  it('用户消息展示发送中和发送失败状态', () => {
+    const { rerender } = render(
+      <ConversationEntryRow
+        entry={{
+          deliveryStatus: 'sending',
+          id: 'local-message',
+          role: 'user',
+          text: '总结当前仓库',
+          type: 'message',
+        }}
+        onOpenDocument={vi.fn()}
+        pluginOptions={[]}
+        previous={null}
+      />,
+    );
+    expect(screen.getByRole('status').textContent).toContain('正在发送');
+
+    rerender(
+      <ConversationEntryRow
+        entry={{
+          deliveryError: {
+            additionalDetails: null,
+            codexErrorInfo: null,
+            message: '当前内容保存失败',
+            willRetry: false,
+          },
+          deliveryStatus: 'failed',
+          id: 'local-message',
+          role: 'user',
+          text: '总结当前仓库',
+          type: 'message',
+        }}
+        onOpenDocument={vi.fn()}
+        pluginOptions={[]}
+        previous={null}
+      />,
+    );
+    expect(screen.getByText('发送失败')).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toContain('当前内容保存失败');
+  });
+
   it('任务进度支持 Hover 预览、点击固定和 Escape 关闭', async () => {
     const user = userEvent.setup();
     const progress: AiTaskProgress = {

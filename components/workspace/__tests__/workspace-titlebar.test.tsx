@@ -11,8 +11,9 @@ const workspaceSidebarPath = join(
   process.cwd(),
   'components/workspace/workspace-sidebar.tsx',
 );
+const tauriConfigPath = join(process.cwd(), 'src-tauri/tauri.conf.json');
 
-describe('Windows workspace titlebar', () => {
+describe('Workspace titlebar', () => {
   it('keeps native controls in an outer titlebar above the workspace panel', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
 
@@ -43,6 +44,50 @@ describe('Windows workspace titlebar', () => {
     expect(workspaceLayoutSource.match(/<DocumentTabBar/g)).toHaveLength(1);
   });
 
+  it('reserves the macOS left chrome area when the workspace sidebar is collapsed', () => {
+    const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
+
+    expect(workspaceLayoutSource).toMatch(
+      /macChromeInset=\{\s*isTauriRuntime\s*&&\s*isMacRuntime\s*&&\s*workspace\.isSidebarCollapsed\s*\}/,
+    );
+    expect(workspaceLayoutSource).toContain(
+      "macChromeInset ? 'pl-44' : 'pl-3'",
+    );
+  });
+
+  it('moves the macOS traffic lights and left chrome tools below the panel edge', () => {
+    const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
+    const tauriConfig = JSON.parse(readFileSync(tauriConfigPath, 'utf8')) as {
+      app: {
+        windows: Array<{
+          trafficLightPosition?: { x: number; y: number };
+        }>;
+      };
+    };
+
+    expect(tauriConfig.app.windows[0]?.trafficLightPosition).toEqual({
+      x: 15,
+      y: 32,
+    });
+    expect(workspaceLayoutSource).toMatch(
+      /macChromeOffset=\{\s*isTauriRuntime\s*&&\s*isMacRuntime\s*\}/,
+    );
+    expect(workspaceLayoutSource).toContain(
+      "macChromeOffset ? 'top-3.5' : 'top-0'",
+    );
+  });
+
+  it('does not reset the macOS traffic light position when the document title changes', () => {
+    const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
+
+    expect(workspaceLayoutSource).toMatch(
+      /if \(isTauriRuntime && isMacRuntime\) \{\s*return;\s*\}\s*void setAppWindowTitle\(pageTitle \?\? 'Madora'\)/,
+    );
+    expect(workspaceLayoutSource).toContain(
+      '[isMacRuntime, isTauriRuntime, pageTitle]',
+    );
+  });
+
   it('renders the compact AI and metadata panels beside the rounded main panel', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
 
@@ -63,14 +108,23 @@ describe('Windows workspace titlebar', () => {
       .toBeLessThan(workspaceLayoutSource.indexOf('<RightSidePanel'));
   });
 
-  it('insets the Git panel from the top, left and bottom workspace edges', () => {
+  it('keeps the Git panel below macOS window controls without changing other runtimes', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
 
     expect(workspaceLayoutSource).toContain(
-      'className="my-2 ml-2 min-h-0 shrink-0"',
+      "'min-h-0 shrink-0'",
+    );
+    expect(workspaceLayoutSource).toContain(
+      "'mt-10 [&>aside]:rounded-none [&>aside]:border-0 [&>aside]:bg-transparent'",
+    );
+    expect(workspaceLayoutSource).toContain(
+      ": 'my-2 ml-2'",
     );
     expect(workspaceLayoutSource).toContain(
       'data-testid="workspace-git-panel-column"',
+    );
+    expect(workspaceLayoutSource).not.toContain(
+      "'mb-2 ml-2 min-h-0 shrink-0'",
     );
   });
 

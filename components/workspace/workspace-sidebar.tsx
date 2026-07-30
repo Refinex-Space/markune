@@ -24,6 +24,7 @@ import type {
 } from './workspace-types';
 
 interface WorkspaceSidebarProps {
+  appUpdateAvailable?: boolean;
   dailyCalendar?: ReactNode;
   drawingContent?: ReactNode;
   inboxContent?: ReactNode;
@@ -48,7 +49,7 @@ interface WorkspaceSidebarProps {
   onOpenInFileManager?: (node: WorkspaceNode) => void;
   onOpenInPreferredEditor?: (node: WorkspaceNode) => void;
   onOpenViews?: () => void;
-  onOpenSettings?: () => void;
+  onOpenSettings?: (sectionId?: 'appearance' | 'version') => void;
   onRemoveWorkspace?: (rootPath: string) => void;
   onRenameNode?: (
     node: WorkspaceNode,
@@ -65,6 +66,7 @@ interface WorkspaceSidebarProps {
 }
 
 export function WorkspaceSidebar({
+  appUpdateAvailable = false,
   dailyCalendar,
   drawingContent,
   inboxContent,
@@ -292,15 +294,27 @@ export function WorkspaceSidebar({
 
         {onOpenSettings ? (
           <footer className="shrink-0 px-2 py-2">
-            <button
-              aria-label="打开设置"
-              className="flex h-8 w-[calc(100%-0.75rem)] items-center gap-2.5 rounded-md px-2.5 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              type="button"
-              onClick={onOpenSettings}
-            >
-              <Settings size={16} strokeWidth={1.75} />
-              <span>设置</span>
-            </button>
+            <div className="flex w-[calc(100%-0.75rem)] items-center gap-1">
+              <button
+                aria-label="打开设置"
+                className="flex h-8 min-w-0 flex-1 items-center gap-2.5 rounded-md px-2.5 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                type="button"
+                onClick={() => onOpenSettings()}
+              >
+                <Settings size={16} strokeWidth={1.75} />
+                <span>设置</span>
+              </button>
+              {appUpdateAvailable ? (
+                <button
+                  aria-label="打开版本更新"
+                  className="inline-flex h-7 shrink-0 items-center justify-center rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+                  type="button"
+                  onClick={() => onOpenSettings('version')}
+                >
+                  <span>更新</span>
+                </button>
+              ) : null}
+            </div>
           </footer>
         ) : null}
       </div>

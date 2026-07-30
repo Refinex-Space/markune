@@ -170,6 +170,8 @@ import {
   type AiTraceBlock,
   type AiTimelineItem,
   type AiTaskProgress,
+  type AiTurnError,
+  type AiTurnErrorBlock,
   type AiUserInputRequest,
   type AiWorkspaceChangeEvent,
 } from './ai-panel-state';
@@ -2005,7 +2007,8 @@ export function AiPanel({
 
   const sendMessage = React.useCallback(
     async (messageOverride?: string, options: SendMessageOptions = {}) => {
-      const text = (messageOverride ?? composerValue).trim();
+      const composerSnapshot = messageOverride ?? composerValue;
+      const text = composerSnapshot.trim();
       const activeDocument = currentDocument;
       const activeDocumentPath = currentDocumentPath;
       const currentDrawing = activeDrawing;
@@ -2062,9 +2065,57 @@ export function AiPanel({
         return;
       }
 
+      const clientMessageId = `madora-${Date.now()}`;
+      const deliveryStartedAtMs = Date.now();
+      const optimisticAttachments = attachments.map((attachment) => ({
+        kind: attachment.isImage ? ('image' as const) : attachment.kind,
+        mediaType: attachment.mediaType,
+        name: attachment.name,
+        previewUrl:
+          attachmentPreviewUrlsRef.current[attachment.attachmentId] ?? null,
+      }));
+      const optimisticMentions = composerMentions.map(
+        ({ end, kind, label, path, start }) => ({
+          end,
+          kind,
+          label,
+          path,
+          start,
+        }),
+      );
+
       submittingRef.current = true;
       setSubmitting(true);
       setRuntimeError(null);
+      setPlanImplementation(null);
+      setFollowLatestRequest((current) => current + 1);
+      setConversation((current) => {
+        const base = forceNewThread ? createEmptyConversation() : current;
+        return {
+          ...base,
+          entries: [
+            ...base.entries,
+            {
+              attachments: optimisticAttachments,
+              createdAtMs: deliveryStartedAtMs,
+              deliveryError: null,
+              deliveryStatus: 'sending',
+              type: 'message',
+              id: clientMessageId,
+              mentions: optimisticMentions,
+              role: 'user',
+              text,
+            },
+          ],
+        };
+      });
+      if (!options.planAction) {
+        setComposerValue('');
+        setSelectedMentions([]);
+        selectedAttachmentsRef.current = [];
+        setSelectedAttachments([]);
+        setMentionQuery(null);
+      }
       try {
         if (runtimeStatusRef.current === 'loading') {
           const runtimeReady = runtimeReadyPromiseRef.current;
@@ -2144,40 +2195,6 @@ export function AiPanel({
             : collaborationModeRef.current === 'plan'
               ? restoredDefaultEffort
               : effortRef.current;
-        setPlanImplementation(null);
-        setFollowLatestRequest((current) => current + 1);
-        const clientMessageId = `madora-${Date.now()}`;
-        setConversation((current) => {
-          const base = forceNewThread ? createEmptyConversation() : current;
-          return {
-            ...base,
-            entries: [
-            ...base.entries,
-            {
-              attachments: attachments.map((attachment) => ({
-                kind: attachment.isImage ? 'image' : attachment.kind,
-                mediaType: attachment.mediaType,
-                name: attachment.name,
-                previewUrl:
-                  attachmentPreviewUrlsRef.current[attachment.attachmentId] ??
-                  null,
-              })),
-              type: 'message',
-              id: clientMessageId,
-              mentions: composerMentions.map(({ end, kind, label, path, start }) => ({
-                end,
-                kind,
-                label,
-                path,
-                start,
-              })),
-              role: 'user',
-              text,
-            },
-            ],
-          };
-        });
-
         let thread = forceNewThread ? null : activeThread;
         if (!thread) {
           const response =
@@ -2286,13 +2303,8 @@ export function AiPanel({
         );
         turnAccepted = true;
         if (!options.planAction) {
-          setComposerValue('');
-          setSelectedMentions([]);
-          selectedAttachmentsRef.current = [];
-          setSelectedAttachments([]);
           setAttachmentPreviewUrls({});
           attachmentGrantsDetached = true;
-          setMentionQuery(null);
         }
         turnModesRef.current.set(response.turn.id, requestedMode);
         if (options.forceNewThread && createdThread && createdThreadTitle) {
@@ -2312,10 +2324,41 @@ export function AiPanel({
           effortRef.current = currentEffort;
           setEffort(currentEffort);
         }
-        setConversation((current) => ({
-          ...current,
-          activeTurnId: response.turn.id,
-        }));
+        setConversation((current) => {
+          const acceptedTurn = current.turns[response.turn.id] ?? {
+            completedAtMs: null,
+            diff: null,
+            durationMs: null,
+            error: null,
+            historical: false,
+            id: response.turn.id,
+            startedAtMs: Date.now(),
+            status: 'inProgress',
+          };
+          return {
+            ...current,
+            activeTurnId:
+              acceptedTurn.status === 'inProgress'
+                ? response.turn.id
+                : current.activeTurnId === response.turn.id
+                  ? null
+                  : current.activeTurnId,
+            entries: current.entries.map((entry) =>
+              entry.type === 'message' && entry.id === clientMessageId
+                ? {
+                    ...entry,
+                    deliveryError: null,
+                    deliveryStatus: 'sent',
+                    turnId: response.turn.id,
+                  }
+                : entry,
+            ),
+            turns: {
+              ...current.turns,
+              [response.turn.id]: acceptedTurn,
+            },
+          };
+        });
         if (startingGoal) {
           goalDraftModeRef.current = false;
           setGoalDraftMode(false);
@@ -2346,14 +2389,58 @@ export function AiPanel({
               current.filter((thread) => thread.id !== createdThread?.id),
             );
           }
-          setConversation(previousConversation);
+          const deliveryError: AiTurnError = {
+            additionalDetails: null,
+            codexErrorInfo: null,
+            message: getErrorMessage(error),
+            willRetry: false,
+          };
+          setConversation((current) => {
+            const failedMessage = current.entries.find(
+              (entry) =>
+                entry.type === 'message' && entry.id === clientMessageId,
+            );
+            const base = forceNewThread ? previousConversation : current;
+            return {
+              ...base,
+              activeTurnId: previousConversation.activeTurnId,
+              entries: forceNewThread
+                ? [
+                    ...previousConversation.entries,
+                    ...(failedMessage
+                      ? [
+                          {
+                            ...failedMessage,
+                            deliveryError,
+                            deliveryStatus: 'failed' as const,
+                          },
+                        ]
+                      : []),
+                  ]
+                : current.entries.map((entry) =>
+                    entry.type === 'message' && entry.id === clientMessageId
+                      ? {
+                          ...entry,
+                          deliveryError,
+                          deliveryStatus: 'failed',
+                        }
+                      : entry,
+                  ),
+            };
+          });
           setActiveThread(previousThread);
           activeThreadIdRef.current = previousThread?.id ?? null;
+          if (!options.planAction) {
+            setComposerValue(composerSnapshot);
+            setSelectedMentions(composerMentions);
+            selectedAttachmentsRef.current = attachments;
+            setSelectedAttachments(attachments);
+            setMentionQuery(null);
+          }
           if (options.planAction) {
             setPlanImplementation(options.restorePlan ?? null);
           }
         }
-        setRuntimeError(getErrorMessage(error));
       } finally {
         if (attachmentGrantsDetached) {
           void releaseCodexContextAttachments(
@@ -3102,6 +3189,12 @@ export function PanelContent({
               plan={block}
               onOpen={onOpenPlanPreview}
             />
+          ) : block.type === 'turnError' ? (
+            <TurnErrorCard
+              error={block}
+              key={block.id}
+              status={block.status}
+            />
           ) : (
             <ConversationEntryRow
               entry={block}
@@ -3719,6 +3812,8 @@ export function ConversationEntryRow({
       ) : (
         <UserMessageBubble
           attachments={entry.attachments ?? []}
+          deliveryError={entry.deliveryError ?? null}
+          deliveryStatus={entry.deliveryStatus}
           mentions={entry.mentions ?? []}
           pluginOptions={pluginOptions}
           text={entry.text}
@@ -3732,6 +3827,8 @@ export function ConversationEntryRow({
 
 function UserMessageBubble({
   attachments,
+  deliveryError,
+  deliveryStatus,
   mentions,
   pluginOptions,
   text,
@@ -3739,6 +3836,8 @@ function UserMessageBubble({
   onOpenMention,
 }: {
   attachments: AiMessageAttachment[];
+  deliveryError: AiTurnError | null;
+  deliveryStatus: 'failed' | 'sending' | 'sent' | undefined;
   mentions: AiMessageMention[];
   pluginOptions: AiPluginMentionOption[];
   text: string;
@@ -3779,16 +3878,30 @@ function UserMessageBubble({
           />
         </div>
       ) : null}
-      <MessageMetadata role="user" text={text} timestampMs={timestampMs} />
+      <MessageMetadata
+        deliveryStatus={deliveryStatus}
+        role="user"
+        text={text}
+        timestampMs={timestampMs}
+      />
+      {deliveryStatus === 'failed' && deliveryError ? (
+        <TurnErrorCard
+          error={deliveryError}
+          status="failed"
+          variant="delivery"
+        />
+      ) : null}
     </div>
   );
 }
 
 function MessageMetadata({
+  deliveryStatus,
   role,
   text,
   timestampMs,
 }: {
+  deliveryStatus?: 'failed' | 'sending' | 'sent';
   role: 'assistant' | 'user';
   text: string;
   timestampMs: number | null;
@@ -3797,7 +3910,23 @@ function MessageMetadata({
   const formattedTime = formatMessageTimestamp(timestampMs);
   const hasCopyableText = Boolean(text.trim());
 
-  if (!hasCopyableText && !formattedTime) return null;
+  if (!hasCopyableText && !formattedTime && !deliveryStatus) return null;
+
+  const deliveryState =
+    deliveryStatus === 'sending' ? (
+      <span
+        className="mr-1 inline-flex items-center gap-1 text-[11px] leading-none"
+        role="status"
+      >
+        <LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
+        正在发送
+      </span>
+    ) : deliveryStatus === 'failed' ? (
+      <span className="mr-1 inline-flex items-center gap-1 text-[11px] leading-none text-destructive">
+        <CircleX className="size-3" aria-hidden="true" />
+        发送失败
+      </span>
+    ) : null;
 
   const copyButton = hasCopyableText ? (
     <Tooltip>
@@ -3842,10 +3971,185 @@ function MessageMetadata({
         )}
         data-testid={`${role}-message-metadata`}
       >
+        {deliveryState}
         {role === 'assistant' ? copyButton : time}
         {role === 'assistant' ? time : copyButton}
       </div>
     </TooltipProvider>
+  );
+}
+
+function serializeTurnErrorDetails(error: AiTurnError) {
+  const details = [error.message];
+  if (error.additionalDetails) {
+    details.push(error.additionalDetails);
+  }
+  if (error.codexErrorInfo !== null && error.codexErrorInfo !== undefined) {
+    details.push(
+      typeof error.codexErrorInfo === 'string'
+        ? error.codexErrorInfo
+        : JSON.stringify(error.codexErrorInfo, null, 2),
+    );
+  }
+  return details.join('\n\n');
+}
+
+function localizedTurnErrorSummary(error: AiTurnError) {
+  const errorInfo =
+    typeof error.codexErrorInfo === 'string'
+      ? error.codexErrorInfo
+      : JSON.stringify(error.codexErrorInfo ?? '');
+  const searchable = `${errorInfo} ${error.message}`.toLowerCase();
+
+  if (
+    searchable.includes('usagelimitexceeded') ||
+    searchable.includes('sessionbudgetexceeded') ||
+    searchable.includes('usage limit')
+  ) {
+    return '当前账户的 Codex 使用额度已达到限制，请稍后重试或检查账户额度。';
+  }
+  if (searchable.includes('contextwindowexceeded')) {
+    return '当前任务上下文过长，请新建任务或精简上下文后重试。';
+  }
+  if (
+    searchable.includes('serveroverloaded') ||
+    searchable.includes('overloaded')
+  ) {
+    return 'Codex 服务当前繁忙，请稍后重试。';
+  }
+  if (
+    searchable.includes('unauthorized') ||
+    searchable.includes('authentication')
+  ) {
+    return 'Codex 登录状态已失效，请重新登录后再试。';
+  }
+  if (
+    searchable.includes('responsestreamdisconnected') ||
+    searchable.includes('httpconnectionfailed') ||
+    searchable.includes('stream disconnected')
+  ) {
+    return '与 Codex 的连接已中断，请检查网络后重新发送。';
+  }
+  if (searchable.includes('badrequest')) {
+    return 'Codex 无法处理当前请求，请调整内容后重新发送。';
+  }
+  if (searchable.includes('sandboxerror')) {
+    return 'Codex 执行环境发生错误，请检查任务权限或稍后重试。';
+  }
+  if (searchable.includes('internalservererror')) {
+    return 'Codex 服务发生内部错误，请稍后重试。';
+  }
+  return 'Codex 未能完成本次响应。';
+}
+
+export function TurnErrorCard({
+  error,
+  status,
+  variant = 'turn',
+}: {
+  error: AiTurnError;
+  status: AiTurnErrorBlock['status'];
+  variant?: 'delivery' | 'turn';
+}) {
+  const [detailsOpen, setDetailsOpen] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+  const retrying = status === 'retrying';
+  const details = serializeTurnErrorDetails(error);
+  const summary =
+    variant === 'delivery' ? error.message : localizedTurnErrorSummary(error);
+
+  return (
+    <div
+      className={cn(
+        'mt-3 w-full rounded-lg border px-3 py-2.5 text-left text-xs',
+        retrying
+          ? 'border-amber-500/30 bg-amber-500/8 text-amber-800 dark:text-amber-200'
+          : 'border-destructive/25 bg-destructive/5 text-destructive',
+      )}
+      role={retrying ? 'status' : 'alert'}
+    >
+      <div className="flex items-start gap-2">
+        {retrying ? (
+          <LoaderCircle
+            aria-hidden="true"
+            className="mt-0.5 size-3.5 shrink-0 animate-spin"
+          />
+        ) : (
+          <AlertCircle
+            aria-hidden="true"
+            className="mt-0.5 size-3.5 shrink-0"
+          />
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="font-medium">
+            {retrying
+              ? '连接中断，Codex 正在自动重试'
+              : variant === 'delivery'
+                ? '消息未发送'
+                : 'Codex 响应失败'}
+          </div>
+          <div className="mt-1 break-words leading-5 opacity-90">{summary}</div>
+          {variant === 'turn' && !retrying ? (
+            <>
+              <button
+                aria-label={detailsOpen ? '收起错误详情' : '查看错误详情'}
+                className="mt-1.5 inline-flex items-center gap-1 rounded py-0.5 font-medium outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/40"
+                type="button"
+                onClick={() => setDetailsOpen((current) => !current)}
+              >
+                <ChevronRight
+                  aria-hidden="true"
+                  className={cn(
+                    'size-3 transition-transform',
+                    detailsOpen && 'rotate-90',
+                  )}
+                />
+                技术详情
+              </button>
+              {detailsOpen ? (
+                <div className="mt-2 rounded-md border border-current/15 bg-background/60 p-2 text-foreground">
+                  <div className="space-y-2 font-mono text-[11px] leading-5">
+                    <div className="whitespace-pre-wrap break-words">
+                      {error.message}
+                    </div>
+                    {error.additionalDetails ? (
+                      <div className="whitespace-pre-wrap break-words">
+                        {error.additionalDetails}
+                      </div>
+                    ) : null}
+                    {error.codexErrorInfo !== null &&
+                    error.codexErrorInfo !== undefined ? (
+                      <pre className="whitespace-pre-wrap break-words">
+                        {typeof error.codexErrorInfo === 'string'
+                          ? error.codexErrorInfo
+                          : JSON.stringify(error.codexErrorInfo, null, 2)}
+                      </pre>
+                    ) : null}
+                  </div>
+                  <button
+                    aria-label="复制错误详情"
+                    className="mt-2 inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                    type="button"
+                    onClick={() => {
+                      void navigator.clipboard
+                        .writeText(details)
+                        .then(() => {
+                          setCopied(true);
+                          window.setTimeout(() => setCopied(false), 1_200);
+                        })
+                        .catch(() => undefined);
+                    }}
+                  >
+                    {copied ? <Check size={12} /> : <Copy size={12} />}
+                    {copied ? '已复制' : '复制详情'}
+                  </button>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -4363,6 +4667,18 @@ export function ProcessingTrace({
 
       <Collapsible.Content>
         <div className="mt-3 space-y-3">
+          {active && trace.segments.length === 0 ? (
+            <div
+              className="flex items-center gap-2 text-[13px] text-muted-foreground"
+              role="status"
+            >
+              <LoaderCircle
+                aria-hidden="true"
+                className="size-3.5 animate-spin"
+              />
+              正在处理，等待 Codex 响应
+            </div>
+          ) : null}
           {trace.segments.map((segment) =>
             segment.type === 'commentary' ? (
               <div
@@ -5704,6 +6020,10 @@ export function AiComposer({
   const mentionPathsRef = React.useRef<string[]>([]);
   const appliedSkillInsertRequestIdRef = React.useRef<number | null>(null);
   const pasteQueueRef = React.useRef(Promise.resolve());
+  const clearedComposerSnapshotRef = React.useRef<{
+    fragment: DocumentFragment;
+    value: string;
+  } | null>(null);
   const [composerMentionPaths, setComposerMentionPaths] = React.useState<
     string[]
   >([]);
@@ -5810,12 +6130,44 @@ export function AiComposer({
     }
 
     if (!value && editor.hasChildNodes()) {
+      const fragment = window.document.createDocumentFragment();
+      for (const child of Array.from(editor.childNodes)) {
+        fragment.append(child.cloneNode(true));
+      }
+      clearedComposerSnapshotRef.current = {
+        fragment,
+        value: readComposerSnapshot(editor).value,
+      };
       editor.replaceChildren();
       savedRangeRef.current = null;
       mentionPathsRef.current = [];
       setComposerMentionPaths([]);
+      return;
+    }
+
+    if (value && !editor.hasChildNodes()) {
+      const snapshot = clearedComposerSnapshotRef.current;
+      if (snapshot?.value === value) {
+        editor.append(snapshot.fragment.cloneNode(true));
+        mentionPathsRef.current = Array.from(
+          editor.querySelectorAll<HTMLElement>('[data-mention-path]'),
+        )
+          .map((mention) => mention.dataset.mentionPath ?? '')
+          .filter(Boolean);
+        setComposerMentionPaths(mentionPathsRef.current);
+      } else {
+        editor.textContent = value;
+        mentionPathsRef.current = [];
+        setComposerMentionPaths([]);
+      }
     }
   }, [value]);
+
+  React.useEffect(() => {
+    if (!submitting && !value) {
+      clearedComposerSnapshotRef.current = null;
+    }
+  }, [submitting, value]);
 
   const insertMention = React.useCallback(
     (reference: AiDocumentReference | AiDrawingReference) => {

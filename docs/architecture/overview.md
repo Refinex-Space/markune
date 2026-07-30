@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-23
+updated: 2026-07-24
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -78,6 +78,10 @@ Codex 同时提供右侧紧凑面板和主工作区两种展示形态，但两�
 
 会话渲染保留 App Server 的 `Turn -> Item` 层级。`agentMessage.phase=commentary`、工具活动、计划和上下文压缩组成可折叠的处理过程，`phase=final_answer` 保持为独立最终回答；未提供 phase 的旧消息按普通助手消息兼容。连续工具只在视图投影层分组，底层有序 item 不重排。命令输出增量、文件 patch、MCP progress、耗时、退出码和审批请求都更新原 item；历史恢复使用同一映射逻辑。内部 reasoning 不进入界面，命令输出只保留有界首尾预览，避免大输出占用无界内存。
 
+用户提交采用本地乐观投递：通过同步输入校验后，前端立即把用户消息以 `sending` 状态写入当前会话投影、清空输入编辑区并恢复视口跟随，然后才等待核心运行时、当前文档或图稿 flush、`thread/start` 与 `turn/start`。消息快照包含原始文字、原子提及、附件元数据和预览；附件的 opaque 授权在 `turn/start` 被 App Server 接受前不能释放。预发送阶段任一步失败时，同一条消息转为 `failed`，错误显示在消息旁，并从快照恢复输入内容、提及和附件；不得回滚整段会话或把该错误重复写入全局 `runtimeError`。接受成功后消息关联真实 `turnId` 并转为 `sent`，此时才清理附件授权和预览。没有任何 item 的活动 turn 仍投影一个“正在处理，等待 Codex 响应”的空处理轨迹，首个 commentary、工具或流式回答到达后由同一 turn 轨迹自然接管，不创建第二个等待状态。
+
+任务错误是会话协议状态而不是全局运行时错误。实时 `error` 通知按 `turnId` 保存结构化的 `message`、`additionalDetails`、`codexErrorInfo` 与 `willRetry`；`willRetry=true` 显示非终态的自动重试提示，后续 item、delta、plan 或 diff 进度会清除该提示。`turn/completed.status=failed` 以 `turn.error` 作为最终权威错误并显示红色卡片；`thread/read` 历史使用同一解析规则，旧失败 turn 缺少详情时使用统一兜底。界面只对已知错误类型提供中文摘要，原始字段保留在可展开、可复制的技术详情中。`runtimeError` 仅用于 App Server 启动、登录、线程控制和其他非消息投递操作，避免同一发送或 turn 错误在会话与面板底部重复展示。
+
 上下文用量只消费 App Server 的 `thread/tokenUsage/updated`：输入框显示 `last.totalTokens / modelContextWindow`，累计的 `total.totalTokens` 不作为当前窗口占比。最新用量按 thread ID 保留在面板运行时内存中，用于线程恢复通知与界面切换，不写入 Madora 数据库、local storage 或会话副本。手动压缩只调用受控的 `thread/compact/start { threadId }`，并以 `contextCompaction` item 的 started/completed 生命周期展示状态；旧 `thread/compacted` 仅作完成兼容。自动压缩阈值及触发时机由 Codex Core 和 `model_auto_compact_token_limit` 配置所有，Madora 不创建第二套阈值、定时器或重试循环。
 
 AI 文件修改以 App Server 事件为刷新事实源。`item/fileChange/patchUpdated` 只更新处理中预览；成功的 `item/completed(fileChange)` 才按路径合并并触发短延迟重读，`turn/completed` 再刷新目录树并复核所有已打开 Markdown 标签，以覆盖通过 shell 直接写盘但未形成 fileChange item 的情况。发送 turn 前必须先完成当前草稿保存，避免 Codex 读取旧磁盘内容。磁盘重读继续使用受工作区边界保护的 `read_markdown_document`，不增加通用文件监听或 Tauri capability。
@@ -131,6 +135,14 @@ Markweave 只接收 frontmatter 解析后的正文；保存时必须重新序列
 ## Large-document Performance Boundary
 
 Madora 的每次按键不得读取 `payload.markdown`、复制完整草稿到父级状态或产生资产 IPC。`?madoraPerf=1` 开启脱敏诊断，`window.__MadoraPerformanceReport()` 返回仅含数量、耗时、原因和状态的 JSON；不得记录正文或路径。Markweave 0.3 在大 Markdown 上使用安全标题边界的渐进解析、增量 TOC、轻量媒体 DOM NodeView、受控 `content-visibility` 与无事务级 React 重渲染。工作区以 LRU 方式保留最近 3 个已打开文档的 EditorView；切换 Tab 只改变可见性和活动编辑器 ref，关闭或超过上限才销毁实例，文档版本键必须在 live draft 与缓存 session 之间保持稳定。Madora 的 0.3 集成必须先通过本地 tarball 验证，npm 发布与 Madora 依赖升级仍是独立发布动作。
+
+## Desktop Update Boundary
+
+应用更新由 `components/workspace/use-app-update.ts` 统一持有状态：桌面启动 5 秒后自动检查，每 6 小时复查，并允许用户在设置页手动检查。检查到新版本只在左下角设置入口显示“更新”，不会自动下载；版本页以纯文本展示版本、日期和有界更新说明。用户明确选择安装后，工作区壳层先确认并 flush 当前 Markdown 与图稿，任一保存失败都取消安装。
+
+`src-tauri/src/app_update.rs` 是唯一 updater 边界。固定 endpoint 和 minisign 公钥只由 release build 生成配置注入；渲染器不能提供 URL、公钥、请求头、代理、target、降级策略或安装参数。Rust 保存当前已检查的 `Update`，串行执行下载、验签和安装，并通过 Tauri Channel 返回有界进度。macOS 安装完成后由用户显式重启；Windows 使用 passive NSIS 流程。该能力不向 `capabilities/default.json` 增加 updater 权限。
+
+私有 `Refinex-Space/madora` 是源码与构建边界，公开 `Refinex-Space/madora-site` 的 GitHub Releases 是安装器、签名和 `latest.json` 的权威分发源；GitHub Packages 不参与桌面更新。`.github/workflows/release.yml` 只在版本 Tag 上构建 macOS 两种原生架构和 Windows x64，并通过最小权限跨仓库 Token 在 `madora-site` 创建 draft Release。当前 macOS 使用 ad-hoc 签名且不公证，Windows 不做 Authenticode；两者都不能替代强制的 updater minisign。生产发布与密钥操作遵循 `docs/guides/release-and-update.md`。
 
 ## Desktop Build Boundary
 

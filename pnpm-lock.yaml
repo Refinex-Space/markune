@@ -25,8 +25,8 @@ importers:
         specifier: 2.2.2
         version: 2.2.2
       '@markweave/react':
-        specifier: ^0.3.0
-        version: 0.3.0(@floating-ui/dom@1.8.0)(@tiptap/extension-code-block@3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@tiptap/extension-list@3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@tiptap/suggestion@3.27.3(@floating-ui/dom@1.8.0)(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(emojibase@17.0.0)(katex@0.16.47)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+        specifier: ^0.3.3
+        version: 0.3.3(@floating-ui/dom@1.8.0)(@tiptap/extension-code-block@3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@tiptap/extension-list@3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@tiptap/suggestion@3.27.3(@floating-ui/dom@1.8.0)(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(emojibase@17.0.0)(katex@0.16.47)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@radix-ui/react-dropdown-menu':
         specifier: 2.1.16
         version: 2.1.16(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -112,8 +112,8 @@ importers:
         specifier: 1.12.0
         version: 1.12.0
       markweave:
-        specifier: ^0.3.0
-        version: 0.3.0(@tiptap/extension-code-block@3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@tiptap/extension-list@3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@tiptap/suggestion@3.27.3(@floating-ui/dom@1.8.0)(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(emojibase@17.0.0)(katex@0.16.47)
+        specifier: ^0.3.3
+        version: 0.3.3(@tiptap/extension-code-block@3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@tiptap/extension-list@3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@tiptap/suggestion@3.27.3(@floating-ui/dom@1.8.0)(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(emojibase@17.0.0)(katex@0.16.47)
       mermaid:
         specifier: 11.15.0
         version: 11.15.0
@@ -910,8 +910,8 @@ packages:
   '@marijn/find-cluster-break@1.0.3':
     resolution: {integrity: sha512-FY+MKLBoTsLNJF/eLWaOsXGdz6uh3Iu1axjPf6TUq92IYumcTcXWHoS747JARLkcdlJ/Waiaxc5wQfFO8jC6NA==}
 
-  '@markweave/react@0.3.0':
-    resolution: {integrity: sha512-VuleLBL7e6HjlabPqLM5S7Eq/zD84FOfPZwtoFaDem9nfNtTT6xGZI929F3iDICHcYB2CxfrK8apR5zjIjBBgQ==}
+  '@markweave/react@0.3.3':
+    resolution: {integrity: sha512-Y4NuM8JtrxmbKvWFLE5c2kSCO8gLK/w5j6ucX7OgfSmjD99TbrttOBEYFSsIp2hR/HOjAycLPT2KI55nx8Hc0g==}
     peerDependencies:
       react: ^18.2.0 || ^19.0.0
       react-dom: ^18.2.0 || ^19.0.0
@@ -5244,8 +5244,8 @@ packages:
     engines: {node: '>= 20'}
     hasBin: true
 
-  markweave@0.3.0:
-    resolution: {integrity: sha512-6SGY2k7hR+WqNS8TEZ5h1w6154Ka6dyTpQXBc/8K4XCHD7eoAlzTaOyKkyb6hT9N9o5RihBGmNvIS1Tl+KhrsQ==}
+  markweave@0.3.3:
+    resolution: {integrity: sha512-Z/+bHczMm0wg6vz+xvBs+5nM3Kaq/cqOXTEmNTlMkCz2bYGikkD00NvLmZldk3HzB3+JRv3kzgjDsfIHxYJxWg==}
 
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
@@ -7803,14 +7803,14 @@ snapshots:
 
   '@marijn/find-cluster-break@1.0.3': {}
 
-  '@markweave/react@0.3.0(@floating-ui/dom@1.8.0)(@tiptap/extension-code-block@3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@tiptap/extension-list@3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@tiptap/suggestion@3.27.3(@floating-ui/dom@1.8.0)(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(emojibase@17.0.0)(katex@0.16.47)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+  '@markweave/react@0.3.3(@floating-ui/dom@1.8.0)(@tiptap/extension-code-block@3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@tiptap/extension-list@3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@tiptap/suggestion@3.27.3(@floating-ui/dom@1.8.0)(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(emojibase@17.0.0)(katex@0.16.47)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
     dependencies:
       '@tiptap/core': 3.27.3(@tiptap/pm@3.27.3)
       '@tiptap/extension-image': 3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))
       '@tiptap/pm': 3.27.3
       '@tiptap/react': 3.27.3(@floating-ui/dom@1.8.0)(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       lucide-react: 0.547.0(react@19.2.4)
-      markweave: 0.3.0(@tiptap/extension-code-block@3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@tiptap/extension-list@3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@tiptap/suggestion@3.27.3(@floating-ui/dom@1.8.0)(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(emojibase@17.0.0)(katex@0.16.47)
+      markweave: 0.3.3(@tiptap/extension-code-block@3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@tiptap/extension-list@3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@tiptap/suggestion@3.27.3(@floating-ui/dom@1.8.0)(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(emojibase@17.0.0)(katex@0.16.47)
       react: 19.2.4
       react-dom: 19.2.4(react@19.2.4)
     transitivePeerDependencies:
@@ -12275,7 +12275,7 @@ snapshots:
 
   marked@17.0.6: {}
 
-  markweave@0.3.0(@tiptap/extension-code-block@3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@tiptap/extension-list@3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@tiptap/suggestion@3.27.3(@floating-ui/dom@1.8.0)(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(emojibase@17.0.0)(katex@0.16.47):
+  markweave@0.3.3(@tiptap/extension-code-block@3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@tiptap/extension-list@3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@tiptap/suggestion@3.27.3(@floating-ui/dom@1.8.0)(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(emojibase@17.0.0)(katex@0.16.47):
     dependencies:
       '@tiptap/core': 3.27.3(@tiptap/pm@3.27.3)
       '@tiptap/extension-code-block-lowlight': 3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/extension-code-block@3.27.3(@tiptap/core@3.27.3(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3))(@tiptap/pm@3.27.3)(highlight.js@11.11.1)(lowlight@3.3.0)

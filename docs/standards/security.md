@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-23
+updated: 2026-07-25
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -17,6 +17,19 @@ referenced_by: AGENTS.md#knowledge-map
 - `src-tauri/capabilities/default.json`、Tauri 插件、shell/process 能力和资源协议范围均为安全敏感区域。
 - 未经明确批准不得扩大文件系统、进程、shell、opener 或资源协议权限。
 - 终端和 Git 操作只可作用于已选择工作区根目录。
+
+## Release And Update
+
+- updater minisign 私钥及密码只能进入 GitHub Actions Secrets 或受控本机发布环境；公钥使用 Actions Variable。任何生成配置、构建日志、Release Notes 和前端状态都不得包含私钥。
+- 生产 endpoint 顺序固定为上海 OSS `updates/stable/latest.json` 主清单和公开 `madora-site` GitHub Release `latest-github.json` 备用清单，二者必须使用 HTTPS。Tauri endpoint 回退只覆盖清单请求；OSS 清单已经返回后，二进制失败不会透明切换 GitHub。渲染器不能提交 endpoint、公钥、headers、代理、target、降级比较器或安装参数。
+- 私有源码工作流的默认 `GITHUB_TOKEN` 只保留 `contents: read`。跨仓库发布只能使用仅授权 `Refinex-Space/madora-site` Contents read/write 的 `MADORA_RELEASES_TOKEN`；该 Secret 不得进入构建参数、应用环境、Release 资产或日志。
+- 阿里云发布只能通过 `production-release` GitHub Environment 的 OIDC 临时承担 `madora-github-release` Role；不得创建或保存长期 AccessKey。Trust Policy 必须精确限制 `iss`、`aud=sts.aliyuncs.com` 与 Environment `sub`，Role 只能 Get/Put 指定 Bucket 的 `releases/*`、`updates/*`、`downloads/*`，不能 Delete、List、改 ACL/Policy 或访问其他 Bucket。
+- OSS Bucket 必须保持 Private ACL，匿名权限只允许三个前缀的 HTTPS `GetObject`。`releases/vX.Y.Z/` 不可覆盖；OSS stable 清单最后写入并依赖版本控制回滚。GitHub Release body、GitHub 两份 updater 清单和 OSS updater 清单的用户说明必须同源。
+- Rust 必须在内存中保存经检查得到的 pending update，并使用 Tauri updater 完成下载和签名校验；前端只接收元数据和进度。更新说明按纯文本渲染且在 Rust 限制为 32 KiB。
+- 检查、下载和安装必须串行。用户未确认、Markdown flush 失败或图稿 flush 失败时不得开始下载。自动检查不得演变为强制更新或静默安装。
+- updater minisign、macOS Developer ID/公证和 Windows Authenticode 是三种独立安全控制。当前早期分发阶段明确采用 macOS ad-hoc、无公证和 Windows 无 Authenticode，必须记录 Gatekeeper/SmartScreen 限制并做人工放行验收；不得把这种状态描述为受信任发行者。updater minisign 仍然强制启用，不能用系统签名缺失作为关闭理由。
+- 更新密钥轮换必须经过旧密钥签名的过渡版本；直接替换公钥会切断所有旧客户端。密钥泄露按安全事件处理，流程见 `docs/guides/release-and-update.md`。
+- 应用更新不得扩大 `capabilities/default.json`、文件系统、shell/process、opener 或资源协议权限。
 
 ## Codex Runtime
 

@@ -230,6 +230,98 @@ beforeEach(() => {
 });
 
 describe('AI panel startup lifecycle', () => {
+  it('点击发送后立即回显消息并清空输入框，不等待文档保存完成', async () => {
+    const user = userEvent.setup();
+    const beforeTurnStart = deferred<boolean>();
+    const onBeforeTurnStart = vi.fn(() => beforeTurnStart.promise);
+    renderPanel(onBeforeTurnStart);
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.type(editor, '总结当前仓库');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    expect(screen.getByTestId('user-message-bubble').textContent).toContain(
+      '总结当前仓库',
+    );
+    expect(screen.getByText('正在发送')).toBeTruthy();
+    expect(editor.textContent).toBe('');
+    await waitFor(() =>
+      expect(screen.getByTestId('ai-conversation-viewport').scrollTo).toHaveBeenCalledWith({
+        behavior: 'smooth',
+        top: expect.any(Number),
+      }),
+    );
+    expect(bridge.request.mock.calls.some(([method]) => method === 'turn/start')).toBe(
+      false,
+    );
+
+    beforeTurnStart.resolve(true);
+    await waitFor(() =>
+      expect(
+        bridge.request.mock.calls.some(([method]) => method === 'turn/start'),
+      ).toBe(true),
+    );
+    expect(screen.getByRole('status').textContent).toContain(
+      '等待 Codex 响应',
+    );
+  });
+
+  it('文档保存失败时保留失败消息并恢复输入内容', async () => {
+    const user = userEvent.setup();
+    renderPanel(vi.fn().mockResolvedValue(false));
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.type(editor, '检查当前文档');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await screen.findByText('发送失败');
+    expect(screen.getByRole('alert').textContent).toContain(
+      '当前内容保存失败，未发送消息',
+    );
+    expect(editor.textContent).toBe('检查当前文档');
+    expect(screen.getAllByText('检查当前文档')).toHaveLength(2);
+    expect(bridge.request.mock.calls.some(([method]) => method === 'turn/start')).toBe(
+      false,
+    );
+  });
+
+  it('thread/start 失败时恢复提及并在原会话保留失败消息', async () => {
+    const user = userEvent.setup();
+    bridge.request.mockImplementation((method: string) =>
+      method === 'thread/start'
+        ? Promise.reject(new Error('thread failed'))
+        : Promise.resolve(defaultResponse(method)),
+    );
+    const mentionedDocument = {
+      absolutePath: activeDocument.absolutePath,
+      id: activeDocument.id,
+      name: activeDocument.name,
+      relativePath: activeDocument.relativePath,
+      title: activeDocument.title,
+    };
+    renderPanel(vi.fn().mockResolvedValue(true), null, null, [mentionedDocument]);
+
+    await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    await user.click(editor);
+    await user.type(editor, '@SpringB');
+    await user.click(
+      screen.getByRole('option', { name: '提及 Spring Boot 介绍' }),
+    );
+    await user.type(editor, ' 检查内容');
+    await user.click(screen.getByRole('button', { name: '发送' }));
+
+    await screen.findByText('thread failed');
+    expect(screen.getByText('发送失败')).toBeTruthy();
+    expect(editor.textContent).toContain('检查内容');
+    expect(screen.getAllByRole('link', { name: 'Test.md' })).toHaveLength(2);
+    expect(
+      bridge.request.mock.calls.some(([method]) => method === 'turn/start'),
+    ).toBe(false);
+  });
+
   it('图片粘贴进入附件栏，turn 接受前保留并在成功后释放授权', async () => {
     const user = userEvent.setup();
     const turnStart = deferred<{ turn: { id: string } }>();
@@ -306,7 +398,8 @@ describe('AI panel startup lifecycle', () => {
 
     await screen.findByText('turn failed');
     expect(editor.textContent).toBe('请审阅附件');
-    expect(screen.getByText('CONTRIBUTING.md')).toBeTruthy();
+    expect(screen.getByText('发送失败')).toBeTruthy();
+    expect(screen.getAllByText('CONTRIBUTING.md').length).toBeGreaterThan(1);
     expect(bridge.releaseAttachments).not.toHaveBeenCalledWith(['file-grant-1']);
     expect(bridge.request).toHaveBeenCalledWith('thread/delete', {
       threadId: 'thread-1',

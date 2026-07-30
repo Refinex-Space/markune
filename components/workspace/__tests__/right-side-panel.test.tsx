@@ -135,6 +135,7 @@ describe('right AI panel integration', () => {
     );
     expect(aiSidePanel.className).toContain('rounded-xl');
     expect(aiSidePanel.className).toContain('border-border/70');
+    expect(aiSidePanel.className).toContain('h-full');
     expect(aiSidePanel.className).not.toContain('shadow-[');
     expect(screen.getByText('AI:/workspace')).toBeTruthy();
     expect(screen.queryByTestId('document-meta-panel')).toBeNull();
@@ -228,6 +229,10 @@ describe('right AI panel integration', () => {
     expect(screen.getByTestId('ai-side-panel').className).toContain('absolute');
     expect(screen.getByTestId('ai-side-panel').className).toContain(
       'top-[var(--workspace-main-header-height)]',
+    );
+    expect(screen.getByTestId('ai-side-panel').className).toContain('bottom-px');
+    expect(screen.getByTestId('ai-side-panel').className).not.toContain(
+      'h-full',
     );
     expect(screen.getByText('文档预览')).toBeTruthy();
     const previewShell = screen.getByRole('complementary', {
