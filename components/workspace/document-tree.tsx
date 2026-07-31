@@ -143,6 +143,10 @@ export function DocumentTree({
   const draggedNodeRef = React.useRef<WorkspaceNode | null>(null);
   const treeRootRef = React.useRef<HTMLDivElement>(null);
   const visibleNodes = filterWorkspaceNodes(nodes, searchQuery);
+  const directoryDocumentCounts = React.useMemo(
+    () => countDirectoryDocuments(nodes),
+    [nodes],
+  );
   const forceExpanded = searchQuery.trim().length > 0;
   const dragDisabled = searchQuery.trim().length > 0 || !onMoveNode;
 
@@ -335,6 +339,7 @@ export function DocumentTree({
             key={node.id}
             currentDocumentPath={currentDocumentPath}
             currentDirectoryPath={currentDirectoryPath}
+            directoryDocumentCounts={directoryDocumentCounts}
             dragDisabled={dragDisabled}
             draggedNode={draggedNode}
             dropPreview={dropPreview}
@@ -434,6 +439,7 @@ export function DocumentTree({
 function TreeNode({
   currentDocumentPath,
   currentDirectoryPath,
+  directoryDocumentCounts,
   dragDisabled,
   draggedNode,
   dropPreview,
@@ -476,6 +482,8 @@ function TreeNode({
   const isPendingRename = pendingRenameNodePath === node.absolutePath;
   const isEditing = editingNodeId === node.id || isPendingRename;
   const displayName = getNodeDisplayName(node);
+  const documentCount = directoryDocumentCounts.get(node.id) ?? 0;
+  const showDocumentCount = isDirectory && documentCount > 0;
   const visualLevel = isDirectory ? level : Math.max(0, level - 1);
   const rowPaddingLeft = 11 + visualLevel * 20;
   const rowSurfaceLeft = visualLevel * 20;
@@ -674,7 +682,7 @@ function TreeNode({
               style={{ marginLeft: rowSurfaceLeft }}
             >
               {isEditing ? (
-                <div className="relative z-[1] grid h-full min-w-0 flex-1 grid-cols-[13px_minmax(0,1fr)] items-center gap-1.5 rounded-md pl-[11px] pr-2 text-left">
+                <div className="relative z-[1] flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md pl-[11px] pr-3 text-left">
                   <DirectoryIcon
                     isDirectory={isDirectory}
                     isExpanded={isExpanded}
@@ -689,15 +697,27 @@ function TreeNode({
                     onCancel={() => onRenameSubmit(node, displayName)}
                     onSubmit={(nextName) => onRenameSubmit(node, nextName)}
                   />
+                  {showDocumentCount ? (
+                    <DirectoryDocumentCount
+                      count={documentCount}
+                      nodeId={node.id}
+                    />
+                  ) : null}
                 </div>
               ) : (
-                <div className="relative z-[1] grid h-full min-w-0 flex-1 grid-cols-[13px_minmax(0,1fr)] items-center gap-1.5 rounded-md pl-[11px] pr-2 text-left text-foreground/80">
+                <div className="relative z-[1] flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md pl-[11px] pr-3 text-left text-foreground/80">
                   <DirectoryIcon
                     isDirectory={isDirectory}
                     isExpanded={isExpanded}
                     node={node}
                   />
                   <span className="truncate">{displayName}</span>
+                  {showDocumentCount ? (
+                    <DirectoryDocumentCount
+                      count={documentCount}
+                      nodeId={node.id}
+                    />
+                  ) : null}
                 </div>
               )}
 
@@ -755,6 +775,7 @@ function TreeNode({
               key={child.id}
               currentDocumentPath={currentDocumentPath}
               currentDirectoryPath={currentDirectoryPath}
+              directoryDocumentCounts={directoryDocumentCounts}
               dragDisabled={dragDisabled}
               draggedNode={draggedNode}
               dropPreview={dropPreview}
@@ -796,6 +817,7 @@ function TreeNode({
 interface TreeNodeProps {
   currentDocumentPath: string | null;
   currentDirectoryPath?: string | null;
+  directoryDocumentCounts: ReadonlyMap<string, number>;
   dragDisabled: boolean;
   draggedNode: WorkspaceNode | null;
   dropPreview: DropPreview | null;
@@ -841,6 +863,46 @@ interface TreeNodeProps {
 interface DropPreview {
   targetPath: string;
   position: WorkspaceMoveRequest['position'];
+}
+
+function countDirectoryDocuments(nodes: WorkspaceNode[]) {
+  const counts = new Map<string, number>();
+
+  const countNodeDocuments = (node: WorkspaceNode): number => {
+    if (node.kind === 'document') {
+      return 1;
+    }
+
+    const count = (node.children ?? []).reduce(
+      (total, child) => total + countNodeDocuments(child),
+      0,
+    );
+    counts.set(node.id, count);
+    return count;
+  };
+
+  for (const node of nodes) {
+    countNodeDocuments(node);
+  }
+
+  return counts;
+}
+
+function DirectoryDocumentCount({
+  count,
+  nodeId,
+}: {
+  count: number;
+  nodeId: string;
+}) {
+  return (
+    <span
+      className="ml-auto min-w-5 shrink-0 px-1.5 text-center text-[10px] font-medium leading-4 text-sidebar-foreground/55 tabular-nums transition-opacity group-hover/tree-row:opacity-0"
+      data-testid={`directory-document-count-${nodeId}`}
+    >
+      {count}
+    </span>
+  );
 }
 
 const EXPORT_ACTIONS: Array<{
@@ -974,7 +1036,7 @@ function NodeActionDropdown({
       <DropdownMenuTrigger asChild>
         <button
           aria-label={`打开 ${node.name} 操作菜单`}
-          className="relative z-[1] mr-1 hidden size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground group-hover/tree-row:flex data-[state=open]:flex"
+          className="absolute right-1 top-0.5 z-[1] hidden size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground group-hover/tree-row:flex data-[state=open]:flex"
           data-tree-drag-disabled="true"
           type="button"
           onClick={(event) => event.stopPropagation()}

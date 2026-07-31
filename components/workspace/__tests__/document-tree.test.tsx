@@ -34,7 +34,86 @@ const nodes: WorkspaceNode[] = [
   },
 ];
 
+const countedNodes: WorkspaceNode[] = [
+  {
+    id: 'projects',
+    name: 'Projects',
+    kind: 'directory',
+    relativePath: 'Projects',
+    absolutePath: '/repo/Projects',
+    children: [
+      {
+        id: 'project-overview',
+        name: 'overview.md',
+        kind: 'document',
+        relativePath: 'Projects/overview.md',
+        absolutePath: '/repo/Projects/overview.md',
+        title: '项目概览',
+      },
+      {
+        id: 'archive',
+        name: 'Archive',
+        kind: 'directory',
+        relativePath: 'Projects/Archive',
+        absolutePath: '/repo/Projects/Archive',
+        children: [
+          {
+            id: 'project-notes',
+            name: 'notes.md',
+            kind: 'document',
+            relativePath: 'Projects/Archive/notes.md',
+            absolutePath: '/repo/Projects/Archive/notes.md',
+            title: '项目记录',
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'empty-directory',
+    name: 'Empty',
+    kind: 'directory',
+    relativePath: 'Empty',
+    absolutePath: '/repo/Empty',
+    children: [],
+  },
+];
+
 describe('DocumentTree', () => {
+  it('shows recursive document counts in a stable right-side rail for directories', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <DocumentTree
+        currentDocumentPath={null}
+        nodes={countedNodes}
+        searchQuery=""
+        onCreateDirectory={vi.fn()}
+        onCreateDocument={vi.fn()}
+        onDeleteNode={vi.fn()}
+        onImportMarkdown={vi.fn()}
+        onRenameNode={vi.fn()}
+        onSelectDocument={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('directory-document-count-projects').textContent).toBe('2');
+    expect(
+      screen.queryByTestId('directory-document-count-empty-directory'),
+    ).toBeNull();
+
+    await user.click(screen.getByText('Projects'));
+
+    const archiveCount = screen.getByTestId('directory-document-count-archive');
+    expect(archiveCount.textContent).toBe('1');
+    expect(archiveCount.className).toContain('min-w-5');
+    expect(archiveCount.className).toContain('tabular-nums');
+    expect(archiveCount.className).toContain('group-hover/tree-row:opacity-0');
+    expect(
+      screen.getByRole('button', { name: '打开 Archive 操作菜单' }).className,
+    ).toContain('absolute right-1 top-0.5');
+  });
+
   it('creates documents and directories at the workspace root from the blank area menu', async () => {
     const user = userEvent.setup();
     const onCreateDocument = vi.fn();
