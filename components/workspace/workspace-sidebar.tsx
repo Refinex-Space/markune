@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 
 import { DocumentTree } from './document-tree';
 import { PinnedChromeMenu } from './pinned-chrome-menu';
+import { WorkspaceTreeFolderIcon } from './workspace-tree-folder-icon';
 import type { useWorkspace } from './use-workspace';
 import { WorkspaceSwitcher } from './workspace-switcher';
 import type {
@@ -44,6 +45,7 @@ interface WorkspaceSidebarProps {
     format: WorkspaceImportFormat,
   ) => Promise<void> | void;
   onOpenDailyNote?: () => void;
+  onOpenNotes?: () => void;
   onOpenCodex?: () => void;
   onOpenDrawings?: () => void;
   onOpenGlobalSearch: () => void;
@@ -84,6 +86,7 @@ export function WorkspaceSidebar({
   onExportNode,
   onImportDocuments,
   onOpenDailyNote,
+  onOpenNotes,
   onOpenCodex,
   onOpenDrawings,
   onOpenGlobalSearch,
@@ -170,7 +173,16 @@ export function WorkspaceSidebar({
         />
 
         {workspace.snapshot ? (
-          <div className="border-y border-sidebar-border/45 px-2 py-1">
+          <div className="space-y-0.5 border-y border-sidebar-border/45 px-2 py-1">
+            <button
+              className={getSystemEntryClassName(false)}
+              data-testid="notes-entry"
+              type="button"
+              onClick={onOpenNotes}
+            >
+              <WorkspaceTreeFolderIcon expanded />
+              <span className="truncate">笔记</span>
+            </button>
             <button
               aria-current={isDailyActive ? 'page' : undefined}
               className={getSystemEntryClassName(isDailyActive)}
@@ -183,10 +195,7 @@ export function WorkspaceSidebar({
             </button>
             <button
               aria-current={systemPage === 'inbox' ? 'page' : undefined}
-              className={cn(
-                'mt-0.5',
-                getSystemEntryClassName(systemPage === 'inbox'),
-              )}
+              className={getSystemEntryClassName(systemPage === 'inbox')}
               data-testid="inbox-entry"
               type="button"
               onClick={onOpenInbox}
@@ -201,10 +210,7 @@ export function WorkspaceSidebar({
             </button>
             <button
               aria-current={systemPage === 'drawings' ? 'page' : undefined}
-              className={cn(
-                'mt-0.5',
-                getSystemEntryClassName(systemPage === 'drawings'),
-              )}
+              className={getSystemEntryClassName(systemPage === 'drawings')}
               data-testid="drawing-entry"
               type="button"
               onClick={onOpenDrawings}
@@ -214,10 +220,7 @@ export function WorkspaceSidebar({
             </button>
             <button
               aria-current={systemPage === 'views' ? 'page' : undefined}
-              className={cn(
-                'mt-0.5',
-                getSystemEntryClassName(systemPage === 'views'),
-              )}
+              className={getSystemEntryClassName(systemPage === 'views')}
               data-testid="workspace-views-entry"
               type="button"
               onClick={onOpenViews}
@@ -227,10 +230,7 @@ export function WorkspaceSidebar({
             </button>
             <button
               aria-current={systemPage === 'codex' ? 'page' : undefined}
-              className={cn(
-                'mt-0.5',
-                getSystemEntryClassName(systemPage === 'codex'),
-              )}
+              className={getSystemEntryClassName(systemPage === 'codex')}
               data-testid="codex-workspace-entry"
               type="button"
               onClick={onOpenCodex}

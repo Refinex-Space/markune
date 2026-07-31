@@ -2926,6 +2926,10 @@ export function WorkspaceLayout({
                 onOpenDailyNote={() =>
                   void handleOpenDailyNote(formatDailyDate(new Date()))
                 }
+                onOpenNotes={() => {
+                  setLeftPanelMode('workspace');
+                  setSystemPage(null);
+                }}
                 onOpenCodex={handleOpenCodexPage}
                 onOpenInbox={handleOpenInboxPage}
                 onOpenDrawings={handleOpenDrawingsPage}
