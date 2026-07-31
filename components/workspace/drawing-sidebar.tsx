@@ -77,6 +77,35 @@ export function DrawingSidebar({
   );
   const selectedAlbum =
     controller.selection.kind === 'album' ? controller.selection.path : null;
+  const drawingSelection = controller.selection;
+  const activeDrawingAlbumPath = React.useMemo(() => {
+    if (drawingSelection.kind !== 'drawing') {
+      return null;
+    }
+
+    return (
+      controller.snapshot.drawings.find(
+        (drawing) => drawing.id === drawingSelection.id,
+      )?.albumPath ?? null
+    );
+  }, [controller.snapshot.drawings, drawingSelection]);
+
+  const expandedDrawingAlbums = React.useMemo(() => {
+    if (!activeDrawingAlbumPath) {
+      return expandedAlbums;
+    }
+
+    const ancestorPaths = findAlbumAncestorPaths(
+      controller.snapshot.albums,
+      activeDrawingAlbumPath,
+    );
+
+    if (ancestorPaths.length === 0) {
+      return expandedAlbums;
+    }
+
+    return new Set([...expandedAlbums, ...ancestorPaths]);
+  }, [activeDrawingAlbumPath, controller.snapshot.albums, expandedAlbums]);
 
   const createDrawing = (albumPath = selectedAlbum ?? '') => {
     void controller.createNewDrawing('未命名图稿', albumPath);
@@ -194,7 +223,7 @@ export function DrawingSidebar({
                   album={album}
                   controller={controller}
                   editingAlbumPath={editingAlbumPath}
-                  expandedAlbums={expandedAlbums}
+                  expandedAlbums={expandedDrawingAlbums}
                   key={album.path}
                   onCreateAlbum={createAlbum}
                   onCreateDrawing={createDrawing}
@@ -787,4 +816,22 @@ function isCollectionActive(
     controller.selection.kind === 'collection' &&
     controller.selection.collection === collection
   );
+}
+
+function findAlbumAncestorPaths(
+  albums: DrawingAlbumNode[],
+  targetPath: string,
+): string[] {
+  for (const album of albums) {
+    if (album.path === targetPath) {
+      return [album.path];
+    }
+
+    const childPaths = findAlbumAncestorPaths(album.children, targetPath);
+    if (childPaths.length > 0) {
+      return [album.path, ...childPaths];
+    }
+  }
+
+  return [];
 }

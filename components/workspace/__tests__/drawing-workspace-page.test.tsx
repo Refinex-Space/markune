@@ -248,8 +248,12 @@ describe('DrawingWorkspacePage', () => {
 
     expect(screen.queryByText('旧标签')).toBeNull();
     expect(screen.getByTestId('drawing-gallery-header').className).toContain('h-10');
+    expect(screen.getByTestId('drawing-gallery-header').className).toContain('px-3');
     expect(screen.getByTestId('drawing-gallery-header').className).not.toContain(
       'border-b',
+    );
+    expect(screen.getByTestId('drawing-gallery-toolbar').className).toContain(
+      'ml-auto',
     );
     expect(screen.queryByText('1 幅图稿')).toBeNull();
     expect(screen.getByTestId('drawing-card').className).not.toContain('shadow');

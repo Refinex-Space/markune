@@ -174,13 +174,16 @@ function DrawingGallery({
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       <header
-        className="flex h-10 shrink-0 items-center gap-3 px-5"
+        className="flex h-10 shrink-0 items-center gap-3 px-3"
         data-testid="drawing-gallery-header"
       >
         <div className="min-w-0">
           <h1 className="truncate text-sm font-semibold">{title}</h1>
         </div>
-        <div className="ml-auto flex items-center gap-1">
+        <div
+          className="ml-auto flex items-center gap-1"
+          data-testid="drawing-gallery-toolbar"
+        >
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
