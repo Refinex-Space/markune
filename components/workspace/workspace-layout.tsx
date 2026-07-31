@@ -82,7 +82,6 @@ import { GitLogDrawer } from './git-log-drawer';
 import { GitPanel } from './git-panel';
 import { InboxPage } from './inbox-page';
 import { InboxSidebar } from './inbox-sidebar';
-import { PinnedChromeMenu } from './pinned-chrome-menu';
 import { TerminalPanel, type TerminalTab } from './terminal-panel';
 import type {
   AiFileChange,
@@ -2816,10 +2815,7 @@ export function WorkspaceLayout({
           macChromeOffset={isTauriRuntime && isMacRuntime}
           macChromeControlsTop={macChromeControlsTop}
           windowsChromeInset={isTauriRuntime && isWindowsRuntime}
-          pinnedNodes={pinnedNodes}
           onToggle={toggleLeftSidebar}
-          onOpenPinnedNode={handleOpenWorkspaceViewNode}
-          onUnpinNode={handleUnpinNode}
         />
       )}
 
@@ -2934,6 +2930,7 @@ export function WorkspaceLayout({
                 onOpenInbox={handleOpenInboxPage}
                 onOpenDrawings={handleOpenDrawingsPage}
                 onOpenGlobalSearch={openGlobalSearch}
+                pinnedNodes={pinnedNodes}
                 onOpenViews={handleOpenViewsPage}
                 onRefreshWorkspaceTree={() =>
                   workspace.refreshWorkspaceTree().catch(() => null)
@@ -2948,6 +2945,8 @@ export function WorkspaceLayout({
                 onSelectDirectory={handleSelectWorkspaceDirectory}
                 onSelectDocument={openDocumentNode}
                 onTogglePinned={handleToggleNodePinned}
+                onOpenPinnedNode={handleOpenWorkspaceViewNode}
+                onUnpinNode={handleUnpinNode}
                 inboxActiveCount={inbox.activeCount}
                 systemPage={
                   systemPage === 'drawings' ||
@@ -3373,19 +3372,13 @@ function SidebarChromeToggle({
   macChromeOffset,
   macChromeControlsTop,
   windowsChromeInset,
-  pinnedNodes,
   onToggle,
-  onOpenPinnedNode,
-  onUnpinNode,
 }: {
   collapsed: boolean;
   macChromeOffset: boolean;
   macChromeControlsTop: number;
   windowsChromeInset: boolean;
-  pinnedNodes: WorkspaceNode[];
   onToggle: () => void;
-  onOpenPinnedNode: (node: WorkspaceNode) => void;
-  onUnpinNode: (node: WorkspaceNode) => void;
 }) {
   const label = collapsed ? '展开侧边栏' : '折叠侧边栏';
 
@@ -3422,11 +3415,6 @@ function SidebarChromeToggle({
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
-      <PinnedChromeMenu
-        nodes={pinnedNodes}
-        onOpenNode={onOpenPinnedNode}
-        onUnpinNode={onUnpinNode}
-      />
     </div>
   );
 }

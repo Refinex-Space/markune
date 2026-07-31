@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 import { DocumentTree } from './document-tree';
+import { PinnedChromeMenu } from './pinned-chrome-menu';
 import type { useWorkspace } from './use-workspace';
 import { WorkspaceSwitcher } from './workspace-switcher';
 import type {
@@ -46,6 +47,7 @@ interface WorkspaceSidebarProps {
   onOpenCodex?: () => void;
   onOpenDrawings?: () => void;
   onOpenGlobalSearch: () => void;
+  onOpenPinnedNode?: (node: WorkspaceNode) => void;
   onOpenInbox?: () => void;
   onOpenInFileManager?: (node: WorkspaceNode) => void;
   onOpenInPreferredEditor?: (node: WorkspaceNode) => void;
@@ -63,6 +65,8 @@ interface WorkspaceSidebarProps {
   onSelectDirectory?: (node: WorkspaceNode) => Promise<void> | void;
   onSelectDocument?: (node: WorkspaceNode) => void;
   onTogglePinned?: (node: WorkspaceNode) => void;
+  onUnpinNode?: (node: WorkspaceNode) => void;
+  pinnedNodes?: WorkspaceNode[];
   inboxActiveCount?: number;
   systemPage?: 'codex' | 'drawings' | 'inbox' | 'views' | null;
 }
@@ -83,6 +87,7 @@ export function WorkspaceSidebar({
   onOpenCodex,
   onOpenDrawings,
   onOpenGlobalSearch,
+  onOpenPinnedNode,
   onOpenInbox,
   onOpenInFileManager,
   onOpenInPreferredEditor,
@@ -97,6 +102,8 @@ export function WorkspaceSidebar({
   onSelectDirectory,
   onSelectDocument,
   onTogglePinned,
+  onUnpinNode,
+  pinnedNodes = [],
   inboxActiveCount = 0,
   systemPage = null,
   windowsChromeInset = false,
@@ -156,7 +163,10 @@ export function WorkspaceSidebar({
         <WorkspaceSidebarHeader
           workspace={workspace}
           onOpenGlobalSearch={onOpenGlobalSearch}
+          pinnedNodes={pinnedNodes}
+          onOpenPinnedNode={onOpenPinnedNode}
           onRemoveWorkspace={onRemoveWorkspace}
+          onUnpinNode={onUnpinNode}
         />
 
         {workspace.snapshot ? (
@@ -329,11 +339,17 @@ export function WorkspaceSidebar({
 function WorkspaceSidebarHeader({
   workspace,
   onOpenGlobalSearch,
+  onOpenPinnedNode,
   onRemoveWorkspace,
+  onUnpinNode,
+  pinnedNodes,
 }: {
   workspace: ReturnType<typeof useWorkspace>;
   onOpenGlobalSearch: () => void;
+  onOpenPinnedNode?: (node: WorkspaceNode) => void;
   onRemoveWorkspace?: (rootPath: string) => void;
+  onUnpinNode?: (node: WorkspaceNode) => void;
+  pinnedNodes: WorkspaceNode[];
 }) {
   return (
     <div className="px-3 pb-2">
@@ -359,6 +375,13 @@ function WorkspaceSidebarHeader({
         >
           <Search size={17} strokeWidth={1.8} />
         </button>
+        {onOpenPinnedNode && onUnpinNode ? (
+          <PinnedChromeMenu
+            nodes={pinnedNodes}
+            onOpenNode={onOpenPinnedNode}
+            onUnpinNode={onUnpinNode}
+          />
+        ) : null}
       </div>
     </div>
   );

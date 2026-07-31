@@ -61,7 +61,7 @@ export function PinnedChromeMenu({
 
       <PopoverContent
         align="start"
-        className="w-[320px] gap-1 rounded-lg border border-border/70 bg-background/98 p-1.5 shadow-[0_18px_48px_-20px_rgba(15,23,42,0.45),0_6px_18px_rgba(15,23,42,0.08)]"
+        className="w-[320px] gap-1 rounded-lg border border-border/70 bg-background/98 p-1.5 shadow-none ring-0"
         data-testid="pinned-chrome-menu"
         side="bottom"
         sideOffset={8}

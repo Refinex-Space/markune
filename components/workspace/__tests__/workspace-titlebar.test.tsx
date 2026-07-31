@@ -116,6 +116,21 @@ describe('Workspace titlebar', () => {
     );
   });
 
+  it('places pinned content beside workspace search instead of the window chrome', () => {
+    const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
+    const workspaceSidebarSource = readFileSync(workspaceSidebarPath, 'utf8');
+    const pinnedChromeMenuSource = readFileSync(pinnedChromeMenuPath, 'utf8');
+
+    expect(workspaceLayoutSource).not.toContain('PinnedChromeMenu');
+    expect(workspaceSidebarSource).toContain("import { PinnedChromeMenu }");
+    expect(workspaceSidebarSource.indexOf('aria-label="全局搜索"')).toBeLessThan(
+      workspaceSidebarSource.indexOf('<PinnedChromeMenu'),
+    );
+    expect(pinnedChromeMenuSource).toContain('shadow-none');
+    expect(pinnedChromeMenuSource).toContain('ring-0');
+    expect(pinnedChromeMenuSource).not.toContain('shadow-[0_18px_48px');
+  });
+
   it('does not reset the macOS traffic light position when the document title changes', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
 
