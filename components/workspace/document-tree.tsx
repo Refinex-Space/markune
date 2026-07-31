@@ -16,6 +16,7 @@ import {
   MoreHorizontal,
   Pencil,
   Pin,
+  RefreshCw,
   Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -98,6 +99,7 @@ interface DocumentTreeProps {
     node: WorkspaceNode,
     newName: string,
   ) => Promise<WorkspaceNode | null | void> | WorkspaceNode | null | void;
+  onRefresh?: () => Promise<unknown> | void;
   onSelectDocument: (node: WorkspaceNode) => void;
   onTogglePinned?: (node: WorkspaceNode) => void;
 }
@@ -123,6 +125,7 @@ export function DocumentTree({
   revealNodeRequestId,
   onSelectDirectory,
   onRenameNode,
+  onRefresh,
   onSelectDocument,
   onTogglePinned,
 }: DocumentTreeProps) {
@@ -352,6 +355,7 @@ export function DocumentTree({
             onExpandedChange={setExpanded}
             onMoveNode={onMoveNode}
             onPendingRenameConsumed={onPendingRenameConsumed}
+            onRefresh={onRefresh}
             onRenameRequest={startEditingNode}
             onRenameSubmit={handleRenameNode}
             onResolveDraggedNode={resolveDraggedNode}
@@ -382,6 +386,15 @@ export function DocumentTree({
             className="w-44"
             onCloseAutoFocus={(event) => event.preventDefault()}
           >
+            {onRefresh ? (
+              <>
+                <ContextMenuItem onSelect={() => void onRefresh()}>
+                  <RefreshCw />
+                  刷新
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+              </>
+            ) : null}
             <ContextMenuItem
               onSelect={() => void handleCreateDocument('')}
             >
@@ -441,6 +454,7 @@ function TreeNode({
   onExpandedChange,
   onMoveNode,
   onPendingRenameConsumed,
+  onRefresh,
   onSelectDirectory,
   onRenameRequest,
   onRenameSubmit,
@@ -717,6 +731,7 @@ function TreeNode({
             onOpenInFileManager={onOpenInFileManager}
             onOpenInPreferredEditor={onOpenInPreferredEditor}
             preferredEditorLabel={preferredEditorLabel}
+            onRefresh={onRefresh}
             onRenameRequest={onRenameRequest}
             onTogglePinned={onTogglePinned}
           />
@@ -760,6 +775,7 @@ function TreeNode({
               onExpandedChange={onExpandedChange}
               onMoveNode={onMoveNode}
               onPendingRenameConsumed={onPendingRenameConsumed}
+              onRefresh={onRefresh}
               onRenameRequest={onRenameRequest}
               onRenameSubmit={onRenameSubmit}
               onResolveDraggedNode={onResolveDraggedNode}
@@ -809,6 +825,7 @@ interface TreeNodeProps {
   onExpandedChange: React.Dispatch<React.SetStateAction<Set<string>>>;
   onMoveNode?: (request: WorkspaceMoveRequest) => Promise<void> | void;
   onPendingRenameConsumed?: () => void;
+  onRefresh?: () => Promise<unknown> | void;
   onSelectDirectory?: (node: WorkspaceNode) => Promise<void> | void;
   onRenameRequest: (node: WorkspaceNode) => void;
   onRenameSubmit: (node: WorkspaceNode, nextName: string) => Promise<void>;
@@ -1006,6 +1023,7 @@ interface NodeActionProps {
   onOpenInFileManager?: (node: WorkspaceNode) => Promise<void> | void;
   onOpenInPreferredEditor?: (node: WorkspaceNode) => Promise<void> | void;
   preferredEditorLabel?: string;
+  onRefresh?: () => Promise<unknown> | void;
   onRenameRequest: (node: WorkspaceNode) => void;
   onTogglePinned?: (node: WorkspaceNode) => void;
 }
@@ -1161,12 +1179,19 @@ function NodeContextActions({
   onOpenInFileManager,
   onOpenInPreferredEditor,
   preferredEditorLabel,
+  onRefresh,
   onRenameRequest,
   onTogglePinned,
 }: NodeActionProps) {
   if (node.kind === 'directory') {
     return (
       <>
+        {onRefresh ? (
+          <ContextMenuItem onSelect={() => void onRefresh()}>
+            <RefreshCw />
+            刷新
+          </ContextMenuItem>
+        ) : null}
         {onTogglePinned ? (
           <ContextMenuItem onSelect={() => onTogglePinned(node)}>
             <Pin />
@@ -1239,6 +1264,12 @@ function NodeContextActions({
 
   return (
     <>
+      {onRefresh ? (
+        <ContextMenuItem onSelect={() => void onRefresh()}>
+          <RefreshCw />
+          刷新
+        </ContextMenuItem>
+      ) : null}
       {onTogglePinned ? (
         <ContextMenuItem onSelect={() => onTogglePinned(node)}>
           <Pin />

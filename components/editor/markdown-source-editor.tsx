@@ -57,6 +57,11 @@ export function MarkdownSourceEditor({
             overflow: 'auto',
           },
           '.cm-content': { padding: '1.25rem 1.5rem' },
+          '.cm-gutters': {
+            backgroundColor: 'var(--background)',
+            borderRight: '1px solid var(--border)',
+            color: 'var(--muted-foreground)',
+          },
         }),
       ],
       parent: host,

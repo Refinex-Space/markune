@@ -12,7 +12,6 @@ import {
   Minus,
   Moon,
   Palette,
-  RefreshCw,
   Sun,
   SquareTerminal,
   Square,
@@ -435,6 +434,8 @@ export function WorkspaceLayout({
   const activeMarkdownEditorRef = React.useRef<MarkdownEditorHandle | null>(
     null,
   );
+  const [activeEditorSourceMode, setActiveEditorSourceMode] =
+    React.useState(false);
   const [askAiHandler, setAskAiHandler] =
     React.useState<MarkweaveAskAiHandler | null>(null);
   const appWindowExitPendingRef = React.useRef(false);
@@ -2793,22 +2794,6 @@ export function WorkspaceLayout({
     ),
     [workspace.snapshot?.nodes],
   );
-  const [isRefreshingWorkspaceTree, setIsRefreshingWorkspaceTree] =
-    React.useState(false);
-  const refreshWorkspaceTreeFromChrome = React.useCallback(() => {
-    if (isRefreshingWorkspaceTree) {
-      return;
-    }
-
-    setIsRefreshingWorkspaceTree(true);
-    void workspace
-      .refreshWorkspaceTree()
-      .catch(() => null)
-      .finally(() => {
-        setIsRefreshingWorkspaceTree(false);
-      });
-  }, [isRefreshingWorkspaceTree, workspace]);
-
   return (
     <main
       className="relative flex h-screen w-full overflow-hidden bg-sidebar text-foreground antialiased"
@@ -2830,12 +2815,10 @@ export function WorkspaceLayout({
           collapsed={workspace.isSidebarCollapsed}
           macChromeOffset={isTauriRuntime && isMacRuntime}
           macChromeControlsTop={macChromeControlsTop}
-          refreshing={isRefreshingWorkspaceTree}
           windowsChromeInset={isTauriRuntime && isWindowsRuntime}
           pinnedNodes={pinnedNodes}
           onToggle={toggleLeftSidebar}
           onOpenPinnedNode={handleOpenWorkspaceViewNode}
-          onRefresh={refreshWorkspaceTreeFromChrome}
           onUnpinNode={handleUnpinNode}
         />
       )}
@@ -2952,6 +2935,9 @@ export function WorkspaceLayout({
                 onOpenDrawings={handleOpenDrawingsPage}
                 onOpenGlobalSearch={openGlobalSearch}
                 onOpenViews={handleOpenViewsPage}
+                onRefreshWorkspaceTree={() =>
+                  workspace.refreshWorkspaceTree().catch(() => null)
+                }
                 onOpenInFileManager={handleOpenNodeInFileManager}
                 onOpenSettings={openSettingsPage}
                 onRemoveWorkspace={handleRemoveWorkspace}
@@ -3141,6 +3127,7 @@ export function WorkspaceLayout({
                         warmDocumentPaths={warmDocumentPaths}
                         workspaceRootPath={workspace.snapshot?.rootPath ?? null}
                         getDocumentReadOnly={getDocumentReadOnly}
+                        onActiveSourceModeChange={setActiveEditorSourceMode}
                         onMarkdownChange={handleEditorMarkdownChange}
                         onRetryDocument={workspace.retryCurrentDocument}
                         onSaveRequested={() =>
@@ -3204,6 +3191,7 @@ export function WorkspaceLayout({
                   lineCount={documentLineCount}
                   saveError={workspace.saveError}
                   saveState={workspace.saveState}
+                  sourceMode={activeEditorSourceMode}
                   visible={
                     systemPage !== 'codex' &&
                     activeEditorTab?.kind !== 'plan' &&
@@ -3384,23 +3372,19 @@ function SidebarChromeToggle({
   collapsed,
   macChromeOffset,
   macChromeControlsTop,
-  refreshing,
   windowsChromeInset,
   pinnedNodes,
   onToggle,
   onOpenPinnedNode,
-  onRefresh,
   onUnpinNode,
 }: {
   collapsed: boolean;
   macChromeOffset: boolean;
   macChromeControlsTop: number;
-  refreshing: boolean;
   windowsChromeInset: boolean;
   pinnedNodes: WorkspaceNode[];
   onToggle: () => void;
   onOpenPinnedNode: (node: WorkspaceNode) => void;
-  onRefresh: () => void;
   onUnpinNode: (node: WorkspaceNode) => void;
 }) {
   const label = collapsed ? '展开侧边栏' : '折叠侧边栏';
@@ -3443,32 +3427,6 @@ function SidebarChromeToggle({
         onOpenNode={onOpenPinnedNode}
         onUnpinNode={onUnpinNode}
       />
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              aria-label="刷新工作区"
-              className="group inline-flex size-8 items-center justify-center text-muted-foreground"
-              data-refreshing={refreshing ? 'true' : 'false'}
-              type="button"
-              onClick={onRefresh}
-            >
-              <span
-                className="inline-flex size-7 items-center justify-center rounded-md transition-colors group-hover:bg-accent group-hover:text-foreground"
-                data-chrome-hover-surface
-              >
-                <RefreshCw
-                  className={cn('size-4', refreshing && 'animate-spin')}
-                  strokeWidth={1.85}
-                />
-              </span>
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={8}>
-            刷新工作区
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
     </div>
   );
 }
@@ -3831,6 +3789,7 @@ export function DocumentEditorSurface({
   warmDocumentPaths,
   workspaceRootPath,
   getDocumentReadOnly,
+  onActiveSourceModeChange,
   onMarkdownChange,
   onRetryDocument,
   onSaveRequested,
@@ -3850,6 +3809,7 @@ export function DocumentEditorSurface({
   warmDocumentPaths: readonly string[];
   workspaceRootPath: string | null;
   getDocumentReadOnly: (documentPath: string) => boolean;
+  onActiveSourceModeChange: (sourceMode: boolean) => void;
   onMarkdownChange: (
     documentPath: string,
     markdown: string,
@@ -3927,6 +3887,9 @@ export function DocumentEditorSurface({
                 pageWidthMode={pageWidthMode}
                 readOnly={getDocumentReadOnly(documentPath)}
                 workspaceRootPath={workspaceRootPath}
+                onSourceModeChange={
+                  isActive ? onActiveSourceModeChange : undefined
+                }
                 onMarkdownChange={onMarkdownChange}
                 onSaveRequested={onSaveRequested}
               />
@@ -4059,6 +4022,7 @@ function DocumentEditorInstance({
   pageWidthMode,
   readOnly,
   workspaceRootPath,
+  onSourceModeChange,
   onMarkdownChange,
   onSaveRequested,
 }: {
@@ -4070,6 +4034,7 @@ function DocumentEditorInstance({
   pageWidthMode: PageWidthMode;
   readOnly: boolean;
   workspaceRootPath: string | null;
+  onSourceModeChange?: (sourceMode: boolean) => void;
   onMarkdownChange: (
     documentPath: string,
     markdown: string,
@@ -4097,6 +4062,7 @@ function DocumentEditorInstance({
         readOnly={readOnly}
         ref={activeEditorRef}
         workspaceRootPath={workspaceRootPath}
+        onSourceModeChange={onSourceModeChange}
         onMarkdownChange={handleMarkdownChange}
         onSaveRequested={onSaveRequested}
       />
@@ -4466,51 +4432,56 @@ function ExternalDocumentConflictBanner({
   );
 }
 
-function WorkspaceStatusBar({
+export function WorkspaceStatusBar({
   characterCount,
   lineCount,
   saveError,
   saveState,
+  sourceMode,
   visible,
 }: {
   characterCount: number;
   lineCount: number;
   saveError: string | null;
   saveState: DocumentSaveState;
+  sourceMode: boolean;
   visible: boolean;
 }) {
   return (
     <div
-      className="flex h-7 shrink-0 items-center justify-end gap-4 px-4 text-[12px] text-muted-foreground"
+      className="flex h-7 shrink-0 items-center px-4 text-[12px] text-muted-foreground"
       data-testid="workspace-status-bar"
     >
       {visible ? (
         <>
-          <span className="flex items-center gap-1">
-            <Check
-              className={cn(
-                'size-3',
-                saveState === 'error'
-                  ? 'text-destructive'
-                  : saveState === 'dirty'
-                    ? 'text-amber-600'
-                    : 'text-emerald-600',
-              )}
-              strokeWidth={2}
-            />
-            {saveState === 'dirty' ? '有未保存更改' : null}
-            {saveState === 'saving' ? '保存中...' : null}
-            {saveState === 'saved' ? '已保存' : null}
-            {saveState === 'error' ? (
-              <span className="text-destructive">
-                {saveError ?? '保存失败'}
-              </span>
-            ) : null}
-          </span>
-          <span>词数 {characterCount}</span>
-          <span>行数 {lineCount}</span>
-          <span>字符 {characterCount}</span>
-          <span>UTF-8 · Markdown</span>
+          {sourceMode ? <span>Ctrl / Cmd + / 返回</span> : null}
+          <div className="ml-auto flex items-center gap-4">
+            <span className="flex items-center gap-1">
+              <Check
+                className={cn(
+                  'size-3',
+                  saveState === 'error'
+                    ? 'text-destructive'
+                    : saveState === 'dirty'
+                      ? 'text-amber-600'
+                      : 'text-emerald-600',
+                )}
+                strokeWidth={2}
+              />
+              {saveState === 'dirty' ? '有未保存更改' : null}
+              {saveState === 'saving' ? '保存中...' : null}
+              {saveState === 'saved' ? '已保存' : null}
+              {saveState === 'error' ? (
+                <span className="text-destructive">
+                  {saveError ?? '保存失败'}
+                </span>
+              ) : null}
+            </span>
+            <span>词数 {characterCount}</span>
+            <span>行数 {lineCount}</span>
+            <span>字符 {characterCount}</span>
+            <span>UTF-8 · Markdown</span>
+          </div>
         </>
       ) : null}
     </div>

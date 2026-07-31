@@ -100,7 +100,8 @@ describe('Workspace titlebar', () => {
 
     expect(
       workspaceLayoutSource.match(/data-chrome-hover-surface/g),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
+    expect(workspaceLayoutSource).not.toContain('aria-label="刷新工作区"');
     expect(
       pinnedChromeMenuSource.match(/data-chrome-hover-surface/g),
     ).toHaveLength(1);

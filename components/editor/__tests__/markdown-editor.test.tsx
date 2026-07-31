@@ -694,12 +694,14 @@ describe('MarkdownEditor', () => {
     const markdown =
       '---\ntitle: 源码文档\nupdatedAt: 2026-07-14\n---\n\n# 正文\n\n- [ ] 任务\n';
     const onMarkdownChange = vi.fn();
+    const onSourceModeChange = vi.fn();
 
     render(
       <MarkdownEditor
         documentKey="source-doc"
         markdown={markdown}
         onMarkdownChange={onMarkdownChange}
+        onSourceModeChange={onSourceModeChange}
       />,
     );
 
@@ -719,8 +721,10 @@ describe('MarkdownEditor', () => {
     expect(source.value).toBe(markdown);
     expect(source.readOnly).toBe(false);
     expect(document.activeElement).toBe(source);
-    expect(screen.getByText('Markdown 源码')).toBeTruthy();
-    expect(screen.getByText('可编辑 · Ctrl / Cmd + / 返回')).toBeTruthy();
+    expect(screen.queryByText('Markdown 源码')).toBeNull();
+    expect(screen.queryByText('可编辑 · Ctrl / Cmd + / 返回')).toBeNull();
+    expect(screen.queryByText('Ctrl / Cmd + / 返回')).toBeNull();
+    expect(onSourceModeChange).toHaveBeenLastCalledWith(true);
     expect(screen.getByTestId('markweave-editor')).toBeTruthy();
     expect(screen.getByTestId('markweave-editor-mode').className).toContain(
       'hidden',
@@ -756,6 +760,114 @@ describe('MarkdownEditor', () => {
     );
     expect(document.activeElement).toBe(screen.getByLabelText('Markdown 正文'));
     expect(markweaveUnmountMock).toHaveBeenCalledTimes(1);
+    expect(onSourceModeChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it('Live 编辑后往返源码模式时保留最新内容', async () => {
+    const markdown = '# 原始内容\n';
+    const nextMarkdown = '# 已输入的最新内容\n';
+    const onMarkdownChange = vi.fn();
+
+    render(
+      <MarkdownEditor
+        documentKey="live-source-roundtrip"
+        markdown={markdown}
+        onMarkdownChange={onMarkdownChange}
+      />,
+    );
+
+    const editorRoot = screen.getByTestId('markdown-editor-root');
+    fireEvent.change(screen.getByLabelText('Markdown 正文'), {
+      target: { value: nextMarkdown },
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(editorRoot, {
+        code: 'Slash',
+        ctrlKey: true,
+        key: '/',
+      });
+      await Promise.resolve();
+    });
+
+    const source = screen.getByLabelText(
+      'Markdown 文档源码',
+    ) as HTMLTextAreaElement;
+    expect(source.value).toBe(nextMarkdown);
+
+    await act(async () => {
+      fireEvent.keyDown(source, {
+        code: 'Slash',
+        ctrlKey: true,
+        key: '/',
+      });
+      await Promise.resolve();
+    });
+
+    expect(
+      (screen.getByLabelText('Markdown 正文') as HTMLTextAreaElement).value,
+    ).toBe(nextMarkdown);
+    expect(onMarkdownChange).toHaveBeenCalledWith(
+      nextMarkdown,
+      undefined,
+      'source-toggle',
+    );
+  });
+
+  it('自动保存后往返源码模式时保留最新内容', async () => {
+    const markdown = '# 原始内容\n';
+    const nextMarkdown = '# 自动保存后的最新内容\n';
+    const onMarkdownChange = vi.fn();
+
+    render(
+      <MarkdownEditor
+        documentKey="saved-live-source-roundtrip"
+        markdown={markdown}
+        onMarkdownChange={onMarkdownChange}
+      />,
+    );
+
+    const editorRoot = screen.getByTestId('markdown-editor-root');
+    fireEvent.change(screen.getByLabelText('Markdown 正文'), {
+      target: { value: nextMarkdown },
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(500);
+      await Promise.resolve();
+    });
+    expect(onMarkdownChange).toHaveBeenLastCalledWith(
+      nextMarkdown,
+      undefined,
+      'idle',
+    );
+
+    await act(async () => {
+      fireEvent.keyDown(editorRoot, {
+        code: 'Slash',
+        ctrlKey: true,
+        key: '/',
+      });
+      await Promise.resolve();
+    });
+
+    const source = screen.getByLabelText(
+      'Markdown 文档源码',
+    ) as HTMLTextAreaElement;
+    expect(source.value).toBe(nextMarkdown);
+
+    await act(async () => {
+      fireEvent.keyDown(source, {
+        code: 'Slash',
+        ctrlKey: true,
+        key: '/',
+      });
+      await Promise.resolve();
+    });
+
+    expect(
+      (screen.getByLabelText('Markdown 正文') as HTMLTextAreaElement).value,
+    ).toBe(nextMarkdown);
   });
 
   it('锁定文档的源码模式保持只读', () => {
@@ -780,7 +892,7 @@ describe('MarkdownEditor', () => {
     ) as HTMLTextAreaElement;
 
     expect(source.readOnly).toBe(true);
-    expect(screen.getByText('只读 · Ctrl / Cmd + / 返回')).toBeTruthy();
+    expect(screen.queryByText('Ctrl / Cmd + / 返回')).toBeNull();
     fireEvent.change(source, { target: { value: '# 不应写入' } });
     expect(onMarkdownChange).not.toHaveBeenCalled();
   });

@@ -64,6 +64,7 @@ interface MarkdownEditorProps {
     origin?: MarkdownEditorChangeOrigin,
     reason?: MarkdownEditorFlushReason,
   ) => boolean | void | Promise<boolean | void>;
+  onSourceModeChange?: (sourceMode: boolean) => void;
   readOnly?: boolean;
   themeOverride?: 'dark' | 'light';
   workspaceRootPath?: string | null;
@@ -99,6 +100,7 @@ export const MarkdownEditor = React.forwardRef<
   pageWidthMode = 'wide',
   onSaveRequested,
   onMarkdownChange,
+  onSourceModeChange,
   readOnly = false,
   themeOverride,
   workspaceRootPath = null,
@@ -400,6 +402,14 @@ export const MarkdownEditor = React.forwardRef<
     }
   }, [normalizedMarkdown, sourceMode]);
 
+  React.useEffect(() => {
+    onSourceModeChange?.(sourceMode);
+
+    return () => {
+      onSourceModeChange?.(false);
+    };
+  }, [onSourceModeChange, sourceMode]);
+
   const handleTocChange = React.useCallback(() => {
     // Markweave owns the visible inner TOC; this callback keeps the runtime
     // bridge explicit for future workspace integrations.
@@ -592,6 +602,10 @@ export const MarkdownEditor = React.forwardRef<
           if (sourceMode) {
             void flushDraft('source-toggle').then((flushed) => {
               if (flushed) {
+                loadedDocumentRef.current = {
+                  documentKey,
+                  markdown: sourceDraftMarkdownRef.current,
+                };
                 liveEditorRevisionRef.current += 1;
                 setSourceMode(false);
               }
@@ -604,8 +618,7 @@ export const MarkdownEditor = React.forwardRef<
               }
             });
           } else {
-            sourceDraftMarkdownRef.current = normalizedMarkdown;
-            setSourceFindText(normalizedMarkdown);
+            setSourceFindText(sourceDraftMarkdownRef.current);
             setSourceMode(true);
           }
           return;
@@ -670,14 +683,6 @@ export const MarkdownEditor = React.forwardRef<
             className="flex min-h-0 w-full flex-1 flex-col bg-background"
             data-testid="markdown-source-mode"
           >
-            <div className="flex h-10 shrink-0 items-center justify-between border-b bg-muted/30 px-4 text-xs text-muted-foreground">
-              <span className="font-medium text-foreground">
-                Markdown 源码
-              </span>
-              <span>
-                {readOnly ? '只读' : '可编辑'} · Ctrl / Cmd + / 返回
-              </span>
-            </div>
             <MarkdownSourceEditor
               editorRef={sourceEditorRef}
               initialValue={sourceDraftMarkdownRef.current}
