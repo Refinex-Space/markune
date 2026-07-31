@@ -51,9 +51,13 @@ import { AiDocumentPreview } from './ai-document-preview';
 import { DirectoryPage } from './directory-page';
 import { DailyNoteCalendar } from './daily-note-calendar';
 import {
+  DAILY_NOTES_INSPECTOR_WIDTH,
+  DailyNotesPage,
+  type DailyNotesViewMode,
+} from './daily-notes-page';
+import {
   createDateFromDailyDate,
   formatDailyDate,
-  formatDailyMonth,
   getDailyContentDates,
 } from './daily-notes';
 import { DocumentTabBar } from './document-tab-bar';
@@ -92,6 +96,7 @@ import { useWorkspace } from './use-workspace';
 import { useAiDrawingTools } from './use-ai-drawing-tools';
 import { drawingReferenceFromDescriptor } from './ai-drawing-inspector';
 import { useDrawingController } from './use-drawing-controller';
+import { useDailyNotes } from './use-daily-notes';
 import { useInboxController } from './use-inbox-controller';
 import { useAppUpdate } from './use-app-update';
 import {
@@ -126,7 +131,6 @@ import {
   gitStatus,
   gitSyncNow,
   gitUnstage,
-  listDailyNotesForMonth,
   listenTerminalData,
   listenTerminalError,
   listenTerminalExit,
@@ -176,7 +180,6 @@ import type {
   DocumentLoadState,
   DocumentSaveState,
   DailyNoteDocument,
-  DailyNoteEntry,
   GitBranchItem,
   GitCommitEntry,
   GitCommitFile,
@@ -203,6 +206,7 @@ type GlobalSearchIndexStatus = 'error' | 'idle' | 'indexing' | 'ready';
 type ThemeMode = 'dark' | 'light' | 'system';
 type WorkspaceSystemPage =
   | 'codex'
+  | 'daily'
   | 'drawings'
   | 'inbox'
   | 'settings'
@@ -277,6 +281,7 @@ const WORKSPACE_PANEL_WIDTH_STORAGE_KEYS = {
   left: 'madora:workspace:left-sidebar-width',
   ai: 'madora:workspace:ai-panel-width',
   aiWorkspacePreview: 'madora:workspace:ai-workspace-preview-width:v2',
+  dailyNotesInspector: 'madora:workspace:daily-notes-inspector-width:v2',
   meta: 'madora:workspace:right-panel-width',
   terminalHeight: 'madora:workspace:terminal-height',
 };
@@ -341,6 +346,13 @@ export function WorkspaceLayout({
       AI_WORKSPACE_PREVIEW_WIDTH.defaultValue,
       AI_WORKSPACE_PREVIEW_WIDTH.min,
       AI_WORKSPACE_PREVIEW_WIDTH.max,
+    );
+  const [dailyNotesInspectorWidth, setDailyNotesInspectorWidth] =
+    useStoredPanelWidth(
+      WORKSPACE_PANEL_WIDTH_STORAGE_KEYS.dailyNotesInspector,
+      DAILY_NOTES_INSPECTOR_WIDTH.defaultValue,
+      DAILY_NOTES_INSPECTOR_WIDTH.min,
+      DAILY_NOTES_INSPECTOR_WIDTH.max,
     );
   const [settingsInitialSectionId, setSettingsInitialSectionId] =
     React.useState<SettingsSectionId>('appearance');
@@ -412,15 +424,14 @@ export function WorkspaceLayout({
   const [selectedDailyDate, setSelectedDailyDate] = React.useState(() =>
     formatDailyDate(new Date()),
   );
-  const [dailyNoteEntries, setDailyNoteEntries] = React.useState<
-    DailyNoteEntry[]
-  >([]);
-  const [dailyNotesLoading, setDailyNotesLoading] = React.useState(false);
+  const [dailyNotesViewMode, setDailyNotesViewMode] =
+    React.useState<DailyNotesViewMode>('month');
   const documentTitle =
     workspace.currentDocument?.title || workspace.currentDocument?.name;
   const pageTitle = documentTitle ?? workspace.currentDirectory?.name;
   const currentDocumentPath = workspace.currentDocument?.absolutePath ?? null;
   const workspaceRootPath = workspace.snapshot?.rootPath ?? null;
+  const dailyNotes = useDailyNotes({ rootPath: workspaceRootPath });
   const inbox = useInboxController({ rootPath: workspaceRootPath });
   const loadInbox = inbox.loadList;
   const startInboxCapture = inbox.startNewCapture;
@@ -494,8 +505,8 @@ export function WorkspaceLayout({
       : null;
   const hasOpenDocumentTabs = documentEditorLayout.tabs.length > 0;
   const dailyContentDates = React.useMemo(
-    () => getDailyContentDates(dailyNoteEntries),
-    [dailyNoteEntries],
+    () => getDailyContentDates(dailyNotes.entries),
+    [dailyNotes.entries],
   );
   const visibleRecentDocuments = React.useMemo(
     () =>
@@ -704,6 +715,18 @@ export function WorkspaceLayout({
   });
   const drawingDetailOpen =
     systemPage === 'drawings' && drawings.selection.kind === 'drawing';
+  const workspaceMainHeaderHeight =
+    isTauriRuntime && isWindowsRuntime
+      ? 32
+      : isTauriRuntime && isMacRuntime
+        ? macChromeContentTop - WORKSPACE_PANEL_MARGIN
+        : 44;
+  const macSidebarHeaderOffset =
+    isTauriRuntime && isMacRuntime
+      ? macChromeContentTop -
+        WORKSPACE_PANEL_MARGIN -
+        workspaceMainHeaderHeight
+      : undefined;
   const drawingEditorHeaderHeight =
     isTauriRuntime && isWindowsRuntime
       ? WORKSPACE_SIDEBAR_HEADER_HEIGHT
@@ -918,29 +941,7 @@ export function WorkspaceLayout({
       };
     });
   }, [globalSearchState.rootPath, workspaceRootPath]);
-  const loadDailyNotesForMonth = React.useCallback(
-    async (month: Date) => {
-      if (!workspaceRootPath) {
-        setDailyNoteEntries([]);
-        return;
-      }
-
-      setDailyNotesLoading(true);
-
-      try {
-        const result = await listDailyNotesForMonth(
-          workspaceRootPath,
-          formatDailyMonth(month),
-        );
-        setDailyNoteEntries(result.entries);
-      } catch {
-        setDailyNoteEntries([]);
-      } finally {
-        setDailyNotesLoading(false);
-      }
-    },
-    [workspaceRootPath],
-  );
+  const loadDailyNotesForMonth = dailyNotes.loadMonth;
 
   React.useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -2138,6 +2139,38 @@ export function WorkspaceLayout({
     [loadDailyNotesForMonth, openDocumentNode, workspace, workspaceRootPath],
   );
 
+  const handleDailyMonthChange = React.useCallback(
+    (month: Date) => {
+      const nextMonth = new Date(month.getFullYear(), month.getMonth(), 1);
+      const currentSelection = createDateFromDailyDate(selectedDailyDate);
+      const day = Math.min(
+        currentSelection.getDate(),
+        new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate(),
+      );
+
+      setDailyCalendarMonth(nextMonth);
+      setSelectedDailyDate(
+        formatDailyDate(
+          new Date(nextMonth.getFullYear(), nextMonth.getMonth(), day),
+        ),
+      );
+    },
+    [selectedDailyDate],
+  );
+
+  const handleOpenDailyNotesPage = React.useCallback(() => {
+    setLeftPanelMode('workspace');
+    setSystemPage('daily');
+    showWorkspaceSidebar(false);
+    clearCurrentDocument();
+    void loadDailyNotesForMonth(dailyCalendarMonth);
+  }, [
+    clearCurrentDocument,
+    dailyCalendarMonth,
+    loadDailyNotesForMonth,
+    showWorkspaceSidebar,
+  ]);
+
   const handleOpenViewsPage = React.useCallback(() => {
     setSystemPage('views');
     workspace.clearCurrentDocument();
@@ -2890,7 +2923,7 @@ export function WorkspaceLayout({
                   workspace.snapshot ? (
                     <DailyNoteCalendar
                       contentDates={dailyContentDates}
-                      isLoading={dailyNotesLoading}
+                      isLoading={dailyNotes.isLoading}
                       month={dailyCalendarMonth}
                       selectedDate={selectedDailyDate}
                       onMonthChange={(month) =>
@@ -2934,9 +2967,7 @@ export function WorkspaceLayout({
                     ? documentImport.importDocuments
                     : undefined
                 }
-                onOpenDailyNote={() =>
-                  void handleOpenDailyNote(formatDailyDate(new Date()))
-                }
+                onOpenDailyNotes={handleOpenDailyNotesPage}
                 onOpenNotes={() => {
                   setLeftPanelMode('workspace');
                   setSystemPage(null);
@@ -2966,6 +2997,7 @@ export function WorkspaceLayout({
                 systemPage={
                   systemPage === 'drawings' ||
                   systemPage === 'codex' ||
+                  systemPage === 'daily' ||
                   systemPage === 'inbox' ||
                   systemPage === 'views'
                     ? systemPage
@@ -3036,8 +3068,7 @@ export function WorkspaceLayout({
               data-testid="workspace-panel-group"
               style={
                 {
-                  '--workspace-main-header-height':
-                    isTauriRuntime && isWindowsRuntime ? '2rem' : '2.75rem',
+                  '--workspace-main-header-height': `${workspaceMainHeaderHeight}px`,
                 } as React.CSSProperties
               }
             >
@@ -3066,6 +3097,7 @@ export function WorkspaceLayout({
                     ) : null
                   }
                   gitLogOpen={gitLogOpen}
+                  headerHeight={workspaceMainHeaderHeight}
                   leftPanelMode={leftPanelMode}
                   macChromeInset={
                     isTauriRuntime &&
@@ -3099,7 +3131,31 @@ export function WorkspaceLayout({
                       systemPage === 'codex' && 'hidden',
                     )}
                   >
-                    {systemPage === 'drawings' && workspace.snapshot ? (
+                    {systemPage === 'daily' && workspace.snapshot ? (
+                      <DailyNotesPage
+                        entries={dailyNotes.entries}
+                        error={dailyNotes.error}
+                        inspectorWidth={dailyNotesInspectorWidth}
+                        isLoading={dailyNotes.isLoading}
+                        month={dailyCalendarMonth}
+                        pageWidthMode={pageWidthMode}
+                        rootPath={workspace.snapshot.rootPath}
+                        selectedDate={selectedDailyDate}
+                        sidebarHeaderOffset={macSidebarHeaderOffset}
+                        viewMode={dailyNotesViewMode}
+                        onCreateDaily={(date) => void handleOpenDailyNote(date)}
+                        onInspectorResize={setDailyNotesInspectorWidth}
+                        onMonthChange={handleDailyMonthChange}
+                        onOpenDaily={(entry) =>
+                          void handleOpenDailyNote(entry.date)
+                        }
+                        onRefresh={() =>
+                          void loadDailyNotesForMonth(dailyCalendarMonth)
+                        }
+                        onSelectDate={setSelectedDailyDate}
+                        onViewModeChange={setDailyNotesViewMode}
+                      />
+                    ) : systemPage === 'drawings' && workspace.snapshot ? (
                       <DrawingWorkspacePage
                         controller={drawings}
                         editorHeaderHeight={drawingEditorHeaderHeight}
@@ -3114,13 +3170,7 @@ export function WorkspaceLayout({
                       />
                     ) : systemPage === 'views' && workspace.snapshot ? (
                       <WorkspaceViewsPage
-                        sidebarHeaderOffset={
-                          isTauriRuntime && isMacRuntime
-                            ? macChromeContentTop -
-                              WORKSPACE_PANEL_MARGIN -
-                              WORKSPACE_SIDEBAR_HEADER_HEIGHT
-                            : undefined
-                        }
+                        sidebarHeaderOffset={macSidebarHeaderOffset}
                         nodes={filterRegularWorkspaceNodes(
                           workspace.snapshot.nodes,
                         )}
@@ -3617,6 +3667,7 @@ function WorkspaceMainHeader({
   children,
   documentTabs,
   gitLogOpen,
+  headerHeight,
   leftPanelMode,
   macChromeInset,
   overlayContent,
@@ -3629,6 +3680,7 @@ function WorkspaceMainHeader({
   children: React.ReactNode;
   documentTabs?: React.ReactNode;
   gitLogOpen: boolean;
+  headerHeight: number;
   leftPanelMode: LeftPanelMode;
   macChromeInset: boolean;
   overlayContent: boolean;
@@ -3651,6 +3703,7 @@ function WorkspaceMainHeader({
       )}
       data-tauri-drag-region="deep"
       data-testid="workspace-main-header"
+      style={overlayContent ? undefined : { height: headerHeight }}
     >
       <div className="min-w-0 flex-1">{documentTabs}</div>
       <TooltipProvider>
@@ -4360,7 +4413,13 @@ function readStoredPanelWidth(
     return fallback;
   }
 
-  const parsed = Number(window.localStorage.getItem(key));
+  const storedValue = window.localStorage.getItem(key);
+
+  if (storedValue === null) {
+    return fallback;
+  }
+
+  const parsed = Number(storedValue);
 
   if (!Number.isFinite(parsed)) {
     return fallback;

@@ -108,6 +108,28 @@ describe('Workspace titlebar', () => {
     expect(workspaceLayoutSource).not.toContain('PanelLeftOpen');
   });
 
+  it('allocates separate non-overlapping rows for macOS chrome and system-page tools', () => {
+    const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
+
+    expect(workspaceLayoutSource).toContain(
+      '? macChromeContentTop - WORKSPACE_PANEL_MARGIN',
+    );
+    expect(workspaceLayoutSource).toContain(
+      'const macSidebarHeaderOffset =',
+    );
+    expect(workspaceLayoutSource).toContain(
+      'headerHeight={workspaceMainHeaderHeight}',
+    );
+    expect(workspaceLayoutSource).toContain(
+      "'--workspace-main-header-height': `${workspaceMainHeaderHeight}px`",
+    );
+    expect(
+      workspaceLayoutSource.match(
+        /sidebarHeaderOffset=\{macSidebarHeaderOffset\}/g,
+      ),
+    ).toHaveLength(2);
+  });
+
   it('keeps 32px chrome hit targets while limiting hover backgrounds to 28px', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
     const pinnedChromeMenuSource = readFileSync(pinnedChromeMenuPath, 'utf8');

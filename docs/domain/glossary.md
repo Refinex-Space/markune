@@ -28,6 +28,7 @@ referenced_by: AGENTS.md#knowledge-map
 - Drawing back-link: a stable `madora-drawing://{drawing-id}` link that opens the source drawing without depending on its title or album path.
 - Drawing context reference: a turn-scoped active or explicit `@` reference identified only by a stable Drawing UUID; Rust resolves authoritative metadata and authorizes bounded `inspect_drawing` access without exposing the bundle path.
 - Inbox: the workspace capture and triage center for Markdown fragments that are not yet formal notes, Daily entries, or tasks. Inbox search is separate from global document search.
+- Daily: one ordinary Markdown document for a calendar date, stored at `Daily/YYYY/MM/YYYY-MM-DD.md`. The Daily overview selects and summarizes dates without creating files; creation remains an explicit action.
 - Capture: one lightweight Markdown fragment stored under `.madora/inbox`, identified by its file name and carrying triage metadata in camelCase frontmatter.
 - Triage: deciding whether a Capture should remain open, be processed, be promoted to a Note, be appended to Daily, be completed, archived, or deleted. Legacy snoozed Captures remain recoverable as open items.
 - Promote: creating a normal uniquely named Markdown Note from a Capture while retaining the Capture as a resolved record linked through `promotedTo`.

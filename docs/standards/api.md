@@ -22,6 +22,12 @@ referenced_by: AGENTS.md#knowledge-map
 - `system_fonts.rs` 仅可返回字体家族名称与推荐元数据，不得暴露字体文件路径或内容。
 - 桌面端网络功能应走 Tauri 命令；生产桌面构建使用静态导出，不包含 Next API routes。
 
+### Daily Commands
+
+- `open_daily_note(rootPath, date)` 只允许严格的 `YYYY-MM-DD`，并在用户显式打开已有 Daily 或确认创建空白日期时调用；日程总览的月份切换和日期选择不得隐式调用该命令。
+- `list_daily_notes_for_month(rootPath, month)` 只允许严格的 `YYYY-MM`，在 canonical 工作区下扫描固定的 `Daily/YYYY/MM` 目录，一次返回当月条目。标题、摘要、任务计数和最多三条任务预览从本次读取的 UTF-8 Markdown 派生，不逐日追加 IPC，也不得把这些正文投影写入工作区元数据。
+- 前端只能通过 `workspace-api.ts` 调用上述命令；月度请求必须忽略晚于新月份返回的过期响应，并把读取错误暴露为可重试状态，不能静默替换为空月份。
+
 ## Application Update Commands
 
 - `app_update_check() -> AppUpdateCheckResult`：使用 Rust release 配置中的固定 endpoint 和公钥检查更新，返回当前版本及有界的版本、日期、纯文本说明；不得接受渲染器 URL、请求头、代理、target 或降级参数。

@@ -34,6 +34,14 @@ Inbox 是工作区级快速捕获与分拣入口，不属于正式文档树、�
 
 Capture 的持久状态仅为 `open`、`processing`、`done`、`archived`。Inbox 不再提供新增 snooze 的交互；历史 Capture 中未来的 `snoozedUntil` 仍在读取后的视图层派生为“稍后”，并提供“恢复待处理”清除该字段，无需后台迁移。提升后的 Note 与追加后的 Daily 都是正式 Markdown 文档，Capture 本身保留为已处理记录。
 
+## Daily Calendar Boundary
+
+Daily 是工作区级日程总览，也是普通 Markdown 文档集合。顶部“日程”入口只切换到总览系统页，不创建或打开当天文件；左下角迷你日历继续作为具体日期的快捷入口。总览中的日期选择只更新选中状态，已有条目通过“打开详情”进入编辑器，空白日期必须显式选择“创建每日笔记”后才调用 `open_daily_note`。物理文件继续固定保存在 `Daily/YYYY/MM/YYYY-MM-DD.md`，不新增事件实体、数据库投影或会议日历语义。
+
+macOS 工作区壳层把全局 Chrome 工具与系统页工具分为两个不重叠的纵向区段：主标题栏高度由 `macChromeContentTop - WORKSPACE_PANEL_MARGIN` 计算，日程与视图页再以零偏移接续，因此它们的工具行可与侧边栏搜索、置顶入口共用水平中线，而不通过负外边距侵入全局按钮区域。Windows 与 Web 继续使用原有固定标题栏高度。
+
+`list_daily_notes_for_month` 在一次 Tauri 调用中扫描固定月份目录，并从当月 Markdown 正文派生有界标题、摘要、任务总数、完成数和最多三条任务预览；这些展示字段只存在于响应中，不写入 `.madora/workspace.json`。前端按请求序号忽略快速切月产生的过期响应，加载失败保留最近一次成功结果并提供显式重试。选中已有日期后，详情检查器通过既有 `read_markdown_document` 按需读取单篇正文并复用只读 Markdown 渲染器，不把整月正文带入月索引。检查器默认宽度为 420 px，可在 360–640 px 内通过鼠标或键盘调整并保存到浏览器 local storage；主内容宽度不足时检查器改为抽屉，不强制关闭已有 AI 或元信息面板。
+
 ## Drawing Workspace Boundary
 
 画板是独立于 Markdown 文档标签的工作区级 `systemPage`。入口固定在 Inbox 下方；激活后 `drawing-sidebar.tsx` 接管左侧目录区并展示系统集合、嵌套图集和图稿叶节点，`drawing-workspace-page.tsx` 在右侧切换图集总览、损坏恢复页或全尺寸 Excalidraw 编辑器。图稿和图集的省略号菜单与右键菜单共用操作集合；图集创建和重命名使用与文档树一致的行内输入。现有 AI、终端和元信息面板保持用户原有开关状态，不因打开画板而强制关闭。

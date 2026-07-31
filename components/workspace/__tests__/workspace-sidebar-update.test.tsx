@@ -154,4 +154,25 @@ describe('WorkspaceSidebar update entry', () => {
     await user.click(notesEntry);
     expect(onOpenNotes).toHaveBeenCalledTimes(1);
   });
+
+  it('opens the Daily overview as an active system page', async () => {
+    const user = userEvent.setup();
+    const onOpenDailyNotes = vi.fn();
+
+    render(
+      <WorkspaceSidebar
+        systemPage="daily"
+        width={280}
+        workspace={createOpenWorkspaceStub()}
+        onOpenDailyNotes={onOpenDailyNotes}
+        onOpenGlobalSearch={vi.fn()}
+      />,
+    );
+
+    const dailyEntry = screen.getByRole('button', { name: '日程' });
+    expect(dailyEntry.getAttribute('aria-current')).toBe('page');
+
+    await user.click(dailyEntry);
+    expect(onOpenDailyNotes).toHaveBeenCalledTimes(1);
+  });
 });

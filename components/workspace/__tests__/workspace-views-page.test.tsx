@@ -23,7 +23,7 @@ describe('WorkspaceViewsPage', () => {
         nodes={[documentNode]}
         onOpenNode={vi.fn()}
         onRefresh={vi.fn()}
-        sidebarHeaderOffset={-6}
+        sidebarHeaderOffset={0}
         onToggleLocked={vi.fn()}
         onTogglePinned={vi.fn()}
       />,
@@ -35,7 +35,7 @@ describe('WorkspaceViewsPage', () => {
     const toolbar = screen.getByRole('button', { name: '刷新视图' }).parentElement;
 
     expect(header?.style.height).toBe('44px');
-    expect(header?.style.marginTop).toBe('-6px');
+    expect(header?.style.marginTop).toBe('0px');
     expect(header?.className).toContain('pb-2');
     expect(titleGroup?.className).toContain('h-9');
     expect(toolbar?.className).toContain('h-9');

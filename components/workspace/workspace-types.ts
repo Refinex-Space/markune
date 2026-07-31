@@ -386,8 +386,18 @@ export interface CreatedMarkdownDocument {
 export interface DailyNoteEntry {
   date: string;
   documentPath: string;
+  excerpt: string | null;
   hasContent: boolean;
+  taskCompleted: number;
+  taskPreview: DailyNoteTaskPreview[];
+  taskTotal: number;
+  title: string | null;
   updatedAt: number;
+}
+
+export interface DailyNoteTaskPreview {
+  completed: boolean;
+  text: string;
 }
 
 export interface DailyNoteMonth {

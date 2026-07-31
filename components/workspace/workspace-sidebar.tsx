@@ -44,7 +44,7 @@ interface WorkspaceSidebarProps {
     targetDir: string,
     format: WorkspaceImportFormat,
   ) => Promise<void> | void;
-  onOpenDailyNote?: () => void;
+  onOpenDailyNotes?: () => void;
   onOpenNotes?: () => void;
   onOpenCodex?: () => void;
   onOpenDrawings?: () => void;
@@ -70,7 +70,7 @@ interface WorkspaceSidebarProps {
   onUnpinNode?: (node: WorkspaceNode) => void;
   pinnedNodes?: WorkspaceNode[];
   inboxActiveCount?: number;
-  systemPage?: 'codex' | 'drawings' | 'inbox' | 'views' | null;
+  systemPage?: 'codex' | 'daily' | 'drawings' | 'inbox' | 'views' | null;
 }
 
 export function WorkspaceSidebar({
@@ -85,7 +85,7 @@ export function WorkspaceSidebar({
   onDeleteNode,
   onExportNode,
   onImportDocuments,
-  onOpenDailyNote,
+  onOpenDailyNotes,
   onOpenNotes,
   onOpenCodex,
   onOpenDrawings,
@@ -120,9 +120,9 @@ export function WorkspaceSidebar({
     () => filterRegularWorkspaceNodes(workspace.snapshot?.nodes ?? []),
     [workspace.snapshot?.nodes],
   );
-  const isDailyActive = isDailyDocumentPath(
-    workspace.currentDocument?.relativePath ?? null,
-  );
+  const isDailyActive =
+    systemPage === 'daily' ||
+    isDailyDocumentPath(workspace.currentDocument?.relativePath ?? null);
 
   return (
     <aside
@@ -188,7 +188,7 @@ export function WorkspaceSidebar({
               className={getSystemEntryClassName(isDailyActive)}
               data-testid="daily-note-entry"
               type="button"
-              onClick={onOpenDailyNote}
+              onClick={onOpenDailyNotes}
             >
               <CalendarDays size={13} strokeWidth={1.75} />
               <span className="truncate">日程</span>

@@ -398,6 +398,60 @@
     }
   }
 
+  .daily-notes-page {
+    container-type: inline-size;
+  }
+
+  .daily-notes-content-grid {
+    grid-template-columns:
+      minmax(0, 1fr)
+      var(--daily-notes-inspector-width, 420px);
+  }
+
+  .daily-notes-inline-inspector {
+    display: flex;
+  }
+
+  .daily-notes-drawer-trigger {
+    display: none;
+  }
+
+  .daily-notes-calendar-cell-preview-fade {
+    height: 2.25rem;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, #000 52%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 52%, transparent 100%);
+  }
+
+  .daily-notes-rendered-preview .markweave-editor-frame {
+    padding: 1.5rem 1.25rem 5rem;
+  }
+
+  .daily-notes-rendered-preview .markweave-editor-surface {
+    max-width: none !important;
+    min-height: 100%;
+  }
+
+  @container (max-width: 1180px) {
+    .daily-notes-content-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .daily-notes-inline-inspector {
+      display: none;
+    }
+
+    .daily-notes-drawer-trigger {
+      display: flex;
+    }
+  }
+
+  @container (max-width: 820px) {
+    .daily-notes-calendar-cell-excerpt {
+      display: none;
+    }
+  }
+
   .workspace-editor-shell {
     scrollbar-color: color-mix(in oklab, var(--muted-foreground) 26%, transparent) transparent;
     scrollbar-width: thin;

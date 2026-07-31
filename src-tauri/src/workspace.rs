@@ -212,7 +212,28 @@ pub struct DailyNoteMonthEntry {
     pub date: String,
     pub document_path: String,
     pub has_content: bool,
+    pub title: Option<String>,
+    pub excerpt: Option<String>,
+    pub task_total: usize,
+    pub task_completed: usize,
+    pub task_preview: Vec<DailyNoteTaskPreview>,
     pub updated_at: u128,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyNoteTaskPreview {
+    pub text: String,
+    pub completed: bool,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct DailyNoteSummary {
+    title: Option<String>,
+    excerpt: Option<String>,
+    task_total: usize,
+    task_completed: usize,
+    task_preview: Vec<DailyNoteTaskPreview>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -385,15 +406,7 @@ pub fn list_daily_notes_for_month(
     let (year, month_number) = parse_daily_month(&month)?;
     let mut metadata = ensure_workspace_metadata(&root)
         .map_err(|error| format!("读取工作区元数据失败：{error}"))?;
-    let mut month_entries: BTreeMap<String, DailyNoteEntry> = metadata
-        .daily_notes
-        .entries
-        .iter()
-        .filter(|(date, entry)| {
-            date.starts_with(&month) && PathBuf::from(&entry.document_path).is_file()
-        })
-        .map(|(date, entry)| (date.clone(), entry.clone()))
-        .collect();
+    let mut month_entries: BTreeMap<String, (DailyNoteEntry, DailyNoteSummary)> = BTreeMap::new();
     let month_dir = root
         .join("Daily")
         .join(format!("{year:04}"))
@@ -418,20 +431,25 @@ pub fn list_daily_notes_for_month(
                 continue;
             }
 
-            let content = fs::read_to_string(&path).unwrap_or_default();
+            let content = fs::read_to_string(&path)
+                .map_err(|_| "无法读取每日笔记内容，当前仅支持 UTF-8 文档".to_string())?;
             let updated_at = read_modified_at(&path)?;
+            let summary = summarize_daily_note(&content, &date);
             month_entries.insert(
                 date.clone(),
-                DailyNoteEntry {
-                    document_path: path.to_string_lossy().to_string(),
-                    has_content: daily_note_has_content(&content, &date),
-                    updated_at,
-                },
+                (
+                    DailyNoteEntry {
+                        document_path: path.to_string_lossy().to_string(),
+                        has_content: daily_note_has_content(&content, &date),
+                        updated_at,
+                    },
+                    summary,
+                ),
             );
         }
     }
 
-    for (date, entry) in &month_entries {
+    for (date, (entry, _)) in &month_entries {
         metadata
             .daily_notes
             .entries
@@ -444,10 +462,15 @@ pub fn list_daily_notes_for_month(
         month,
         entries: month_entries
             .into_iter()
-            .map(|(date, entry)| DailyNoteMonthEntry {
+            .map(|(date, (entry, summary))| DailyNoteMonthEntry {
                 date,
                 document_path: entry.document_path,
                 has_content: entry.has_content,
+                title: summary.title,
+                excerpt: summary.excerpt,
+                task_total: summary.task_total,
+                task_completed: summary.task_completed,
+                task_preview: summary.task_preview,
                 updated_at: entry.updated_at,
             })
             .collect(),
@@ -1594,6 +1617,106 @@ fn daily_note_has_content(raw: &str, date: &str) -> bool {
     daily_note_body_without_scaffold(raw, date)
         .lines()
         .any(|line| !line.trim().is_empty())
+}
+
+fn summarize_daily_note(raw: &str, date: &str) -> DailyNoteSummary {
+    const TASK_PREVIEW_LIMIT: usize = 3;
+    const TITLE_LIMIT: usize = 64;
+    const EXCERPT_LIMIT: usize = 120;
+
+    let body = daily_note_body_without_scaffold(raw, date);
+    let mut summary = DailyNoteSummary::default();
+    let mut plain_lines = Vec::new();
+
+    for line in body.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.is_empty() || trimmed.starts_with("<!--") {
+            continue;
+        }
+
+        if let Some((completed, text)) = parse_daily_task_line(trimmed) {
+            summary.task_total += 1;
+            if completed {
+                summary.task_completed += 1;
+            }
+            if summary.task_preview.len() < TASK_PREVIEW_LIMIT && !text.is_empty() {
+                summary
+                    .task_preview
+                    .push(DailyNoteTaskPreview { text, completed });
+            }
+            continue;
+        }
+
+        if let Some(heading) = parse_daily_heading(trimmed) {
+            if summary.title.is_none() {
+                summary.title = Some(truncate_daily_summary_text(heading, TITLE_LIMIT));
+            }
+            continue;
+        }
+
+        let normalized = trimmed
+            .trim_start_matches('>')
+            .trim_start_matches(|character| matches!(character, '-' | '*' | '+'))
+            .trim();
+        if !normalized.is_empty() {
+            plain_lines.push(normalized.to_string());
+        }
+    }
+
+    if summary.title.is_none() {
+        summary.title = plain_lines
+            .first()
+            .map(|line| truncate_daily_summary_text(line, TITLE_LIMIT));
+        plain_lines = plain_lines.into_iter().skip(1).collect();
+    }
+
+    summary.excerpt = plain_lines
+        .first()
+        .map(|line| truncate_daily_summary_text(line, EXCERPT_LIMIT));
+
+    summary
+}
+
+fn parse_daily_heading(line: &str) -> Option<&str> {
+    let marker_length = line
+        .chars()
+        .take_while(|character| *character == '#')
+        .count();
+
+    if !(1..=6).contains(&marker_length) {
+        return None;
+    }
+
+    let heading = line.get(marker_length..)?.trim();
+    (!heading.is_empty()).then_some(heading)
+}
+
+fn parse_daily_task_line(line: &str) -> Option<(bool, String)> {
+    let rest = line
+        .strip_prefix("- [")
+        .or_else(|| line.strip_prefix("* ["))
+        .or_else(|| line.strip_prefix("+ ["))?;
+    let mut characters = rest.chars();
+    let marker = characters.next()?;
+
+    if !matches!(marker, ' ' | 'x' | 'X') || characters.next()? != ']' {
+        return None;
+    }
+
+    let text = characters.as_str().trim().to_string();
+    Some((matches!(marker, 'x' | 'X'), text))
+}
+
+fn truncate_daily_summary_text(value: &str, limit: usize) -> String {
+    let mut characters = value.chars();
+    let truncated = characters.by_ref().take(limit).collect::<String>();
+
+    if characters.next().is_some() {
+        format!("{truncated}…")
+    } else {
+        truncated
+    }
 }
 
 fn daily_note_body_without_scaffold<'a>(raw: &'a str, date: &str) -> String {
@@ -2939,6 +3062,39 @@ mod tests {
         assert_eq!(month.entries.len(), 1);
         assert_eq!(month.entries[0].date, "2026-06-20");
         assert!(month.entries[0].has_content);
+    }
+
+    #[test]
+    fn list_daily_notes_for_month_returns_bounded_markdown_summary() {
+        let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
+        let root_path = temp_dir.path();
+        let note_dir = root_path.join("Daily/2026/07");
+        fs::create_dir_all(&note_dir).expect("创建每日笔记目录失败");
+        fs::write(
+            note_dir.join("2026-07-31.md"),
+            "---\ntitle: 2026-07-31\nrefinexDialect: 1\ndailyDate: 2026-07-31\n---\n\n# 2026-07-31\n\n## 发布 v0.6.0\n\n完成验收与上线准备，更新文档与发布说明。\n\n- [x] 验收通过\n- [X] 更新发布说明\n- [ ] 监控与回滚方案\n- [ ] 不应进入预览的第四项\n",
+        )
+        .expect("写入每日笔记失败");
+
+        let month = list_daily_notes_for_month(
+            root_path.to_string_lossy().to_string(),
+            "2026-07".to_string(),
+        )
+        .expect("读取月索引失败");
+        let entry = &month.entries[0];
+
+        assert_eq!(entry.title.as_deref(), Some("发布 v0.6.0"));
+        assert_eq!(
+            entry.excerpt.as_deref(),
+            Some("完成验收与上线准备，更新文档与发布说明。")
+        );
+        assert_eq!(entry.task_total, 4);
+        assert_eq!(entry.task_completed, 2);
+        assert_eq!(entry.task_preview.len(), 3);
+        assert_eq!(entry.task_preview[0].text, "验收通过");
+        assert!(entry.task_preview[0].completed);
+        assert_eq!(entry.task_preview[2].text, "监控与回滚方案");
+        assert!(!entry.task_preview[2].completed);
     }
 
     #[test]
