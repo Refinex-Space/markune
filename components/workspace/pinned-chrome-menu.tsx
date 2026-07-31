@@ -40,12 +40,16 @@ export function PinnedChromeMenu({
               <button
                 aria-label="打开置顶内容"
                 className={cn(
-                  '-ml-1 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors',
-                  'hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground',
+                  'group inline-flex size-8 items-center justify-center text-muted-foreground',
                 )}
                 type="button"
               >
-                <Pin size={16} strokeWidth={1.9} />
+                <span
+                  className="inline-flex size-7 items-center justify-center rounded-md transition-colors group-hover:bg-accent group-hover:text-foreground group-data-[state=open]:bg-accent group-data-[state=open]:text-foreground"
+                  data-chrome-hover-surface
+                >
+                  <Pin size={16} strokeWidth={1.9} />
+                </span>
               </button>
             </PopoverTrigger>
           </TooltipTrigger>

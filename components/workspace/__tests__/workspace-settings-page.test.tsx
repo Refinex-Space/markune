@@ -140,6 +140,25 @@ describe('WorkspaceSettingsPage', () => {
     expect(spacer.className).not.toContain('h-10');
   });
 
+  it('uses the measured macOS chrome content inset before settings controls', () => {
+    render(
+      <WorkspaceSettingsPage
+        appUpdate={appUpdateController}
+        initialSettings={initialSettings}
+        macChromeContentTop={46}
+        sessionCache={createWorkspaceSettingsSessionCache()}
+        workspaceRootPath="/notes"
+        onBack={vi.fn()}
+      />,
+    );
+
+    const spacer = screen.getByTestId(
+      'workspace-settings-sidebar-titlebar-spacer',
+    );
+    expect(spacer.style.height).toBe('46px');
+    expect(spacer.className).not.toContain('h-10');
+  });
+
   it('shows the runtime Madora version from the last settings section', async () => {
     const user = userEvent.setup();
     renderSettingsPage();

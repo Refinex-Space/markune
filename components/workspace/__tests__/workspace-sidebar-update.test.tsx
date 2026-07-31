@@ -41,6 +41,21 @@ function createOpenWorkspaceStub() {
 }
 
 describe('WorkspaceSidebar update entry', () => {
+  it('uses the measured macOS chrome content inset before workspace controls', () => {
+    render(
+      <WorkspaceSidebar
+        macChromeContentTop={46}
+        width={280}
+        workspace={createWorkspaceStub()}
+        onOpenGlobalSearch={vi.fn()}
+      />,
+    );
+
+    const spacer = screen.getByTestId('workspace-sidebar-titlebar-spacer');
+    expect(spacer.style.height).toBe('46px');
+    expect(spacer.className).not.toContain('h-10');
+  });
+
   it('shows a blue update action and opens the version settings section', async () => {
     const user = userEvent.setup();
     const onOpenSettings = vi.fn();

@@ -11,6 +11,10 @@ const workspaceSidebarPath = join(
   process.cwd(),
   'components/workspace/workspace-sidebar.tsx',
 );
+const pinnedChromeMenuPath = join(
+  process.cwd(),
+  'components/workspace/pinned-chrome-menu.tsx',
+);
 const tauriConfigPath = join(process.cwd(), 'src-tauri/tauri.conf.json');
 
 describe('Workspace titlebar', () => {
@@ -31,9 +35,11 @@ describe('Workspace titlebar', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
     const workspaceSidebarSource = readFileSync(workspaceSidebarPath, 'utf8');
 
+    expect(workspaceSidebarSource).toContain("? 'h-2'");
     expect(workspaceSidebarSource).toContain(
-      "windowsChromeInset ? 'h-2' : 'h-10'",
+      "macChromeContentTop === undefined",
     );
+    expect(workspaceSidebarSource).toContain("? 'h-10'");
     expect(workspaceLayoutSource).toContain(
       'windowsChromeInset={isTauriRuntime && isWindowsRuntime}',
     );
@@ -55,7 +61,7 @@ describe('Workspace titlebar', () => {
     );
   });
 
-  it('moves the macOS traffic lights and left chrome tools below the panel edge', () => {
+  it('aligns the macOS traffic lights, chrome tools, and sidebar content rhythm', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
     const tauriConfig = JSON.parse(readFileSync(tauriConfigPath, 'utf8')) as {
       app: {
@@ -67,7 +73,7 @@ describe('Workspace titlebar', () => {
 
     expect(tauriConfig.app.windows[0]?.trafficLightPosition).toEqual({
       x: 15,
-      y: 32,
+      y: 26,
     });
     expect(workspaceLayoutSource).toMatch(
       /macChromeOffset=\{\s*isTauriRuntime\s*&&\s*isMacRuntime\s*\}/,
@@ -75,10 +81,38 @@ describe('Workspace titlebar', () => {
     expect(workspaceLayoutSource).toContain(
       'macChromeControlsTop={macChromeControlsTop}',
     );
+    expect(
+      workspaceLayoutSource.match(/macChromeContentTop=\{/g),
+    ).toHaveLength(2);
     expect(workspaceLayoutSource).toContain(
       "style={macChromeOffset ? { top: macChromeControlsTop } : undefined}",
     );
     expect(workspaceLayoutSource).not.toContain("'top-3.5'");
+    expect(workspaceLayoutSource).toContain('SidebarExpandedIcon');
+    expect(workspaceLayoutSource).toContain('SidebarCollapsedIcon');
+    expect(workspaceLayoutSource).not.toContain('PanelLeftClose');
+    expect(workspaceLayoutSource).not.toContain('PanelLeftOpen');
+  });
+
+  it('keeps 32px chrome hit targets while limiting hover backgrounds to 28px', () => {
+    const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
+    const pinnedChromeMenuSource = readFileSync(pinnedChromeMenuPath, 'utf8');
+
+    expect(
+      workspaceLayoutSource.match(/data-chrome-hover-surface/g),
+    ).toHaveLength(2);
+    expect(
+      pinnedChromeMenuSource.match(/data-chrome-hover-surface/g),
+    ).toHaveLength(1);
+    expect(workspaceLayoutSource).toContain(
+      'group inline-flex size-8 items-center justify-center',
+    );
+    expect(workspaceLayoutSource).toContain(
+      'inline-flex size-7 items-center justify-center rounded-md',
+    );
+    expect(pinnedChromeMenuSource).toContain(
+      'group-data-[state=open]:bg-accent',
+    );
   });
 
   it('does not reset the macOS traffic light position when the document title changes', () => {
@@ -119,8 +153,10 @@ describe('Workspace titlebar', () => {
       "'min-h-0 shrink-0'",
     );
     expect(workspaceLayoutSource).toContain(
-      "'mt-10 [&>aside]:rounded-none [&>aside]:border-0 [&>aside]:bg-transparent'",
+      "'[&>aside]:rounded-none [&>aside]:border-0 [&>aside]:bg-transparent'",
     );
+    expect(workspaceLayoutSource).toContain('marginTop:');
+    expect(workspaceLayoutSource).toContain('? macChromeContentTop');
     expect(workspaceLayoutSource).toContain(
       ": 'my-2 ml-2'",
     );

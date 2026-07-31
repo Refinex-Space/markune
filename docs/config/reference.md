@@ -53,7 +53,7 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 ## Tauri Config
 
 - `src-tauri/tauri.conf.json` 的 `devUrl` 为 `http://localhost:3000`。
-- macOS 主窗口使用 `titleBarStyle: Overlay`、隐藏系统标题，并通过 `trafficLightPosition: { x: 15, y: 32 }` 将原生红绿灯移入 44px 工作区标题栏的安全区域。前端左上角工作区按钮启动时使用 `14px` 安全回退，随后通过只读 `get_macos_titlebar_metrics` 命令取得 AppKit 红色关闭按钮在 WKWebView 坐标系中的实际中心线，使 32px 按钮组动态居中；窗口 resize、重新聚焦或重新可见时重新测量，避免不同 macOS SDK 的原生标题栏布局差异造成偏移。macOS 原生标题保持为 `Madora`，文档切换不调用 `setTitle`，避免系统重新布局红绿灯；文档标题继续由标签页展示。Windows 和 Linux 仍同步原生窗口标题，且不应用 macOS 偏移。
+- macOS 主窗口使用 `titleBarStyle: Overlay`、隐藏系统标题，并通过 `trafficLightPosition: { x: 15, y: 26 }` 将原生红绿灯放入 44px 工作区标题栏的上部控制区。前端左上角工具组启动时使用 `8px` 安全回退，随后通过只读 `get_macos_titlebar_metrics` 命令取得 AppKit 红色关闭按钮在 WKWebView 坐标系中的实际中心线，使 32px 按钮组动态居中；侧栏、设置和 Git 面板的内容起点统一由“工具组顶边 + 32px 控件高度 + 6px 间距”派生，避免窗口控制区与工作区导航挤在同一视觉层。窗口 resize、重新聚焦或重新可见时重新测量，避免不同 macOS SDK 的原生标题栏布局差异造成偏移。macOS 原生标题保持为 `Madora`，文档切换不调用 `setTitle`，避免系统重新布局红绿灯；文档标题继续由标签页展示。Windows 和 Linux 仍同步原生窗口标题，且不应用 macOS 偏移。
 - Next.js 开发产物写入 `.next-dev`，生产构建与桌面静态导出仍写入 `.next`；两者必须保持隔离，避免运行中的开发服务因并行构建清理产物而失效。
 - 普通开发与 Web 构建使用 `tsconfig.json`，桌面静态导出在 `NEXT_OUTPUT=export` 时改用 `tsconfig.desktop.json`；桌面配置只检查 `.next` 类型并明确排除 `.next-dev`，避免临时移走 `app/api` 时读取开发服务生成的路由校验文件。
 - `frontendDist` 为 `../out`，桌面构建依赖静态导出产物。

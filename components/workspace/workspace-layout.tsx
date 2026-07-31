@@ -96,7 +96,10 @@ import { drawingReferenceFromDescriptor } from './ai-drawing-inspector';
 import { useDrawingController } from './use-drawing-controller';
 import { useInboxController } from './use-inbox-controller';
 import { useAppUpdate } from './use-app-update';
-import { useMacosChromeControlsTop } from './use-macos-titlebar-metrics';
+import {
+  getMacosChromeContentTop,
+  useMacosChromeControlsTop,
+} from './use-macos-titlebar-metrics';
 import { WorkspaceGlobalSearchDialog } from './workspace-global-search-dialog';
 import { useDocumentExport } from './use-document-export';
 import { useDocumentImport } from './use-document-import';
@@ -583,6 +586,7 @@ export function WorkspaceLayout({
   const macChromeControlsTop = useMacosChromeControlsTop(
     isTauriRuntime && isMacRuntime,
   );
+  const macChromeContentTop = getMacosChromeContentTop(macChromeControlsTop);
 
   React.useEffect(() => {
     if (!isTauriRuntime) {
@@ -2865,6 +2869,11 @@ export function WorkspaceLayout({
             }
             initialSettings={appSettings}
             initialSectionId={settingsInitialSectionId}
+            macChromeContentTop={
+              isTauriRuntime && isMacRuntime
+                ? macChromeContentTop
+                : undefined
+            }
             sidebarResize={{
               max: LEFT_PANEL_WIDTH.max,
               min: LEFT_PANEL_WIDTH.min,
@@ -2919,6 +2928,11 @@ export function WorkspaceLayout({
                     <DrawingSidebar controller={drawings} />
                   ) : null
                 }
+                macChromeContentTop={
+                  isTauriRuntime && isMacRuntime
+                    ? macChromeContentTop
+                    : undefined
+                }
                 width={leftSidebarWidth}
                 workspace={workspace}
                 onCreateDocument={handleCreateDocument}
@@ -2964,11 +2978,17 @@ export function WorkspaceLayout({
                 className={cn(
                   'min-h-0 shrink-0',
                   isTauriRuntime && isMacRuntime
-                    ? 'mt-10 [&>aside]:rounded-none [&>aside]:border-0 [&>aside]:bg-transparent'
+                    ? '[&>aside]:rounded-none [&>aside]:border-0 [&>aside]:bg-transparent'
                     : 'my-2 ml-2',
                 )}
                 data-testid="workspace-git-panel-column"
-                style={{ width: leftSidebarWidth }}
+                style={{
+                  marginTop:
+                    isTauriRuntime && isMacRuntime
+                      ? macChromeContentTop
+                      : undefined,
+                  width: leftSidebarWidth,
+                }}
               >
                 <GitPanel
                   error={gitError}
@@ -3388,7 +3408,7 @@ function SidebarChromeToggle({
   return (
     <div
       className={cn(
-        'absolute z-50 flex h-8 items-center gap-1',
+        'absolute z-50 flex h-8 items-center gap-0',
         !macChromeOffset && 'top-0',
         windowsChromeInset ? 'left-2' : 'left-[80px]',
       )}
@@ -3400,12 +3420,17 @@ function SidebarChromeToggle({
           <TooltipTrigger asChild>
             <button
               aria-label={label}
-              className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="group inline-flex size-8 items-center justify-center text-muted-foreground"
               data-sidebar-toggle-state={collapsed ? 'collapsed' : 'expanded'}
               type="button"
               onClick={onToggle}
             >
-              {collapsed ? <SidebarCollapsedIcon /> : <SidebarExpandedIcon />}
+              <span
+                className="inline-flex size-7 items-center justify-center rounded-md transition-colors group-hover:bg-accent group-hover:text-foreground"
+                data-chrome-hover-surface
+              >
+                {collapsed ? <SidebarCollapsedIcon /> : <SidebarExpandedIcon />}
+              </span>
             </button>
           </TooltipTrigger>
           <TooltipContent side="bottom" sideOffset={8}>
@@ -3423,15 +3448,20 @@ function SidebarChromeToggle({
           <TooltipTrigger asChild>
             <button
               aria-label="刷新工作区"
-              className="-ml-1 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="group inline-flex size-8 items-center justify-center text-muted-foreground"
               data-refreshing={refreshing ? 'true' : 'false'}
               type="button"
               onClick={onRefresh}
             >
-              <RefreshCw
-                className={cn('size-4', refreshing && 'animate-spin')}
-                strokeWidth={1.85}
-              />
+              <span
+                className="inline-flex size-7 items-center justify-center rounded-md transition-colors group-hover:bg-accent group-hover:text-foreground"
+                data-chrome-hover-surface
+              >
+                <RefreshCw
+                  className={cn('size-4', refreshing && 'animate-spin')}
+                  strokeWidth={1.85}
+                />
+              </span>
             </button>
           </TooltipTrigger>
           <TooltipContent side="bottom" sideOffset={8}>

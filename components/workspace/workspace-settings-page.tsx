@@ -81,6 +81,7 @@ interface WorkspaceSettingsPageProps {
   header?: React.ReactNode;
   initialSettings: AppSettings;
   initialSectionId?: SettingsSectionId;
+  macChromeContentTop?: number;
   sessionCache: WorkspaceSettingsSessionCache;
   sidebarResize?: {
     max: number;
@@ -149,6 +150,7 @@ export function WorkspaceSettingsPage({
   header,
   initialSettings,
   initialSectionId = 'appearance',
+  macChromeContentTop,
   sessionCache,
   sidebarResize,
   sidebarWidth = 280,
@@ -395,10 +397,19 @@ export function WorkspaceSettingsPage({
         <header
           className={cn(
             'shrink-0',
-            windowsChromeInset ? 'h-2' : 'h-10',
+            windowsChromeInset
+              ? 'h-2'
+              : macChromeContentTop === undefined
+                ? 'h-10'
+                : undefined,
           )}
           data-tauri-drag-region="deep"
           data-testid="workspace-settings-sidebar-titlebar-spacer"
+          style={
+            !windowsChromeInset && macChromeContentTop !== undefined
+              ? { height: macChromeContentTop }
+              : undefined
+          }
         />
         <div className="px-2 pb-2 pr-4">
           <button

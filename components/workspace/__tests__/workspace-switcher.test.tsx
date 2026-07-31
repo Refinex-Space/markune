@@ -32,6 +32,12 @@ describe('WorkspaceSwitcher', () => {
     expect(menu.className).not.toContain('rounded-lg');
     expect(menu.className).not.toContain('shadow-lg');
     expect(trigger.className).toContain('px-1.5');
+    expect(trigger.className).toContain('gap-1.5');
+    expect(screen.queryByTestId('workspace-status-dot')).toBeNull();
+    expect(screen.getByText('打开工作区').className).toContain('font-medium');
+    expect(screen.getByText('打开工作区').className).not.toContain(
+      'font-semibold',
+    );
     expect(screen.queryByText('还没有打开过的工作区')).toBeNull();
     expect(
       screen.queryByText('选择一个工作区目录，后续可在这里快速切换。'),

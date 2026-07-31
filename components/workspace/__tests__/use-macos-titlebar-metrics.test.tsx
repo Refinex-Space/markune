@@ -9,6 +9,7 @@ vi.mock('../workspace-api', () => workspaceApi);
 
 import {
   MAC_CHROME_CONTROLS_FALLBACK_TOP,
+  getMacosChromeContentTop,
   useMacosChromeControlsTop,
 } from '../use-macos-titlebar-metrics';
 
@@ -24,26 +25,27 @@ describe('useMacosChromeControlsTop', () => {
 
   it('centers the 32px web controls on the measured native traffic light', async () => {
     workspaceApi.getMacosTitlebarMetrics.mockResolvedValue({
-      trafficLightCenterY: 39,
+      trafficLightCenterY: 24,
     });
 
     const { result } = renderHook(() => useMacosChromeControlsTop(true));
 
     expect(result.current).toBe(MAC_CHROME_CONTROLS_FALLBACK_TOP);
-    await waitFor(() => expect(result.current).toBe(23));
+    await waitFor(() => expect(result.current).toBe(8));
+    expect(getMacosChromeContentTop(result.current)).toBe(46);
   });
 
   it('remeasures after the window geometry changes', async () => {
     workspaceApi.getMacosTitlebarMetrics
-      .mockResolvedValueOnce({ trafficLightCenterY: 39 })
-      .mockResolvedValueOnce({ trafficLightCenterY: 43 });
+      .mockResolvedValueOnce({ trafficLightCenterY: 24 })
+      .mockResolvedValueOnce({ trafficLightCenterY: 28 });
 
     const { result } = renderHook(() => useMacosChromeControlsTop(true));
-    await waitFor(() => expect(result.current).toBe(23));
+    await waitFor(() => expect(result.current).toBe(8));
 
     act(() => window.dispatchEvent(new Event('resize')));
 
-    await waitFor(() => expect(result.current).toBe(27));
+    await waitFor(() => expect(result.current).toBe(12));
   });
 
   it('ignores an older measurement that resolves after a resize', async () => {
@@ -56,17 +58,17 @@ describe('useMacosChromeControlsTop', () => {
             resolveInitial = resolve;
           }),
       )
-      .mockResolvedValueOnce({ trafficLightCenterY: 43 });
+      .mockResolvedValueOnce({ trafficLightCenterY: 28 });
 
     const { result } = renderHook(() => useMacosChromeControlsTop(true));
     act(() => window.dispatchEvent(new Event('resize')));
-    await waitFor(() => expect(result.current).toBe(27));
+    await waitFor(() => expect(result.current).toBe(12));
 
     await act(async () => {
-      resolveInitial?.({ trafficLightCenterY: 39 });
+      resolveInitial?.({ trafficLightCenterY: 24 });
     });
 
-    expect(result.current).toBe(27);
+    expect(result.current).toBe(12);
   });
 
   it('keeps the safe fallback outside macOS Tauri or when measurement fails', async () => {

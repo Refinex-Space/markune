@@ -28,6 +28,7 @@ interface WorkspaceSidebarProps {
   dailyCalendar?: ReactNode;
   drawingContent?: ReactNode;
   inboxContent?: ReactNode;
+  macChromeContentTop?: number;
   width: number;
   windowsChromeInset?: boolean;
   workspace: ReturnType<typeof useWorkspace>;
@@ -70,6 +71,7 @@ export function WorkspaceSidebar({
   dailyCalendar,
   drawingContent,
   inboxContent,
+  macChromeContentTop,
   width,
   workspace,
   onCreateDocument,
@@ -132,9 +134,21 @@ export function WorkspaceSidebar({
         style={{ width }}
       >
         <header
-          className={cn('shrink-0', windowsChromeInset ? 'h-2' : 'h-10')}
+          className={cn(
+            'shrink-0',
+            windowsChromeInset
+              ? 'h-2'
+              : macChromeContentTop === undefined
+                ? 'h-10'
+                : undefined,
+          )}
           data-tauri-drag-region="deep"
           data-testid="workspace-sidebar-titlebar-spacer"
+          style={
+            !windowsChromeInset && macChromeContentTop !== undefined
+              ? { height: macChromeContentTop }
+              : undefined
+          }
         />
 
         <WorkspaceSidebarHeader

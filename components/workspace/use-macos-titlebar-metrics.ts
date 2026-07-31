@@ -4,10 +4,15 @@ import * as React from 'react';
 
 import { getMacosTitlebarMetrics } from './workspace-api';
 
-const MAC_CHROME_CONTROLS_HEIGHT = 32;
+export const MAC_CHROME_CONTROLS_HEIGHT = 32;
+export const MAC_CHROME_CONTENT_GAP = 6;
 const INITIAL_MEASUREMENT_RETRY_MS = 250;
 
-export const MAC_CHROME_CONTROLS_FALLBACK_TOP = 14;
+export const MAC_CHROME_CONTROLS_FALLBACK_TOP = 8;
+
+export function getMacosChromeContentTop(controlsTop: number) {
+  return controlsTop + MAC_CHROME_CONTROLS_HEIGHT + MAC_CHROME_CONTENT_GAP;
+}
 
 export function useMacosChromeControlsTop(enabled: boolean) {
   const [measuredTop, setMeasuredTop] = React.useState<number | null>(null);

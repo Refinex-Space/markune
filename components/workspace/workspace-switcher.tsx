@@ -215,23 +215,15 @@ export function WorkspaceSwitcher({
         aria-expanded={isOpen}
         aria-label="打开工作区菜单"
         className={cn(
-          'group flex w-full items-center gap-2 rounded-md text-left transition-colors hover:bg-sidebar-accent',
+          'group flex w-full items-center gap-1.5 rounded-md text-left transition-colors hover:bg-sidebar-accent',
           compact ? 'h-9 px-1.5 py-1' : 'min-h-10 px-2 py-1.5',
         )}
         disabled={isLoading}
         type="button"
         onClick={() => setIsOpen((open) => !open)}
       >
-        <span
-          aria-hidden="true"
-          className="relative flex size-4 shrink-0 items-center justify-center"
-          data-testid="workspace-status-dot"
-        >
-          <span className="absolute size-4 rounded-full bg-[#3574f0]/15 blur-[2px]" />
-          <span className="relative size-2 rounded-full bg-[#3574f0] shadow-[0_0_0_3px_rgba(53,116,240,0.12)]" />
-        </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold">{title}</span>
+          <span className="block truncate text-sm font-medium">{title}</span>
           {compact ? null : (
             <span className="block truncate text-xs text-muted-foreground">
               {subtitle}
