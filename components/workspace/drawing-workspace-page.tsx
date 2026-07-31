@@ -63,10 +63,12 @@ type GallerySort = 'created' | 'name' | 'updated';
 
 export function DrawingWorkspacePage({
   controller,
+  editorHeaderHeight = 32,
   rootPath,
   theme,
 }: {
   controller: DrawingController;
+  editorHeaderHeight?: number;
   rootPath: string;
   theme: 'dark' | 'light';
 }) {
@@ -78,13 +80,19 @@ export function DrawingWorkspacePage({
     return (
       <DrawingEditorSurface
         controller={controller}
+        headerHeight={editorHeaderHeight}
         theme={theme}
       />
     );
   }
 
   if (controller.selection.kind === 'drawing' && controller.descriptor) {
-    return <DrawingRecoverySurface controller={controller} />;
+    return (
+      <DrawingRecoverySurface
+        controller={controller}
+        headerHeight={editorHeaderHeight}
+      />
+    );
   }
 
   return <DrawingGallery controller={controller} rootPath={rootPath} />;
@@ -92,13 +100,18 @@ export function DrawingWorkspacePage({
 
 function DrawingRecoverySurface({
   controller,
+  headerHeight,
 }: {
   controller: DrawingController;
+  headerHeight: number;
 }) {
   const descriptor = controller.descriptor!;
   return (
     <section className="flex h-full min-h-0 flex-col bg-background">
-      <header className="flex h-10 shrink-0 items-center gap-2 border-b px-2">
+      <header
+        className="flex shrink-0 items-center gap-2 border-b px-2"
+        style={{ height: headerHeight }}
+      >
         <Button
           aria-label="返回图集"
           size="icon-sm"
@@ -602,9 +615,11 @@ function DrawingMoveDialog({
 
 function DrawingEditorSurface({
   controller,
+  headerHeight,
   theme,
 }: {
   controller: DrawingController;
+  headerHeight: number;
   theme: 'dark' | 'light';
 }) {
   const descriptor = controller.descriptor!;
@@ -670,8 +685,9 @@ function DrawingEditorSurface({
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       <header
-        className="flex h-10 shrink-0 items-center gap-2 border-b px-2"
+        className="flex shrink-0 items-center gap-2 border-b px-2"
         data-testid="drawing-editor-header"
+        style={{ height: headerHeight }}
       >
         <Button
           aria-label="返回图集"

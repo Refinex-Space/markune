@@ -50,6 +50,20 @@ describe('Workspace titlebar', () => {
     expect(workspaceLayoutSource.match(/<DocumentTabBar/g)).toHaveLength(1);
   });
 
+  it('aligns the drawing detail divider with the sidebar across native titlebars', () => {
+    const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
+
+    expect(workspaceLayoutSource).toContain("systemPage === 'drawings' && drawings.selection.kind === 'drawing'");
+    expect(workspaceLayoutSource).toContain('const WORKSPACE_PANEL_MARGIN = 8');
+    expect(workspaceLayoutSource).toContain('const WORKSPACE_SIDEBAR_HEADER_HEIGHT = 44');
+    expect(workspaceLayoutSource).toContain('? macChromeContentTop');
+    expect(workspaceLayoutSource).toContain('editorHeaderHeight={drawingEditorHeaderHeight}');
+    expect(workspaceLayoutSource).toContain('overlayContent={');
+    expect(workspaceLayoutSource).toMatch(
+      /overlayContent\s*\? 'absolute inset-x-0 top-0 z-10 h-11'/,
+    );
+  });
+
   it('reserves the macOS left chrome area when the workspace sidebar is collapsed', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
 

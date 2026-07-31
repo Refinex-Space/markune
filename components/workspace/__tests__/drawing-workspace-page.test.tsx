@@ -138,10 +138,34 @@ describe('DrawingWorkspacePage', () => {
 
     expect(screen.queryByLabelText('图稿标签')).toBeNull();
     expect(screen.queryByLabelText('图稿操作')).toBeNull();
-    expect(screen.getByTestId('drawing-editor-header').className).toContain('h-10');
+    expect(screen.getByTestId('drawing-editor-header').style.height).toBe('32px');
     expect(screen.getByLabelText('图稿标题').className).toContain('bg-muted/45');
     expect(screen.getByLabelText('取消星标').querySelector('svg')?.className.baseVal)
       .toContain('fill-amber-300/40');
+  });
+
+  it('accepts the workspace-calculated editor header height', () => {
+    const value = controller({
+      descriptor: {
+        albumPath: drawing.albumPath,
+        hasBackup: drawing.hasBackup,
+        hasPreview: drawing.hasPreview,
+        meta: drawing,
+      },
+      scene: '{"type":"excalidraw","version":2,"elements":[]}',
+      selection: { id: drawing.id, kind: 'drawing' },
+    });
+
+    render(
+      <DrawingWorkspacePage
+        controller={value}
+        editorHeaderHeight={38}
+        rootPath="/repo"
+        theme="light"
+      />,
+    );
+
+    expect(screen.getByTestId('drawing-editor-header').style.height).toBe('38px');
   });
 
   it('executes a queued export after the target editor becomes ready', async () => {

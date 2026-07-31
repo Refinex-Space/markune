@@ -283,6 +283,9 @@ const WORKSPACE_PANEL_WIDTH_STORAGE_KEYS = {
 
 const GLOBAL_SEARCH_READ_CONCURRENCY = 6;
 const RECENT_DOCUMENT_LIMIT = 5;
+const WORKSPACE_PANEL_MARGIN = 8;
+const WORKSPACE_SIDEBAR_HEADER_HEIGHT = 44;
+const WEB_SIDEBAR_TITLEBAR_SPACER = 40;
 const UI_FONT_FALLBACK =
   "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 const DOCUMENT_FONT_FALLBACK =
@@ -699,6 +702,14 @@ export function WorkspaceLayout({
     active: systemPage === 'drawings' || effectiveRightPanelMode === 'ai',
     rootPath: workspaceRootPath,
   });
+  const drawingDetailOpen =
+    systemPage === 'drawings' && drawings.selection.kind === 'drawing';
+  const drawingEditorHeaderHeight =
+    isTauriRuntime && isWindowsRuntime
+      ? WORKSPACE_SIDEBAR_HEADER_HEIGHT
+      : (isTauriRuntime && isMacRuntime
+          ? macChromeContentTop
+          : WEB_SIDEBAR_TITLEBAR_SPACER) - WORKSPACE_PANEL_MARGIN;
   const flushActiveDrawing = drawings.flush;
   const prepareForAppUpdateInstall = React.useCallback(async () => {
     const confirmed = await confirmAction({
@@ -3035,7 +3046,7 @@ export function WorkspaceLayout({
                 data-testid="workspace-editor-column"
               >
               <section
-                className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
+                className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
                 data-chrome="workspace-main-surface"
                 data-testid="workspace-editor-block"
               >
@@ -3060,6 +3071,11 @@ export function WorkspaceLayout({
                     isTauriRuntime &&
                     isMacRuntime &&
                     workspace.isSidebarCollapsed
+                  }
+                  overlayContent={
+                    drawingDetailOpen &&
+                    isTauriRuntime &&
+                    isWindowsRuntime
                   }
                   terminalOpen={terminalOpen}
                   windowsChromeInset={isTauriRuntime && isWindowsRuntime}
@@ -3086,6 +3102,7 @@ export function WorkspaceLayout({
                     {systemPage === 'drawings' && workspace.snapshot ? (
                       <DrawingWorkspacePage
                         controller={drawings}
+                        editorHeaderHeight={drawingEditorHeaderHeight}
                         rootPath={workspace.snapshot.rootPath}
                         theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
                       />
@@ -3595,6 +3612,7 @@ function WorkspaceMainHeader({
   gitLogOpen,
   leftPanelMode,
   macChromeInset,
+  overlayContent,
   terminalOpen,
   windowsChromeInset,
   onOpenGitPanel,
@@ -3606,6 +3624,7 @@ function WorkspaceMainHeader({
   gitLogOpen: boolean;
   leftPanelMode: LeftPanelMode;
   macChromeInset: boolean;
+  overlayContent: boolean;
   terminalOpen: boolean;
   windowsChromeInset: boolean;
   onOpenGitPanel: () => void;
@@ -3616,7 +3635,11 @@ function WorkspaceMainHeader({
     <header
       className={cn(
         'relative flex shrink-0 items-center gap-1 pr-3',
-        windowsChromeInset ? 'h-8' : 'h-11',
+        overlayContent
+          ? 'absolute inset-x-0 top-0 z-10 h-11'
+          : windowsChromeInset
+            ? 'h-8'
+            : 'h-11',
         macChromeInset ? 'pl-44' : 'pl-3',
       )}
       data-tauri-drag-region="deep"
