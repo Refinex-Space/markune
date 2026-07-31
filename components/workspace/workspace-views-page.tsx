@@ -15,6 +15,7 @@ type WorkspaceViewSortKey =
 type WorkspaceViewSortDirection = 'asc' | 'desc';
 
 interface WorkspaceViewsPageProps {
+  sidebarHeaderOffset?: number;
   nodes: WorkspaceNode[];
   onOpenNode: (node: WorkspaceNode) => void;
   onRefresh: () => void;
@@ -23,12 +24,14 @@ interface WorkspaceViewsPageProps {
 }
 
 export function WorkspaceViewsPage({
+  sidebarHeaderOffset,
   nodes,
   onOpenNode,
   onRefresh,
   onToggleLocked,
   onTogglePinned,
 }: WorkspaceViewsPageProps) {
+  const alignWithMacSidebar = sidebarHeaderOffset !== undefined;
   const [query, setQuery] = React.useState('');
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
@@ -92,22 +95,40 @@ export function WorkspaceViewsPage({
       className="flex h-full min-h-0 flex-col bg-background"
       data-testid="workspace-views-page"
     >
-      <header className="flex h-12 shrink-0 items-center gap-3 px-3">
-        <div className="min-w-0 flex-1">
+      <header
+        className={cn(
+          'flex shrink-0 gap-3 px-3',
+          alignWithMacSidebar ? 'items-start pb-2' : 'h-12 items-center',
+        )}
+        style={
+          alignWithMacSidebar
+            ? { height: 44, marginTop: sidebarHeaderOffset }
+            : undefined
+        }
+      >
+        <div
+          className={cn(
+            'min-w-0 flex-1',
+            alignWithMacSidebar && 'flex h-9 items-center',
+          )}
+        >
           <h1 className="text-sm font-medium tracking-normal">视图</h1>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {rows.length} 项
-          </p>
         </div>
 
-        <div className="ml-auto flex items-center gap-1.5" data-align="right-rail">
+        <div
+          className={cn(
+            'ml-auto flex items-center gap-0.5',
+            alignWithMacSidebar && 'h-9',
+          )}
+          data-align="right-rail"
+        >
           <div
             className={cn(
-              'grid h-8 items-center overflow-hidden transition-[width,opacity] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]',
+              'grid h-7 items-center overflow-hidden transition-[width,opacity] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)]',
               searchOpen ? 'w-56 opacity-100' : 'w-0 opacity-0',
             )}
           >
-            <label className="flex h-8 min-w-0 items-center gap-2 rounded-md border border-border/60 bg-background px-2.5 text-xs">
+            <label className="flex h-7 min-w-0 items-center gap-2 rounded-md border border-border/60 bg-background px-2.5 text-xs">
               <Search className="shrink-0 text-muted-foreground" size={13} />
               <input
                 aria-label="搜索视图"
@@ -128,7 +149,7 @@ export function WorkspaceViewsPage({
           <button
             aria-label="搜索视图"
             className={cn(
-              'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+              'flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
               (searchOpen || query) && 'bg-accent text-foreground',
             )}
             type="button"
@@ -140,7 +161,7 @@ export function WorkspaceViewsPage({
             aria-label="刷新视图"
             data-align="right-rail"
             data-refreshing={isRefreshing ? 'true' : 'false'}
-            className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             type="button"
             onClick={handleRefresh}
           >
@@ -230,7 +251,7 @@ export function WorkspaceViewsPage({
                 <td className="border-t border-border/45 px-4 py-2.5 text-xs text-muted-foreground">
                   {formatNodeTime(node.updatedAt)}
                 </td>
-                <td className="border-t border-border/45 px-4 py-2.5 text-center">
+                <td className="border-t border-border/45 px-4 py-2.5 text-left">
                   <button
                     aria-label={node.pinned ? '取消置顶' : '置顶'}
                     aria-pressed={Boolean(node.pinned)}
@@ -254,7 +275,7 @@ export function WorkspaceViewsPage({
                     />
                   </button>
                 </td>
-                <td className="border-t border-border/45 px-4 py-2.5 text-center">
+                <td className="border-t border-border/45 px-4 py-2.5 text-left">
                   <button
                     aria-label={node.locked ? '切换为编辑' : '切换为只读'}
                     aria-pressed={Boolean(node.locked)}

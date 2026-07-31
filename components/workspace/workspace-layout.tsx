@@ -3114,6 +3114,13 @@ export function WorkspaceLayout({
                       />
                     ) : systemPage === 'views' && workspace.snapshot ? (
                       <WorkspaceViewsPage
+                        sidebarHeaderOffset={
+                          isTauriRuntime && isMacRuntime
+                            ? macChromeContentTop -
+                              WORKSPACE_PANEL_MARGIN -
+                              WORKSPACE_SIDEBAR_HEADER_HEIGHT
+                            : undefined
+                        }
                         nodes={filterRegularWorkspaceNodes(
                           workspace.snapshot.nodes,
                         )}
