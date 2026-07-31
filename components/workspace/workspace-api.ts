@@ -73,6 +73,19 @@ export function isTauriRuntime() {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
+export interface MacosTitlebarMetrics {
+  trafficLightCenterY: number;
+}
+
+export async function getMacosTitlebarMetrics() {
+  if (!isTauriRuntime()) {
+    return null;
+  }
+
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<MacosTitlebarMetrics | null>('get_macos_titlebar_metrics');
+}
+
 export async function getMadoraVersion() {
   if (!isTauriRuntime()) {
     return null;

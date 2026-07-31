@@ -1,6 +1,10 @@
 'use client';
 
 import * as React from 'react';
+import type {
+  MarkweaveAiEditController,
+  MarkweaveAskAiHandler,
+} from '@markweave/react';
 import { Openai } from '@thesvg/react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import { Collapsible } from 'radix-ui';
@@ -99,6 +103,7 @@ import { cn } from '@/lib/utils';
 
 import {
   codexAppServerClient,
+  codexProtocolThreadId,
   listenCodexEventsUntilDisposed,
   pasteCodexContextAttachments,
   readCodexContextAttachmentPreview,
@@ -141,6 +146,11 @@ import {
   type CodexThreadTokenUsage,
   type CodexUserInputAnswer,
 } from './codex-app-server';
+import {
+  CodexInlineAiRunner,
+  shouldRouteCodexMessageToVisibleThread,
+  streamCodexInlineAiProposal,
+} from './codex-inline-ai';
 import {
   conversationFromThread,
   buildConversationBlocks,
@@ -194,6 +204,7 @@ interface AiPanelProps {
   documents: AiDocumentReference[];
   drawings?: AiDrawingReference[];
   workspaceRootPath: string | null;
+  getActiveEditorAiEditController?: () => MarkweaveAiEditController | null;
   onBeforeTurnStart: (
     documentPath: string | null,
     drawingId: string | null,
@@ -201,6 +212,7 @@ interface AiPanelProps {
   onDrawingToolCall?: (
     request: CodexDynamicToolRequest,
   ) => Promise<CodexDynamicToolResponse>;
+  onAskAiHandlerChange?: (handler: MarkweaveAskAiHandler | null) => void;
   onOpenDocument: (documentPath: string) => void;
   onOpenPlanPreview: (plan: AiProposedPlan, threadId: string) => void;
   onWorkspaceChanged: (
@@ -538,8 +550,10 @@ export function AiPanel({
   documents,
   drawings = [],
   workspaceRootPath,
+  getActiveEditorAiEditController = () => null,
   onBeforeTurnStart,
   onDrawingToolCall,
+  onAskAiHandlerChange = () => undefined,
   onOpenDocument,
   onOpenPlanPreview,
   onWorkspaceChanged,
@@ -628,6 +642,7 @@ export function AiPanel({
   const [mentionQuery, setMentionQuery] = React.useState<string | null>(null);
   const [historyQuery, setHistoryQuery] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
+  const [inlineAiRunning, setInlineAiRunning] = React.useState(false);
   const [threadTokenUsage, setThreadTokenUsage] = React.useState<
     Record<string, CodexThreadTokenUsage>
   >({});
@@ -674,6 +689,76 @@ export function AiPanel({
   const goalDraftModeRef = React.useRef(false);
   const threadGoalsRef = React.useRef<Record<string, CodexThreadGoal>>({});
   const dynamicToolRequestsRef = React.useRef(new Set<string>());
+  const inlineAiRunnerRef = React.useRef<CodexInlineAiRunner | null>(null);
+  const getInlineAiRuntime = React.useCallback(
+    () => {
+      if (runtimeStatusRef.current !== 'ready' || authRequiredRef.current) {
+        throw new Error('Codex 运行时当前不可用。');
+      }
+      if (!workspaceRootPath) {
+        throw new Error('请先打开一个工作区。');
+      }
+      return {
+        effort:
+          collaborationModeRef.current === 'plan'
+            ? previousDefaultEffortRef.current
+            : effortRef.current,
+        model: selectedModelRef.current,
+        workspaceRootPath,
+      };
+    },
+    [workspaceRootPath],
+  );
+
+  React.useEffect(() => {
+    const runner = new CodexInlineAiRunner({
+      getRuntime: getInlineAiRuntime,
+      onBusyChange: setInlineAiRunning,
+      onDiagnostic: setRuntimeError,
+    });
+    inlineAiRunnerRef.current = runner;
+    return () => {
+      if (inlineAiRunnerRef.current === runner) {
+        inlineAiRunnerRef.current = null;
+      }
+      runner.dispose();
+    };
+  }, [getInlineAiRuntime]);
+
+  const runMarkweaveAskAi = React.useCallback<MarkweaveAskAiHandler>(
+    (request) => {
+      const runner = inlineAiRunnerRef.current;
+      if (!runner) {
+        throw new Error('Codex 内联预编辑尚未就绪。');
+      }
+      return runner.runAskAi(request);
+    },
+    [],
+  );
+  const inlinePermissionAvailable =
+    approvalPolicyAvailability.onRequest &&
+    permissionProfiles.some(
+      (profile) => profile.id === ':read-only' && profile.allowed,
+    );
+
+  React.useEffect(() => {
+    const handler =
+      runtimeStatus === 'ready' &&
+      !authRequired &&
+      workspaceRootPath &&
+      inlinePermissionAvailable
+        ? runMarkweaveAskAi
+        : null;
+    onAskAiHandlerChange(handler);
+    return () => onAskAiHandlerChange(null);
+  }, [
+    authRequired,
+    inlinePermissionAvailable,
+    onAskAiHandlerChange,
+    runMarkweaveAskAi,
+    runtimeStatus,
+    workspaceRootPath,
+  ]);
 
   React.useEffect(() => {
     activeThreadIdRef.current = activeThread?.id ?? null;
@@ -965,6 +1050,29 @@ export function AiPanel({
                 : submitting
                   ? '正在提交消息'
                   : null;
+  const inlinePreeditUnavailableReason = inlineAiRunning
+    ? '已有 AI 预编辑任务正在运行'
+    : runtimeStatus !== 'ready'
+      ? 'Codex 运行时尚未就绪'
+      : authRequired
+        ? '请先登录 ChatGPT'
+        : !inlinePermissionAvailable
+          ? '当前 Codex 策略不允许只读预编辑'
+          : !workspaceRootPath
+            ? '请先打开一个工作区'
+            : !currentDocument || !currentDocumentPath
+              ? '请先打开可编辑的 Markdown 文档'
+              : collaborationMode === 'plan'
+                ? '计划模式不支持选区预编辑'
+                : goalDraftMode || Boolean(activeGoal)
+                  ? '目标模式不支持选区预编辑'
+                  : selectedAttachments.length > 0
+                    ? '选区预编辑不接受附件'
+                    : selectedMentions.length > 0
+                      ? '选区预编辑不接受 mention、Plugin 或 Skill'
+                      : !composerValue.trim()
+                        ? '请先输入修改指令'
+                        : null;
 
   const setGoalStatus = React.useCallback(
     async (status: 'active' | 'paused') => {
@@ -1617,6 +1725,16 @@ export function AiPanel({
         return;
       }
 
+      if (
+        !shouldRouteCodexMessageToVisibleThread(
+          message,
+          activeThreadIdRef.current,
+        )
+      ) {
+        return;
+      }
+      const eventThreadId = codexProtocolThreadId(message);
+
       const tokenUsageUpdate = threadTokenUsageUpdateFromMessage(message);
       if (tokenUsageUpdate) {
         updateThreadTokenUsage((current) => ({
@@ -1638,10 +1756,6 @@ export function AiPanel({
       const itemRecord =
         item && typeof item === 'object' && !Array.isArray(item)
           ? (item as Record<string, unknown>)
-          : null;
-      const eventThreadId =
-        typeof message.params?.threadId === 'string'
-          ? message.params.threadId
           : null;
       if (
         message.method === 'item/started' &&
@@ -2467,6 +2581,73 @@ export function AiPanel({
     ],
   );
 
+  const runSelectionPreedit = React.useCallback(async () => {
+    const instruction = composerValue.trim();
+    if (inlinePreeditUnavailableReason) {
+      setRuntimeError(inlinePreeditUnavailableReason);
+      return;
+    }
+
+    const controller = getActiveEditorAiEditController();
+    if (!controller) {
+      setRuntimeError('当前标签不是可编辑的 Live Markdown 文档。');
+      return;
+    }
+    const captured = controller.captureSelection({
+      controls: 'default',
+      metadata: {
+        documentPath: currentDocumentPath,
+        source: 'madora-ai-panel',
+      },
+    });
+    if (!captured.ok) {
+      setRuntimeError(formatInlineSelectionError(captured.code, captured.message));
+      return;
+    }
+
+    const composerSnapshot = composerValue;
+    const context = captured.value;
+    setRuntimeError(null);
+
+    try {
+      const runner = inlineAiRunnerRef.current;
+      if (!runner) {
+        throw new Error('Codex 内联预编辑尚未就绪。');
+      }
+      const chunks = runner.runSelection(
+        context,
+        instruction,
+        {
+          onStarted: () => {
+            setComposerValue((current) =>
+              current === composerSnapshot ? '' : current,
+            );
+          },
+        },
+      );
+      const completed = await streamCodexInlineAiProposal(
+        controller,
+        context,
+        chunks,
+      );
+      if (completed && !completed.ok) {
+        setRuntimeError(
+          formatInlineSelectionError(completed.code, completed.message),
+        );
+      }
+    } catch (error) {
+      if (context.signal.aborted || isAbortError(error)) return;
+      const message = getErrorMessage(error);
+      controller.failProposal(context.id, message);
+      setRuntimeError(message);
+    }
+  }, [
+    composerValue,
+    currentDocumentPath,
+    getActiveEditorAiEditController,
+    inlinePreeditUnavailableReason,
+  ]);
+
   const interruptTurn = React.useCallback(async () => {
     if (!activeThread || !conversation.activeTurnId) {
       return;
@@ -2758,6 +2939,8 @@ export function AiPanel({
                 permissionUpdating
               }
               inputBlocked={conversation.userInputRequests.length > 0}
+              inlineAiRunning={inlineAiRunning}
+              inlineAiUnavailableReason={inlinePreeditUnavailableReason}
               modeSwitchDisabled={modeSwitchDisabled}
               planModeAvailable={planModeAvailable}
               planModeUnavailableReason={planModeUnavailableReason}
@@ -2769,6 +2952,7 @@ export function AiPanel({
               onEffortChange={setEffort}
               onGoalModeChange={changeGoalMode}
               onInterrupt={() => void interruptTurn()}
+              onInlineAi={() => void runSelectionPreedit()}
               onCollaborationModeChange={changeCollaborationMode}
               onCompact={() => void compactContext()}
               onMentionQueryChange={setMentionQuery}
@@ -5904,6 +6088,8 @@ export function AiComposer({
   goalActive = false,
   goalDraftMode = false,
   goalUnavailableReason = null,
+  inlineAiRunning = false,
+  inlineAiUnavailableReason = null,
   mentionDocuments,
   mentionDrawings = [],
   mentionQuery,
@@ -5935,6 +6121,7 @@ export function AiComposer({
   onCompact = () => undefined,
   onEffortChange,
   onGoalModeChange = () => undefined,
+  onInlineAi = () => undefined,
   onInterrupt,
   onMentionQueryChange,
   onMentionsChange,
@@ -5961,6 +6148,8 @@ export function AiComposer({
   goalActive?: boolean;
   goalDraftMode?: boolean;
   goalUnavailableReason?: string | null;
+  inlineAiRunning?: boolean;
+  inlineAiUnavailableReason?: string | null;
   mentionDocuments: AiDocumentReference[];
   mentionDrawings?: AiDrawingReference[];
   mentionQuery: string | null;
@@ -5992,6 +6181,7 @@ export function AiComposer({
   onCompact?: () => void;
   onEffortChange: (effort: CodexReasoningEffort) => void;
   onGoalModeChange?: (enabled: boolean) => void;
+  onInlineAi?: () => void;
   onInterrupt: () => void;
   onMentionQueryChange: (query: string | null) => void;
   onMentionsChange: (documents: AiComposerMention[]) => void;
@@ -7105,6 +7295,24 @@ export function AiComposer({
                 </DropdownMenuRadioGroup>
               </DropdownMenuContent>
             </DropdownMenu>
+
+            <button
+              aria-label="预编辑选区"
+              className="ml-1 flex size-8 items-center justify-center rounded-full border border-border/70 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+              disabled={Boolean(inlineAiUnavailableReason)}
+              title={
+                inlineAiUnavailableReason ??
+                '使用当前指令预编辑选中的普通文本'
+              }
+              type="button"
+              onClick={onInlineAi}
+            >
+              {inlineAiRunning ? (
+                <LoaderCircle className="animate-spin" size={14} />
+              ) : (
+                <FilePenLine size={14} />
+              )}
+            </button>
 
             {active ? (
               <button
@@ -8435,4 +8643,30 @@ function getErrorMessage(error: unknown) {
     return error;
   }
   return 'Codex 请求失败';
+}
+
+function isAbortError(error: unknown) {
+  return (
+    error instanceof Error &&
+    (error.name === 'AbortError' || error.message === 'AI 预编辑已取消。')
+  );
+}
+
+function formatInlineSelectionError(code: string, fallback: string) {
+  if (code === 'no-selection') {
+    return '请先在编辑器中选择要预编辑的普通文本。';
+  }
+  if (code === 'unsupported-selection') {
+    return '宿主预编辑仅支持普通文本选区；表格请使用编辑器内置 Ask AI，代码块和媒体暂不支持。';
+  }
+  if (code === 'readonly') {
+    return '当前文档为只读或 View 模式，无法预编辑。';
+  }
+  if (code === 'active-review') {
+    return '请先接受或舍弃当前预编辑结果。';
+  }
+  if (code === 'stale-context' || code === 'conflict') {
+    return '选区内容已变化，预编辑已停止，请重新选择后再试。';
+  }
+  return fallback;
 }

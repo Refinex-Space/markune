@@ -12,14 +12,20 @@ vi.mock('@/components/editor/markdown-editor', async () => {
 
   return {
     MarkdownEditor: React.forwardRef(function MockMarkdownEditor(
-      props: { documentKey?: string; markdown: string },
-      ref: React.ForwardedRef<{ flushDraft: () => Promise<boolean> }>,
+      props: { aiEnabled?: boolean; documentKey?: string; markdown: string },
+      ref: React.ForwardedRef<{
+        flushDraft: () => Promise<boolean>;
+        getAiEditController: () => null;
+      }>,
     ) {
       const initialDocumentKey = React.useRef(props.documentKey);
 
       React.useImperativeHandle(
         ref,
-        () => ({ flushDraft: async () => true }),
+        () => ({
+          flushDraft: async () => true,
+          getAiEditController: () => null,
+        }),
         [],
       );
       React.useEffect(() => {
@@ -30,7 +36,12 @@ vi.mock('@/components/editor/markdown-editor', async () => {
       }, []);
 
       return (
-        <div data-testid={`editor-${props.markdown}`}>{props.markdown}</div>
+        <div
+          data-ai-enabled={String(props.aiEnabled)}
+          data-testid={`editor-${props.markdown}`}
+        >
+          {props.markdown}
+        </div>
       );
     }),
   };
@@ -130,5 +141,11 @@ describe('DocumentEditorSurface', () => {
         .closest('[data-active]')
         ?.getAttribute('data-active'),
     ).toBe('true');
+    expect(screen.getByTestId('editor-A').getAttribute('data-ai-enabled')).toBe(
+      'true',
+    );
+    expect(screen.getByTestId('editor-B').getAttribute('data-ai-enabled')).toBe(
+      'false',
+    );
   });
 });

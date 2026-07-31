@@ -1,6 +1,10 @@
 'use client';
 
 import * as React from 'react';
+import type {
+  MarkweaveAiEditController,
+  MarkweaveAskAiHandler,
+} from '@markweave/react';
 import { Openai } from '@thesvg/react';
 import { Info, Palette, Settings } from 'lucide-react';
 import { useTheme } from 'next-themes';
@@ -65,6 +69,7 @@ interface RightSidePanelProps {
   mode: RightPanelMode;
   width: number;
   workspaceRootPath: string | null;
+  getActiveEditorAiEditController?: () => MarkweaveAiEditController | null;
   onBeforeTurnStart: (
     documentPath: string | null,
     drawingId: string | null,
@@ -73,6 +78,7 @@ interface RightSidePanelProps {
     request: CodexDynamicToolRequest,
   ) => Promise<CodexDynamicToolResponse>;
   onAiWorkspacePreviewResize?: (width: number) => void;
+  onAskAiHandlerChange?: (handler: MarkweaveAskAiHandler | null) => void;
   onOpenDocument: (documentPath: string) => void;
   onOpenPlanPreview: (plan: AiProposedPlan, threadId: string) => void;
   onWorkspaceChanged: (
@@ -103,9 +109,11 @@ export function RightSidePanel({
   mode,
   width,
   workspaceRootPath,
+  getActiveEditorAiEditController = () => null,
   onBeforeTurnStart,
   onDrawingToolCall,
   onAiWorkspacePreviewResize,
+  onAskAiHandlerChange = () => undefined,
   onOpenDocument,
   onOpenPlanPreview,
   onWorkspaceChanged,
@@ -144,6 +152,10 @@ export function RightSidePanel({
               presentation={aiPresentation}
               visible={aiVisible}
               workspaceRootPath={workspaceRootPath}
+              getActiveEditorAiEditController={
+                getActiveEditorAiEditController
+              }
+              onAskAiHandlerChange={onAskAiHandlerChange}
               onBeforeTurnStart={onBeforeTurnStart}
               onDrawingToolCall={onDrawingToolCall}
               onOpenDocument={onOpenDocument}

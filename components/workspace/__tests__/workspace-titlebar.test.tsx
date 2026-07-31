@@ -73,8 +73,12 @@ describe('Workspace titlebar', () => {
       /macChromeOffset=\{\s*isTauriRuntime\s*&&\s*isMacRuntime\s*\}/,
     );
     expect(workspaceLayoutSource).toContain(
-      "macChromeOffset ? 'top-3.5' : 'top-0'",
+      'macChromeControlsTop={macChromeControlsTop}',
     );
+    expect(workspaceLayoutSource).toContain(
+      "style={macChromeOffset ? { top: macChromeControlsTop } : undefined}",
+    );
+    expect(workspaceLayoutSource).not.toContain("'top-3.5'");
   });
 
   it('does not reset the macOS traffic light position when the document title changes', () => {

@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-23
+updated: 2026-07-31
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -17,6 +17,7 @@ referenced_by: AGENTS.md#knowledge-map
 
 - 前端调用必须经 `components/workspace/workspace-api.ts`。
 - 命令注册位于 `src-tauri/src/lib.rs`。
+- `get_macos_titlebar_metrics() -> { trafficLightCenterY } | null` 只读 AppKit 原生关闭按钮在当前 WKWebView 坐标系中的垂直中心，供左上角 Web 控件对齐；返回值只包含经过有限值与标题栏范围校验的逻辑像素，不暴露原生句柄、窗口内容或设备信息，非 macOS 返回 `null`。
 - Git 命令必须在阻塞任务中执行，不得占用 Tauri 原生主线程；本地命令超时为 60 秒，网络及提交等长操作超时为 180 秒，超时后必须终止对应进程树。Windows 启动 Git 子进程时必须使用无窗口标志，前端命令名称、参数和返回结构保持不变。
 - `system_fonts.rs` 仅可返回字体家族名称与推荐元数据，不得暴露字体文件路径或内容。
 - 桌面端网络功能应走 Tauri 命令；生产桌面构建使用静态导出，不包含 Next API routes。
@@ -47,6 +48,10 @@ referenced_by: AGENTS.md#knowledge-map
 - 审批请求必须保存 `turnId`、`itemId` 和服务端原始候选，并尽量附着到对应工具 item。Rust 将字符串决定、execpolicy amendment、network policy amendment 与 permissions grant 投影为可展示的 opaque choice id；界面只能回传该 id，Rust 必须在对应 pending request 内重新映射，不能接受前端提交的任意结构化决定。
 - 命令审批必须区分 `decline`（拒绝并继续 turn）与 `cancel`（拒绝并中断 turn），并按服务端候选显示一次允许、会话允许和规则授权。`item/permissions/requestApproval` 的允许响应只能复制服务端原始 permissions，可选择 turn、session 或 strict auto-review；拒绝固定返回空 permissions 和 turn scope。
 - `thread/start` 使用命名 `permissions`、`approvalPolicy`、`approvalsReviewer` 与 `runtimeWorkspaceRoots` 建立权限状态，且不得同时发送 legacy `sandbox`。`thread/resume` 不覆盖权限，`turn/start` 不发送安全字段；切换模式只用 `thread/settings/update`，且不得同时发送 `sandboxPolicy`。界面以 `thread/settings/updated` 和 start/resume response 为真实状态来源。
+- Markweave AI 预编辑只使用 Madora 内部组件协议，不新增公开 HTTP API。编辑器内置 `askAi` 与 AI 面板取得的 `MarkweaveAiEditController` 复用同一窗口级 runner；controller 只可从当前活动、可编辑的 Live 正式文档取得，切换到 Source/View/只读、隐藏缓存编辑器或卸载时必须撤销或返回 `null`。
+- 每次预编辑固定新建 `ephemeral: true` 的 `thread/start`，同时提交 `permissions: ":read-only"`、`approvalPolicy: "on-request"`、`approvalsReviewer: "user"`、`config.web_search: "disabled"`、空 `environments` 与唯一工作区根。`turn/start` 只包含固定开发者约束、用户指令和 Markweave 目标，不得携带 `madoraDocumentReferences`、`madoraDrawingReferences`、附件、原生 mention、Plugin、Skill、Goal、当前会话或 collaboration mode。
+- 内联 runner 必须用 thread/turn ID 声明事件所有权，只转发 `agentMessage.phase=final_answer`，忽略 commentary。AI 面板不得归约 ephemeral 线程或其他非当前可见线程的 token、Goal、消息、工具、文件变更和工作区刷新事件。任何工具/文件 item、审批或用户追问都必须中断内联 turn 并判定失败；终态后调用 `thread/delete`，删除失败只显示脱敏诊断。
+- AI 面板宿主预编辑先调用 `captureSelection({ controls: "default" })`，流式响应必须把累计完整 Markdown 交给 `updateProposal(..., status: "streaming")`，结束后再提交 `complete`。宿主 V1 对表格、代码块、媒体、NodeSelection、CellSelection 和空选区失败关闭；表格只能使用编辑器内置 `askAi` 的精确 scope/resultShape 协议。
 - 协作模式必须先通过实验接口 `collaborationMode/list` 发现 Plan 与 Default 预设；缺少任一预设时降级到 Default。模式可用后，每个 `turn/start` 必须显式发送 `{ collaborationMode: { mode, settings: { model, reasoning_effort, developer_instructions: null } } }`，且不得同时发送顶层 `model`、`effort` 或开发者指令。Plan 的 `reasoning_effort` 固定为 `medium`；模式名、模型和推理强度均由 Rust 再校验。
 - Markdown 文档不得作为 Codex 原生 `mention` 输入发送；该类型只用于 `app://` 与 `plugin://` 目标。显式文档提及必须把带引号的工作区相对路径写入文本，并用 `text_elements.placeholder` 保存显示标题；`byteRange` 使用替换后文本的 UTF-8 字节偏移。插件输入框节点可以只显示名称和真实图标，但模型文本必须恢复 `@Plugin` 与对应 `text_elements`，并额外发送名称和 `plugin://{id}` 原生 mention。
 - Drawing 不得伪装为 Codex 原生 mention。显式图稿提及必须把规范 `madora-drawing://<uuid>` 写入文本、用 `text_elements.placeholder` 保留标题，并通过私有 `madoraDrawingReferences` 提交 active/mention 角色。`inspect_drawing({ drawingId })` 只能消费当前 turn 授权的 UUID，响应正文限制为 16 KiB，预览只允许 Madora 读取的 2 MiB 内 PNG/WebP Data URL。

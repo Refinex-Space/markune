@@ -1,10 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import * as React from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { MarkdownEditor } from '@/components/editor/markdown-editor';
+import {
+  MarkdownEditor,
+  type MarkdownEditorHandle,
+} from '@/components/editor/markdown-editor';
 
 const { resolvedThemeMock } = vi.hoisted(() => ({
   resolvedThemeMock: vi.fn(),
@@ -13,6 +17,7 @@ const { resolvedThemeMock } = vi.hoisted(() => ({
 const globalsCssPath = join(process.cwd(), 'app/globals.css');
 
 const {
+  aiEditControllerMock,
   cancelAnimationFrameMock,
   markweaveEditorMock,
   markweaveUnmountMock,
@@ -26,6 +31,12 @@ const {
   searchListeners,
   searchState,
 } = vi.hoisted(() => ({
+  aiEditControllerMock: {
+    discard: vi.fn(),
+    getState: vi.fn<
+      () => { context: { id: string } | null; phase: string }
+    >(() => ({ context: null, phase: 'idle' })),
+  },
   cancelAnimationFrameMock: vi.fn(),
   markweaveEditorMock: vi.fn(),
   markweaveUnmountMock: vi.fn(),
@@ -78,22 +89,22 @@ vi.mock('@markweave/react', async () => {
         String(props.defaultContent ?? props.content ?? ''),
       );
       markweaveEditorMock(props);
+      const onAiEditControllerChange = props.onAiEditControllerChange as
+        | ((controller: typeof aiEditControllerMock | null) => void)
+        | undefined;
+      const onSearchControllerChange = props.onSearchControllerChange as
+        | ((controller: typeof searchControllerMock | null) => void)
+        | undefined;
       React.useEffect(() => {
-        (
-          props.onSearchControllerChange as
-            | ((controller: typeof searchControllerMock | null) => void)
-            | undefined
-        )?.(searchControllerMock);
+        onAiEditControllerChange?.(aiEditControllerMock);
+        onSearchControllerChange?.(searchControllerMock);
 
         return () => {
-          (
-            props.onSearchControllerChange as
-              | ((controller: typeof searchControllerMock | null) => void)
-              | undefined
-          )?.(null);
+          onAiEditControllerChange?.(null);
+          onSearchControllerChange?.(null);
           markweaveUnmountMock();
         };
-      }, [props.onSearchControllerChange]);
+      }, [onAiEditControllerChange, onSearchControllerChange]);
 
       return (
         <div
@@ -215,6 +226,12 @@ describe('MarkdownEditor', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     cancelAnimationFrameMock.mockClear();
+    aiEditControllerMock.discard.mockClear();
+    aiEditControllerMock.getState.mockClear();
+    aiEditControllerMock.getState.mockReturnValue({
+      context: null,
+      phase: 'idle',
+    });
     markweaveEditorMock.mockClear();
     markweaveUnmountMock.mockClear();
     payloadFieldReadMock.mockClear();
@@ -349,6 +366,78 @@ describe('MarkdownEditor', () => {
     expect(
       screen.getByTestId('markweave-editor').getAttribute('data-editable'),
     ).toBe('false');
+  });
+
+  it('仅在可编辑 Live 文档发布 Ask AI handler 和 controller', () => {
+    const askAiHandler = vi.fn();
+    const ref = React.createRef<MarkdownEditorHandle>();
+    const { rerender } = render(
+      <MarkdownEditor
+        aiEnabled
+        askAiHandler={askAiHandler}
+        markdown="# AI"
+        ref={ref}
+      />,
+    );
+
+    expect(markweaveEditorMock.mock.calls.at(-1)?.[0]).toMatchObject({
+      askAi: { enabled: true, handler: askAiHandler },
+    });
+    expect(ref.current?.getAiEditController()).toBe(aiEditControllerMock);
+
+    rerender(
+      <MarkdownEditor
+        aiEnabled
+        askAiHandler={askAiHandler}
+        markdown="# AI"
+        readOnly
+        ref={ref}
+      />,
+    );
+
+    expect(markweaveEditorMock.mock.calls.at(-1)?.[0].askAi).toBeUndefined();
+    expect(ref.current?.getAiEditController()).toBeNull();
+  });
+
+  it('离开 Live 模式时舍弃活动的 AI 预编辑上下文', () => {
+    aiEditControllerMock.getState.mockReturnValue({
+      context: { id: 'ai-context' },
+      phase: 'streaming',
+    });
+    const { rerender } = render(
+      <MarkdownEditor aiEnabled askAiHandler={vi.fn()} markdown="# AI" />,
+    );
+
+    rerender(
+      <MarkdownEditor
+        aiEnabled={false}
+        askAiHandler={vi.fn()}
+        markdown="# AI"
+      />,
+    );
+
+    expect(aiEditControllerMock.discard).toHaveBeenCalledWith('ai-context');
+  });
+
+  it('切换到 Source 模式后不再暴露 AI controller', () => {
+    const ref = React.createRef<MarkdownEditorHandle>();
+    render(
+      <MarkdownEditor
+        aiEnabled
+        askAiHandler={vi.fn()}
+        markdown="# AI"
+        ref={ref}
+      />,
+    );
+
+    fireEvent.keyDown(screen.getByTestId('markdown-editor-root'), {
+      code: 'Slash',
+      ctrlKey: true,
+      key: '/',
+    });
+
+    expect(ref.current?.getAiEditController()).toBeNull();
+    expect(markweaveEditorMock.mock.calls.at(-1)?.[0].askAi).toBeUndefined();
   });
 
   it('保护 frontmatter，只把正文传给 Markweave，idle 时再序列化完整 Markdown', () => {

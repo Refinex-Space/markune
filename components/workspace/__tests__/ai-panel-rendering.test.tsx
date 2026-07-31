@@ -1677,6 +1677,53 @@ describe('AI message rendering', () => {
     expect(editor.className).toContain('overflow-y-auto');
   });
 
+  it('通过独立按钮发起选区预编辑并展示禁用原因', async () => {
+    const user = userEvent.setup();
+    const onInlineAi = vi.fn();
+    const props = {
+      active: false,
+      approvalPolicyAvailability: { never: true, onRequest: true },
+      autoReviewAvailable: false,
+      currentDocument: null,
+      effort: 'medium' as const,
+      mentionDocuments: [],
+      mentionQuery: null,
+      models: [],
+      permissionMode: 'ask' as const,
+      permissionProfiles: [],
+      permissionSwitchDisabled: false,
+      runtimeStatus: 'ready' as const,
+      selectedModel: '',
+      selectedModelInfo: null,
+      submitting: false,
+      value: '改写得更清晰',
+      onEffortChange: vi.fn(),
+      onInlineAi,
+      onInterrupt: vi.fn(),
+      onMentionQueryChange: vi.fn(),
+      onMentionsChange: vi.fn(),
+      onModelChange: vi.fn(),
+      onOpenMention: vi.fn(),
+      onPermissionModeChange: vi.fn(),
+      onSend: vi.fn(),
+      onValueChange: vi.fn(),
+    };
+    const { rerender } = render(<AiComposer {...props} />);
+
+    await user.click(screen.getByRole('button', { name: '预编辑选区' }));
+    expect(onInlineAi).toHaveBeenCalledOnce();
+
+    rerender(
+      <AiComposer
+        {...props}
+        inlineAiUnavailableReason="表格请使用编辑器内置 Ask AI"
+      />,
+    );
+    const button = screen.getByRole('button', { name: '预编辑选区' });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(button.getAttribute('title')).toBe('表格请使用编辑器内置 Ask AI');
+  });
+
   it('连接准备期间允许输入并保留显式发送意图', async () => {
     const user = userEvent.setup();
     const onSend = vi.fn();

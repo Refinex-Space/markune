@@ -11,6 +11,7 @@ mod link_preview;
 mod settings;
 mod system_fonts;
 mod terminal;
+mod window_chrome;
 mod workspace;
 
 use tauri::Manager;
@@ -145,6 +146,7 @@ pub fn run() {
             settings::read_app_settings,
             settings::save_app_settings,
             system_fonts::list_system_fonts,
+            window_chrome::get_macos_titlebar_metrics,
             workspace::ensure_workspace,
             workspace::open_path_in_preferred_editor,
             workspace::record_recent_document,

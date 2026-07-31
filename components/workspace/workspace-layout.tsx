@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import type { MarkweaveAskAiHandler } from '@markweave/react';
 import { useTheme } from 'next-themes';
 import {
   Airplay,
@@ -95,6 +96,7 @@ import { drawingReferenceFromDescriptor } from './ai-drawing-inspector';
 import { useDrawingController } from './use-drawing-controller';
 import { useInboxController } from './use-inbox-controller';
 import { useAppUpdate } from './use-app-update';
+import { useMacosChromeControlsTop } from './use-macos-titlebar-metrics';
 import { WorkspaceGlobalSearchDialog } from './workspace-global-search-dialog';
 import { useDocumentExport } from './use-document-export';
 import { useDocumentImport } from './use-document-import';
@@ -430,7 +432,19 @@ export function WorkspaceLayout({
   const activeMarkdownEditorRef = React.useRef<MarkdownEditorHandle | null>(
     null,
   );
+  const [askAiHandler, setAskAiHandler] =
+    React.useState<MarkweaveAskAiHandler | null>(null);
   const appWindowExitPendingRef = React.useRef(false);
+  const getActiveEditorAiEditController = React.useCallback(
+    () => activeMarkdownEditorRef.current?.getAiEditController() ?? null,
+    [],
+  );
+  const handleAskAiHandlerChange = React.useCallback(
+    (handler: MarkweaveAskAiHandler | null) => {
+      setAskAiHandler(() => handler);
+    },
+    [],
+  );
 
   React.useEffect(() => {
     currentDocumentPathRef.current = currentDocumentPath;
@@ -566,6 +580,9 @@ export function WorkspaceLayout({
   const isTauriRuntime = useIsTauriRuntime();
   const isMacRuntime = useIsMacRuntime();
   const isWindowsRuntime = useIsWindowsRuntime();
+  const macChromeControlsTop = useMacosChromeControlsTop(
+    isTauriRuntime && isMacRuntime,
+  );
 
   React.useEffect(() => {
     if (!isTauriRuntime) {
@@ -2808,6 +2825,7 @@ export function WorkspaceLayout({
         <SidebarChromeToggle
           collapsed={workspace.isSidebarCollapsed}
           macChromeOffset={isTauriRuntime && isMacRuntime}
+          macChromeControlsTop={macChromeControlsTop}
           refreshing={isRefreshingWorkspaceTree}
           windowsChromeInset={isTauriRuntime && isWindowsRuntime}
           pinnedNodes={pinnedNodes}
@@ -3091,6 +3109,7 @@ export function WorkspaceLayout({
                       <DocumentEditorSurface
                         activeDocumentPath={activePanelDocumentPath}
                         activeEditorRef={activeMarkdownEditorRef}
+                        askAiHandler={askAiHandler}
                         currentDocumentPath={currentDocumentPath}
                         documentEditorLayout={documentEditorLayout}
                         documentLoadError={workspace.documentLoadError}
@@ -3300,11 +3319,15 @@ export function WorkspaceLayout({
                 mode={effectiveRightPanelMode}
                 width={rightPanelWidth}
                 workspaceRootPath={workspaceRootPath}
+                getActiveEditorAiEditController={
+                  getActiveEditorAiEditController
+                }
                 onBeforeTurnStart={handleBeforeAiTurnStart}
                 onDrawingToolCall={handleAiDrawingToolCall}
                 onAiWorkspacePreviewResize={setAiWorkspacePreviewWidth}
                 onOpenDocument={handleOpenAiDocument}
                 onOpenPlanPreview={handleOpenPlanPreview}
+                onAskAiHandlerChange={handleAskAiHandlerChange}
                 onWorkspaceChanged={handleAiWorkspaceChanged}
                 onToggleDocumentReadOnly={
                   activePanelDocument
@@ -3340,6 +3363,7 @@ function useIsTauriRuntime() {
 function SidebarChromeToggle({
   collapsed,
   macChromeOffset,
+  macChromeControlsTop,
   refreshing,
   windowsChromeInset,
   pinnedNodes,
@@ -3350,6 +3374,7 @@ function SidebarChromeToggle({
 }: {
   collapsed: boolean;
   macChromeOffset: boolean;
+  macChromeControlsTop: number;
   refreshing: boolean;
   windowsChromeInset: boolean;
   pinnedNodes: WorkspaceNode[];
@@ -3364,10 +3389,11 @@ function SidebarChromeToggle({
     <div
       className={cn(
         'absolute z-50 flex h-8 items-center gap-1',
-        macChromeOffset ? 'top-3.5' : 'top-0',
+        !macChromeOffset && 'top-0',
         windowsChromeInset ? 'left-2' : 'left-[80px]',
       )}
       data-testid="sidebar-chrome-toggle"
+      style={macChromeOffset ? { top: macChromeControlsTop } : undefined}
     >
       <TooltipProvider>
         <Tooltip>
@@ -3763,6 +3789,7 @@ function headerToolButtonClassName(active: boolean) {
 export function DocumentEditorSurface({
   activeDocumentPath,
   activeEditorRef,
+  askAiHandler = null,
   currentDocumentPath,
   documentEditorLayout,
   documentLoadError,
@@ -3781,6 +3808,7 @@ export function DocumentEditorSurface({
 }: {
   activeDocumentPath: string | null;
   activeEditorRef: React.RefObject<MarkdownEditorHandle | null>;
+  askAiHandler?: MarkweaveAskAiHandler | null;
   currentDocumentPath: string | null;
   documentEditorLayout: DocumentEditorLayout;
   documentLoadError: string | null;
@@ -3862,6 +3890,8 @@ export function DocumentEditorSurface({
             >
               <DocumentEditorInstance
                 activeEditorRef={isActive ? activeEditorRef : undefined}
+                aiEnabled={isActive}
+                askAiHandler={askAiHandler}
                 documentPath={documentPath}
                 editorSession={documentSession}
                 pageWidthMode={pageWidthMode}
@@ -3992,6 +4022,8 @@ function renderDocumentEditorContent({
 
 function DocumentEditorInstance({
   activeEditorRef,
+  aiEnabled,
+  askAiHandler,
   documentPath,
   editorSession,
   pageWidthMode,
@@ -4001,6 +4033,8 @@ function DocumentEditorInstance({
   onSaveRequested,
 }: {
   activeEditorRef?: React.RefObject<MarkdownEditorHandle | null>;
+  aiEnabled: boolean;
+  askAiHandler: MarkweaveAskAiHandler | null;
   documentPath: string;
   editorSession: DocumentEditorSession;
   pageWidthMode: PageWidthMode;
@@ -4025,6 +4059,8 @@ function DocumentEditorInstance({
   return (
     <div className="relative h-full min-h-0">
       <MarkdownEditor
+        aiEnabled={aiEnabled && !readOnly}
+        askAiHandler={askAiHandler}
         documentKey={`${documentPath}:${editorSession.documentVersion}:${pageWidthMode}:${readOnly ? 'view' : 'live'}`}
         markdown={editorSession.markdown}
         pageWidthMode={pageWidthMode}

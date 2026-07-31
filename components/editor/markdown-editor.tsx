@@ -5,6 +5,8 @@ import { ArrowUp } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import {
   MarkweaveEditor,
+  type MarkweaveAiEditController,
+  type MarkweaveAskAiHandler,
   type MarkweaveEditorUpdatePayload,
   type MarkweaveSearchController,
 } from '@markweave/react';
@@ -47,9 +49,12 @@ export type MarkdownEditorFlushReason =
 
 export interface MarkdownEditorHandle {
   flushDraft: (reason: MarkdownEditorFlushReason) => Promise<boolean>;
+  getAiEditController: () => MarkweaveAiEditController | null;
 }
 
 interface MarkdownEditorProps {
+  aiEnabled?: boolean;
+  askAiHandler?: MarkweaveAskAiHandler | null;
   documentKey?: string;
   markdown: string;
   pageWidthMode?: PageWidthMode;
@@ -87,6 +92,8 @@ export const MarkdownEditor = React.forwardRef<
   MarkdownEditorHandle,
   MarkdownEditorProps
 >(function MarkdownEditor({
+  aiEnabled = false,
+  askAiHandler = null,
   documentKey,
   markdown,
   pageWidthMode = 'wide',
@@ -104,6 +111,9 @@ export const MarkdownEditor = React.forwardRef<
   const sourceModeToggledRef = React.useRef(false);
   const liveEditorRevisionRef = React.useRef(0);
   const sourceEditorRef = React.useRef<MarkdownSourceEditorHandle | null>(null);
+  const aiEditControllerRef = React.useRef<MarkweaveAiEditController | null>(
+    null,
+  );
   const sourceDraftMarkdownRef = React.useRef(markdown);
   const pendingSourceMarkdownRef = React.useRef<string | null>(null);
   const pendingPayloadRef = React.useRef<MarkweaveEditorUpdatePayload | null>(
@@ -138,6 +148,13 @@ export const MarkdownEditor = React.forwardRef<
   const normalizedMarkdown = React.useMemo(
     () => normalizeDrawingMarkdownReferences(loadedMarkdown),
     [loadedMarkdown],
+  );
+  const askAiConfig = React.useMemo(
+    () =>
+      aiEnabled && askAiHandler && !readOnly && !sourceMode
+        ? { enabled: true as const, handler: askAiHandler }
+        : undefined,
+    [aiEnabled, askAiHandler, readOnly, sourceMode],
   );
   const frontmatterView = React.useMemo(() => {
     const parsed = parseFrontmatter(normalizedMarkdown);
@@ -341,12 +358,31 @@ export const MarkdownEditor = React.forwardRef<
     },
     [findRequest, flushDraft, onMarkdownChange, readOnly],
   );
+  const handleAiEditControllerChange = React.useCallback(
+    (controller: MarkweaveAiEditController | null) => {
+      aiEditControllerRef.current = controller;
+    },
+    [],
+  );
 
   React.useImperativeHandle(
     forwardedRef,
-    () => ({ flushDraft }),
-    [flushDraft],
+    () => ({
+      flushDraft,
+      getAiEditController: () =>
+        aiEnabled && !readOnly && !sourceMode
+          ? aiEditControllerRef.current
+          : null,
+    }),
+    [aiEnabled, flushDraft, readOnly, sourceMode],
   );
+
+  React.useEffect(() => {
+    if (aiEnabled && !readOnly && !sourceMode) return;
+    const controller = aiEditControllerRef.current;
+    const contextId = controller?.getState().context?.id;
+    if (controller && contextId) controller.discard(contextId);
+  }, [aiEnabled, readOnly, sourceMode]);
 
   React.useEffect(
     () => () => {
@@ -605,6 +641,7 @@ export const MarkdownEditor = React.forwardRef<
         >
           <MarkweaveEditor
             ariaLabel="Markdown 正文"
+            askAi={askAiConfig}
             canvasColor="var(--background)"
             className="madora-markweave-editor"
             defaultContent={editorMarkdown}
@@ -615,6 +652,7 @@ export const MarkdownEditor = React.forwardRef<
             key={`${documentKey ?? 'document'}:${liveEditorRevisionRef.current}`}
             lang="zh"
             mode={readOnly ? 'view' : 'live'}
+            onAiEditControllerChange={handleAiEditControllerChange}
             onSlashCommandUpload={onSlashCommandUpload}
             {...{ resolveMediaSource }}
             onSearchControllerChange={handleSearchControllerChange}

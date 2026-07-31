@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-28
+updated: 2026-07-31
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -53,7 +53,7 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 ## Tauri Config
 
 - `src-tauri/tauri.conf.json` 的 `devUrl` 为 `http://localhost:3000`。
-- macOS 主窗口使用 `titleBarStyle: Overlay`、隐藏系统标题，并通过 `trafficLightPosition: { x: 15, y: 32 }` 将原生红绿灯移入 44px 工作区标题栏的安全区域；前端左上角工作区按钮使用 `14px` 顶部偏移，使图标视觉中心与原生红绿灯对齐，并在侧边栏折叠时避开圆角面板顶边。macOS 原生标题保持为 `Madora`，文档切换不调用 `setTitle`，避免系统重新布局红绿灯；文档标题继续由标签页展示。Windows 和 Linux 仍同步原生窗口标题，且不应用 macOS 偏移。
+- macOS 主窗口使用 `titleBarStyle: Overlay`、隐藏系统标题，并通过 `trafficLightPosition: { x: 15, y: 32 }` 将原生红绿灯移入 44px 工作区标题栏的安全区域。前端左上角工作区按钮启动时使用 `14px` 安全回退，随后通过只读 `get_macos_titlebar_metrics` 命令取得 AppKit 红色关闭按钮在 WKWebView 坐标系中的实际中心线，使 32px 按钮组动态居中；窗口 resize、重新聚焦或重新可见时重新测量，避免不同 macOS SDK 的原生标题栏布局差异造成偏移。macOS 原生标题保持为 `Madora`，文档切换不调用 `setTitle`，避免系统重新布局红绿灯；文档标题继续由标签页展示。Windows 和 Linux 仍同步原生窗口标题，且不应用 macOS 偏移。
 - Next.js 开发产物写入 `.next-dev`，生产构建与桌面静态导出仍写入 `.next`；两者必须保持隔离，避免运行中的开发服务因并行构建清理产物而失效。
 - 普通开发与 Web 构建使用 `tsconfig.json`，桌面静态导出在 `NEXT_OUTPUT=export` 时改用 `tsconfig.desktop.json`；桌面配置只检查 `.next` 类型并明确排除 `.next-dev`，避免临时移走 `app/api` 时读取开发服务生成的路由校验文件。
 - `frontendDist` 为 `../out`，桌面构建依赖静态导出产物。
@@ -74,7 +74,7 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 
 ## Editor Dependency Integration
 
-`markweave@0.3.3` 已在上游正式包含 Madora 图片剪贴板桥接：只解析受控 `madora-asset://` 地址，并识别严格匹配 64 位资产 ID 与 UUID Drawing ID 的规范图稿引用；不得借此接受 `asset://`、`file://` 或任意自定义协议。Madora 不再应用历史 `markweave@0.2.6` 本地补丁。升级 Markweave 时必须核对 npm tarball 与上游源码一致，并执行图稿富文本、纯文本粘贴回归测试。
+`markweave@0.3.6` 与 `@markweave/react@0.3.6` 必须保持同版本。该版本继续包含 Madora 图片剪贴板桥接：只解析受控 `madora-asset://` 地址，并识别严格匹配 64 位资产 ID 与 UUID Drawing ID 的规范图稿引用；不得借此接受 `asset://`、`file://` 或任意自定义协议。0.3.6 同时提供内置 `askAi` 文本/表格请求和宿主驱动 `MarkweaveAiEditController`，Madora 只在活动、可编辑的 Live 正式文档上接入；该能力不增加环境变量、持久化 schema、HTTP API 或 Tauri capability。Madora 不应用历史 `markweave@0.2.6` 本地补丁。升级 Markweave 时必须核对 npm tarball 与上游源码一致，并执行 AI 文本/表格、图稿富文本和纯文本粘贴回归测试。
 
 ## App Settings
 
