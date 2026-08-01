@@ -166,6 +166,7 @@ import { createWorkspaceSettingsSessionCache } from './workspace-settings-cache'
 import { createTerminalOutputStore } from './terminal-output-store';
 import { WorkspaceResizeHandle } from './workspace-resize-handle';
 import { WorkspaceSidebar } from './workspace-sidebar';
+import { WorkspaceGraphPage } from './workspace-graph-page';
 import { WorkspaceViewsPage } from './workspace-views-page';
 import {
   countMarkdownCharacters,
@@ -208,6 +209,7 @@ type WorkspaceSystemPage =
   | 'codex'
   | 'daily'
   | 'drawings'
+  | 'graph'
   | 'inbox'
   | 'settings'
   | 'views'
@@ -2176,6 +2178,13 @@ export function WorkspaceLayout({
     workspace.clearCurrentDocument();
   }, [workspace]);
 
+  const handleOpenGraphPage = React.useCallback(() => {
+    setLeftPanelMode('workspace');
+    setSystemPage('graph');
+    showWorkspaceSidebar(false);
+    clearCurrentDocument();
+  }, [clearCurrentDocument, showWorkspaceSidebar]);
+
   const handleOpenCodexPage = React.useCallback(() => {
     setLeftPanelMode('workspace');
     setSystemPage('codex');
@@ -2976,6 +2985,7 @@ export function WorkspaceLayout({
                 onOpenInbox={handleOpenInboxPage}
                 onOpenDrawings={handleOpenDrawingsPage}
                 onOpenGlobalSearch={openGlobalSearch}
+                onOpenGraph={handleOpenGraphPage}
                 pinnedNodes={pinnedNodes}
                 onOpenViews={handleOpenViewsPage}
                 onRefreshWorkspaceTree={() =>
@@ -2998,6 +3008,7 @@ export function WorkspaceLayout({
                   systemPage === 'drawings' ||
                   systemPage === 'codex' ||
                   systemPage === 'daily' ||
+                  systemPage === 'graph' ||
                   systemPage === 'inbox' ||
                   systemPage === 'views'
                     ? systemPage
@@ -3178,6 +3189,16 @@ export function WorkspaceLayout({
                         onRefresh={() => void workspace.refreshWorkspaceTree()}
                         onToggleLocked={handleToggleNodeLocked}
                         onTogglePinned={handleToggleNodePinned}
+                      />
+                    ) : systemPage === 'graph' && workspace.snapshot ? (
+                      <WorkspaceGraphPage
+                        key={workspace.snapshot.rootPath}
+                        nodes={filterRegularWorkspaceNodes(
+                          workspace.snapshot.nodes,
+                        )}
+                        rootPath={workspace.snapshot.rootPath}
+                        sidebarHeaderOffset={macSidebarHeaderOffset}
+                        onOpenNode={handleOpenWorkspaceViewNode}
                       />
                     ) : leftPanelMode === 'git' ? (
                       <GitDiffView

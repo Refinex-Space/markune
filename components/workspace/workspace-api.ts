@@ -54,6 +54,7 @@ import type {
   WorkspaceExportFormat,
   WorkspaceImportFormat,
   WorkspaceGitSyncSettings,
+  WorkspaceGraphSnapshot,
   WorkspaceMoveRequest,
   WorkspaceHistoryItem,
   WorkspaceMetadata,
@@ -240,6 +241,12 @@ export async function loadWorkspaceTree(rootPath: string) {
   const { invoke } = await import('@tauri-apps/api/core');
 
   return invoke<WorkspaceSnapshot>('load_workspace_tree', { rootPath });
+}
+
+export async function loadWorkspaceGraph(rootPath: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<WorkspaceGraphSnapshot>('load_workspace_graph', { rootPath });
 }
 
 export async function listSystemFonts() {

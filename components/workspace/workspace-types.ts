@@ -208,6 +208,38 @@ export interface WorkspaceSnapshot {
   nodes: WorkspaceNode[];
 }
 
+export type WorkspaceGraphNodeKind =
+  | 'daily'
+  | 'note'
+  | 'property'
+  | 'tag'
+  | 'weekly';
+
+export type WorkspaceGraphEdgeKind = 'link' | 'property' | 'tag';
+
+export interface WorkspaceGraphNode {
+  id: string;
+  label: string;
+  kind: WorkspaceGraphNodeKind;
+  relativePath: string | null;
+  degree: number;
+}
+
+export interface WorkspaceGraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  kind: WorkspaceGraphEdgeKind;
+  weight: number;
+}
+
+export interface WorkspaceGraphSnapshot {
+  nodes: WorkspaceGraphNode[];
+  edges: WorkspaceGraphEdge[];
+  documentCount: number;
+  warnings: string[];
+}
+
 export interface WorkspaceHistoryItem {
   rootPath: string;
   rootName: string;

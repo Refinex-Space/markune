@@ -5,6 +5,7 @@ mod document_converter;
 mod drawings;
 mod export;
 mod git;
+mod graph;
 mod import;
 mod inbox;
 mod link_preview;
@@ -138,6 +139,7 @@ pub fn run() {
             git::git_sync_now,
             git::git_revert_file,
             git::git_delete_file,
+            graph::load_workspace_graph,
             link_preview::resolve_link_preview,
             terminal::terminal_spawn,
             terminal::terminal_write,

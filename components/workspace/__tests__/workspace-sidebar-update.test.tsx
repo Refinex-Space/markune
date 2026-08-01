@@ -114,7 +114,7 @@ describe('WorkspaceSidebar update entry', () => {
       />,
     );
 
-    for (const name of ['笔记', '日程', 'Inbox', '画板', '视图', 'Codex']) {
+    for (const name of ['笔记', '日程', 'Inbox', '画板', '视图', '图谱', 'Codex']) {
       const entry = screen.getByRole('button', { name });
       expect(entry.className).toContain('h-7');
       expect(entry.className).toContain('gap-1.5');
@@ -174,5 +174,25 @@ describe('WorkspaceSidebar update entry', () => {
 
     await user.click(dailyEntry);
     expect(onOpenDailyNotes).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens the graph from the upper workspace navigation', async () => {
+    const user = userEvent.setup();
+    const onOpenGraph = vi.fn();
+
+    render(
+      <WorkspaceSidebar
+        systemPage="graph"
+        width={280}
+        workspace={createOpenWorkspaceStub()}
+        onOpenGlobalSearch={vi.fn()}
+        onOpenGraph={onOpenGraph}
+      />,
+    );
+
+    const graphEntry = screen.getByRole('button', { name: '图谱' });
+    expect(graphEntry.getAttribute('aria-current')).toBe('page');
+    await user.click(graphEntry);
+    expect(onOpenGraph).toHaveBeenCalledTimes(1);
   });
 });

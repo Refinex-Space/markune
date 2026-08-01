@@ -1,6 +1,7 @@
 import {
   CalendarDays,
   Inbox,
+  Network,
   Paintbrush,
   RefreshCw,
   Search,
@@ -49,6 +50,7 @@ interface WorkspaceSidebarProps {
   onOpenCodex?: () => void;
   onOpenDrawings?: () => void;
   onOpenGlobalSearch: () => void;
+  onOpenGraph?: () => void;
   onOpenPinnedNode?: (node: WorkspaceNode) => void;
   onOpenInbox?: () => void;
   onOpenInFileManager?: (node: WorkspaceNode) => void;
@@ -70,7 +72,7 @@ interface WorkspaceSidebarProps {
   onUnpinNode?: (node: WorkspaceNode) => void;
   pinnedNodes?: WorkspaceNode[];
   inboxActiveCount?: number;
-  systemPage?: 'codex' | 'daily' | 'drawings' | 'inbox' | 'views' | null;
+  systemPage?: 'codex' | 'daily' | 'drawings' | 'graph' | 'inbox' | 'views' | null;
 }
 
 export function WorkspaceSidebar({
@@ -90,6 +92,7 @@ export function WorkspaceSidebar({
   onOpenCodex,
   onOpenDrawings,
   onOpenGlobalSearch,
+  onOpenGraph,
   onOpenPinnedNode,
   onOpenInbox,
   onOpenInFileManager,
@@ -227,6 +230,16 @@ export function WorkspaceSidebar({
             >
               <Sheet size={13} strokeWidth={1.75} />
               <span className="truncate">视图</span>
+            </button>
+            <button
+              aria-current={systemPage === 'graph' ? 'page' : undefined}
+              className={getSystemEntryClassName(systemPage === 'graph')}
+              data-testid="workspace-graph-entry"
+              type="button"
+              onClick={onOpenGraph}
+            >
+              <Network size={13} strokeWidth={1.75} />
+              <span className="truncate">图谱</span>
             </button>
             <button
               aria-current={systemPage === 'codex' ? 'page' : undefined}

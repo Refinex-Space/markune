@@ -127,7 +127,7 @@ describe('Workspace titlebar', () => {
       workspaceLayoutSource.match(
         /sidebarHeaderOffset=\{macSidebarHeaderOffset\}/g,
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(3);
   });
 
   it('keeps 32px chrome hit targets while limiting hover backgrounds to 28px', () => {

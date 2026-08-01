@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-31
+updated: 2026-08-01
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -41,6 +41,12 @@ Daily 是工作区级日程总览，也是普通 Markdown 文档集合。顶部�
 macOS 工作区壳层把全局 Chrome 工具与系统页工具分为两个不重叠的纵向区段：主标题栏高度由 `macChromeContentTop - WORKSPACE_PANEL_MARGIN` 计算，日程与视图页再以零偏移接续，因此它们的工具行可与侧边栏搜索、置顶入口共用水平中线，而不通过负外边距侵入全局按钮区域。Windows 与 Web 继续使用原有固定标题栏高度。
 
 `list_daily_notes_for_month` 在一次 Tauri 调用中扫描固定月份目录，并从当月 Markdown 正文派生有界标题、摘要、任务总数、完成数和最多三条任务预览；这些展示字段只存在于响应中，不写入 `.madora/workspace.json`。前端按请求序号忽略快速切月产生的过期响应，加载失败保留最近一次成功结果并提供显式重试。选中已有日期后，详情检查器通过既有 `read_markdown_document` 按需读取单篇正文并复用只读 Markdown 渲染器，不把整月正文带入月索引。检查器默认宽度为 420 px，可在 360–640 px 内通过鼠标或键盘调整并保存到浏览器 local storage；主内容宽度不足时检查器改为抽屉，不强制关闭已有 AI 或元信息面板。
+
+## Knowledge Graph Boundary
+
+图谱是工作区级只读 `systemPage`，入口位于左侧顶部导航。它不建立数据库、不修改 Markdown，也不把图布局写回工作区。`src-tauri/src/graph.rs` 在有界后台任务中一次扫描工作区 Markdown/MDX，跳过 `.madora`、`.git`、依赖和构建目录，只向渲染器返回相对文档路径、显示标题、节点类型、聚合边与有限警告；单篇文件、文档总数和关系总数都有硬上限。标准 Markdown `.md/.mdx` 链接与 `[[Wiki Link]]` 只在图谱读取层解析，后者不改变编辑器或持久化格式。节点包含普通笔记、`Daily/`、`Weekly/`、标签和 frontmatter 属性字段；`title`、`tags`、时间戳、`refinexDialect`、`aliases` 等系统字段不会生成属性中心节点。
+
+`workspace-graph-page.tsx` 通过 `workspace-api.ts` 的单次 Tauri 调用取得快照，继续复用现有工作区树节点完成“打开文档”，不接受原生层返回的绝对路径或全文。`workspace-graph-canvas.tsx` 使用 D3 force/zoom/drag/quadtree 与单个高 DPI Canvas：物理模拟在数据或力参数改变时重启并自然停止，绘制由 `requestAnimationFrame` 合并，边按类型批量描画，标签只在缩放阈值以上且节点位于视口内时显示，命中检测使用四叉树。搜索只高亮并聚焦匹配节点；类型筛选和隐藏孤立节点只投影可见数组，不重新读取工作区。力参数、显示类型和标签阈值仅以工作区路径散列后的 key 保存在浏览器 local storage，不保存原始路径。
 
 ## Drawing Workspace Boundary
 
