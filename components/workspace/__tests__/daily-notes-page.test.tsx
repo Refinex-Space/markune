@@ -101,10 +101,23 @@ describe('DailyNotesPage', () => {
     );
     expect(screen.queryByText('最后更新')).toBeNull();
     expect(screen.queryByText('2/3 完成')).toBeNull();
+    expect(screen.queryByRole('button', { name: '导出' })).toBeNull();
 
     await user.click(screen.getByRole('button', { name: '打开详情' }));
     expect(props.onOpenDaily).toHaveBeenCalledWith(entry);
     expect(props.onCreateDaily).not.toHaveBeenCalled();
+  });
+
+  it('exports the selected Daily note from the inspector when available', async () => {
+    const user = userEvent.setup();
+    const onExportDaily = vi.fn();
+    renderPage({ onExportDaily });
+
+    await screen.findByTestId('daily-markdown-preview');
+    await user.click(screen.getByRole('button', { name: '导出' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'PDF' }));
+
+    expect(onExportDaily).toHaveBeenCalledWith(entry, 'pdf');
   });
 
   it('keeps the date at the card top-left and exposes an adjustable preview width', async () => {

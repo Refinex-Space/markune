@@ -5,6 +5,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Download,
   List,
   RefreshCw,
   Search,
@@ -20,6 +21,12 @@ import {
   DialogDescription,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 
 import {
@@ -28,7 +35,11 @@ import {
 } from './daily-notes';
 import { readMarkdownDocument } from './workspace-api';
 import { WorkspaceResizeHandle } from './workspace-resize-handle';
-import type { DailyNoteEntry, PageWidthMode } from './workspace-types';
+import type {
+  DailyNoteEntry,
+  PageWidthMode,
+  WorkspaceExportFormat,
+} from './workspace-types';
 
 export type DailyNotesViewMode = 'list' | 'month';
 
@@ -37,6 +48,16 @@ export const DAILY_NOTES_INSPECTOR_WIDTH = {
   max: 640,
   min: 360,
 } as const;
+
+const DAILY_EXPORT_ACTIONS: Array<{
+  format: WorkspaceExportFormat;
+  label: string;
+}> = [
+  { format: 'html', label: 'HTML' },
+  { format: 'markdown', label: 'Markdown' },
+  { format: 'pdf', label: 'PDF' },
+  { format: 'word', label: 'Word' },
+];
 
 interface DailyNotesPageProps {
   entries: DailyNoteEntry[];
@@ -50,6 +71,10 @@ interface DailyNotesPageProps {
   sidebarHeaderOffset?: number;
   viewMode: DailyNotesViewMode;
   onCreateDaily: (date: string) => void;
+  onExportDaily?: (
+    entry: DailyNoteEntry,
+    format: WorkspaceExportFormat,
+  ) => void;
   onInspectorResize: (width: number) => void;
   onMonthChange: (month: Date) => void;
   onOpenDaily: (entry: DailyNoteEntry) => void;
@@ -81,6 +106,7 @@ export function DailyNotesPage({
   sidebarHeaderOffset,
   viewMode,
   onCreateDaily,
+  onExportDaily,
   onInspectorResize,
   onMonthChange,
   onOpenDaily,
@@ -294,6 +320,7 @@ export function DailyNotesPage({
             rootPath={rootPath}
             selectedDate={selectedDate}
             onCreateDaily={onCreateDaily}
+            onExportDaily={onExportDaily}
             onOpenDaily={onOpenDaily}
             onRetryPreview={dailyPreview.retry}
           />
@@ -344,6 +371,7 @@ export function DailyNotesPage({
             rootPath={rootPath}
             selectedDate={selectedDate}
             onCreateDaily={onCreateDaily}
+            onExportDaily={onExportDaily}
             onOpenDaily={onOpenDaily}
             onRetryPreview={dailyPreview.retry}
           />
@@ -533,6 +561,7 @@ function DailyInspector({
   rootPath,
   selectedDate,
   onCreateDaily,
+  onExportDaily,
   onOpenDaily,
   onRetryPreview,
 }: {
@@ -544,6 +573,10 @@ function DailyInspector({
   rootPath: string;
   selectedDate: string;
   onCreateDaily: (date: string) => void;
+  onExportDaily?: (
+    entry: DailyNoteEntry,
+    format: WorkspaceExportFormat,
+  ) => void;
   onOpenDaily: (entry: DailyNoteEntry) => void;
   onRetryPreview: () => void;
 }) {
@@ -584,9 +617,29 @@ function DailyInspector({
               />
             ) : null}
           </div>
-          <div className="shrink-0 border-b border-border/55 p-3 dark:border-muted-foreground/25">
+          <div className="flex shrink-0 gap-2 border-b border-border/55 p-3 dark:border-muted-foreground/25">
+            {onExportDaily ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button className="flex-1" type="button" variant="outline">
+                    <Download data-icon="inline-start" />
+                    导出
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-40">
+                  {DAILY_EXPORT_ACTIONS.map((action) => (
+                    <DropdownMenuItem
+                      key={action.format}
+                      onSelect={() => onExportDaily(entry, action.format)}
+                    >
+                      {action.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
             <Button
-              className="w-full"
+              className="flex-1"
               type="button"
               variant="outline"
               onClick={() => onOpenDaily(entry)}

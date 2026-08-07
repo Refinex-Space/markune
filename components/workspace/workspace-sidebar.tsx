@@ -7,6 +7,7 @@ import { useMemo } from 'react';
 
 import { cn } from '@/lib/utils';
 
+import { isDailyDocumentPath } from './daily-notes';
 import { DocumentTree } from './document-tree';
 import { PinnedChromeMenu } from './pinned-chrome-menu';
 import { WorkspaceSystemNav } from './workspace-system-nav';
@@ -351,8 +352,4 @@ function isDailyRootDirectory(node: WorkspaceNode) {
 
 function isDotPrefixedDirectory(node: WorkspaceNode) {
   return node.kind === 'directory' && node.name.startsWith('.');
-}
-
-function isDailyDocumentPath(relativePath: string | null) {
-  return relativePath?.startsWith('Daily/') ?? false;
 }

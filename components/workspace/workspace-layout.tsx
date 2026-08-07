@@ -59,6 +59,7 @@ import {
   createDateFromDailyDate,
   formatDailyDate,
   getDailyContentDates,
+  toDailyExportNode,
 } from './daily-notes';
 import { DocumentTabBar } from './document-tab-bar';
 import { DrawingSidebar } from './drawing-sidebar';
@@ -77,6 +78,7 @@ import {
   openPlanPreviewTab,
   renameDocumentTab,
   selectDocumentTab,
+  type DocumentEditorDocumentTab,
   type DocumentEditorLayout,
   updateDocumentEditorWarmPaths,
 } from './document-tabs';
@@ -182,6 +184,7 @@ import type {
   DocumentLoadState,
   DocumentSaveState,
   DailyNoteDocument,
+  DailyNoteEntry,
   GitBranchItem,
   GitCommitEntry,
   GitCommitFile,
@@ -2037,6 +2040,27 @@ export function WorkspaceLayout({
     ],
   );
 
+  const handleExportDailyNote = React.useCallback(
+    (entry: DailyNoteEntry, format: WorkspaceExportFormat) => {
+      if (!workspaceRootPath) {
+        return;
+      }
+
+      void handleExportDocument(
+        toDailyExportNode(entry, workspaceRootPath),
+        format,
+      );
+    },
+    [handleExportDocument, workspaceRootPath],
+  );
+
+  const handleExportDocumentTab = React.useCallback(
+    (tab: DocumentEditorDocumentTab, format: WorkspaceExportFormat) => {
+      void handleExportDocument(toDocumentTabExportNode(tab), format);
+    },
+    [handleExportDocument],
+  );
+
   const revealNodeInWorkspaceTree = React.useCallback(
     (absolutePath: string) => {
       setLeftPanelMode('workspace');
@@ -3185,6 +3209,11 @@ export function WorkspaceLayout({
                         onCloseTab={handleCloseDocumentTab}
                         onCloseTabsToLeft={handleCloseDocumentTabsToLeft}
                         onCloseTabsToRight={handleCloseDocumentTabsToRight}
+                        onExportTab={
+                          documentExport.available
+                            ? handleExportDocumentTab
+                            : undefined
+                        }
                         onSelectTab={handleSelectDocumentTab}
                       />
                     ) : null
@@ -3237,6 +3266,11 @@ export function WorkspaceLayout({
                         sidebarHeaderOffset={macSidebarHeaderOffset}
                         viewMode={dailyNotesViewMode}
                         onCreateDaily={(date) => void handleOpenDailyNote(date)}
+                        onExportDaily={
+                          documentExport.available
+                            ? handleExportDailyNote
+                            : undefined
+                        }
                         onInspectorResize={setDailyNotesInspectorWidth}
                         onMonthChange={handleDailyMonthChange}
                         onOpenDaily={(entry) =>
@@ -4496,6 +4530,19 @@ function flattenWorkspaceNodes(nodes: WorkspaceNode[]): WorkspaceNode[] {
 
 function filterRegularWorkspaceNodes(nodes: WorkspaceNode[]) {
   return nodes.filter((node) => !isDailyRootDirectory(node));
+}
+
+function toDocumentTabExportNode(
+  tab: DocumentEditorDocumentTab,
+): WorkspaceNode {
+  return {
+    id: tab.absolutePath,
+    name: tab.name,
+    kind: 'document',
+    relativePath: tab.name,
+    absolutePath: tab.absolutePath,
+    title: tab.title,
+  };
 }
 
 function isDailyRootDirectory(node: WorkspaceNode) {

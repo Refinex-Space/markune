@@ -36,7 +36,7 @@ Capture 的持久状态仅为 `open`、`processing`、`done`、`archived`。Inbo
 
 ## Daily Calendar Boundary
 
-Daily 是工作区级日程总览，也是普通 Markdown 文档集合。顶部“日程”入口只切换到总览系统页，不创建或打开当天文件；左下角迷你日历继续作为具体日期的快捷入口。总览中的日期选择只更新选中状态，已有条目通过“打开详情”进入编辑器，空白日期必须显式选择“创建每日笔记”后才调用 `open_daily_note`。物理文件继续固定保存在 `Daily/YYYY/MM/YYYY-MM-DD.md`，不新增事件实体、数据库投影或会议日历语义。
+Daily 是工作区级日程总览，也是普通 Markdown 文档集合。顶部“日程”入口只切换到总览系统页，不创建或打开当天文件；左下角迷你日历继续作为具体日期的快捷入口。总览中的日期选择只更新选中状态，已有条目通过“打开详情”进入编辑器，空白日期必须显式选择“创建每日笔记”后才调用 `open_daily_note`。物理文件继续固定保存在 `Daily/YYYY/MM/YYYY-MM-DD.md`，不新增事件实体、数据库投影或会议日历语义。`Daily/` 根目录仍从普通文档树隐藏；单日导出不依赖树节点，而由日程检查器「导出」菜单与文档标签右键「导出」复用既有 `useDocumentExport` 管线（HTML / Markdown / PDF / Word），桌面端可用时才接线。
 
 macOS 工作区壳层把全局 Chrome 工具与系统页工具分为两个不重叠的纵向区段：主标题栏高度由 `macChromeContentTop - WORKSPACE_PANEL_MARGIN` 计算，日程与视图页再以零偏移接续，因此它们的工具行可与侧边栏搜索、置顶入口共用水平中线，而不通过负外边距侵入全局按钮区域。Windows 与 Web 继续使用原有固定标题栏高度。
 
@@ -70,7 +70,7 @@ Markdown/HTML 相对图片只能从已授权源文档目录内读取；跨工作
 
 ## Single-document Export Boundary
 
-单文档导出由 `components/workspace/use-document-export.tsx` 统一编排，文档树右键菜单与省略号菜单只传入文档节点和格式。导出源按当前未保存草稿、已打开标签缓存、磁盘 Markdown 的顺序解析，继续保持 Markdown-first 边界。
+单文档导出由 `components/workspace/use-document-export.tsx` 统一编排。入口包括文档树右键/省略号菜单、日程检查器「导出」菜单，以及文档标签右键「导出」子菜单；上述入口只传入文档节点和格式。导出源按当前未保存草稿、已打开标签缓存、磁盘 Markdown 的顺序解析，继续保持 Markdown-first 边界。日程导出通过 `toDailyExportNode` 把 `DailyNoteEntry` 映射为最小 `WorkspaceNode`（文件名 stem 优先使用 `YYYY-MM-DD`），不因导出调用 `open_daily_note` 创建空文件，也不新增批量/整月导出协议。
 
 `document-export-core.ts` 负责可移植 Markdown 资源包、只读 Markweave DOM 快照与静态 HTML 清理。HTML 跟随当前主题并使用 64 rem 标准正文宽度；导出快照必须移除编辑器目录、工具栏、大文档 `content-visibility` 属性和其他运行时 UI，但保留正文语义与内联图片。`document-export-professional.ts` 是 Madora 方言到通用 Markdown 的受控适配层：本地资产只映射到 staging，相同的 frontmatter 标题/H1 去重，Wiki 链接转为可读文本，远程图片转为普通链接，已成功渲染的 Mermaid 预览转为静态 PNG。
 

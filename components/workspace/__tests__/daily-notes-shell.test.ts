@@ -53,5 +53,10 @@ describe('Daily notes workspace shell', () => {
     );
     expect(layout).toContain('if (storedValue === null)');
     expect(layout).toContain('onInspectorResize={setDailyNotesInspectorWidth}');
+    expect(layout).toContain('onExportDaily={');
+    expect(layout).toContain('handleExportDailyNote');
+    expect(layout).toContain('onExportTab={');
+    expect(layout).toContain('handleExportDocumentTab');
+    expect(layout).toContain('toDailyExportNode');
   });
 });

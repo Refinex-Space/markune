@@ -1,12 +1,15 @@
 'use client';
 
 import * as React from 'react';
-import { ChevronDown, Lightbulb, X } from 'lucide-react';
+import { ChevronDown, Download, Lightbulb, X } from 'lucide-react';
 
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import {
@@ -18,8 +21,10 @@ import {
 import { cn } from '@/lib/utils';
 
 import type {
+  DocumentEditorDocumentTab,
   DocumentEditorTab,
 } from './document-tabs';
+import type { WorkspaceExportFormat } from './workspace-types';
 
 interface DocumentTabBarProps {
   activeTabId: string | null;
@@ -30,10 +35,24 @@ interface DocumentTabBarProps {
   onCloseTab: (tabId: string) => void;
   onCloseTabsToLeft: (tabId: string) => void;
   onCloseTabsToRight: (tabId: string) => void;
+  onExportTab?: (
+    tab: DocumentEditorDocumentTab,
+    format: WorkspaceExportFormat,
+  ) => void;
   onSelectTab: (tabId: string) => void;
 }
 
 const OVERFLOW_TRIGGER_WIDTH = 32;
+
+const DOCUMENT_EXPORT_ACTIONS: Array<{
+  format: WorkspaceExportFormat;
+  label: string;
+}> = [
+  { format: 'html', label: 'HTML' },
+  { format: 'markdown', label: 'Markdown' },
+  { format: 'pdf', label: 'PDF' },
+  { format: 'word', label: 'Word' },
+];
 
 export function calculateResponsiveVisibleTabCount(
   tabWidths: readonly number[],
@@ -88,6 +107,7 @@ export function DocumentTabBar({
   onCloseTab,
   onCloseTabsToLeft,
   onCloseTabsToRight,
+  onExportTab,
   onSelectTab,
 }: DocumentTabBarProps) {
   const tabBarRef = React.useRef<HTMLDivElement>(null);
@@ -176,6 +196,7 @@ export function DocumentTabBar({
               onCloseTab={onCloseTab}
               onCloseTabsToLeft={onCloseTabsToLeft}
               onCloseTabsToRight={onCloseTabsToRight}
+              onExportTab={onExportTab}
               onSelectTab={onSelectTab}
             />
           </div>
@@ -298,9 +319,11 @@ function DocumentTabItem({
   onCloseTab,
   onCloseTabsToLeft,
   onCloseTabsToRight,
+  onExportTab,
   onSelectTab,
 }: DocumentTabItemProps) {
   const active = activeTabId === tab.id;
+  const canExport = tab.kind === 'document' && Boolean(onExportTab);
 
   return (
     <ContextMenu>
@@ -360,6 +383,24 @@ function DocumentTabItem({
         <ContextMenuItem onSelect={() => onCloseTabsToRight(tab.id)}>
           关闭右侧标签页
         </ContextMenuItem>
+        {canExport && tab.kind === 'document' ? (
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>
+              <Download />
+              导出
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent className="w-40">
+              {DOCUMENT_EXPORT_ACTIONS.map((action) => (
+                <ContextMenuItem
+                  key={action.format}
+                  onSelect={() => onExportTab?.(tab, action.format)}
+                >
+                  {action.label}
+                </ContextMenuItem>
+              ))}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+        ) : null}
       </ContextMenuContent>
     </ContextMenu>
   );

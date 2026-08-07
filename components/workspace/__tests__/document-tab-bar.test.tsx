@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -115,9 +115,77 @@ describe('DocumentTabBar', () => {
     expect(await screen.findByRole('menuitem', { name: '关闭其他标签页' })).toBeTruthy();
     expect(screen.queryByRole('menuitem', { name: '向右拆分' })).toBeNull();
     expect(screen.queryByRole('menuitem', { name: '向下拆分' })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: '导出' })).toBeNull();
     await user.click(await screen.findByRole('menuitem', { name: '关闭其他标签页' }));
 
     expect(onCloseOtherTabs).toHaveBeenCalledWith('/repo/b.md');
+  });
+
+  it('exports the active document tab from the context menu when available', async () => {
+    const user = userEvent.setup();
+    const onExportTab = vi.fn();
+    const documentTabs = tabs();
+
+    render(
+      <DocumentTabBar
+        activeTabId="/repo/b.md"
+        tabs={documentTabs}
+        visibleTabLimit={8}
+        onCloseAllTabs={vi.fn()}
+        onCloseOtherTabs={vi.fn()}
+        onCloseTab={vi.fn()}
+        onCloseTabsToLeft={vi.fn()}
+        onCloseTabsToRight={vi.fn()}
+        onExportTab={onExportTab}
+        onSelectTab={vi.fn()}
+      />,
+    );
+
+    await user.pointer({
+      keys: '[MouseRight]',
+      target: screen.getByRole('tab', { name: /B/ }),
+    });
+    const exportTrigger = await screen.findByRole('menuitem', { name: '导出' });
+    await user.click(exportTrigger);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Word' }));
+
+    expect(onExportTab).toHaveBeenCalledWith(documentTabs[1], 'word');
+  });
+
+  it('hides export actions for plan preview tabs', async () => {
+    const user = userEvent.setup();
+    const onExportTab = vi.fn();
+
+    render(
+      <DocumentTabBar
+        activeTabId="plan:thread:1"
+        tabs={[
+          {
+            id: 'plan:thread:1',
+            kind: 'plan',
+            markdown: '# Plan',
+            planId: '1',
+            threadId: 'thread',
+            title: 'Plan',
+          },
+        ]}
+        visibleTabLimit={8}
+        onCloseAllTabs={vi.fn()}
+        onCloseOtherTabs={vi.fn()}
+        onCloseTab={vi.fn()}
+        onCloseTabsToLeft={vi.fn()}
+        onCloseTabsToRight={vi.fn()}
+        onExportTab={onExportTab}
+        onSelectTab={vi.fn()}
+      />,
+    );
+
+    await user.pointer({
+      keys: '[MouseRight]',
+      target: screen.getByRole('tab', { name: /Plan/ }),
+    });
+    expect(await screen.findByRole('menuitem', { name: '关闭' })).toBeTruthy();
+    expect(screen.queryByRole('menuitem', { name: '导出' })).toBeNull();
   });
 
   it('moves overflowed tabs into the more menu', async () => {
