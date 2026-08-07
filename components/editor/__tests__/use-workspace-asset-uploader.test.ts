@@ -6,13 +6,21 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 vi.mock('@/components/workspace/workspace-api', () => ({
+  isTauriRuntime: vi.fn(() => true),
+  readWorkspaceAssetData: vi.fn(),
   resolveWorkspaceAssets: vi.fn(),
+  selectWorkspaceAssetDownloadPath: vi.fn(),
   uploadWorkspaceAsset: vi.fn(),
+  writeExportFile: vi.fn(),
 }));
 
 import {
+  isTauriRuntime,
+  readWorkspaceAssetData,
   resolveWorkspaceAssets,
+  selectWorkspaceAssetDownloadPath,
   uploadWorkspaceAsset,
+  writeExportFile,
 } from '@/components/workspace/workspace-api';
 import {
   clearWorkspaceAssetResolverCache,
@@ -23,6 +31,7 @@ describe('useWorkspaceAssetUploader', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearWorkspaceAssetResolverCache();
+    vi.mocked(isTauriRuntime).mockReturnValue(true);
   });
 
   it('上传 File 后返回 Markweave 可显示 URL，并在入库前还原资产协议引用', async () => {
@@ -75,6 +84,87 @@ describe('useWorkspaceAssetUploader', () => {
         '![图](asset:///ws/.madora/assets/files/ab/hash.png)',
       ),
     ).toBe('![图](madora-asset://hash)');
+  });
+
+  it('附件上传返回不透明 madora-asset 定位符并支持进度回调与下载', async () => {
+    const onProgress = vi.fn();
+    vi.mocked(uploadWorkspaceAsset).mockResolvedValue({
+      absolutePath: '/ws/.madora/assets/files/ab/hash.pdf',
+      id: 'hash',
+      mediaType: 'application/pdf',
+      name: 'notes.pdf',
+      relativePath: '.madora/assets/files/ab/hash.pdf',
+      size: 4,
+      url: 'madora-asset://hash',
+    });
+    vi.mocked(readWorkspaceAssetData).mockResolvedValue({
+      base64Data: 'AQIDBA==',
+      id: 'hash',
+      mediaType: 'application/pdf',
+      name: 'notes.pdf',
+    });
+    vi.mocked(selectWorkspaceAssetDownloadPath).mockResolvedValue(
+      '/tmp/notes.pdf',
+    );
+
+    const { result } = renderHook(() =>
+      useWorkspaceAssetUploader('/ws/root', '# 文档'),
+    );
+    const file = new File([new Uint8Array([1, 2, 3, 4])], 'notes.pdf', {
+      type: 'application/pdf',
+    });
+
+    let out:
+      | Awaited<ReturnType<typeof result.current.onSlashCommandUpload>>
+      | undefined;
+
+    await act(async () => {
+      out = await result.current.onSlashCommandUpload({
+        kind: 'attachment',
+        onProgress,
+        source: {
+          file,
+          mimeType: 'application/pdf',
+          type: 'file',
+        },
+        trigger: 'attachment-insert',
+      });
+    });
+
+    expect(out).toEqual({
+      mimeType: 'application/pdf',
+      name: 'notes.pdf',
+      size: 4,
+      src: 'madora-asset://hash',
+    });
+    expect(onProgress).toHaveBeenCalled();
+    expect(
+      result.current.toStorageMarkdown(
+        '<a href="madora-asset://hash" class="markweave-attachment" data-markweave-attachment="true">notes.pdf</a>',
+      ),
+    ).toContain('madora-asset://hash');
+
+    await act(async () => {
+      await result.current.onAttachmentDownload(
+        {
+          mimeType: 'application/pdf',
+          name: 'notes.pdf',
+          size: 4,
+          src: 'madora-asset://hash',
+        },
+        {
+          event: new MouseEvent('click'),
+          mode: 'live',
+        },
+      );
+    });
+
+    expect(readWorkspaceAssetData).toHaveBeenCalledWith('/ws/root', 'hash');
+    expect(selectWorkspaceAssetDownloadPath).toHaveBeenCalledWith(
+      'notes.pdf',
+      'application/pdf',
+    );
+    expect(writeExportFile).toHaveBeenCalledWith('/tmp/notes.pdf', 'AQIDBA==');
   });
 
   it('rootPath 为 null 时文件上传抛错', async () => {

@@ -51,6 +51,7 @@ const {
   useWorkspaceAssetUploaderMock: vi.fn(
     (_rootPath: string | null, markdown: string) => ({
       editorMarkdown: markdown,
+      onAttachmentDownload: vi.fn(),
       onSlashCommandUpload: uploadHandlerMock,
       toStorageMarkdown: toStorageMarkdownMock,
     }),
@@ -291,6 +292,7 @@ describe('MarkdownEditor', () => {
     useWorkspaceAssetUploaderMock.mockImplementation(
       (_rootPath: string | null, markdown: string) => ({
         editorMarkdown: markdown,
+        onAttachmentDownload: vi.fn(),
         onSlashCommandUpload: uploadHandlerMock,
         toStorageMarkdown: toStorageMarkdownMock,
       }),
@@ -331,6 +333,7 @@ describe('MarkdownEditor', () => {
       innerToc: true,
       innerTocPlacement: 'container',
       lang: 'zh',
+      onAttachmentDownload: expect.any(Function),
       onSlashCommandUpload: uploadHandlerMock,
       theme: 'light',
       mode: 'live',

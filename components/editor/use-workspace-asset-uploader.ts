@@ -3,13 +3,18 @@
 import * as React from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import type {
+  MarkweaveAttachmentDownloadHandler,
   MarkweaveSlashCommandUploadHandler,
   MarkweaveUploadResult,
 } from '@markweave/react';
 
 import {
+  isTauriRuntime,
+  readWorkspaceAssetData,
   resolveWorkspaceAssets,
+  selectWorkspaceAssetDownloadPath,
   uploadWorkspaceAsset,
+  writeExportFile,
 } from '@/components/workspace/workspace-api';
 import {
   extractWorkspaceAssetReferences,
@@ -23,6 +28,7 @@ import {
 
 export interface WorkspaceAssetUploadBridge {
   editorMarkdown: string;
+  onAttachmentDownload: MarkweaveAttachmentDownloadHandler;
   onSlashCommandUpload: MarkweaveSlashCommandUploadHandler;
   resolveMediaSource: WorkspaceMediaSourceResolver;
   toStorageMarkdown: (markdown: string) => string;
@@ -398,10 +404,22 @@ export function useWorkspaceAssetUploader(
         throw new Error('未打开工作区，无法上传附件。');
       }
 
+      const total = Number.isFinite(file.size) ? file.size : null;
+      request.onProgress?.({ loaded: 0, total });
+
+      const base64Data = await fileToBase64(file, (loaded) => {
+        request.onProgress?.({ loaded, total });
+      });
+
+      request.onProgress?.({
+        loaded: total ?? file.size,
+        total,
+      });
+
       const uploaded = await uploadWorkspaceAsset(rootPath, {
         fileName: getUploadFileName(file),
         mediaType: file.type || 'application/octet-stream',
-        base64Data: await fileToBase64(file),
+        base64Data,
       });
       const displayUrl = convertFileSrc(uploaded.absolutePath);
       const storageReference = uploaded.url;
@@ -415,6 +433,16 @@ export function useWorkspaceAssetUploader(
         { src: displayUrl },
       );
 
+      // 附件按宿主协议持久化不透明定位符；图片/视频继续返回可显示 URL。
+      if (request.kind === 'attachment') {
+        return {
+          src: storageReference,
+          name: uploaded.name,
+          mimeType: uploaded.mediaType,
+          size: uploaded.size,
+        };
+      }
+
       return {
         src: displayUrl,
         name: uploaded.name,
@@ -425,8 +453,52 @@ export function useWorkspaceAssetUploader(
     [rootPath],
   );
 
+  const onAttachmentDownload = React.useCallback<MarkweaveAttachmentDownloadHandler>(
+    async (attachment) => {
+      if (!rootPath) {
+        throw new Error('未打开工作区，无法下载附件。');
+      }
+
+      const projectedStorageReference =
+        cacheRootPathRef.current === rootPath
+          ? displayToStorageRef.current.get(attachment.src)
+          : undefined;
+      const assetId = getWorkspaceAssetIdFromReference(
+        projectedStorageReference ?? attachment.src,
+      );
+
+      if (!assetId) {
+        throw new Error('无法识别附件资源定位符。');
+      }
+
+      const data = await readWorkspaceAssetData(rootPath, assetId);
+      const fileName = attachment.name?.trim() || data.name;
+      const targetPath = await selectWorkspaceAssetDownloadPath(
+        fileName,
+        attachment.mimeType ?? data.mediaType,
+      );
+
+      if (!targetPath) {
+        return;
+      }
+
+      if (isTauriRuntime()) {
+        await writeExportFile(targetPath, data.base64Data);
+        return;
+      }
+
+      triggerBrowserAttachmentDownload(
+        fileName,
+        attachment.mimeType ?? data.mediaType,
+        data.base64Data,
+      );
+    },
+    [rootPath],
+  );
+
   return {
     editorMarkdown: storageMarkdown,
+    onAttachmentDownload,
     onSlashCommandUpload,
     resolveMediaSource,
     toStorageMarkdown,
@@ -496,9 +568,18 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function fileToBase64(file: File): Promise<string> {
+function fileToBase64(
+  file: File,
+  onProgress?: (loaded: number) => void,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
+
+    reader.onprogress = (event) => {
+      if (event.lengthComputable) {
+        onProgress?.(event.loaded);
+      }
+    };
 
     reader.onload = () => {
       const result = reader.result;
@@ -515,10 +596,33 @@ function fileToBase64(file: File): Promise<string> {
         return;
       }
 
+      onProgress?.(file.size);
       resolve(result.slice(commaIndex + 1));
     };
 
     reader.onerror = () => reject(reader.error ?? new Error('文件读取失败。'));
     reader.readAsDataURL(file);
   });
+}
+
+function triggerBrowserAttachmentDownload(
+  fileName: string,
+  mediaType: string,
+  base64Data: string,
+) {
+  const binary = atob(base64Data);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  const objectUrl = URL.createObjectURL(
+    new Blob([bytes], { type: mediaType || 'application/octet-stream' }),
+  );
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = fileName || 'attachment';
+  anchor.click();
+  URL.revokeObjectURL(objectUrl);
 }

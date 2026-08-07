@@ -182,6 +182,7 @@ export const MarkdownEditor = React.forwardRef<
   );
   const {
     editorMarkdown,
+    onAttachmentDownload,
     onSlashCommandUpload,
     resolveMediaSource,
     toStorageMarkdown,
@@ -666,6 +667,7 @@ export const MarkdownEditor = React.forwardRef<
             lang="zh"
             mode={readOnly ? 'view' : 'live'}
             onAiEditControllerChange={handleAiEditControllerChange}
+            onAttachmentDownload={onAttachmentDownload}
             onSlashCommandUpload={onSlashCommandUpload}
             {...{ resolveMediaSource }}
             onSearchControllerChange={handleSearchControllerChange}
