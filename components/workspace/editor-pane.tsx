@@ -31,6 +31,7 @@ interface EditorPaneProps {
   documentLoadState: DocumentLoadState;
   hasWorkspace: boolean;
   isWorkspaceEmpty: boolean;
+  workspaceOpenError?: string | null;
   onCreateDirectory: () => void;
   onCreateDocument: () => void;
   onImportMarkdown: () => void;
@@ -49,6 +50,7 @@ export function EditorPane({
   documentLoadState,
   hasWorkspace,
   isWorkspaceEmpty,
+  workspaceOpenError = null,
   onCreateDirectory,
   onCreateDocument,
   onImportMarkdown,
@@ -123,6 +125,7 @@ export function EditorPane({
           <DocumentEmptyState
             hasWorkspace={hasWorkspace}
             recentDocuments={recentDocuments}
+            workspaceOpenError={workspaceOpenError}
             onOpenRecentDocument={onOpenRecentDocument}
             onOpenWorkspace={onOpenWorkspace}
           />
@@ -135,11 +138,13 @@ export function EditorPane({
 function DocumentEmptyState({
   hasWorkspace,
   recentDocuments,
+  workspaceOpenError,
   onOpenRecentDocument,
   onOpenWorkspace,
 }: {
   hasWorkspace: boolean;
   recentDocuments: RecentWorkspaceDocument[];
+  workspaceOpenError?: string | null;
   onOpenRecentDocument: (absolutePath: string) => void;
   onOpenWorkspace: () => void;
 }) {
@@ -171,6 +176,14 @@ function DocumentEmptyState({
             ? '从左侧选择文档，或继续最近打开的内容。'
             : '打开一个本地工作区，开始整理 Markdown 笔记。'}
         </p>
+        {!hasWorkspace && workspaceOpenError ? (
+          <p
+            className="mt-3 max-w-sm text-sm leading-6 text-destructive"
+            data-testid="workspace-open-error"
+          >
+            {workspaceOpenError}
+          </p>
+        ) : null}
         {hasWorkspace ? (
           <RecentDocumentsList
             documents={recentDocuments}

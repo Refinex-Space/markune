@@ -150,6 +150,7 @@ pub fn run() {
             system_fonts::list_system_fonts,
             window_chrome::get_macos_titlebar_metrics,
             workspace::ensure_workspace,
+            workspace::select_workspace_directory,
             workspace::open_path_in_preferred_editor,
             workspace::record_recent_document,
             workspace::set_workspace_node_state,

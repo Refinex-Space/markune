@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-31
+updated: 2026-08-07
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -18,6 +18,8 @@ referenced_by: AGENTS.md#knowledge-map
 - 前端调用必须经 `components/workspace/workspace-api.ts`。
 - 命令注册位于 `src-tauri/src/lib.rs`。
 - `get_macos_titlebar_metrics() -> { trafficLightCenterY } | null` 只读 AppKit 原生关闭按钮在当前 WKWebView 坐标系中的垂直中心，供左上角 Web 控件对齐；返回值只包含经过有限值与标题栏范围校验的逻辑像素，不暴露原生句柄、窗口内容或设备信息，非 macOS 返回 `null`。
+- `select_workspace_directory() -> string | null` 通过原生文件夹选择器打开工作区根目录；取消返回 `null`，成功返回 canonicalize 后的本地目录绝对路径。打开/新建工作区不得再依赖前端 `@tauri-apps/plugin-dialog` 的 `open()`。
+- `load_workspace_tree(rootPath)` / `ensure_workspace(rootPath)` / `create_workspace_root(parentPath, workspaceName)` 继续作为工作区树读取、元数据初始化与新建入口。
 - Git 命令必须在阻塞任务中执行，不得占用 Tauri 原生主线程；本地命令超时为 60 秒，网络及提交等长操作超时为 180 秒，超时后必须终止对应进程树。Windows 启动 Git 子进程时必须使用无窗口标志，前端命令名称、参数和返回结构保持不变。
 - `system_fonts.rs` 仅可返回字体家族名称与推荐元数据，不得暴露字体文件路径或内容。
 - 桌面端网络功能应走 Tauri 命令；生产桌面构建使用静态导出，不包含 Next API routes。

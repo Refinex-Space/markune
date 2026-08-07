@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 #[cfg(target_os = "macos")]
 use std::process::Command;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use tauri::AppHandle;
+use tauri_plugin_dialog::DialogExt;
 
 const WORKSPACE_PRIVATE_DIR: &str = ".madora";
 const PERFORMANCE_LOG_ENV: &str = "MADORA_PERF_LOG";
@@ -264,6 +266,27 @@ pub fn ensure_workspace(root_path: String) -> Result<WorkspaceMetadata, String> 
 }
 
 #[tauri::command]
+pub async fn select_workspace_directory(app: AppHandle) -> Result<Option<String>, String> {
+    let selected = app.dialog().file().set_title("选择工作区文件夹").blocking_pick_folder();
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+
+    let path = selected
+        .into_path()
+        .map_err(|_| "所选路径不是本地文件夹。".to_string())?;
+    let canonical = path
+        .canonicalize()
+        .map_err(|_| "无法访问所选文件夹。".to_string())?;
+
+    if !canonical.is_dir() {
+        return Err("所选路径不是文件夹。".to_string());
+    }
+
+    Ok(Some(canonical.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
 pub fn record_recent_document(
     root_path: String,
     document_path: String,
@@ -489,7 +512,9 @@ fn load_workspace_tree_sync(root_path: String) -> Result<WorkspaceSnapshot, Stri
     let result = (|| {
         let root = canonical_workspace_root(&root_path)?;
         ensure_workspace_metadata(&root).map_err(|error| format!("初始化工作区失败：{error}"))?;
-        build_workspace_snapshot(&root).map_err(|error| format!("读取工作区失败：{error}"))
+        build_workspace_snapshot(&root).map_err(|error| {
+            format!("读取工作区失败：{error}（{}）", root.display())
+        })
     })();
     let details = match &result {
         Ok(snapshot) if timer.is_some() => {
@@ -1117,7 +1142,11 @@ fn read_children(
     let mut nodes = Vec::new();
 
     for entry in fs::read_dir(dir)? {
-        let entry = entry?;
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) if is_skippable_tree_entry_error(&error) => continue,
+            Err(error) => return Err(error),
+        };
         let path = entry.path();
         let file_name = entry.file_name().to_string_lossy().to_string();
 
@@ -1125,19 +1154,31 @@ fn read_children(
             continue;
         }
 
-        let sort_timestamp = read_sort_timestamp(&path)?;
+        // Broken symlinks / vanished cloud placeholders must not fail the whole tree.
+        // author: refinex
+        let sort_timestamp = match read_sort_timestamp(&path) {
+            Ok(timestamp) => timestamp,
+            Err(error) if is_skippable_tree_entry_error(&error) => continue,
+            Err(error) => return Err(error),
+        };
 
         if path.is_dir() {
-            let children = read_children(root, &path, sort_order, node_state)?;
-            nodes.push((
-                build_directory_node(root, &path, file_name, children, node_state)?,
-                sort_timestamp,
-            ));
+            let children = match read_children(root, &path, sort_order, node_state) {
+                Ok(children) => children,
+                Err(error) if is_skippable_tree_entry_error(&error) => continue,
+                Err(error) => return Err(error),
+            };
+            match build_directory_node(root, &path, file_name, children, node_state) {
+                Ok(node) => nodes.push((node, sort_timestamp)),
+                Err(error) if is_skippable_tree_entry_error(&error) => continue,
+                Err(error) => return Err(error),
+            }
         } else if is_markdown_document_file(&path) {
-            nodes.push((
-                build_document_node(root, &path, file_name, node_state)?,
-                sort_timestamp,
-            ));
+            match build_document_node(root, &path, file_name, node_state) {
+                Ok(node) => nodes.push((node, sort_timestamp)),
+                Err(error) if is_skippable_tree_entry_error(&error) => continue,
+                Err(error) => return Err(error),
+            }
         }
     }
 
@@ -1154,6 +1195,13 @@ fn read_children(
     });
 
     Ok(nodes.into_iter().map(|(node, _)| node).collect())
+}
+
+fn is_skippable_tree_entry_error(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
+    )
 }
 
 fn compare_workspace_nodes(
@@ -1381,7 +1429,11 @@ fn read_sortable_child_entries(
     let mut entries = Vec::new();
 
     for entry in fs::read_dir(parent)? {
-        let entry = entry?;
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) if is_skippable_tree_entry_error(&error) => continue,
+            Err(error) => return Err(error),
+        };
         let path = entry.path();
         let file_name = entry.file_name().to_string_lossy().to_string();
 
@@ -1390,10 +1442,15 @@ fn read_sortable_child_entries(
         }
 
         if path.is_dir() || is_markdown_document_file(&path) {
+            let sort_timestamp = match read_sort_timestamp(&path) {
+                Ok(timestamp) => timestamp,
+                Err(error) if is_skippable_tree_entry_error(&error) => continue,
+                Err(error) => return Err(error),
+            };
             entries.push(SortableChildEntry {
                 relative_path: to_relative_path(root, &path),
                 name: file_name,
-                sort_timestamp: read_sort_timestamp(&path)?,
+                sort_timestamp,
             });
         }
     }
@@ -3352,6 +3409,31 @@ mod tests {
         assert!(debug.contains("草稿"));
         assert!(!debug.contains("legacy.plate.json"));
         assert!(!debug.contains("data.json"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn build_workspace_snapshot_skips_broken_symlinks() {
+        let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
+        fs::write(temp_dir.path().join("ok.md"), "# 正常\n").expect("写入文档失败");
+        std::os::unix::fs::symlink(
+            temp_dir.path().join("missing-target.md"),
+            temp_dir.path().join("broken.md"),
+        )
+        .expect("创建坏符号链接失败");
+        std::os::unix::fs::symlink(
+            temp_dir.path().join("missing-dir"),
+            temp_dir.path().join("broken-dir"),
+        )
+        .expect("创建坏目录符号链接失败");
+
+        let snapshot =
+            build_workspace_snapshot(temp_dir.path()).expect("含坏链接的工作区也应可读");
+        let debug = format!("{snapshot:?}");
+
+        assert!(debug.contains("ok.md"));
+        assert!(!debug.contains("broken.md"));
+        assert!(!debug.contains("broken-dir"));
     }
 
     #[test]

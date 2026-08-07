@@ -683,6 +683,7 @@ export function WorkspaceLayout({
     React.useState<LeftPanelMode>('workspace');
   const [systemPage, setSystemPage] = React.useState<WorkspaceSystemPage>(null);
   const showDocumentTabs =
+    Boolean(workspace.snapshot) &&
     leftPanelMode === 'workspace' &&
     systemPage === null &&
     (activeEditorTab?.kind === 'plan' ||
@@ -3323,6 +3324,26 @@ export function WorkspaceLayout({
                         isLoading={gitLoading && Boolean(gitSelectedPath)}
                         label={gitDiffLabel}
                       />
+                    ) : !workspace.snapshot ? (
+                      <EditorPane
+                        currentDirectory={null}
+                        currentDocument={null}
+                        directoryContent={null}
+                        documentLoadError={null}
+                        documentLoadState="idle"
+                        hasWorkspace={false}
+                        isWorkspaceEmpty={false}
+                        workspaceOpenError={workspace.error?.message ?? null}
+                        onCreateDirectory={() => undefined}
+                        onCreateDocument={() => undefined}
+                        onImportMarkdown={() => undefined}
+                        onOpenRecentDocument={handleOpenRecentDocument}
+                        onOpenWorkspace={workspace.openWorkspace}
+                        onRetryDocument={workspace.retryCurrentDocument}
+                        recentDocuments={[]}
+                      >
+                        {null}
+                      </EditorPane>
                     ) : activeEditorTab?.kind === 'plan' ||
                       workspace.currentDocument ||
                       (!workspace.currentDirectory && hasOpenDocumentTabs) ? (
@@ -3372,6 +3393,7 @@ export function WorkspaceLayout({
                         documentLoadState={workspace.documentLoadState}
                         hasWorkspace={workspace.snapshot !== null}
                         isWorkspaceEmpty={isWorkspaceEmpty}
+                        workspaceOpenError={workspace.error?.message ?? null}
                         onCreateDirectory={() => void workspace.createDirectory('')}
                         onCreateDocument={() => void handleCreateDocument('')}
                         onImportMarkdown={() =>

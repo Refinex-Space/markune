@@ -224,13 +224,14 @@ export async function selectWorkspaceRoot() {
     return null;
   }
 
-  const { open } = await import('@tauri-apps/plugin-dialog');
-  const selected = await open({
-    directory: true,
-    multiple: false,
-  });
+  const { invoke } = await import('@tauri-apps/api/core');
+  const selected = await invoke<string | null>('select_workspace_directory');
 
-  return typeof selected === 'string' ? selected : null;
+  if (typeof selected === 'string' && selected.length > 0) {
+    return selected;
+  }
+
+  return null;
 }
 
 export async function selectWorkspaceParentDirectory() {
