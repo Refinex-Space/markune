@@ -296,6 +296,8 @@ export interface WorkspaceDailyNoteEntry {
 
 export type PageWidthMode = 'standard' | 'wide';
 
+export type SystemNavLayout = 'vertical' | 'horizontal';
+
 export interface AppearanceFontSettings {
   code: string;
   document: string;
@@ -305,6 +307,8 @@ export interface AppearanceFontSettings {
 export interface AppearanceSettings {
   fonts: AppearanceFontSettings;
   pageWidthMode: PageWidthMode;
+  systemNavCollapsed: boolean;
+  systemNavLayout: SystemNavLayout;
 }
 
 export interface SystemFontOptions {

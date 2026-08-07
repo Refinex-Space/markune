@@ -51,6 +51,7 @@ import type {
   WorkspaceSettingsSessionCache,
 } from './workspace-settings-cache';
 import { WorkspaceResizeHandle } from './workspace-resize-handle';
+import { withDefaultAppSettings } from './workspace-settings';
 import type {
   AppearanceFontSettings,
   AppSettings,
@@ -59,6 +60,7 @@ import type {
   GitSyncConflictResolution,
   PageWidthMode,
   SystemFontOptions,
+  SystemNavLayout,
   WorkspaceGitSyncSettings,
 } from './workspace-types';
 
@@ -123,7 +125,18 @@ const SETTINGS_SECTIONS: Array<{
     id: 'appearance',
     icon: Palette,
     label: '外观',
-    searchTerms: ['外观', '主题', '亮色', '暗色', '页面宽度', '字体'],
+    searchTerms: [
+      '外观',
+      '主题',
+      '亮色',
+      '暗色',
+      '页面宽度',
+      '字体',
+      '系统入口',
+      '纵向',
+      '横向',
+      '收起系统入口',
+    ],
   },
   {
     id: 'storage',
@@ -165,7 +178,7 @@ export function WorkspaceSettingsPage({
     React.useState<SettingsSectionId>(initialSectionId);
   const [searchQuery, setSearchQuery] = React.useState('');
   const [settings, setSettings] = React.useState(
-    () => cacheEntry.settings ?? initialSettings,
+    () => withDefaultAppSettings(cacheEntry.settings ?? initialSettings),
   );
   const [fontOptions, setFontOptions] = React.useState(
     () => sessionCache.systemFonts ?? DEFAULT_FONTS,
@@ -519,6 +532,18 @@ export function WorkspaceSettingsPage({
                       pageWidthMode,
                     }))
                   }
+                  onSystemNavCollapsedChange={(systemNavCollapsed) =>
+                    updateAppearance((current) => ({
+                      ...current,
+                      systemNavCollapsed,
+                    }))
+                  }
+                  onSystemNavLayoutChange={(systemNavLayout) =>
+                    updateAppearance((current) => ({
+                      ...current,
+                      systemNavLayout,
+                    }))
+                  }
                   onThemeChange={setTheme}
                 />
               ) : null}
@@ -569,6 +594,8 @@ function AppearanceSection({
   saveState,
   onFontChange,
   onPageWidthChange,
+  onSystemNavCollapsedChange,
+  onSystemNavLayoutChange,
   onThemeChange,
 }: {
   fonts: SystemFontOptions;
@@ -578,12 +605,14 @@ function AppearanceSection({
   saveState: 'idle' | 'saving' | 'saved' | 'error';
   onFontChange: (key: keyof AppearanceFontSettings, value: string) => void;
   onPageWidthChange: (value: PageWidthMode) => void;
+  onSystemNavCollapsedChange: (collapsed: boolean) => void;
+  onSystemNavLayoutChange: (layout: SystemNavLayout) => void;
   onThemeChange: (theme: string) => void;
 }) {
   return (
     <div className="space-y-6 pb-8" data-testid="appearance-settings-shell">
       <SettingsSectionHeader
-        description="调整应用主题、编辑器页面宽度和阅读字体。"
+        description="调整应用主题、编辑器页面宽度、系统入口和阅读字体。"
         title="外观"
       />
 
@@ -636,6 +665,62 @@ function AppearanceSection({
             testId="page-width-preview-wide"
             variant="wide"
             onClick={() => onPageWidthChange('wide')}
+          />
+        </div>
+      </section>
+
+      <section
+        className="rounded-xl bg-muted/30 p-5"
+        data-testid="system-nav-settings"
+      >
+        <h3 className="text-sm font-medium">系统入口</h3>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          控制左侧顶部入口的排列与折叠。
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2" role="radiogroup">
+          <button
+            aria-checked={settings.appearance.systemNavLayout === 'vertical'}
+            className={cn(
+              'rounded-lg border px-4 py-3 text-left text-sm transition-colors',
+              settings.appearance.systemNavLayout === 'vertical'
+                ? 'border-primary bg-background'
+                : 'border-border/60 bg-background/50 hover:border-border',
+            )}
+            data-testid="system-nav-layout-vertical"
+            role="radio"
+            type="button"
+            onClick={() => onSystemNavLayoutChange('vertical')}
+          >
+            纵向
+          </button>
+          <button
+            aria-checked={settings.appearance.systemNavLayout === 'horizontal'}
+            className={cn(
+              'rounded-lg border px-4 py-3 text-left text-sm transition-colors',
+              settings.appearance.systemNavLayout === 'horizontal'
+                ? 'border-primary bg-background'
+                : 'border-border/60 bg-background/50 hover:border-border',
+            )}
+            data-testid="system-nav-layout-horizontal"
+            role="radio"
+            type="button"
+            onClick={() => onSystemNavLayoutChange('horizontal')}
+          >
+            横向
+          </button>
+        </div>
+        <div className="mt-4 flex items-center justify-between gap-4 rounded-lg border border-border/60 bg-background/50 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">收起系统入口</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              收起后仅在悬停命中条时显示展开控件。
+            </p>
+          </div>
+          <PillSwitch
+            checked={settings.appearance.systemNavCollapsed}
+            label="收起系统入口"
+            testId="system-nav-collapsed-switch"
+            onChange={onSystemNavCollapsedChange}
           />
         </div>
       </section>
@@ -1483,11 +1568,13 @@ function PillSwitch({
   checked,
   disabled,
   label,
+  testId,
   onChange,
 }: {
   checked: boolean;
   disabled?: boolean;
   label: string;
+  testId?: string;
   onChange: (checked: boolean) => void;
 }) {
   return (
@@ -1498,6 +1585,7 @@ function PillSwitch({
         'relative inline-flex h-6 w-11 items-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
         checked ? 'border-primary bg-primary' : 'border-input bg-muted',
       )}
+      data-testid={testId}
       disabled={disabled}
       role="switch"
       type="button"

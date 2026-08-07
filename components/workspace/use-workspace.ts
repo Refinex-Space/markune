@@ -191,6 +191,8 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       saveRecentWorkspacePath(nextSnapshot.rootPath);
       setStoredWorkspaceHistory(recordWorkspaceHistory(nextSnapshot));
     } catch {
+      setSnapshot(null);
+      resetDocumentState();
       setError({
         message: '无法读取工作区，请重新选择文件夹。',
         recoverable: true,

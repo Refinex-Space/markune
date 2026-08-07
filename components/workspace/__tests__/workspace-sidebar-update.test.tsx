@@ -134,6 +134,39 @@ describe('WorkspaceSidebar update entry', () => {
     );
   });
 
+  it('hides system entries when the system nav is collapsed', () => {
+    render(
+      <WorkspaceSidebar
+        systemNavCollapsed
+        width={280}
+        workspace={createOpenWorkspaceStub()}
+        onOpenGlobalSearch={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: '笔记' })).toBeNull();
+    expect(screen.getByTestId('system-nav-hitbox')).toBeTruthy();
+  });
+
+  it('does not show a sidebar load-error footer when workspace reading fails', () => {
+    const workspace = createWorkspaceStub();
+    workspace.error = {
+      message: '无法读取工作区，请重新选择文件夹。',
+      recoverable: true,
+    };
+
+    render(
+      <WorkspaceSidebar
+        width={280}
+        workspace={workspace}
+        onOpenGlobalSearch={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText('无法读取工作区，请重新选择文件夹。')).toBeNull();
+    expect(screen.queryByRole('button', { name: '重新选择' })).toBeNull();
+  });
+
   it('provides a notes entry that returns from system pages to the document tree', async () => {
     const user = userEvent.setup();
     const onOpenNotes = vi.fn();

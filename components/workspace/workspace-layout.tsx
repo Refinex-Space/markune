@@ -139,6 +139,7 @@ import {
   readAppSettings,
   recordRecentDocument,
   readMarkdownDocument,
+  saveAppSettings,
   saveWorkspaceGitSyncSettings,
   minimizeAppWindow,
   openDailyNote,
@@ -191,6 +192,7 @@ import type {
   MarkdownDraft,
   PageWidthMode,
   RightPanelMode,
+  SystemNavLayout,
   WorkspaceNode,
   WorkspaceExportFormat,
   WorkspaceGitSyncSettings,
@@ -653,6 +655,12 @@ export function WorkspaceLayout({
   const terminalThemeMode = resolvedTheme === 'dark' ? 'dark' : 'light';
   const [pageWidthMode, setPageWidthMode] = React.useState<PageWidthMode>(
     DEFAULT_APP_SETTINGS.appearance.pageWidthMode,
+  );
+  const [systemNavCollapsed, setSystemNavCollapsed] = React.useState(
+    DEFAULT_APP_SETTINGS.appearance.systemNavCollapsed,
+  );
+  const [systemNavLayout, setSystemNavLayout] = React.useState<SystemNavLayout>(
+    DEFAULT_APP_SETTINGS.appearance.systemNavLayout,
   );
   const [appearanceFonts, setAppearanceFonts] =
     React.useState<AppearanceFontSettings>(
@@ -1127,6 +1135,10 @@ export function WorkspaceLayout({
       if (!isTauriRuntime) {
         setAppSettings(DEFAULT_APP_SETTINGS);
         setPageWidthMode(DEFAULT_APP_SETTINGS.appearance.pageWidthMode);
+        setSystemNavCollapsed(
+          DEFAULT_APP_SETTINGS.appearance.systemNavCollapsed,
+        );
+        setSystemNavLayout(DEFAULT_APP_SETTINGS.appearance.systemNavLayout);
         setAppearanceFonts(DEFAULT_APP_SETTINGS.appearance.fonts);
         return;
       }
@@ -1138,6 +1150,10 @@ export function WorkspaceLayout({
           const normalizedSettings = withDefaultAppSettings(settings);
 
           setPageWidthMode(normalizedSettings.appearance.pageWidthMode);
+          setSystemNavCollapsed(
+            normalizedSettings.appearance.systemNavCollapsed,
+          );
+          setSystemNavLayout(normalizedSettings.appearance.systemNavLayout);
           setAppearanceFonts(normalizedSettings.appearance.fonts);
           setAppSettings(normalizedSettings);
         }
@@ -1145,6 +1161,10 @@ export function WorkspaceLayout({
         if (!cancelled) {
           setAppSettings(DEFAULT_APP_SETTINGS);
           setPageWidthMode(DEFAULT_APP_SETTINGS.appearance.pageWidthMode);
+          setSystemNavCollapsed(
+            DEFAULT_APP_SETTINGS.appearance.systemNavCollapsed,
+          );
+          setSystemNavLayout(DEFAULT_APP_SETTINGS.appearance.systemNavLayout);
           setAppearanceFonts(DEFAULT_APP_SETTINGS.appearance.fonts);
         }
       }
@@ -1173,6 +1193,62 @@ export function WorkspaceLayout({
       buildFontStack(appearanceFonts.code, CODE_FONT_FALLBACK),
     );
   }, [appearanceFonts]);
+
+  const persistAppearanceSettings = React.useCallback(
+    async (appearance: AppSettings['appearance']) => {
+      const previous = appSettings;
+      const next: AppSettings = {
+        ...previous,
+        appearance,
+      };
+      setAppSettings(next);
+      setPageWidthMode(appearance.pageWidthMode);
+      setSystemNavCollapsed(appearance.systemNavCollapsed);
+      setSystemNavLayout(appearance.systemNavLayout);
+      setAppearanceFonts(appearance.fonts);
+
+      if (!isTauriRuntime) {
+        return;
+      }
+
+      try {
+        const saved = withDefaultAppSettings(await saveAppSettings(next));
+        setAppSettings(saved);
+        setPageWidthMode(saved.appearance.pageWidthMode);
+        setSystemNavCollapsed(saved.appearance.systemNavCollapsed);
+        setSystemNavLayout(saved.appearance.systemNavLayout);
+        setAppearanceFonts(saved.appearance.fonts);
+      } catch (error) {
+        setAppSettings(previous);
+        setPageWidthMode(previous.appearance.pageWidthMode);
+        setSystemNavCollapsed(previous.appearance.systemNavCollapsed);
+        setSystemNavLayout(previous.appearance.systemNavLayout);
+        setAppearanceFonts(previous.appearance.fonts);
+        console.error('保存系统入口外观设置失败', error);
+      }
+    },
+    [appSettings, isTauriRuntime],
+  );
+
+  const handleSystemNavCollapsedChange = React.useCallback(
+    (collapsed: boolean) => {
+      void persistAppearanceSettings({
+        ...appSettings.appearance,
+        systemNavCollapsed: collapsed,
+      });
+    },
+    [appSettings.appearance, persistAppearanceSettings],
+  );
+
+  const handleSystemNavLayoutChange = React.useCallback(
+    (layout: SystemNavLayout) => {
+      void persistAppearanceSettings({
+        ...appSettings.appearance,
+        systemNavLayout: layout,
+      });
+    },
+    [appSettings.appearance, persistAppearanceSettings],
+  );
 
   const handleLeftSidebarResize = React.useCallback((nextWidth: number) => {
     setLeftSidebarWidth(nextWidth);
@@ -2919,6 +2995,8 @@ export function WorkspaceLayout({
             onSettingsSaved={(settings) => {
               setAppSettings(settings);
               setPageWidthMode(settings.appearance.pageWidthMode);
+              setSystemNavCollapsed(settings.appearance.systemNavCollapsed);
+              setSystemNavLayout(settings.appearance.systemNavLayout);
               setAppearanceFonts(settings.appearance.fonts);
               setSettingsVersion((current) => current + 1);
             }}
@@ -3004,6 +3082,10 @@ export function WorkspaceLayout({
                 onOpenPinnedNode={handleOpenWorkspaceViewNode}
                 onUnpinNode={handleUnpinNode}
                 inboxActiveCount={inbox.activeCount}
+                systemNavCollapsed={systemNavCollapsed}
+                systemNavLayout={systemNavLayout}
+                onSystemNavCollapsedChange={handleSystemNavCollapsedChange}
+                onSystemNavLayoutChange={handleSystemNavLayoutChange}
                 systemPage={
                   systemPage === 'drawings' ||
                   systemPage === 'codex' ||

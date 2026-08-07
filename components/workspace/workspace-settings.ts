@@ -10,6 +10,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   appearance: {
     fonts: DEFAULT_APPEARANCE_FONTS,
     pageWidthMode: 'wide',
+    systemNavCollapsed: false,
+    systemNavLayout: 'vertical',
   },
   schemaVersion: 1,
   storage: {

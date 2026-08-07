@@ -1,26 +1,19 @@
 import {
-  CalendarDays,
-  Inbox,
-  Network,
-  Paintbrush,
-  RefreshCw,
   Search,
   Settings,
-  Sheet,
 } from 'lucide-react';
-import { Openai } from '@thesvg/react';
 import type { ReactNode } from 'react';
 import { useMemo } from 'react';
 
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 import { DocumentTree } from './document-tree';
 import { PinnedChromeMenu } from './pinned-chrome-menu';
-import { WorkspaceTreeFolderIcon } from './workspace-tree-folder-icon';
+import { WorkspaceSystemNav } from './workspace-system-nav';
 import type { useWorkspace } from './use-workspace';
 import { WorkspaceSwitcher } from './workspace-switcher';
 import type {
+  SystemNavLayout,
   WorkspaceExportFormat,
   WorkspaceImportFormat,
   WorkspaceNode,
@@ -72,7 +65,11 @@ interface WorkspaceSidebarProps {
   onUnpinNode?: (node: WorkspaceNode) => void;
   pinnedNodes?: WorkspaceNode[];
   inboxActiveCount?: number;
+  systemNavCollapsed?: boolean;
+  systemNavLayout?: SystemNavLayout;
   systemPage?: 'codex' | 'daily' | 'drawings' | 'graph' | 'inbox' | 'views' | null;
+  onSystemNavCollapsedChange?: (collapsed: boolean) => void;
+  onSystemNavLayoutChange?: (layout: SystemNavLayout) => void;
 }
 
 export function WorkspaceSidebar({
@@ -111,8 +108,12 @@ export function WorkspaceSidebar({
   onUnpinNode,
   pinnedNodes = [],
   inboxActiveCount = 0,
+  systemNavCollapsed = false,
+  systemNavLayout = 'vertical',
   systemPage = null,
   windowsChromeInset = false,
+  onSystemNavCollapsedChange,
+  onSystemNavLayoutChange,
 }: WorkspaceSidebarProps) {
   const createDocument = onCreateDocument ?? workspace.createDocument;
   const deleteNode = onDeleteNode ?? workspace.deleteNode;
@@ -176,82 +177,22 @@ export function WorkspaceSidebar({
         />
 
         {workspace.snapshot ? (
-          <div className="space-y-0.5 border-y border-sidebar-border/45 px-2 py-1">
-            <button
-              className={getSystemEntryClassName(false)}
-              data-testid="notes-entry"
-              type="button"
-              onClick={onOpenNotes}
-            >
-              <WorkspaceTreeFolderIcon expanded />
-              <span className="truncate">笔记</span>
-            </button>
-            <button
-              aria-current={isDailyActive ? 'page' : undefined}
-              className={getSystemEntryClassName(isDailyActive)}
-              data-testid="daily-note-entry"
-              type="button"
-              onClick={onOpenDailyNotes}
-            >
-              <CalendarDays size={13} strokeWidth={1.75} />
-              <span className="truncate">日程</span>
-            </button>
-            <button
-              aria-current={systemPage === 'inbox' ? 'page' : undefined}
-              className={getSystemEntryClassName(systemPage === 'inbox')}
-              data-testid="inbox-entry"
-              type="button"
-              onClick={onOpenInbox}
-            >
-              <Inbox size={13} strokeWidth={1.75} />
-              <span className="truncate">Inbox</span>
-              {inboxActiveCount > 0 ? (
-                <span className="ml-auto min-w-5 px-1.5 text-center text-[10px] font-medium leading-4 text-sidebar-foreground/55 tabular-nums">
-                  {inboxActiveCount > 99 ? '99+' : inboxActiveCount}
-                </span>
-              ) : null}
-            </button>
-            <button
-              aria-current={systemPage === 'drawings' ? 'page' : undefined}
-              className={getSystemEntryClassName(systemPage === 'drawings')}
-              data-testid="drawing-entry"
-              type="button"
-              onClick={onOpenDrawings}
-            >
-              <Paintbrush size={13} strokeWidth={1.75} />
-              <span className="truncate">画板</span>
-            </button>
-            <button
-              aria-current={systemPage === 'views' ? 'page' : undefined}
-              className={getSystemEntryClassName(systemPage === 'views')}
-              data-testid="workspace-views-entry"
-              type="button"
-              onClick={onOpenViews}
-            >
-              <Sheet size={13} strokeWidth={1.75} />
-              <span className="truncate">视图</span>
-            </button>
-            <button
-              aria-current={systemPage === 'graph' ? 'page' : undefined}
-              className={getSystemEntryClassName(systemPage === 'graph')}
-              data-testid="workspace-graph-entry"
-              type="button"
-              onClick={onOpenGraph}
-            >
-              <Network size={13} strokeWidth={1.75} />
-              <span className="truncate">图谱</span>
-            </button>
-            <button
-              aria-current={systemPage === 'codex' ? 'page' : undefined}
-              className={getSystemEntryClassName(systemPage === 'codex')}
-              data-testid="codex-workspace-entry"
-              type="button"
-              onClick={onOpenCodex}
-            >
-              <Openai className="size-[13px]" variant="light" />
-              <span className="truncate">Codex</span>
-            </button>
-          </div>
+          <WorkspaceSystemNav
+            collapsed={systemNavCollapsed}
+            inboxActiveCount={inboxActiveCount}
+            isDailyActive={isDailyActive}
+            layout={systemNavLayout}
+            systemPage={systemPage}
+            onCollapsedChange={onSystemNavCollapsedChange}
+            onLayoutChange={onSystemNavLayoutChange}
+            onOpenCodex={onOpenCodex}
+            onOpenDailyNotes={onOpenDailyNotes}
+            onOpenDrawings={onOpenDrawings}
+            onOpenGraph={onOpenGraph}
+            onOpenInbox={onOpenInbox}
+            onOpenNotes={onOpenNotes}
+            onOpenViews={onOpenViews}
+          />
         ) : null}
 
         <div
@@ -299,21 +240,6 @@ export function WorkspaceSidebar({
             />
           ) : null}
         </div>
-
-        {workspace.error ? (
-          <footer className="border-t p-3 text-xs text-destructive">
-            <p>{workspace.error.message}</p>
-            <Button
-              className="mt-2 h-7 px-2 text-xs"
-              type="button"
-              variant="outline"
-              onClick={workspace.openWorkspace}
-            >
-              <RefreshCw size={13} />
-              重新选择
-            </Button>
-          </footer>
-        ) : null}
 
         {systemPage === 'inbox' || systemPage === 'drawings'
           ? null
@@ -397,15 +323,6 @@ function WorkspaceSidebarHeader({
         ) : null}
       </div>
     </div>
-  );
-}
-
-function getSystemEntryClassName(active: boolean) {
-  return cn(
-    'flex h-7 w-[calc(100%-0.75rem)] items-center gap-1.5 rounded-md px-[11px] text-[13px] transition-colors',
-    active
-      ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-      : 'text-sidebar-foreground/80 hover:bg-sidebar-accent/75 hover:text-sidebar-accent-foreground',
   );
 }
 

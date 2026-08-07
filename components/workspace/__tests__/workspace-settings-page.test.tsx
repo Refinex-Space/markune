@@ -31,6 +31,8 @@ const initialSettings: AppSettings = {
       ui: 'SF Pro Text',
     },
     pageWidthMode: 'wide',
+    systemNavCollapsed: false,
+    systemNavLayout: 'vertical',
   },
   schemaVersion: 1,
   storage: { defaultProvider: 'local' },
@@ -115,10 +117,50 @@ describe('WorkspaceSettingsPage', () => {
     ).toBeNull();
     expect(screen.getByTestId('page-width-preview-standard')).toBeTruthy();
     expect(screen.getByTestId('page-width-preview-wide')).toBeTruthy();
+    expect(screen.getByTestId('system-nav-settings')).toBeTruthy();
+    expect(screen.getByTestId('system-nav-layout-vertical')).toBeTruthy();
+    expect(screen.getByTestId('system-nav-layout-horizontal')).toBeTruthy();
+    expect(screen.getByTestId('system-nav-collapsed-switch')).toBeTruthy();
     expect(screen.getByText('Madora · 本地知识库')).toBeTruthy();
     expect(
       screen.getByText('这是一段用于预览文档字体的文本。'),
     ).toBeTruthy();
+  });
+
+  it('persists system nav layout and collapsed preference from appearance settings', async () => {
+    const user = userEvent.setup();
+    const onSettingsSaved = vi.fn();
+
+    render(
+      <WorkspaceSettingsPage
+        appUpdate={appUpdateController}
+        initialSettings={initialSettings}
+        sessionCache={createWorkspaceSettingsSessionCache()}
+        workspaceRootPath="D:/notes"
+        onBack={vi.fn()}
+        onSettingsSaved={onSettingsSaved}
+      />,
+    );
+
+    await user.click(screen.getByTestId('system-nav-layout-horizontal'));
+    expect(onSettingsSaved).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appearance: expect.objectContaining({
+          systemNavLayout: 'horizontal',
+          systemNavCollapsed: false,
+        }),
+      }),
+    );
+
+    await user.click(screen.getByTestId('system-nav-collapsed-switch'));
+    expect(onSettingsSaved).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appearance: expect.objectContaining({
+          systemNavLayout: 'horizontal',
+          systemNavCollapsed: true,
+        }),
+      }),
+    );
   });
 
   it('uses the compact sidebar top inset below Windows titlebar controls', () => {

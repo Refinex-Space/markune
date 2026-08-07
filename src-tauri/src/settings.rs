@@ -24,6 +24,10 @@ pub struct AppearanceSettings {
     pub fonts: AppearanceFontSettings,
     #[serde(default = "default_page_width_mode")]
     pub page_width_mode: String,
+    #[serde(default)]
+    pub system_nav_collapsed: bool,
+    #[serde(default = "default_system_nav_layout")]
+    pub system_nav_layout: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -39,6 +43,8 @@ impl Default for AppearanceSettings {
         Self {
             fonts: AppearanceFontSettings::default(),
             page_width_mode: default_page_width_mode(),
+            system_nav_collapsed: false,
+            system_nav_layout: default_system_nav_layout(),
         }
     }
 }
@@ -91,6 +97,10 @@ fn default_page_width_mode() -> String {
     "wide".to_string()
 }
 
+fn default_system_nav_layout() -> String {
+    "vertical".to_string()
+}
+
 fn settings_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     let config_dir = app.path().app_config_dir().map_err(|_| "无法定位应用设置目录".to_string())?;
     Ok(config_dir.join("settings.json"))
@@ -105,6 +115,12 @@ fn validate_app_settings(settings: &AppSettings) -> Result<(), String> {
     }
     if !matches!(settings.appearance.page_width_mode.as_str(), "standard" | "wide") {
         return Err("页面宽度设置无效".to_string());
+    }
+    if !matches!(
+        settings.appearance.system_nav_layout.as_str(),
+        "vertical" | "horizontal"
+    ) {
+        return Err("系统入口排列设置无效".to_string());
     }
     validate_font(&settings.appearance.fonts.ui, "UI 字体")?;
     validate_font(&settings.appearance.fonts.document, "文档字体")?;
@@ -138,5 +154,41 @@ mod tests {
         }"#).expect("legacy settings should remain readable");
 
         assert_eq!(parsed.appearance.page_width_mode, "wide");
+        assert_eq!(parsed.appearance.system_nav_layout, "vertical");
+        assert!(!parsed.appearance.system_nav_collapsed);
+    }
+
+    #[test]
+    fn missing_system_nav_fields_use_defaults() {
+        let parsed: AppSettings = serde_json::from_str(
+            r#"{
+          "schemaVersion": 1,
+          "storage": { "defaultProvider": "local" },
+          "appearance": { "pageWidthMode": "standard" }
+        }"#,
+        )
+        .expect("settings without system nav fields should remain readable");
+
+        assert_eq!(parsed.appearance.system_nav_layout, "vertical");
+        assert!(!parsed.appearance.system_nav_collapsed);
+        assert!(validate_app_settings(&parsed).is_ok());
+    }
+
+    #[test]
+    fn invalid_system_nav_layout_is_rejected() {
+        let mut settings = default_app_settings();
+        settings.appearance.system_nav_layout = "grid".to_string();
+        assert_eq!(
+            validate_app_settings(&settings).unwrap_err(),
+            "系统入口排列设置无效"
+        );
+    }
+
+    #[test]
+    fn horizontal_collapsed_system_nav_is_valid() {
+        let mut settings = default_app_settings();
+        settings.appearance.system_nav_layout = "horizontal".to_string();
+        settings.appearance.system_nav_collapsed = true;
+        assert!(validate_app_settings(&settings).is_ok());
     }
 }
