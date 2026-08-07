@@ -1,6 +1,6 @@
 {
   "name": "madora",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "private": true,
   "scripts": {
     "desktop:build": "tauri build",
