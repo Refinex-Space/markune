@@ -298,6 +298,13 @@ export type PageWidthMode = 'standard' | 'wide';
 
 export type SystemNavLayout = 'vertical' | 'horizontal';
 
+export type CalendarWeekStartsOn = 'monday' | 'sunday';
+
+export interface CalendarSettings {
+  expanded: boolean;
+  weekStartsOn: CalendarWeekStartsOn;
+}
+
 export interface AppearanceFontSettings {
   code: string;
   document: string;
@@ -330,6 +337,7 @@ export interface LinkPreviewMetadata {
 
 export interface AppSettings {
   schemaVersion: 1;
+  calendar: CalendarSettings;
   storage: {
     defaultProvider: 'local';
   };

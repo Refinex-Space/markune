@@ -9,6 +9,8 @@ pub struct AppSettings {
     pub storage: StorageSettings,
     #[serde(default)]
     pub appearance: AppearanceSettings,
+    #[serde(default)]
+    pub calendar: CalendarSettings,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -28,6 +30,15 @@ pub struct AppearanceSettings {
     pub system_nav_collapsed: bool,
     #[serde(default = "default_system_nav_layout")]
     pub system_nav_layout: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarSettings {
+    #[serde(default = "default_calendar_expanded")]
+    pub expanded: bool,
+    #[serde(default = "default_calendar_week_starts_on")]
+    pub week_starts_on: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -55,6 +66,15 @@ impl Default for AppearanceFontSettings {
             code: "JetBrains Mono".to_string(),
             document: "Songti SC".to_string(),
             ui: "SF Pro Text".to_string(),
+        }
+    }
+}
+
+impl Default for CalendarSettings {
+    fn default() -> Self {
+        Self {
+            expanded: default_calendar_expanded(),
+            week_starts_on: default_calendar_week_starts_on(),
         }
     }
 }
@@ -90,6 +110,7 @@ fn default_app_settings() -> AppSettings {
         schema_version: 1,
         storage: StorageSettings { default_provider: "local".to_string() },
         appearance: AppearanceSettings::default(),
+        calendar: CalendarSettings::default(),
     }
 }
 
@@ -99,6 +120,14 @@ fn default_page_width_mode() -> String {
 
 fn default_system_nav_layout() -> String {
     "vertical".to_string()
+}
+
+fn default_calendar_expanded() -> bool {
+    true
+}
+
+fn default_calendar_week_starts_on() -> String {
+    "monday".to_string()
 }
 
 fn settings_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -121,6 +150,12 @@ fn validate_app_settings(settings: &AppSettings) -> Result<(), String> {
         "vertical" | "horizontal"
     ) {
         return Err("系统入口排列设置无效".to_string());
+    }
+    if !matches!(
+        settings.calendar.week_starts_on.as_str(),
+        "monday" | "sunday"
+    ) {
+        return Err("每周起始日设置无效".to_string());
     }
     validate_font(&settings.appearance.fonts.ui, "UI 字体")?;
     validate_font(&settings.appearance.fonts.document, "文档字体")?;
@@ -156,6 +191,8 @@ mod tests {
         assert_eq!(parsed.appearance.page_width_mode, "wide");
         assert_eq!(parsed.appearance.system_nav_layout, "vertical");
         assert!(!parsed.appearance.system_nav_collapsed);
+        assert!(parsed.calendar.expanded);
+        assert_eq!(parsed.calendar.week_starts_on, "monday");
     }
 
     #[test]
@@ -190,5 +227,39 @@ mod tests {
         settings.appearance.system_nav_layout = "horizontal".to_string();
         settings.appearance.system_nav_collapsed = true;
         assert!(validate_app_settings(&settings).is_ok());
+    }
+
+    #[test]
+    fn missing_calendar_settings_use_defaults() {
+        let parsed: AppSettings = serde_json::from_str(
+            r#"{
+          "schemaVersion": 1,
+          "storage": { "defaultProvider": "local" },
+          "appearance": { "pageWidthMode": "wide" }
+        }"#,
+        )
+        .expect("settings without calendar fields should remain readable");
+
+        assert!(parsed.calendar.expanded);
+        assert_eq!(parsed.calendar.week_starts_on, "monday");
+        assert!(validate_app_settings(&parsed).is_ok());
+    }
+
+    #[test]
+    fn sunday_calendar_start_is_valid() {
+        let mut settings = default_app_settings();
+        settings.calendar.expanded = false;
+        settings.calendar.week_starts_on = "sunday".to_string();
+        assert!(validate_app_settings(&settings).is_ok());
+    }
+
+    #[test]
+    fn invalid_calendar_week_start_is_rejected() {
+        let mut settings = default_app_settings();
+        settings.calendar.week_starts_on = "friday".to_string();
+        assert_eq!(
+            validate_app_settings(&settings).unwrap_err(),
+            "每周起始日设置无效"
+        );
     }
 }

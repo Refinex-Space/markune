@@ -10,53 +10,39 @@ import {
   createDateFromDailyDate,
   formatDailyDate,
 } from './daily-notes';
-
-const DAILY_CALENDAR_COLLAPSED_STORAGE_KEY =
-  'madora:workspace:daily-calendar-collapsed';
+import type { CalendarWeekStartsOn } from './workspace-types';
 
 interface DailyNoteCalendarProps {
   contentDates: Set<string>;
+  expanded: boolean;
   isLoading?: boolean;
   month: Date;
   selectedDate: string;
+  weekStartsOn: CalendarWeekStartsOn;
+  onExpandedChange: (expanded: boolean) => void;
   onMonthChange: (month: Date) => void;
   onSelectDate: (date: string) => void;
 }
 
 export function DailyNoteCalendar({
   contentDates,
+  expanded,
   isLoading = false,
   month,
   selectedDate,
+  weekStartsOn,
+  onExpandedChange,
   onMonthChange,
   onSelectDate,
 }: DailyNoteCalendarProps) {
-  const [isCollapsed, setIsCollapsed] = React.useState(() => {
-    if (typeof window === 'undefined') {
-      return false;
-    }
-
-    return (
-      window.localStorage.getItem(DAILY_CALENDAR_COLLAPSED_STORAGE_KEY) ===
-      'true'
-    );
-  });
+  const isCollapsed = !expanded;
   const selected = React.useMemo(
     () => createDateFromDailyDate(selectedDate),
     [selectedDate],
   );
 
   function toggleCollapsed() {
-    setIsCollapsed((current) => {
-      const next = !current;
-
-      window.localStorage.setItem(
-        DAILY_CALENDAR_COLLAPSED_STORAGE_KEY,
-        String(next),
-      );
-
-      return next;
-    });
+    onExpandedChange(isCollapsed);
   }
 
   return (
@@ -131,6 +117,7 @@ export function DailyNoteCalendar({
             month={month}
             selected={selected}
             showOutsideDays={false}
+            weekStartsOn={weekStartsOn === 'monday' ? 1 : 0}
             onMonthChange={onMonthChange}
             onDayClick={(date) => onSelectDate(formatDailyDate(date))}
           />

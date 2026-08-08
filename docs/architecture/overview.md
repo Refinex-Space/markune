@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-08-07
+updated: 2026-08-08
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -36,7 +36,7 @@ Capture 的持久状态仅为 `open`、`processing`、`done`、`archived`。Inbo
 
 ## Daily Calendar Boundary
 
-Daily 是工作区级日程总览，也是普通 Markdown 文档集合。顶部“日程”入口只切换到总览系统页，不创建或打开当天文件；左下角迷你日历继续作为具体日期的快捷入口。总览中的日期选择只更新选中状态，已有条目通过“打开详情”进入编辑器，空白日期必须显式选择“创建每日笔记”后才调用 `open_daily_note`。物理文件继续固定保存在 `Daily/YYYY/MM/YYYY-MM-DD.md`，不新增事件实体、数据库投影或会议日历语义。`Daily/` 根目录仍从普通文档树隐藏；单日导出不依赖树节点，而由日程检查器「导出」菜单与文档标签右键「导出」复用既有 `useDocumentExport` 管线（HTML / Markdown / PDF / Word），桌面端可用时才接线。
+Daily 是工作区级日程总览，也是普通 Markdown 文档集合。顶部“日程”入口只切换到总览系统页，不创建或打开当天文件；左下角迷你日历继续作为具体日期的快捷入口，其展开状态与每周起始日由全局 `calendar` 设置统一控制，不保存到工作区。总览中的日期选择只更新选中状态，已有条目通过“打开详情”进入编辑器，空白日期必须显式选择“创建每日笔记”后才调用 `open_daily_note`。物理文件继续固定保存在 `Daily/YYYY/MM/YYYY-MM-DD.md`，不新增事件实体、数据库投影或会议日历语义。`Daily/` 根目录仍从普通文档树隐藏；单日导出不依赖树节点，而由日程检查器「导出」菜单与文档标签右键「导出」复用既有 `useDocumentExport` 管线（HTML / Markdown / PDF / Word），桌面端可用时才接线。
 
 macOS 工作区壳层把全局 Chrome 工具与系统页工具分为两个不重叠的纵向区段：主标题栏高度由 `macChromeContentTop - WORKSPACE_PANEL_MARGIN` 计算，日程与视图页再以零偏移接续，因此它们的工具行可与侧边栏搜索、置顶入口共用水平中线，而不通过负外边距侵入全局按钮区域。Windows 与 Web 继续使用原有固定标题栏高度。
 

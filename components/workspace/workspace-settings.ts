@@ -1,4 +1,8 @@
-import type { AppearanceFontSettings, AppSettings } from './workspace-types';
+import type {
+  AppearanceFontSettings,
+  AppSettings,
+  CalendarSettings,
+} from './workspace-types';
 
 export const DEFAULT_APPEARANCE_FONTS: AppearanceFontSettings = {
   code: 'JetBrains Mono',
@@ -13,6 +17,10 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     systemNavCollapsed: false,
     systemNavLayout: 'vertical',
   },
+  calendar: {
+    expanded: true,
+    weekStartsOn: 'monday',
+  },
   schemaVersion: 1,
   storage: {
     defaultProvider: 'local',
@@ -20,10 +28,11 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
 };
 
 export function withDefaultAppSettings(
-  settings: Partial<AppSettings> & {
+  settings: Omit<Partial<AppSettings>, 'appearance' | 'calendar'> & {
     appearance?: Partial<AppSettings['appearance']> & {
       fonts?: Partial<AppearanceFontSettings>;
     };
+    calendar?: Partial<CalendarSettings>;
   },
 ): AppSettings {
   return {
@@ -36,6 +45,10 @@ export function withDefaultAppSettings(
         ...DEFAULT_APP_SETTINGS.appearance.fonts,
         ...settings.appearance?.fonts,
       },
+    },
+    calendar: {
+      ...DEFAULT_APP_SETTINGS.calendar,
+      ...settings.calendar,
     },
     storage: {
       ...DEFAULT_APP_SETTINGS.storage,

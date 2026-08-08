@@ -1259,6 +1259,27 @@ export function WorkspaceLayout({
     [appSettings.appearance, persistAppearanceSettings],
   );
 
+  const handleDailyCalendarExpandedChange = React.useCallback(
+    async (expanded: boolean) => {
+      const previous = appSettings;
+      const next: AppSettings = {
+        ...previous,
+        calendar: { ...previous.calendar, expanded },
+      };
+      setAppSettings(next);
+
+      if (!isTauriRuntime) return;
+
+      try {
+        setAppSettings(withDefaultAppSettings(await saveAppSettings(next)));
+      } catch (error) {
+        setAppSettings(previous);
+        console.error('保存日历展开设置失败', error);
+      }
+    },
+    [appSettings, isTauriRuntime],
+  );
+
   const handleLeftSidebarResize = React.useCallback((nextWidth: number) => {
     setLeftSidebarWidth(nextWidth);
   }, [setLeftSidebarWidth]);
@@ -3040,9 +3061,14 @@ export function WorkspaceLayout({
                   workspace.snapshot ? (
                     <DailyNoteCalendar
                       contentDates={dailyContentDates}
+                      expanded={appSettings.calendar.expanded}
                       isLoading={dailyNotes.isLoading}
                       month={dailyCalendarMonth}
                       selectedDate={selectedDailyDate}
+                      weekStartsOn={appSettings.calendar.weekStartsOn}
+                      onExpandedChange={(expanded) =>
+                        void handleDailyCalendarExpandedChange(expanded)
+                      }
                       onMonthChange={(month) =>
                         setDailyCalendarMonth(
                           new Date(month.getFullYear(), month.getMonth(), 1),

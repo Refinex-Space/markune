@@ -34,6 +34,10 @@ const initialSettings: AppSettings = {
     systemNavCollapsed: false,
     systemNavLayout: 'vertical',
   },
+  calendar: {
+    expanded: true,
+    weekStartsOn: 'monday',
+  },
   schemaVersion: 1,
   storage: { defaultProvider: 'local' },
 };
@@ -66,6 +70,9 @@ function renderSettingsPage() {
 
 describe('WorkspaceSettingsPage', () => {
   beforeEach(() => {
+    Element.prototype.hasPointerCapture = vi.fn(() => false);
+    Element.prototype.releasePointerCapture = vi.fn();
+    Element.prototype.setPointerCapture = vi.fn();
     Element.prototype.scrollIntoView = vi.fn();
     vi.stubGlobal(
       'ResizeObserver',
@@ -129,8 +136,7 @@ describe('WorkspaceSettingsPage', () => {
     expect(screen.getByTestId('page-width-preview-standard')).toBeTruthy();
     expect(screen.getByTestId('page-width-preview-wide')).toBeTruthy();
     expect(screen.getByTestId('system-nav-settings')).toBeTruthy();
-    expect(screen.getByTestId('system-nav-layout-vertical')).toBeTruthy();
-    expect(screen.getByTestId('system-nav-layout-horizontal')).toBeTruthy();
+    expect(screen.getByTestId('system-nav-layout-select')).toBeTruthy();
     expect(screen.getByTestId('system-nav-collapsed-switch')).toBeTruthy();
     expect(screen.getByText('Madora · 本地知识库')).toBeTruthy();
     expect(
@@ -216,6 +222,7 @@ describe('WorkspaceSettingsPage', () => {
       />,
     );
 
+    await user.click(screen.getByTestId('system-nav-layout-select'));
     await user.click(screen.getByTestId('system-nav-layout-horizontal'));
     expect(onSettingsSaved).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -233,6 +240,40 @@ describe('WorkspaceSettingsPage', () => {
           systemNavLayout: 'horizontal',
           systemNavCollapsed: true,
         }),
+      }),
+    );
+  });
+
+  it('persists calendar expansion and week start settings', async () => {
+    const user = userEvent.setup();
+    const onSettingsSaved = vi.fn();
+
+    render(
+      <WorkspaceSettingsPage
+        appUpdate={appUpdateController}
+        initialSettings={initialSettings}
+        sessionCache={createWorkspaceSettingsSessionCache()}
+        workspaceRootPath="D:/notes"
+        onBack={vi.fn()}
+        onSettingsSaved={onSettingsSaved}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '日历' }));
+    expect(screen.getByTestId('calendar-settings-shell')).toBeTruthy();
+
+    await user.click(screen.getByTestId('calendar-expanded-switch'));
+    expect(onSettingsSaved).toHaveBeenCalledWith(
+      expect.objectContaining({
+        calendar: { expanded: false, weekStartsOn: 'monday' },
+      }),
+    );
+
+    await user.click(screen.getByTestId('calendar-week-start-select'));
+    await user.click(screen.getByTestId('calendar-week-start-sunday'));
+    expect(onSettingsSaved).toHaveBeenCalledWith(
+      expect.objectContaining({
+        calendar: { expanded: false, weekStartsOn: 'sunday' },
       }),
     );
   });

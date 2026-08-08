@@ -4,6 +4,7 @@ import * as React from 'react';
 import Image from 'next/image';
 import {
   ArrowLeft,
+  CalendarDays,
   CheckCircle2,
   ChevronDown,
   Cloud,
@@ -68,6 +69,7 @@ import { withDefaultAppSettings } from './workspace-settings';
 import type {
   AppearanceFontSettings,
   AppSettings,
+  CalendarWeekStartsOn,
   GitProbe,
   GitRemoteInfo,
   GitSyncConflictResolution,
@@ -79,6 +81,7 @@ import type {
 
 export type SettingsSectionId =
   | 'appearance'
+  | 'calendar'
   | 'storage'
   | 'git-sync'
   | 'version';
@@ -149,6 +152,19 @@ const SETTINGS_SECTIONS: Array<{
       '纵向',
       '横向',
       '收起系统入口',
+    ],
+  },
+  {
+    id: 'calendar',
+    icon: CalendarDays,
+    label: '日历',
+    searchTerms: [
+      '日历',
+      '每日笔记',
+      '展开',
+      '每周起始日',
+      '星期一',
+      '星期日',
     ],
   },
   {
@@ -315,6 +331,15 @@ export function WorkspaceSettingsPage({
     void saveSettings({
       ...settings,
       appearance: update(settings.appearance),
+    });
+  };
+
+  const updateCalendar = (
+    update: (calendar: AppSettings['calendar']) => AppSettings['calendar'],
+  ) => {
+    void saveSettings({
+      ...settings,
+      calendar: update(settings.calendar),
     });
   };
 
@@ -560,6 +585,22 @@ export function WorkspaceSettingsPage({
                   onThemeChange={setTheme}
                 />
               ) : null}
+              {effectiveSection === 'calendar' ? (
+                <CalendarSection
+                  error={error}
+                  saveState={saveState}
+                  settings={settings}
+                  onExpandedChange={(expanded) =>
+                    updateCalendar((current) => ({ ...current, expanded }))
+                  }
+                  onWeekStartsOnChange={(weekStartsOn) =>
+                    updateCalendar((current) => ({
+                      ...current,
+                      weekStartsOn,
+                    }))
+                  }
+                />
+              ) : null}
               {effectiveSection === 'storage' ? (
                 <StorageSection
                   assetDirectory={assetDirectory}
@@ -682,59 +723,40 @@ function AppearanceSection({
         </div>
       </section>
 
-      <section
-        className="rounded-xl bg-muted/30 p-5"
-        data-testid="system-nav-settings"
-      >
+      <section data-testid="system-nav-settings">
         <h3 className="text-sm font-medium">系统入口</h3>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">
           控制左侧顶部入口的排列与折叠。
         </p>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2" role="radiogroup">
-          <button
-            aria-checked={settings.appearance.systemNavLayout === 'vertical'}
-            className={cn(
-              'rounded-lg border px-4 py-3 text-left text-sm transition-colors',
-              settings.appearance.systemNavLayout === 'vertical'
-                ? 'border-primary bg-background'
-                : 'border-border/60 bg-background/50 hover:border-border',
-            )}
-            data-testid="system-nav-layout-vertical"
-            role="radio"
-            type="button"
-            onClick={() => onSystemNavLayoutChange('vertical')}
-          >
-            纵向
-          </button>
-          <button
-            aria-checked={settings.appearance.systemNavLayout === 'horizontal'}
-            className={cn(
-              'rounded-lg border px-4 py-3 text-left text-sm transition-colors',
-              settings.appearance.systemNavLayout === 'horizontal'
-                ? 'border-primary bg-background'
-                : 'border-border/60 bg-background/50 hover:border-border',
-            )}
-            data-testid="system-nav-layout-horizontal"
-            role="radio"
-            type="button"
-            onClick={() => onSystemNavLayoutChange('horizontal')}
-          >
-            横向
-          </button>
-        </div>
-        <div className="mt-4 flex items-center justify-between gap-4 rounded-lg border border-border/60 bg-background/50 px-4 py-3">
-          <div className="min-w-0">
-            <p className="text-sm font-medium">收起系统入口</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              收起后仅在悬停命中条时显示展开控件。
-            </p>
+        <div className="mt-4 overflow-hidden rounded-xl bg-muted/30">
+          <div className="grid gap-3 border-b border-border/60 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_240px] sm:items-center">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">排列方式</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                左侧顶部入口按纵向列表或横向图标排布。
+              </p>
+            </div>
+            <SystemNavLayoutPicker
+              value={settings.appearance.systemNavLayout}
+              onChange={onSystemNavLayoutChange}
+            />
           </div>
-          <PillSwitch
-            checked={settings.appearance.systemNavCollapsed}
-            label="收起系统入口"
-            testId="system-nav-collapsed-switch"
-            onChange={onSystemNavCollapsedChange}
-          />
+          <div className="grid gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_240px] sm:items-center">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">收起系统入口</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                收起后仅在悬停命中条时显示展开控件。
+              </p>
+            </div>
+            <div className="flex justify-start sm:justify-end">
+              <PillSwitch
+                checked={settings.appearance.systemNavCollapsed}
+                label="收起系统入口"
+                testId="system-nav-collapsed-switch"
+                onChange={onSystemNavCollapsedChange}
+              />
+            </div>
+          </div>
         </div>
       </section>
 
@@ -779,6 +801,95 @@ function AppearanceSection({
 
       <SettingsFeedback
         defaultMessage="更改会自动保存，并作为全局外观默认值。"
+        error={error}
+        state={saveState}
+      />
+    </div>
+  );
+}
+
+function CalendarSection({
+  error,
+  saveState,
+  settings,
+  onExpandedChange,
+  onWeekStartsOnChange,
+}: {
+  error: string | null;
+  saveState: 'idle' | 'saving' | 'saved' | 'error';
+  settings: AppSettings;
+  onExpandedChange: (expanded: boolean) => void;
+  onWeekStartsOnChange: (weekStartsOn: CalendarWeekStartsOn) => void;
+}) {
+  return (
+    <div className="space-y-6 pb-8" data-testid="calendar-settings-shell">
+      <SettingsSectionHeader
+        description="调整左侧栏每日笔记日历的展示方式。"
+        title="日历"
+      />
+
+      <section
+        className="overflow-hidden rounded-xl bg-muted/30"
+        data-testid="calendar-settings-card"
+      >
+        <div className="grid gap-3 border-b border-border/60 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_240px] sm:items-center">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">展开日历</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              在左侧栏展开每日笔记日历；关闭后保留紧凑入口。
+            </p>
+          </div>
+          <div className="flex justify-start sm:justify-end">
+            <PillSwitch
+              checked={settings.calendar.expanded}
+              label="展开日历"
+              testId="calendar-expanded-switch"
+              onChange={onExpandedChange}
+            />
+          </div>
+        </div>
+        <div className="grid gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_240px] sm:items-center">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">每周起始日</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              选择侧栏日历每一周从星期一或星期日开始。
+            </p>
+          </div>
+          <Select
+            value={settings.calendar.weekStartsOn}
+            onValueChange={(value) => {
+              if (value === 'monday' || value === 'sunday') {
+                onWeekStartsOnChange(value);
+              }
+            }}
+          >
+            <SelectTrigger
+              aria-label="每周起始日"
+              className="h-9 w-full bg-background/70"
+              data-testid="calendar-week-start-select"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="end" position="popper">
+              <SelectItem
+                data-testid="calendar-week-start-monday"
+                value="monday"
+              >
+                星期一
+              </SelectItem>
+              <SelectItem
+                data-testid="calendar-week-start-sunday"
+                value="sunday"
+              >
+                星期日
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </section>
+
+      <SettingsFeedback
+        defaultMessage="更改会自动保存，并作为全局日历设置。"
         error={error}
         state={saveState}
       />
@@ -1501,6 +1612,64 @@ function PreviewLine({
         mode === 'dark' ? 'bg-slate-500/80' : 'bg-slate-200',
       )}
     />
+  );
+}
+
+const SYSTEM_NAV_LAYOUT_OPTIONS: Array<{
+  value: SystemNavLayout;
+  label: string;
+}> = [
+  { value: 'vertical', label: '纵向' },
+  { value: 'horizontal', label: '横向' },
+];
+
+function SystemNavLayoutPicker({
+  value,
+  onChange,
+}: {
+  value: SystemNavLayout;
+  onChange: (layout: SystemNavLayout) => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const selectedLabel =
+    SYSTEM_NAV_LAYOUT_OPTIONS.find((option) => option.value === value)?.label ??
+    '纵向';
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          aria-expanded={open}
+          aria-label="系统入口排列方式"
+          className="flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-input bg-background/70 px-2.5 text-sm outline-none transition-[background-color,border-color,box-shadow] hover:border-ring/45 hover:bg-accent/60 hover:text-accent-foreground hover:shadow-sm focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 data-[state=open]:border-ring/60 data-[state=open]:bg-accent data-[state=open]:text-accent-foreground data-[state=open]:shadow-sm"
+          data-testid="system-nav-layout-select"
+          role="combobox"
+          type="button"
+        >
+          <span className="min-w-0 truncate">{selectedLabel}</span>
+          <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-[240px] gap-0 overflow-hidden p-1">
+        {SYSTEM_NAV_LAYOUT_OPTIONS.map((option) => (
+          <button
+            key={option.value}
+            className={cn(
+              'flex w-full items-center rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground',
+              option.value === value && 'bg-accent/70 font-medium',
+            )}
+            data-testid={`system-nav-layout-${option.value}`}
+            type="button"
+            onClick={() => {
+              onChange(option.value);
+              setOpen(false);
+            }}
+          >
+            {option.label}
+          </button>
+        ))}
+      </PopoverContent>
+    </Popover>
   );
 }
 
