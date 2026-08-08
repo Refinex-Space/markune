@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import {
+  ChevronDown,
   Copy,
   Download,
   ExternalLink,
@@ -16,6 +17,7 @@ import {
   MoreHorizontal,
   Pencil,
   Pin,
+  Plus,
   RefreshCw,
   Trash2,
 } from 'lucide-react';
@@ -136,6 +138,7 @@ export function DocumentTree({
   onTogglePinned,
 }: DocumentTreeProps) {
   const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set());
+  const [isTreeCollapsed, setIsTreeCollapsed] = React.useState(false);
   const [editingNodeId, setEditingNodeId] = React.useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = React.useState<WorkspaceNode | null>(
     null,
@@ -338,6 +341,8 @@ export function DocumentTree({
       </p>
     );
   } else {
+    const showTree = !isTreeCollapsed || searchQuery.trim().length > 0;
+
     treeContent = (
       <div className="flex flex-col">
         <div className="group flex h-8 items-center justify-between px-4 text-[13px] font-medium text-sidebar-foreground/50">
@@ -353,54 +358,72 @@ export function DocumentTree({
                     variant="ghost"
                     onClick={() => void handleCreateDirectory('')}
                   >
-                    <FolderPlus size={14} strokeWidth={2} />
+                    <Plus size={14} strokeWidth={2} />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="top">新建文件夹</TooltipContent>
               </Tooltip>
             </TooltipProvider>
+            <Button
+              aria-label={isTreeCollapsed ? '展开文件夹' : '折叠文件夹'}
+              className="size-6 rounded-sm p-0 text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+              type="button"
+              variant="ghost"
+              onClick={() => setIsTreeCollapsed(!isTreeCollapsed)}
+            >
+              <ChevronDown
+                className={cn(
+                  'transition-transform duration-200',
+                  isTreeCollapsed && '-rotate-90',
+                )}
+                size={14}
+                strokeWidth={2}
+              />
+            </Button>
           </div>
         </div>
-        <div className="space-y-0.5 px-2">
-          {visibleNodes.map((node) => (
-            <TreeNode
-              key={node.id}
-              currentDocumentPath={currentDocumentPath}
-              currentDirectoryPath={currentDirectoryPath}
-              directoryDocumentCounts={directoryDocumentCounts}
-              dragDisabled={dragDisabled}
-              draggedNode={draggedNode}
-              dropPreview={dropPreview}
-              editingNodeId={editingNodeId}
-              expanded={expanded}
-              forceExpanded={forceExpanded}
-              level={0}
-              node={node}
-              pendingRenameNodePath={pendingRenameNodePath}
-              onCreateDirectory={handleCreateDirectory}
-              onCreateDocument={handleCreateDocument}
-              onDeleteRequest={setDeleteTarget}
-              onExportNode={onExportNode}
-              onImportDocuments={onImportDocuments}
-              onOpenInFileManager={onOpenInFileManager}
-              onOpenInPreferredEditor={onOpenInPreferredEditor}
-              onDropPreviewChange={setDropPreview}
-              onExpandedChange={setExpanded}
-              onMoveNode={onMoveNode}
-              onPendingRenameConsumed={onPendingRenameConsumed}
-              onRefresh={onRefresh}
-              onRenameRequest={startEditingNode}
-              onRenameSubmit={handleRenameNode}
-              onResolveDraggedNode={resolveDraggedNode}
-              onSelectDirectory={onSelectDirectory}
-              onTogglePinned={onTogglePinned}
-              onTreeDragEnd={handleDragEnd}
-              onTreeDragStart={handleDragStart}
-              onSelectDocument={onSelectDocument}
-              preferredEditorLabel={preferredEditorLabel}
-            />
-          ))}
-        </div>
+        {showTree && (
+          <div className="space-y-0.5 px-2">
+            {visibleNodes.map((node) => (
+              <TreeNode
+                key={node.id}
+                currentDocumentPath={currentDocumentPath}
+                currentDirectoryPath={currentDirectoryPath}
+                directoryDocumentCounts={directoryDocumentCounts}
+                dragDisabled={dragDisabled}
+                draggedNode={draggedNode}
+                dropPreview={dropPreview}
+                editingNodeId={editingNodeId}
+                expanded={expanded}
+                forceExpanded={forceExpanded}
+                level={0}
+                node={node}
+                pendingRenameNodePath={pendingRenameNodePath}
+                onCreateDirectory={handleCreateDirectory}
+                onCreateDocument={handleCreateDocument}
+                onDeleteRequest={setDeleteTarget}
+                onExportNode={onExportNode}
+                onImportDocuments={onImportDocuments}
+                onOpenInFileManager={onOpenInFileManager}
+                onOpenInPreferredEditor={onOpenInPreferredEditor}
+                onDropPreviewChange={setDropPreview}
+                onExpandedChange={setExpanded}
+                onMoveNode={onMoveNode}
+                onPendingRenameConsumed={onPendingRenameConsumed}
+                onRefresh={onRefresh}
+                onRenameRequest={startEditingNode}
+                onRenameSubmit={handleRenameNode}
+                onResolveDraggedNode={resolveDraggedNode}
+                onSelectDirectory={onSelectDirectory}
+                onTogglePinned={onTogglePinned}
+                onTreeDragEnd={handleDragEnd}
+                onTreeDragStart={handleDragStart}
+                onSelectDocument={onSelectDocument}
+                preferredEditorLabel={preferredEditorLabel}
+              />
+            ))}
+          </div>
+        )}
       </div>
     );
   }
