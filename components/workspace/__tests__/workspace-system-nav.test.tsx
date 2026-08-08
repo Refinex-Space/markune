@@ -39,7 +39,6 @@ describe('WorkspaceSystemNav', () => {
 
     await user.hover(screen.getByTestId('workspace-system-nav'));
     const collapseExpanded = screen.getByTestId('system-nav-collapse-button');
-    expect(collapseExpanded.className).toContain('left-1/2');
     expect(collapseExpanded.querySelector('svg')).toBeTruthy();
 
     rerender(<WorkspaceSystemNav collapsed />);
@@ -61,6 +60,25 @@ describe('WorkspaceSystemNav', () => {
     expect(
       screen.getByRole('button', { name: '系统入口选项' }),
     ).toBeTruthy();
+  });
+
+  it('overlays vertical chrome without reserving a permanent gap or shifting entries', async () => {
+    const user = userEvent.setup();
+    render(<WorkspaceSystemNav layout="vertical" />);
+
+    const entries = screen.getByTestId('system-nav-entries');
+    const chrome = screen.getByTestId('system-nav-chrome');
+    const beforeEntriesClass = entries.className;
+
+    expect(chrome.className).toContain('absolute');
+    expect(chrome.className).toContain('opacity-0');
+    expect(entries.className).not.toMatch(/\bpt-/);
+
+    await user.hover(screen.getByTestId('workspace-system-nav'));
+
+    expect(chrome.className).toContain('opacity-100');
+    expect(entries.className).toBe(beforeEntriesClass);
+    expect(entries.className).not.toMatch(/\bpt-/);
   });
 
   it('toggles collapsed state from the collapse control', async () => {
@@ -95,7 +113,9 @@ describe('WorkspaceSystemNav', () => {
     expect(notes.textContent).not.toContain('笔记');
     expect(notes.getAttribute('aria-label')).toBe('笔记');
     expect(notes.className).toContain('justify-start');
-    expect(notes.parentElement?.className).toContain('pl-[11px]');
+    expect(screen.getByTestId('system-nav-entries').className).toContain(
+      'pr-1',
+    );
 
     const inbox = screen.getByRole('button', { name: 'Inbox · 4' });
     expect(inbox.getAttribute('aria-label')).toBe('Inbox · 4');

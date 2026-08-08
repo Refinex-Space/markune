@@ -189,40 +189,47 @@ export function WorkspaceSystemNav({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <div
-        className={cn(
-          'absolute inset-x-2 top-0 z-10 flex h-5 items-center',
-          showChrome ? 'opacity-100' : 'pointer-events-none opacity-0',
-        )}
-      >
-        <button
-          aria-expanded
-          aria-label="收起系统入口"
-          className="absolute left-1/2 flex size-5 -translate-x-1/2 items-center justify-center rounded text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-          data-testid="system-nav-collapse-button"
-          type="button"
-          onClick={() => onCollapsedChange?.(true)}
+      {/* 
+        Professional overlay chrome:
+        - Vertical mode overlays the empty right side of the first entry with a backdrop blur.
+        - Horizontal mode renders controls inline permanently to act as a proper toolbar.
+        author: refinex
+      */}
+      {!horizontal ? (
+        <div
+          className={cn(
+            'absolute right-2 top-1.5 z-10 flex items-center gap-0.5 rounded-md bg-sidebar/80 p-0.5 shadow-sm backdrop-blur-md transition-opacity',
+            showChrome ? 'opacity-100' : 'pointer-events-none opacity-0',
+          )}
+          data-testid="system-nav-chrome"
         >
-          <ChevronUp size={12} strokeWidth={2} />
-        </button>
-        <div className="ml-auto">
           <SystemNavOptionsMenu
             layout={layout}
             open={menuOpen}
             onLayoutChange={onLayoutChange}
             onOpenChange={setMenuOpen}
           />
+          <button
+            aria-expanded
+            aria-label="收起系统入口"
+            className="flex size-5 items-center justify-center rounded-sm text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            data-testid="system-nav-collapse-button"
+            type="button"
+            onClick={() => onCollapsedChange?.(true)}
+          >
+            <ChevronUp size={12} strokeWidth={2} />
+          </button>
         </div>
-      </div>
+      ) : null}
 
       <TooltipProvider delayDuration={250}>
         <div
-          className={cn(
+          className={
             horizontal
-              ? 'flex items-center justify-between gap-0.5 pt-3 pl-[11px]'
-              : 'space-y-0.5 pt-0',
-            showChrome && !horizontal ? 'pt-3' : null,
-          )}
+              ? 'flex items-center justify-between pl-[11px] pr-1'
+              : 'space-y-0.5'
+          }
+          data-testid="system-nav-entries"
         >
           {entries.map((entry) => (
             <SystemNavEntryButton
@@ -231,6 +238,26 @@ export function WorkspaceSystemNav({
               horizontal={horizontal}
             />
           ))}
+          {horizontal ? (
+            <div className="flex items-center gap-0.5 text-sidebar-foreground/60">
+              <SystemNavOptionsMenu
+                layout={layout}
+                open={menuOpen}
+                onLayoutChange={onLayoutChange}
+                onOpenChange={setMenuOpen}
+              />
+              <button
+                aria-expanded
+                aria-label="收起系统入口"
+                className="flex size-5 items-center justify-center rounded-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                data-testid="system-nav-collapse-button"
+                type="button"
+                onClick={() => onCollapsedChange?.(true)}
+              >
+                <ChevronUp size={12} strokeWidth={2} />
+              </button>
+            </div>
+          ) : null}
         </div>
       </TooltipProvider>
     </div>
@@ -253,7 +280,7 @@ function SystemNavOptionsMenu({
       <DropdownMenuTrigger asChild>
         <button
           aria-label="系统入口选项"
-          className="flex size-5 items-center justify-center rounded-md text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          className="flex size-5 items-center justify-center rounded-sm text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
           data-testid="system-nav-options-button"
           type="button"
         >
