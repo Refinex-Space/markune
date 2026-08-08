@@ -174,6 +174,7 @@ import { WorkspaceViewsPage } from './workspace-views-page';
 import {
   countMarkdownCharacters,
   countMarkdownLines,
+  countMarkdownWords,
 } from './workspace-document-insights';
 import { createDocumentPanelData } from './workspace-document-panel-data';
 import { flattenDocuments } from './workspace-tree';
@@ -565,6 +566,10 @@ export function WorkspaceLayout({
   );
   const documentCharacterCount = React.useMemo(
     () => countMarkdownCharacters(deferredDocumentMarkdown),
+    [deferredDocumentMarkdown],
+  );
+  const documentWordCount = React.useMemo(
+    () => countMarkdownWords(deferredDocumentMarkdown),
     [deferredDocumentMarkdown],
   );
   const documentLineCount = React.useMemo(
@@ -3434,6 +3439,7 @@ export function WorkspaceLayout({
                     Boolean(workspace.currentDocument) &&
                     workspace.documentLoadState === 'loaded'
                   }
+                  wordCount={documentWordCount}
                 />
               </section>
               {gitLogOpen ? (
@@ -4692,6 +4698,7 @@ export function WorkspaceStatusBar({
   saveState,
   sourceMode,
   visible,
+  wordCount,
 }: {
   characterCount: number;
   lineCount: number;
@@ -4699,6 +4706,7 @@ export function WorkspaceStatusBar({
   saveState: DocumentSaveState;
   sourceMode: boolean;
   visible: boolean;
+  wordCount: number;
 }) {
   return (
     <div
@@ -4730,7 +4738,7 @@ export function WorkspaceStatusBar({
                 </span>
               ) : null}
             </span>
-            <span>词数 {characterCount}</span>
+            <span>词数 {wordCount}</span>
             <span>行数 {lineCount}</span>
             <span>字符 {characterCount}</span>
             <span>UTF-8 · Markdown</span>

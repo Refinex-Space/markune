@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   countMarkdownCharacters,
   countMarkdownLines,
+  countMarkdownWords,
   extractResourceReferencesFromMarkdown,
 } from '@/components/workspace/workspace-document-insights';
 
@@ -23,6 +24,27 @@ describe('countMarkdownCharacters', () => {
 
   it('全是空白返回 0', () => {
     expect(countMarkdownCharacters('   \n\t  ')).toBe(0);
+  });
+});
+
+describe('countMarkdownWords', () => {
+  it('中文按字计词，英文按单词计', () => {
+    expect(countMarkdownWords('Hello 世界, this is a test')).toBe(7);
+  });
+
+  it('与字符数区分：中文文档词数不等于去空白字符数', () => {
+    const markdown = '# 标题\n\n正文 空格';
+    expect(countMarkdownWords(markdown)).toBe(6);
+    expect(countMarkdownCharacters(markdown)).toBe(7);
+  });
+
+  it('连字符英文视为一个词', () => {
+    expect(countMarkdownWords('state-of-the-art design')).toBe(2);
+  });
+
+  it('空字符串与 undefined 返回 0', () => {
+    expect(countMarkdownWords('')).toBe(0);
+    expect(countMarkdownWords(undefined)).toBe(0);
   });
 });
 

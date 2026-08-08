@@ -5,6 +5,7 @@ import Image from 'next/image';
 import {
   ArrowLeft,
   CheckCircle2,
+  ChevronDown,
   Cloud,
   Database,
   ExternalLink,
@@ -24,7 +25,19 @@ import {
 import { useTheme } from 'next-themes';
 
 import { Button } from '@/components/ui/button';
+import {
+  Command,
+  CommandEmpty,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
 import { Input } from '@/components/ui/input';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import {
   Select,
   SelectContent,
@@ -1521,24 +1534,107 @@ function FontSettingRow({
           {sample}
         </p>
       </div>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger
-          aria-label={label}
-          className="h-9 w-full bg-background/70 transition-[background-color,border-color,box-shadow] hover:border-ring/45 hover:bg-accent/60 hover:text-accent-foreground hover:shadow-sm data-[state=open]:border-ring/60 data-[state=open]:bg-accent data-[state=open]:text-accent-foreground data-[state=open]:shadow-sm"
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent align="end" className="max-h-[22rem] min-w-[22rem]" position="popper">
-          {normalizedOptions.map((fontFamily) => (
-            <SelectItem key={fontFamily} value={fontFamily}>
-              <span style={{ fontFamily: buildPreviewFontStack(fontFamily) }}>
-                {fontFamily}
-              </span>
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <FontFamilyPicker
+        label={label}
+        options={normalizedOptions}
+        value={value}
+        onChange={onChange}
+      />
     </div>
+  );
+}
+
+const FONT_PICKER_RESULT_LIMIT = 48;
+
+function FontFamilyPicker({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: string[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const listboxId = React.useId();
+  const [open, setOpen] = React.useState(false);
+  const [query, setQuery] = React.useState('');
+  const matchingOptions = React.useMemo(
+    () => filterFontOptions(options, query),
+    [options, query],
+  );
+  const visibleOptions = matchingOptions.slice(0, FONT_PICKER_RESULT_LIMIT);
+  const hiddenResultCount = matchingOptions.length - visibleOptions.length;
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) setQuery('');
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          aria-controls={listboxId}
+          aria-expanded={open}
+          aria-label={label}
+          className="flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-input bg-background/70 px-2.5 text-sm outline-none transition-[background-color,border-color,box-shadow] hover:border-ring/45 hover:bg-accent/60 hover:text-accent-foreground hover:shadow-sm focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 data-[state=open]:border-ring/60 data-[state=open]:bg-accent data-[state=open]:text-accent-foreground data-[state=open]:shadow-sm"
+          role="combobox"
+          type="button"
+        >
+          <span
+            className="min-w-0 truncate"
+            style={{ fontFamily: buildPreviewFontStack(value) }}
+          >
+            {value}
+          </span>
+          <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-[22rem] gap-0 overflow-hidden p-0"
+        sideOffset={4}
+      >
+        <Command shouldFilter={false}>
+          <CommandInput
+            autoFocus
+            aria-label={`搜索${label}`}
+            placeholder="搜索字体"
+            value={query}
+            onValueChange={setQuery}
+          />
+          <CommandList id={listboxId} className="max-h-[19rem] px-1 pt-1">
+            <CommandEmpty>未找到匹配的字体</CommandEmpty>
+            {visibleOptions.map((fontFamily) => (
+              <CommandItem
+                key={fontFamily}
+                data-checked={fontFamily === value}
+                value={fontFamily}
+                onSelect={() => {
+                  onChange(fontFamily);
+                  setOpen(false);
+                }}
+              >
+                <span
+                  className="min-w-0 truncate"
+                  style={{ fontFamily: buildPreviewFontStack(fontFamily) }}
+                >
+                  {fontFamily}
+                </span>
+              </CommandItem>
+            ))}
+          </CommandList>
+          {hiddenResultCount > 0 ? (
+            <p className="border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
+              还有 {hiddenResultCount} 项，请继续输入以缩小范围
+            </p>
+          ) : null}
+        </Command>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -1733,6 +1829,27 @@ function mergeFontOptions(options: SystemFontOptions): SystemFontOptions {
 
 function ensureFontOption(options: string[], value: string) {
   return Array.from(new Set([value, ...options].filter(Boolean)));
+}
+
+function filterFontOptions(options: string[], query: string) {
+  const normalizedQuery = normalizeFontSearchText(query);
+  if (!normalizedQuery) return options;
+
+  const queryTokens = normalizedQuery.split(/\s+/);
+  return options.filter((option) => {
+    const normalizedOption = normalizeFontSearchText(option);
+    const compactOption = normalizedOption.replace(/\s+/g, '');
+
+    return queryTokens.every(
+      (token) =>
+        normalizedOption.includes(token) ||
+        compactOption.includes(token.replace(/\s+/g, '')),
+    );
+  });
+}
+
+function normalizeFontSearchText(value: string) {
+  return value.normalize('NFKC').trim().toLowerCase();
 }
 
 function buildPreviewFontStack(fontFamily: string) {

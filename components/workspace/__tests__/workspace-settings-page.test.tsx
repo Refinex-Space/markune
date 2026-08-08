@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -66,6 +66,17 @@ function renderSettingsPage() {
 
 describe('WorkspaceSettingsPage', () => {
   beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+    vi.stubGlobal(
+      'ResizeObserver',
+      class ResizeObserver {
+        disconnect() {}
+
+        observe() {}
+
+        unobserve() {}
+      },
+    );
     Object.assign(appUpdateController, {
       available: false,
       check: vi.fn(() => Promise.resolve()),
@@ -125,6 +136,69 @@ describe('WorkspaceSettingsPage', () => {
     expect(
       screen.getByText('这是一段用于预览文档字体的文本。'),
     ).toBeTruthy();
+  });
+
+  it('searches the full font list without rendering every option at once', async () => {
+    const user = userEvent.setup();
+    const onSettingsSaved = vi.fn();
+    const sessionCache = createWorkspaceSettingsSessionCache();
+    sessionCache.systemFonts = {
+      code: ['JetBrains Mono'],
+      document: ['Songti SC'],
+      recommendations: {
+        code: 'JetBrains Mono',
+        document: 'Songti SC',
+        ui: 'SF Pro Text',
+      },
+      ui: [
+        'SF Pro Text',
+        ...Array.from(
+          { length: 70 },
+          (_, index) => `System Font ${String(index).padStart(2, '0')}`,
+        ),
+        'Fira Sans',
+      ],
+    };
+
+    render(
+      <WorkspaceSettingsPage
+        appUpdate={appUpdateController}
+        initialSettings={initialSettings}
+        sessionCache={sessionCache}
+        workspaceRootPath="D:/notes"
+        onBack={vi.fn()}
+        onSettingsSaved={onSettingsSaved}
+      />,
+    );
+
+    await user.click(screen.getByRole('combobox', { name: 'UI 字体' }));
+
+    const searchInput = screen.getByLabelText('搜索UI 字体');
+    expect(screen.getByText(/请继续输入以缩小范围/)).toBeTruthy();
+    expect(screen.queryByText('Fira Sans')).toBeNull();
+
+    await user.type(searchInput, 'fira');
+    expect(screen.getByText('Fira Sans')).toBeTruthy();
+    expect(screen.queryByText('System Font 00')).toBeNull();
+
+    await user.clear(searchInput);
+    await user.type(searchInput, 'missing font');
+    expect(screen.getByText('未找到匹配的字体')).toBeTruthy();
+
+    await user.clear(searchInput);
+    await user.type(searchInput, 'fira');
+    await user.click(screen.getByText('Fira Sans'));
+
+    await waitFor(() =>
+      expect(onSettingsSaved).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appearance: expect.objectContaining({
+            fonts: expect.objectContaining({ ui: 'Fira Sans' }),
+          }),
+        }),
+      ),
+    );
+    expect(screen.queryByLabelText('搜索UI 字体')).toBeNull();
   });
 
   it('persists system nav layout and collapsed preference from appearance settings', async () => {

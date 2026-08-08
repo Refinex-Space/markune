@@ -13,12 +13,15 @@ describe('WorkspaceStatusBar', () => {
         saveState="saved"
         sourceMode
         visible
+        wordCount={840}
       />,
     );
 
     const statusBar = screen.getByTestId('workspace-status-bar');
     expect(screen.getByText('Ctrl / Cmd + / 返回')).toBeTruthy();
     expect(screen.getByText('已保存')).toBeTruthy();
+    expect(screen.getByText('词数 840')).toBeTruthy();
+    expect(screen.getByText('字符 1271')).toBeTruthy();
     expect(screen.getByText('UTF-8 · Markdown')).toBeTruthy();
     expect(statusBar.className).toContain('items-center');
   });
@@ -32,6 +35,7 @@ describe('WorkspaceStatusBar', () => {
         saveState="saved"
         sourceMode={false}
         visible
+        wordCount={840}
       />,
     );
 
