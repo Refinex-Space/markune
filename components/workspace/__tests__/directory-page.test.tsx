@@ -49,9 +49,7 @@ describe('DirectoryPage', () => {
       name: '打开目录 13_Skills',
     });
 
-    expect(card.className).toContain('min-h-[72px]');
-    expect(card.className).toContain('min-w-0');
-    expect(card.className).toContain('max-w-full');
+    expect(card.className).toContain('rounded-2xl');
     expect(card.className).toContain('overflow-hidden');
     expect(screen.queryByText(longTitle)).toBeNull();
     expect(screen.queryByRole('heading', { name: '文档' })).toBeNull();
@@ -94,17 +92,15 @@ describe('DirectoryPage', () => {
     const gridViewButton = screen.getByRole('button', { name: '网格视图' });
     const controlRow = searchInput.parentElement?.parentElement;
 
-    expect(card.className).toContain('min-h-[112px]');
-    expect(card.className).toContain('rounded-lg');
-    expect(card.className).not.toContain('rounded-2xl');
-    expect(gridViewButton.className).not.toContain('shadow-sm');
+    expect(card.className).toContain('min-h-[240px]');
+    expect(card.className).toContain('rounded-2xl');
+    expect(gridViewButton.className).toContain('shadow-sm');
     expect(searchInput.closest('header')?.contains(gridViewButton)).toBe(true);
-    expect(controlRow?.className).toContain('w-full');
-    expect(controlRow?.className).toContain('justify-between');
+    expect(controlRow?.className).toContain('flex items-center gap-2');
     expect(screen.queryByText(/当前目录 · 更新/u)).toBeNull();
-    expect(container.querySelector('.max-w-6xl')).not.toBeNull();
+    expect(container.querySelector('.max-w-5xl')).not.toBeNull();
     expect(container.querySelector('.max-w-7xl')).toBeNull();
-    expect(container.querySelector('.xl\\:grid-cols-4')).not.toBeNull();
+    expect(container.querySelector('.lg\\:grid-cols-3')).toBeNull();
     expect(container.querySelector('.h-52')).toBeNull();
   });
 
@@ -167,12 +163,11 @@ describe('DirectoryPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '列表视图' }));
 
-    expect(screen.getByText('名称')).not.toBeNull();
     expect(screen.getByText('LLM HelloWorld')).not.toBeNull();
     expect(
       screen.getByRole('button', { name: '打开文档 LLM HelloWorld' })
         .className,
-    ).toContain('py-2.5');
+    ).toContain('py-3');
     expect(container.querySelector('.w-\\[50px\\]')).toBeNull();
 
     fireEvent.change(

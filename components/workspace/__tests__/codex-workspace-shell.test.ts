@@ -8,16 +8,16 @@ const workspaceRoot = process.cwd();
 describe('Codex workspace shell', () => {
   it('在视图下方提供 Codex 主工作区入口', () => {
     const sidebar = readFileSync(
-      join(workspaceRoot, 'components/workspace/workspace-sidebar.tsx'),
+      join(workspaceRoot, 'components/workspace/workspace-system-nav.tsx'),
       'utf8',
     );
-    const views = sidebar.indexOf('data-testid="workspace-views-entry"');
-    const codex = sidebar.indexOf('data-testid="codex-workspace-entry"');
+    const views = sidebar.indexOf("id: 'views'");
+    const codex = sidebar.indexOf("id: 'codex'");
 
     expect(views).toBeGreaterThan(-1);
     expect(codex).toBeGreaterThan(views);
     expect(sidebar).toContain("systemPage === 'codex'");
-    expect(sidebar).toContain('<span className="truncate">Codex</span>');
+    expect(sidebar).toContain("label: 'Codex'");
   });
 
   it('以系统页切换展示形态而不是创建第二个 AiPanel', () => {

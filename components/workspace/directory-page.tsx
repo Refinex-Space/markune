@@ -2,8 +2,7 @@
 
 import * as React from 'react';
 import {
-  ArrowRight,
-  Folder,
+  FileText,
   LayoutGrid,
   List,
   Search,
@@ -14,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
 import { readMarkdownDocument } from './workspace-api';
+import { WorkspaceTreeFolderIcon } from './workspace-tree-folder-icon';
 import type { WorkspaceNode } from './workspace-types';
 
 type DirectoryViewMode = 'grid' | 'list';
@@ -151,23 +151,23 @@ export function DirectoryPage({
   }, [previewDocuments, previews, workspaceRootPath]);
 
   return (
-    <div className="directory-page-scrollarea h-full overflow-auto bg-background">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-6 py-6">
-        <header className="space-y-3 pb-0.5">
-          <h1 className="truncate text-2xl font-semibold tracking-tight">
+    <div className="directory-page-scrollarea h-full overflow-auto bg-muted/10">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-12 px-8 py-12 md:px-12 md:py-16">
+        <header className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground md:text-3xl">
             {directory.name}
           </h1>
 
-          <div className="flex w-full items-center justify-between gap-3">
-            <div className="relative min-w-0 max-w-lg flex-1">
+          <div className="flex items-center gap-2">
+            <div className="relative w-full md:w-64">
               <Search
                 aria-hidden="true"
-                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/60"
               />
               <Input
                 aria-label="搜索当前目录下的文档"
-                className="h-9 bg-background pl-9 text-sm"
-                placeholder="搜索当前目录下的文档"
+                className="h-9 rounded-lg border-transparent bg-muted/50 pl-9 text-sm transition-all hover:bg-muted/70 focus-visible:border-ring focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-ring/20"
+                placeholder="搜索..."
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
               />
@@ -177,9 +177,9 @@ export function DirectoryPage({
         </header>
 
         {!normalizedQuery && childDirectories.length > 0 ? (
-          <section className="space-y-2.5">
+          <section>
             <SectionHeading title="子目录" />
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-4">
               {childDirectories.map((child) => (
                 <DirectoryCard
                   key={child.absolutePath}
@@ -192,15 +192,15 @@ export function DirectoryPage({
         ) : null}
 
         {visibleDocuments.length > 0 || normalizedQuery ? (
-          <section className="space-y-2.5">
+          <section>
             <SectionHeading title={normalizedQuery ? '搜索结果' : '文档'} />
 
             {visibleDocuments.length > 0 ? (
               <div
                 className={
                   viewMode === 'grid'
-                    ? 'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
-                    : 'overflow-hidden rounded-lg'
+                    ? 'grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-6'
+                    : 'flex flex-col gap-1'
                 }
               >
                 {viewMode === 'list' ? <DocumentListHeader /> : null}
@@ -228,7 +228,9 @@ export function DirectoryPage({
 
 function SectionHeading({ title }: { title: string }) {
   return (
-    <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+    <h2 className="mb-4 text-sm font-medium tracking-wide text-muted-foreground/80 uppercase">
+      {title}
+    </h2>
   );
 }
 
@@ -240,14 +242,15 @@ function ViewModeSwitch({
   onChange: (mode: DirectoryViewMode) => void;
 }) {
   return (
-    <div className="flex h-8 shrink-0 items-center rounded-md bg-muted/50 p-0.5 ring-1 ring-border/60">
+    <div className="flex h-9 shrink-0 items-center rounded-lg bg-muted/40 p-1">
       <button
         aria-pressed={value === 'grid'}
         aria-label="网格视图"
         className={cn(
-          'flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors',
-          value === 'grid' &&
-            'bg-background text-foreground ring-1 ring-border/70',
+          'flex size-7 items-center justify-center rounded-md text-muted-foreground transition-all duration-200',
+          value === 'grid'
+            ? 'bg-background text-foreground shadow-sm ring-1 ring-border/50'
+            : 'hover:text-foreground',
         )}
         type="button"
         onClick={() => onChange('grid')}
@@ -258,14 +261,15 @@ function ViewModeSwitch({
         aria-pressed={value === 'list'}
         aria-label="列表视图"
         className={cn(
-          'flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors',
-          value === 'list' &&
-            'bg-background text-foreground ring-1 ring-border/70',
+          'flex size-7 items-center justify-center rounded-md text-muted-foreground transition-all duration-200',
+          value === 'list'
+            ? 'bg-background text-foreground shadow-sm ring-1 ring-border/50'
+            : 'hover:text-foreground',
         )}
         type="button"
         onClick={() => onChange('list')}
       >
-        <List size={15} />
+        <List size={14} />
       </button>
     </div>
   );
@@ -284,24 +288,25 @@ function DirectoryCard({
     <button
       aria-label={`打开目录 ${directory.name}`}
       className={cn(
-        'group relative flex min-h-[72px] min-w-0 max-w-full items-center gap-3 overflow-hidden rounded-lg border border-border/70 bg-background p-3 text-left transition-colors duration-150',
-        'hover:border-[#3574f0]/35 hover:bg-muted/25',
+        'group relative flex flex-col items-center justify-center gap-3 overflow-hidden rounded-2xl bg-muted/30 p-6 text-center transition-all duration-200',
+        'hover:bg-muted/50 hover:shadow-sm',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
       )}
       title={directory.name}
       type="button"
       onClick={() => onSelectDirectory(directory)}
     >
-      <Folder className="size-4 shrink-0 text-muted-foreground" />
-      <div className="min-w-0 flex-1 pr-5">
-        <h3 className="truncate text-sm font-medium leading-5">
+      <div className="flex size-14 items-center justify-center rounded-2xl text-muted-foreground/70 transition-transform duration-200 group-hover:scale-110 group-hover:text-foreground/80">
+        <WorkspaceTreeFolderIcon expanded className="size-8" />
+      </div>
+      <div className="space-y-1">
+        <h3 className="truncate text-sm font-medium text-foreground">
           {directory.name}
         </h3>
-        <p className="mt-0.5 truncate text-xs leading-4 text-muted-foreground">
-          {stats.totalDocuments} 篇文档 · {stats.totalDirectories} 个子目录
+        <p className="truncate text-xs text-muted-foreground/70">
+          {stats.totalDocuments} 个项目
         </p>
       </div>
-      <ArrowRight className="absolute right-3 size-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
     </button>
   );
 }
@@ -333,37 +338,32 @@ function DocumentCard({
       : formatDocumentDate(
           preview.modifiedAt ?? preview.updatedAt ?? preview.createdAt ?? null,
         );
-  const createdAt =
-    preview === undefined
-      ? '读取中'
-      : formatDocumentDate(
-          preview.createdAt ?? preview.updatedAt ?? preview.modifiedAt ?? null,
-        );
 
   if (viewMode === 'list') {
     return (
       <button
         aria-label={`打开文档 ${title}`}
         className={cn(
-          'group grid w-full grid-cols-[minmax(0,1fr)] items-center gap-4 border-b border-border/50 px-0 py-2.5 text-left transition-colors last:border-b-0 hover:bg-muted/25',
+          'group flex w-full items-center justify-between gap-4 rounded-xl px-4 py-3 text-left transition-all duration-200 hover:bg-muted/40',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
-          'md:grid-cols-[minmax(360px,1fr)_120px_120px]',
         )}
         title={title}
         type="button"
         onClick={() => onOpenDocument(document)}
       >
-        <div className="min-w-0 space-y-1 px-1 md:px-0">
-          <h3 className="truncate text-sm font-semibold leading-5">{title}</h3>
-          <p className="truncate text-xs leading-5 text-foreground/60">
-            {articlePreview}
-          </p>
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted/50 text-muted-foreground">
+            <FileText className="size-4" />
+          </div>
+          <div className="min-w-0 space-y-0.5">
+            <h3 className="truncate text-sm font-medium text-foreground">{title}</h3>
+            <p className="truncate text-xs text-muted-foreground/70">
+              {showPath ? `${path} · ` : null}{articlePreview.slice(0, 50)}...
+            </p>
+          </div>
         </div>
-        <div className="hidden text-xs text-muted-foreground md:block">
-          {updatedAt}
-        </div>
-        <div className="hidden text-xs text-muted-foreground md:block">
-          {createdAt}
+        <div className="hidden shrink-0 items-center gap-6 text-xs text-muted-foreground/70 md:flex">
+          <span className="w-24 text-right">{updatedAt}</span>
         </div>
       </button>
     );
@@ -373,52 +373,43 @@ function DocumentCard({
     <button
       aria-label={`打开文档 ${title}`}
       className={cn(
-        'group relative flex min-h-[112px] min-w-0 flex-col overflow-hidden rounded-lg border border-border/70 bg-background p-4 text-left transition-colors duration-150 dark:bg-card',
-        'hover:border-[#3574f0]/35 hover:bg-muted/20',
+        'group relative flex aspect-[3/4] max-h-[280px] min-h-[240px] min-w-0 flex-col overflow-hidden rounded-2xl border border-border/50 bg-background text-left shadow-sm transition-all duration-300',
+        'hover:-translate-y-1 hover:border-border/80 hover:shadow-md',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
       )}
       title={title}
       type="button"
       onClick={() => onOpenDocument(document)}
     >
-      <div className="min-w-0 space-y-1 pr-5">
-        <h3 className="line-clamp-1 text-sm font-semibold leading-5">
+      <div className="flex flex-1 flex-col p-6">
+        <h3 className="mb-4 line-clamp-2 text-base font-bold tracking-tight text-foreground">
           {title}
         </h3>
-        <p className="truncate text-xs leading-4 text-muted-foreground">
-          {showPath ? `${path} · ` : null}更新于 {updatedAt}
-        </p>
+        
+        <div className="relative flex-1 overflow-hidden">
+          <div className="text-xs leading-relaxed text-muted-foreground/80 whitespace-pre-wrap break-words">
+            {articlePreview}
+          </div>
+          <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-background to-transparent" />
+        </div>
       </div>
-
-      <p className="mt-2.5 line-clamp-2 text-xs leading-5 text-foreground/60">
-        {articlePreview}
-      </p>
-
-      <ArrowRight className="absolute right-4 top-4 size-3.5 text-[#3574f0] opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
     </button>
   );
 }
 
 function DocumentListHeader() {
-  return (
-    <div
-      className={cn(
-        'hidden grid-cols-[minmax(360px,1fr)_120px_120px] gap-4 border-b border-border/70 pb-2 text-xs text-muted-foreground md:grid',
-      )}
-    >
-      <div>名称</div>
-      <div>修改时间</div>
-      <div>创建时间</div>
-    </div>
-  );
+  return null;
 }
 
 function EmptyDirectoryState({ query }: { query: string }) {
   return (
-    <div className="flex min-h-28 items-center justify-center rounded-lg border border-dashed bg-muted/10 px-6 text-center">
+    <div className="flex min-h-[200px] flex-col items-center justify-center rounded-2xl border border-dashed border-border/50 bg-muted/10 px-6 text-center">
+      <div className="mb-4 flex size-12 items-center justify-center rounded-full bg-muted/50">
+        <Search className="size-6 text-muted-foreground/50" />
+      </div>
       <div className="max-w-sm space-y-1.5">
-        <p className="text-sm font-medium">没有找到“{query.trim()}”</p>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm font-medium text-foreground">没有找到“{query.trim()}”</p>
+        <p className="text-xs text-muted-foreground/80">
           换一个关键词，或在左侧树中进入更具体的子目录。
         </p>
       </div>
