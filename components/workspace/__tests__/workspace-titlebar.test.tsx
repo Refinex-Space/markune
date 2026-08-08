@@ -35,11 +35,11 @@ describe('Workspace titlebar', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
     const workspaceSidebarSource = readFileSync(workspaceSidebarPath, 'utf8');
 
-    expect(workspaceSidebarSource).toContain("? 'h-2'");
+    expect(workspaceSidebarSource).toContain("windowsChromeInset && 'h-2'");
     expect(workspaceSidebarSource).toContain(
-      "macChromeContentTop === undefined",
+      'macChromeContentTop ?? DEFAULT_TITLEBAR_SPACER',
     );
-    expect(workspaceSidebarSource).toContain("? 'h-10'");
+    expect(workspaceSidebarSource).toContain('- panelMargin');
     expect(workspaceLayoutSource).toContain(
       'windowsChromeInset={isTauriRuntime && isWindowsRuntime}',
     );
@@ -177,6 +177,7 @@ describe('Workspace titlebar', () => {
 
   it('renders the compact AI and metadata panels beside the rounded main panel', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
+    const workspaceSidebarSource = readFileSync(workspaceSidebarPath, 'utf8');
 
     expect(workspaceLayoutSource).toContain(
       'data-testid="workspace-panel-group"',
@@ -191,6 +192,12 @@ describe('Workspace titlebar', () => {
       /className="([^"]+)"\s+data-testid="workspace-editor-column"/,
     )?.[1];
     expect(editorColumnClass).not.toContain('shadow-[');
+    expect(workspaceLayoutSource).toContain(
+      'panelMargin={WORKSPACE_PANEL_MARGIN}',
+    );
+    expect(workspaceSidebarSource).toContain(
+      'rounded-xl border border-border/70 bg-background',
+    );
     expect(workspaceLayoutSource.indexOf('data-testid="workspace-editor-column"'))
       .toBeLessThan(workspaceLayoutSource.indexOf('<RightSidePanel'));
   });

@@ -20,12 +20,16 @@ import type {
   WorkspaceNode,
 } from './workspace-types';
 
+const DEFAULT_PANEL_MARGIN = 8;
+const DEFAULT_TITLEBAR_SPACER = 40;
+
 interface WorkspaceSidebarProps {
   appUpdateAvailable?: boolean;
   dailyCalendar?: ReactNode;
   drawingContent?: ReactNode;
   inboxContent?: ReactNode;
   macChromeContentTop?: number;
+  panelMargin?: number;
   width: number;
   windowsChromeInset?: boolean;
   workspace: ReturnType<typeof useWorkspace>;
@@ -90,6 +94,7 @@ export function WorkspaceSidebar({
   drawingContent,
   inboxContent,
   macChromeContentTop,
+  panelMargin = DEFAULT_PANEL_MARGIN,
   width,
   workspace,
   onCreateDocument,
@@ -145,11 +150,17 @@ export function WorkspaceSidebar({
   const isDailyActive =
     systemPage === 'daily' ||
     isDailyDocumentPath(workspace.currentDocument?.relativePath ?? null);
+  const titlebarSpacerHeight = windowsChromeInset
+    ? null
+    : Math.max(
+        0,
+        (macChromeContentTop ?? DEFAULT_TITLEBAR_SPACER) - panelMargin,
+      );
 
   return (
     <aside
       className={cn(
-        'flex h-full shrink-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground transition-[width,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
+        'flex h-full shrink-0 flex-col overflow-hidden bg-transparent text-sidebar-foreground transition-[width,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
         workspace.isSidebarCollapsed ? 'opacity-0' : 'opacity-100',
       )}
       data-chrome="workspace-sidebar"
@@ -159,29 +170,26 @@ export function WorkspaceSidebar({
       <div
         aria-hidden={workspace.isSidebarCollapsed}
         className={cn(
-          'flex h-full flex-col transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
+          'flex flex-col overflow-hidden rounded-xl border border-border/70 bg-background transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
           workspace.isSidebarCollapsed
             ? 'pointer-events-none -translate-x-2 opacity-0'
             : 'translate-x-0 opacity-100',
         )}
         data-testid="workspace-sidebar-content"
-        style={{ width }}
+        style={{
+          height: `calc(100% - ${panelMargin * 2}px)`,
+          margin: `${panelMargin}px 0 ${panelMargin}px ${panelMargin}px`,
+          width: Math.max(0, width - panelMargin),
+        }}
       >
         <header
-          className={cn(
-            'shrink-0',
-            windowsChromeInset
-              ? 'h-2'
-              : macChromeContentTop === undefined
-                ? 'h-10'
-                : undefined,
-          )}
+          className={cn('shrink-0', windowsChromeInset && 'h-2')}
           data-tauri-drag-region="deep"
           data-testid="workspace-sidebar-titlebar-spacer"
           style={
-            !windowsChromeInset && macChromeContentTop !== undefined
-              ? { height: macChromeContentTop }
-              : undefined
+            titlebarSpacerHeight === null
+              ? undefined
+              : { height: titlebarSpacerHeight }
           }
         />
 

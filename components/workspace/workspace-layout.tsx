@@ -3174,6 +3174,7 @@ export function WorkspaceLayout({
                     ? macChromeContentTop
                     : undefined
                 }
+                panelMargin={WORKSPACE_PANEL_MARGIN}
                 width={leftSidebarWidth}
                 workspace={workspace}
                 onCreateDocument={handleCreateDocument}

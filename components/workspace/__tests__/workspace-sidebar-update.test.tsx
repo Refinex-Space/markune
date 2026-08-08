@@ -88,8 +88,48 @@ describe('WorkspaceSidebar update entry', () => {
     );
 
     const spacer = screen.getByTestId('workspace-sidebar-titlebar-spacer');
-    expect(spacer.style.height).toBe('46px');
+    expect(spacer.style.height).toBe('38px');
     expect(spacer.className).not.toContain('h-10');
+  });
+
+  it('renders the sidebar content as an inset rounded panel', () => {
+    render(
+      <WorkspaceSidebar
+        width={280}
+        workspace={createOpenWorkspaceStub()}
+        onOpenGlobalSearch={vi.fn()}
+      />,
+    );
+
+    const sidebar = screen.getByTestId('workspace-sidebar');
+    const content = screen.getByTestId('workspace-sidebar-content');
+
+    expect(sidebar.style.width).toBe('280px');
+    expect(sidebar.className).toContain('bg-transparent');
+    expect(content.className).toContain('rounded-xl');
+    expect(content.className).toContain('border-border/70');
+    expect(content.className).toContain('bg-background');
+    expect(content.style.height).toBe('calc(100% - 16px)');
+    expect(content.style.margin).toBe('8px 0px 8px 8px');
+    expect(content.style.width).toBe('272px');
+  });
+
+  it('collapses the rounded sidebar panel without retaining layout width', () => {
+    const workspace = createOpenWorkspaceStub();
+    workspace.isSidebarCollapsed = true;
+
+    render(
+      <WorkspaceSidebar
+        width={280}
+        workspace={workspace}
+        onOpenGlobalSearch={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('workspace-sidebar').style.width).toBe('0px');
+    expect(screen.getByTestId('workspace-sidebar-content').className).toContain(
+      'pointer-events-none',
+    );
   });
 
   it('shows a blue update action and opens the version settings section', async () => {
