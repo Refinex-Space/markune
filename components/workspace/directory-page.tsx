@@ -17,6 +17,7 @@ import { WorkspaceTreeFolderIcon } from './workspace-tree-folder-icon';
 import type { WorkspaceNode } from './workspace-types';
 
 type DirectoryViewMode = 'grid' | 'list';
+type DirectoryPageVariant = 'directory' | 'workspace-overview';
 
 const DIRECTORY_PREVIEW_BATCH_SIZE = 24;
 const DIRECTORY_PREVIEW_READ_CONCURRENCY = 4;
@@ -31,6 +32,7 @@ interface DocumentPreview {
 interface DirectoryPageProps {
   directory: WorkspaceNode;
   workspaceRootPath: string;
+  variant?: DirectoryPageVariant;
   onOpenDocument: (node: WorkspaceNode) => void;
   onSelectDirectory: (node: WorkspaceNode) => void;
 }
@@ -38,6 +40,7 @@ interface DirectoryPageProps {
 export function DirectoryPage({
   directory,
   workspaceRootPath,
+  variant = 'directory',
   onOpenDocument,
   onSelectDirectory,
 }: DirectoryPageProps) {
@@ -47,6 +50,7 @@ export function DirectoryPage({
     Record<string, DocumentPreview>
   >({});
   const normalizedQuery = query.trim().toLocaleLowerCase();
+  const isWorkspaceOverview = variant === 'workspace-overview';
   const childDirectories = React.useMemo(
     () => getChildDirectories(directory),
     [directory],
@@ -165,7 +169,11 @@ export function DirectoryPage({
                 className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/60"
               />
               <Input
-                aria-label="搜索当前目录下的文档"
+                aria-label={
+                  isWorkspaceOverview
+                    ? '搜索工作区文档'
+                    : '搜索当前目录下的文档'
+                }
                 className="h-9 rounded-lg border-transparent bg-muted/50 pl-9 text-sm transition-all hover:bg-muted/70 focus-visible:border-ring focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-ring/20"
                 placeholder="搜索..."
                 value={query}
@@ -178,12 +186,20 @@ export function DirectoryPage({
 
         {!normalizedQuery && childDirectories.length > 0 ? (
           <section>
-            <SectionHeading title="子目录" />
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-4">
+            <SectionHeading title={isWorkspaceOverview ? '工作区' : '子目录'} />
+            <div
+              className={cn(
+                'grid gap-4',
+                isWorkspaceOverview
+                  ? 'grid-cols-[repeat(auto-fill,minmax(180px,220px))]'
+                  : 'grid-cols-[repeat(auto-fill,minmax(160px,1fr))]',
+              )}
+            >
               {childDirectories.map((child) => (
                 <DirectoryCard
                   key={child.absolutePath}
                   directory={child}
+                  workspaceOverview={isWorkspaceOverview}
                   onSelectDirectory={onSelectDirectory}
                 />
               ))}
@@ -277,9 +293,11 @@ function ViewModeSwitch({
 
 function DirectoryCard({
   directory,
+  workspaceOverview,
   onSelectDirectory,
 }: {
   directory: WorkspaceNode;
+  workspaceOverview: boolean;
   onSelectDirectory: (node: WorkspaceNode) => void;
 }) {
   const stats = getDirectoryStats(directory);
@@ -289,7 +307,8 @@ function DirectoryCard({
       aria-label={`打开目录 ${directory.name}`}
       className={cn(
         'group relative flex flex-col items-center justify-center gap-3 overflow-hidden rounded-2xl bg-muted/30 p-6 text-center transition-all duration-200',
-        'hover:bg-muted/50 hover:shadow-sm',
+        workspaceOverview && 'min-h-44',
+        'hover:-translate-y-0.5 hover:bg-muted/50 hover:shadow-sm',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
       )}
       title={directory.name}
@@ -419,7 +438,7 @@ function EmptyDirectoryState({ query }: { query: string }) {
 
 function getChildDirectories(directory: WorkspaceNode) {
   return (directory.children ?? []).filter(
-    (child) => child.kind === 'directory',
+    (child) => child.kind === 'directory' && !isHiddenDirectory(child),
   );
 }
 
@@ -434,6 +453,10 @@ function collectDocuments(directory: WorkspaceNode) {
     for (const child of node.children ?? []) {
       if (child.kind === 'document') {
         documents.push({ depth, node: child });
+        continue;
+      }
+
+      if (isHiddenDirectory(child)) {
         continue;
       }
 
@@ -458,6 +481,10 @@ function getDirectoryStats(directory: WorkspaceNode) {
       if (child.kind === 'document') {
         totalDocuments += 1;
       } else {
+        if (isHiddenDirectory(child)) {
+          continue;
+        }
+
         totalDirectories += 1;
         visit(child, depth + 1);
       }
@@ -471,6 +498,10 @@ function getDirectoryStats(directory: WorkspaceNode) {
     totalDirectories,
     totalDocuments,
   };
+}
+
+function isHiddenDirectory(node: WorkspaceNode) {
+  return node.kind === 'directory' && node.name.startsWith('.');
 }
 
 function isDocumentMatch(

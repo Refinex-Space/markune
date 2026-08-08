@@ -6,6 +6,96 @@ import { DirectoryPage } from '../directory-page';
 import type { WorkspaceNode } from '../workspace-types';
 
 describe('DirectoryPage', () => {
+  it('renders the workspace overview as a Craft-inspired root folder grid', () => {
+    const onSelectDirectory = vi.fn();
+    const directory: WorkspaceNode = {
+      id: 'workspace-root',
+      name: '文件夹',
+      kind: 'directory',
+      relativePath: '',
+      absolutePath: '/repo',
+      children: [
+        {
+          id: 'projects',
+          name: '项目合集',
+          kind: 'directory',
+          relativePath: '项目合集',
+          absolutePath: '/repo/项目合集',
+          children: [
+            {
+              id: 'project-note',
+              name: 'overview.md',
+              kind: 'document',
+              relativePath: '项目合集/overview.md',
+              absolutePath: '/repo/项目合集/overview.md',
+            },
+            {
+              id: 'attachments',
+              name: '.attachments',
+              kind: 'directory',
+              relativePath: '项目合集/.attachments',
+              absolutePath: '/repo/项目合集/.attachments',
+              children: [
+                {
+                  id: 'private-note',
+                  name: 'private.md',
+                  kind: 'document',
+                  relativePath: '项目合集/.attachments/private.md',
+                  absolutePath: '/repo/项目合集/.attachments/private.md',
+                  title: '隐藏目录中的文档',
+                },
+              ],
+            },
+          ],
+        },
+        {
+          id: 'octarine',
+          name: '.octarine',
+          kind: 'directory',
+          relativePath: '.octarine',
+          absolutePath: '/repo/.octarine',
+          children: [],
+        },
+      ],
+    };
+
+    render(
+      <DirectoryPage
+        directory={directory}
+        variant="workspace-overview"
+        workspaceRootPath="/repo"
+        onOpenDocument={vi.fn()}
+        onSelectDirectory={onSelectDirectory}
+      />,
+    );
+
+    const card = screen.getByRole('button', { name: '打开目录 项目合集' });
+
+    expect(screen.getByRole('heading', { name: '文件夹' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '工作区' })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: '搜索工作区文档' })).toBeTruthy();
+    expect(screen.getByText('1 个项目')).toBeTruthy();
+    expect(screen.queryByText('.octarine')).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: '打开目录 .octarine' }),
+    ).toBeNull();
+    expect(card.className).toContain('min-h-44');
+    expect(
+      screen.getByRole('heading', { name: '工作区' }).nextElementSibling
+        ?.className,
+    ).toContain('grid-cols-[repeat(auto-fill,minmax(180px,220px))]');
+
+    fireEvent.click(card);
+    expect(onSelectDirectory).toHaveBeenCalledWith(directory.children?.[0]);
+
+    fireEvent.change(screen.getByRole('textbox', { name: '搜索工作区文档' }), {
+      target: { value: '隐藏目录中的文档' },
+    });
+
+    expect(screen.queryByText('隐藏目录中的文档')).toBeNull();
+    expect(screen.getByText('没有找到“隐藏目录中的文档”')).toBeTruthy();
+  });
+
   it('renders child directories as compact navigation cards without document previews', () => {
     const longTitle =
       '编辑或新增 settings.json 文件并为不同平台配置很长很长的环境变量说明';

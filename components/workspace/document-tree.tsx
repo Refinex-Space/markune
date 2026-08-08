@@ -98,6 +98,7 @@ interface DocumentTreeProps {
   onMoveNode?: (request: WorkspaceMoveRequest) => Promise<void> | void;
   onOpenInFileManager?: (node: WorkspaceNode) => Promise<void> | void;
   onOpenInPreferredEditor?: (node: WorkspaceNode) => Promise<void> | void;
+  onOpenWorkspaceOverview?: () => void;
   preferredEditorLabel?: string;
   onPendingRenameConsumed?: () => void;
   revealNodePath?: string | null;
@@ -110,6 +111,7 @@ interface DocumentTreeProps {
   onRefresh?: () => Promise<unknown> | void;
   onSelectDocument: (node: WorkspaceNode) => void;
   onTogglePinned?: (node: WorkspaceNode) => void;
+  workspaceOverviewActive?: boolean;
 }
 
 export function DocumentTree({
@@ -127,6 +129,7 @@ export function DocumentTree({
   onMoveNode,
   onOpenInFileManager,
   onOpenInPreferredEditor,
+  onOpenWorkspaceOverview,
   preferredEditorLabel,
   onPendingRenameConsumed,
   revealNodePath,
@@ -136,6 +139,7 @@ export function DocumentTree({
   onRefresh,
   onSelectDocument,
   onTogglePinned,
+  workspaceOverviewActive = false,
 }: DocumentTreeProps) {
   const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set());
   const [isTreeCollapsed, setIsTreeCollapsed] = React.useState(false);
@@ -345,8 +349,24 @@ export function DocumentTree({
 
     treeContent = (
       <div className="flex flex-col">
-        <div className="group flex h-8 items-center justify-between px-4 text-[13px] font-medium text-sidebar-foreground/50">
-          <span>文件夹</span>
+        <div
+          className={cn(
+            'group mx-2 flex h-8 items-center justify-between rounded-md px-2 text-[13px] font-medium transition-colors focus-within:ring-2 focus-within:ring-ring/40',
+            workspaceOverviewActive
+              ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+              : 'text-sidebar-foreground/50 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground/80',
+          )}
+        >
+          <button
+            aria-current={workspaceOverviewActive ? 'page' : undefined}
+            aria-label="打开工作区文件夹总览"
+            className="flex h-full min-w-0 flex-1 items-center text-left outline-none"
+            disabled={!onOpenWorkspaceOverview}
+            type="button"
+            onClick={onOpenWorkspaceOverview}
+          >
+            <span>文件夹</span>
+          </button>
           <div className="flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
             <TooltipProvider>
               <Tooltip>

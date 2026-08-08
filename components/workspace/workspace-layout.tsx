@@ -216,6 +216,7 @@ type WorkspaceSystemPage =
   | 'codex'
   | 'daily'
   | 'drawings'
+  | 'folders'
   | 'graph'
   | 'inbox'
   | 'settings'
@@ -440,6 +441,20 @@ export function WorkspaceLayout({
   const pageTitle = documentTitle ?? workspace.currentDirectory?.name;
   const currentDocumentPath = workspace.currentDocument?.absolutePath ?? null;
   const workspaceRootPath = workspace.snapshot?.rootPath ?? null;
+  const workspaceOverviewDirectory = React.useMemo<WorkspaceNode | null>(() => {
+    if (!workspace.snapshot) {
+      return null;
+    }
+
+    return {
+      id: `workspace-root:${workspace.snapshot.rootPath}`,
+      name: '文件夹',
+      kind: 'directory',
+      relativePath: '',
+      absolutePath: workspace.snapshot.rootPath,
+      children: filterWorkspaceOverviewNodes(workspace.snapshot.nodes),
+    };
+  }, [workspace.snapshot]);
   const dailyNotes = useDailyNotes({ rootPath: workspaceRootPath });
   const inbox = useInboxController({ rootPath: workspaceRootPath });
   const loadInbox = inbox.loadList;
@@ -2317,6 +2332,16 @@ export function WorkspaceLayout({
     workspace.clearCurrentDocument();
   }, [workspace]);
 
+  const handleOpenWorkspaceOverview = React.useCallback(async () => {
+    if (!(await flushActiveMarkdownEditor('document-switch'))) {
+      return;
+    }
+
+    setLeftPanelMode('workspace');
+    setSystemPage('folders');
+    showWorkspaceSidebar(false);
+  }, [flushActiveMarkdownEditor, showWorkspaceSidebar]);
+
   const handleOpenGraphPage = React.useCallback(() => {
     setLeftPanelMode('workspace');
     setSystemPage('graph');
@@ -3140,6 +3165,7 @@ export function WorkspaceLayout({
                 onOpenDrawings={handleOpenDrawingsPage}
                 onOpenGlobalSearch={openGlobalSearch}
                 onOpenGraph={handleOpenGraphPage}
+                onOpenWorkspaceOverview={handleOpenWorkspaceOverview}
                 pinnedNodes={pinnedNodes}
                 onOpenViews={handleOpenViewsPage}
                 onRefreshWorkspaceTree={() =>
@@ -3166,6 +3192,7 @@ export function WorkspaceLayout({
                   systemPage === 'drawings' ||
                   systemPage === 'codex' ||
                   systemPage === 'daily' ||
+                  systemPage === 'folders' ||
                   systemPage === 'graph' ||
                   systemPage === 'inbox' ||
                   systemPage === 'views'
@@ -3307,7 +3334,16 @@ export function WorkspaceLayout({
                       systemPage === 'codex' && 'hidden',
                     )}
                   >
-                    {systemPage === 'daily' && workspace.snapshot ? (
+                    {systemPage === 'folders' && workspaceOverviewDirectory ? (
+                      <DirectoryPage
+                        key={`workspace-overview:${workspaceOverviewDirectory.absolutePath}`}
+                        directory={workspaceOverviewDirectory}
+                        variant="workspace-overview"
+                        workspaceRootPath={workspaceOverviewDirectory.absolutePath}
+                        onOpenDocument={openDocumentNode}
+                        onSelectDirectory={handleSelectWorkspaceDirectory}
+                      />
+                    ) : systemPage === 'daily' && workspace.snapshot ? (
                       <DailyNotesPage
                         entries={dailyNotes.entries}
                         error={dailyNotes.error}
@@ -4616,6 +4652,23 @@ function flattenWorkspaceNodes(nodes: WorkspaceNode[]): WorkspaceNode[] {
 
 function filterRegularWorkspaceNodes(nodes: WorkspaceNode[]) {
   return nodes.filter((node) => !isDailyRootDirectory(node));
+}
+
+function filterWorkspaceOverviewNodes(nodes: WorkspaceNode[]): WorkspaceNode[] {
+  return nodes
+    .filter(
+      (node) =>
+        !isDailyRootDirectory(node) &&
+        !(node.kind === 'directory' && node.name.startsWith('.')),
+    )
+    .map((node) =>
+      node.kind === 'directory'
+        ? {
+            ...node,
+            children: filterWorkspaceOverviewNodes(node.children ?? []),
+          }
+        : node,
+    );
 }
 
 function toDocumentTabExportNode(

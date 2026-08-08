@@ -184,7 +184,7 @@ export function WorkspaceSystemNav({
 
   return (
     <div
-      className="relative border-y border-sidebar-border/45 px-2 py-1"
+      className="relative border-t border-sidebar-border/45 px-2 pb-0 pt-1"
       data-testid="workspace-system-nav"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}

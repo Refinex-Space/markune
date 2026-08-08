@@ -736,3 +736,56 @@ final result: passed
 - [x] Rebuilt Tauri capture passes the combined visual comparison.
 
 final result: passed
+
+---
+
+# Workspace folder overview Design QA
+
+- Source visual truth: `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-1e45eac2-5cc3-4f49-9ff4-9681949ab9f2.png`
+- Implementation screenshot: `/Users/refinex/.codex/visualizations/2026/08/08/019fe089-732a-7841-b79d-c1b6309f6c4e/madora-workspace-overview-pass2.png`
+- Side-by-side comparison: `/Users/refinex/.codex/visualizations/2026/08/08/019fe089-732a-7841-b79d-c1b6309f6c4e/madora-workspace-overview-comparison.png`
+- State: light theme, workspace root overview active, six root folders visible
+- Viewport: 1280 × 720 CSS px; browser reported device pixel ratio 2
+- Source pixels: 4366 × 2582
+- Implementation pixels: 1280 × 720
+- Density normalization: source was proportionally contained in a 1280 × 720 white frame; implementation remained 1280 × 720; both were placed side by side in a 2560 × 720 comparison image
+
+## Full-view comparison evidence
+
+The implementation preserves Madora's existing shell, typography settings, sidebar density, monochrome tokens and icon system while adopting the reference's root-folder information architecture: a selected “文件夹” navigation row, a sparse overview canvas, centered folder cards, folder names and recursive item counts. The number of cards and grouping copy are data-driven Madora content rather than a literal copy of Craft's dates and sample folders.
+
+## Focused-region evidence
+
+A separate crop was not required because the normalized full-view comparison keeps the sidebar entry, overview heading, card icons, names and counts readable. The pass-2 implementation screenshot also shows the complete selected row and both card rows without clipping.
+
+## Required fidelity surfaces
+
+- Fonts and typography: existing Madora font settings and heading hierarchy are preserved; no Craft font is introduced. Folder names and counts remain legible and use the product's established optical weights.
+- Spacing and layout rhythm: overview cards measure 220 × 176 CSS px with 16 px gaps, matching the reference's sparse card rhythm while fitting Madora's narrower content shell. Header, search and view controls align with the existing directory page.
+- Colors and visual tokens: all backgrounds, borders, foregrounds, focus rings and hover states use existing Madora semantic tokens. The Craft blue folder accent is intentionally not copied.
+- Image quality and asset fidelity: the screen contains no custom raster assets. Folder and control icons reuse the existing product icon components and icon library at native resolution.
+- Copy and content: “文件夹”“工作区” and “N 个项目” describe the actual Madora workspace model. Craft's date group labels are omitted because the current workspace snapshot does not expose a reliable folder-recency grouping contract.
+
+## Interaction verification
+
+- Clicking the sidebar “文件夹” entry opened the root overview and set `aria-current="page"`.
+- Clicking the “框架生态” card opened the existing directory detail page.
+- Browser console errors and warnings after both interactions: none.
+
+## Comparison history
+
+### Pass 1
+
+- P2: keyboard focus styling appeared as an inner rectangle around only the title button instead of the complete selected sidebar row.
+- Fix: moved the visible focus ring to the row container with `focus-within`, while keeping the title button outline-free.
+
+### Pass 2
+
+- Post-fix evidence: `madora-workspace-overview-pass2.png` shows a single rounded focus boundary around the complete selected row.
+- No actionable P0, P1 or P2 findings remain.
+
+## Follow-up polish
+
+- P3: if folder timestamps become a stable workspace field later, the overview could optionally group folders by recent month like the Craft reference.
+
+final result: passed

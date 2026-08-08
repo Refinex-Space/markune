@@ -49,6 +49,7 @@ interface WorkspaceSidebarProps {
   onOpenInbox?: () => void;
   onOpenInFileManager?: (node: WorkspaceNode) => void;
   onOpenInPreferredEditor?: (node: WorkspaceNode) => void;
+  onOpenWorkspaceOverview?: () => void;
   onOpenViews?: () => void;
   onRefreshWorkspaceTree?: () => Promise<unknown> | void;
   onOpenSettings?: (sectionId?: 'appearance' | 'version') => void;
@@ -68,7 +69,15 @@ interface WorkspaceSidebarProps {
   inboxActiveCount?: number;
   systemNavCollapsed?: boolean;
   systemNavLayout?: SystemNavLayout;
-  systemPage?: 'codex' | 'daily' | 'drawings' | 'graph' | 'inbox' | 'views' | null;
+  systemPage?:
+    | 'codex'
+    | 'daily'
+    | 'drawings'
+    | 'folders'
+    | 'graph'
+    | 'inbox'
+    | 'views'
+    | null;
   onSystemNavCollapsedChange?: (collapsed: boolean) => void;
   onSystemNavLayoutChange?: (layout: SystemNavLayout) => void;
 }
@@ -95,6 +104,7 @@ export function WorkspaceSidebar({
   onOpenInbox,
   onOpenInFileManager,
   onOpenInPreferredEditor,
+  onOpenWorkspaceOverview,
   onOpenViews,
   onRefreshWorkspaceTree,
   onOpenSettings,
@@ -183,7 +193,7 @@ export function WorkspaceSidebar({
             inboxActiveCount={inboxActiveCount}
             isDailyActive={isDailyActive}
             layout={systemNavLayout}
-            systemPage={systemPage}
+            systemPage={systemPage === 'folders' ? null : systemPage}
             onCollapsedChange={onSystemNavCollapsedChange}
             onLayoutChange={onSystemNavLayoutChange}
             onOpenCodex={onOpenCodex}
@@ -229,6 +239,7 @@ export function WorkspaceSidebar({
               onMoveNode={workspace.moveNode}
               onOpenInFileManager={onOpenInFileManager}
               onOpenInPreferredEditor={onOpenInPreferredEditor}
+              onOpenWorkspaceOverview={onOpenWorkspaceOverview}
               onPendingRenameConsumed={workspace.clearPendingRenameNode}
               onRefresh={onRefreshWorkspaceTree}
               preferredEditorLabel={preferredEditorLabel}
@@ -238,6 +249,7 @@ export function WorkspaceSidebar({
               onSelectDirectory={selectDirectory}
               onSelectDocument={selectDocument}
               onTogglePinned={onTogglePinned}
+              workspaceOverviewActive={systemPage === 'folders'}
             />
           ) : null}
         </div>

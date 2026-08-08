@@ -188,6 +188,42 @@ describe('WorkspaceSidebar update entry', () => {
     expect(onOpenNotes).toHaveBeenCalledTimes(1);
   });
 
+  it('opens and highlights the workspace folder overview from the tree heading', async () => {
+    const user = userEvent.setup();
+    const onOpenWorkspaceOverview = vi.fn();
+    const workspace = createOpenWorkspaceStub();
+    workspace.snapshot!.nodes = [
+      {
+        id: 'projects',
+        name: '项目',
+        kind: 'directory',
+        relativePath: '项目',
+        absolutePath: '/workspace/项目',
+        children: [],
+      },
+    ];
+
+    render(
+      <WorkspaceSidebar
+        systemPage="folders"
+        width={280}
+        workspace={workspace}
+        onOpenGlobalSearch={vi.fn()}
+        onOpenWorkspaceOverview={onOpenWorkspaceOverview}
+      />,
+    );
+
+    const overviewEntry = screen.getByRole('button', {
+      name: '打开工作区文件夹总览',
+    });
+
+    expect(overviewEntry.getAttribute('aria-current')).toBe('page');
+    expect(overviewEntry.parentElement?.className).toContain('bg-sidebar-accent');
+
+    await user.click(overviewEntry);
+    expect(onOpenWorkspaceOverview).toHaveBeenCalledTimes(1);
+  });
+
   it('opens the Daily overview as an active system page', async () => {
     const user = userEvent.setup();
     const onOpenDailyNotes = vi.fn();
