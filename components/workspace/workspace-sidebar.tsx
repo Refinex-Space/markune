@@ -201,7 +201,7 @@ export function WorkspaceSidebar({
             'workspace-tree-scrollarea min-h-0 flex-1',
             systemPage === 'inbox' || systemPage === 'drawings'
               ? 'overflow-hidden'
-              : 'overflow-y-auto px-2 pb-3',
+              : 'overflow-y-auto pb-3',
           )}
           data-workspace-tree-scroll-container="true"
         >

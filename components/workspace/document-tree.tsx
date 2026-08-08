@@ -53,6 +53,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
 import { isDescendantPath } from './workspace-paths';
@@ -333,52 +339,75 @@ export function DocumentTree({
     );
   } else {
     treeContent = (
-      <div className="space-y-0.5">
-        {visibleNodes.map((node) => (
-          <TreeNode
-            key={node.id}
-            currentDocumentPath={currentDocumentPath}
-            currentDirectoryPath={currentDirectoryPath}
-            directoryDocumentCounts={directoryDocumentCounts}
-            dragDisabled={dragDisabled}
-            draggedNode={draggedNode}
-            dropPreview={dropPreview}
-            editingNodeId={editingNodeId}
-            expanded={expanded}
-            forceExpanded={forceExpanded}
-            level={0}
-            node={node}
-            pendingRenameNodePath={pendingRenameNodePath}
-            onCreateDirectory={handleCreateDirectory}
-            onCreateDocument={handleCreateDocument}
-            onDeleteRequest={setDeleteTarget}
-            onExportNode={onExportNode}
-            onImportDocuments={onImportDocuments}
-            onOpenInFileManager={onOpenInFileManager}
-            onOpenInPreferredEditor={onOpenInPreferredEditor}
-            onDropPreviewChange={setDropPreview}
-            onExpandedChange={setExpanded}
-            onMoveNode={onMoveNode}
-            onPendingRenameConsumed={onPendingRenameConsumed}
-            onRefresh={onRefresh}
-            onRenameRequest={startEditingNode}
-            onRenameSubmit={handleRenameNode}
-            onResolveDraggedNode={resolveDraggedNode}
-            onSelectDirectory={onSelectDirectory}
-            onTogglePinned={onTogglePinned}
-            onTreeDragEnd={handleDragEnd}
-            onTreeDragStart={handleDragStart}
-            onSelectDocument={onSelectDocument}
-            preferredEditorLabel={preferredEditorLabel}
-          />
-        ))}
+      <div className="flex flex-col">
+        <div className="group flex h-8 items-center justify-between px-4 text-[13px] font-medium text-sidebar-foreground/50">
+          <span>文件夹</span>
+          <div className="flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    aria-label="新建文件夹"
+                    className="size-6 rounded-sm p-0 text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                    type="button"
+                    variant="ghost"
+                    onClick={() => void handleCreateDirectory('')}
+                  >
+                    <FolderPlus size={14} strokeWidth={2} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">新建文件夹</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+        </div>
+        <div className="space-y-0.5 px-2">
+          {visibleNodes.map((node) => (
+            <TreeNode
+              key={node.id}
+              currentDocumentPath={currentDocumentPath}
+              currentDirectoryPath={currentDirectoryPath}
+              directoryDocumentCounts={directoryDocumentCounts}
+              dragDisabled={dragDisabled}
+              draggedNode={draggedNode}
+              dropPreview={dropPreview}
+              editingNodeId={editingNodeId}
+              expanded={expanded}
+              forceExpanded={forceExpanded}
+              level={0}
+              node={node}
+              pendingRenameNodePath={pendingRenameNodePath}
+              onCreateDirectory={handleCreateDirectory}
+              onCreateDocument={handleCreateDocument}
+              onDeleteRequest={setDeleteTarget}
+              onExportNode={onExportNode}
+              onImportDocuments={onImportDocuments}
+              onOpenInFileManager={onOpenInFileManager}
+              onOpenInPreferredEditor={onOpenInPreferredEditor}
+              onDropPreviewChange={setDropPreview}
+              onExpandedChange={setExpanded}
+              onMoveNode={onMoveNode}
+              onPendingRenameConsumed={onPendingRenameConsumed}
+              onRefresh={onRefresh}
+              onRenameRequest={startEditingNode}
+              onRenameSubmit={handleRenameNode}
+              onResolveDraggedNode={resolveDraggedNode}
+              onSelectDirectory={onSelectDirectory}
+              onTogglePinned={onTogglePinned}
+              onTreeDragEnd={handleDragEnd}
+              onTreeDragStart={handleDragStart}
+              onSelectDocument={onSelectDocument}
+              preferredEditorLabel={preferredEditorLabel}
+            />
+          ))}
+        </div>
       </div>
     );
   }
 
   return (
     <>
-      <div ref={treeRootRef} className="flex min-h-full flex-col py-1">
+      <div ref={treeRootRef} className="flex min-h-full flex-col pb-1 pt-2">
         {treeContent}
         <ContextMenu>
           <ContextMenuTrigger asChild>
