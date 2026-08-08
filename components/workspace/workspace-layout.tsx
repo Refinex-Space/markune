@@ -219,6 +219,7 @@ type WorkspaceSystemPage =
   | 'folders'
   | 'graph'
   | 'inbox'
+  | 'pinned'
   | 'settings'
   | 'views'
   | null;
@@ -441,6 +442,10 @@ export function WorkspaceLayout({
   const pageTitle = documentTitle ?? workspace.currentDirectory?.name;
   const currentDocumentPath = workspace.currentDocument?.absolutePath ?? null;
   const workspaceRootPath = workspace.snapshot?.rootPath ?? null;
+  const visibleWorkspaceNodes = React.useMemo(
+    () => filterWorkspaceOverviewNodes(workspace.snapshot?.nodes ?? []),
+    [workspace.snapshot?.nodes],
+  );
   const workspaceOverviewDirectory = React.useMemo<WorkspaceNode | null>(() => {
     if (!workspace.snapshot) {
       return null;
@@ -452,9 +457,30 @@ export function WorkspaceLayout({
       kind: 'directory',
       relativePath: '',
       absolutePath: workspace.snapshot.rootPath,
-      children: filterWorkspaceOverviewNodes(workspace.snapshot.nodes),
+      children: visibleWorkspaceNodes,
     };
-  }, [workspace.snapshot]);
+  }, [visibleWorkspaceNodes, workspace.snapshot]);
+  const pinnedNodes = React.useMemo(
+    () =>
+      flattenWorkspaceNodes(visibleWorkspaceNodes).filter(
+        (node) => node.pinned,
+      ),
+    [visibleWorkspaceNodes],
+  );
+  const pinnedOverviewDirectory = React.useMemo<WorkspaceNode | null>(() => {
+    if (!workspace.snapshot) {
+      return null;
+    }
+
+    return {
+      id: `pinned-root:${workspace.snapshot.rootPath}`,
+      name: '置顶',
+      kind: 'directory',
+      relativePath: '',
+      absolutePath: workspace.snapshot.rootPath,
+      children: pinnedNodes,
+    };
+  }, [pinnedNodes, workspace.snapshot]);
   const dailyNotes = useDailyNotes({ rootPath: workspaceRootPath });
   const inbox = useInboxController({ rootPath: workspaceRootPath });
   const loadInbox = inbox.loadList;
@@ -2342,6 +2368,16 @@ export function WorkspaceLayout({
     showWorkspaceSidebar(false);
   }, [flushActiveMarkdownEditor, showWorkspaceSidebar]);
 
+  const handleOpenPinnedOverview = React.useCallback(async () => {
+    if (!(await flushActiveMarkdownEditor('document-switch'))) {
+      return;
+    }
+
+    setLeftPanelMode('workspace');
+    setSystemPage('pinned');
+    showWorkspaceSidebar(false);
+  }, [flushActiveMarkdownEditor, showWorkspaceSidebar]);
+
   const handleOpenGraphPage = React.useCallback(() => {
     setLeftPanelMode('workspace');
     setSystemPage('graph');
@@ -3004,12 +3040,6 @@ export function WorkspaceLayout({
   const toggleLeftSidebar = React.useCallback(() => {
     workspace.setSidebarCollapsed(!workspace.isSidebarCollapsed);
   }, [workspace]);
-  const pinnedNodes = React.useMemo(
-    () => flattenWorkspaceNodes(workspace.snapshot?.nodes ?? []).filter(
-      (node) => node.pinned,
-    ),
-    [workspace.snapshot?.nodes],
-  );
   return (
     <main
       className="relative flex h-screen w-full overflow-hidden bg-sidebar text-foreground antialiased"
@@ -3166,6 +3196,7 @@ export function WorkspaceLayout({
                 onOpenGlobalSearch={openGlobalSearch}
                 onOpenGraph={handleOpenGraphPage}
                 onOpenWorkspaceOverview={handleOpenWorkspaceOverview}
+                onOpenPinnedOverview={handleOpenPinnedOverview}
                 pinnedNodes={pinnedNodes}
                 onOpenViews={handleOpenViewsPage}
                 onRefreshWorkspaceTree={() =>
@@ -3195,6 +3226,7 @@ export function WorkspaceLayout({
                   systemPage === 'folders' ||
                   systemPage === 'graph' ||
                   systemPage === 'inbox' ||
+                  systemPage === 'pinned' ||
                   systemPage === 'views'
                     ? systemPage
                     : null
@@ -3334,7 +3366,16 @@ export function WorkspaceLayout({
                       systemPage === 'codex' && 'hidden',
                     )}
                   >
-                    {systemPage === 'folders' && workspaceOverviewDirectory ? (
+                    {systemPage === 'pinned' && pinnedOverviewDirectory ? (
+                      <DirectoryPage
+                        key={`pinned-overview:${pinnedOverviewDirectory.absolutePath}`}
+                        directory={pinnedOverviewDirectory}
+                        variant="pinned-overview"
+                        workspaceRootPath={pinnedOverviewDirectory.absolutePath}
+                        onOpenDocument={openDocumentNode}
+                        onSelectDirectory={handleSelectWorkspaceDirectory}
+                      />
+                    ) : systemPage === 'folders' && workspaceOverviewDirectory ? (
                       <DirectoryPage
                         key={`workspace-overview:${workspaceOverviewDirectory.absolutePath}`}
                         directory={workspaceOverviewDirectory}

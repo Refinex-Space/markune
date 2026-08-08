@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 
 import { isDailyDocumentPath } from './daily-notes';
 import { DocumentTree } from './document-tree';
-import { PinnedChromeMenu } from './pinned-chrome-menu';
+import { PinnedSidebarSection } from './pinned-sidebar-section';
 import { WorkspaceSystemNav } from './workspace-system-nav';
 import type { useWorkspace } from './use-workspace';
 import { WorkspaceSwitcher } from './workspace-switcher';
@@ -46,6 +46,7 @@ interface WorkspaceSidebarProps {
   onOpenGlobalSearch: () => void;
   onOpenGraph?: () => void;
   onOpenPinnedNode?: (node: WorkspaceNode) => void;
+  onOpenPinnedOverview?: () => void;
   onOpenInbox?: () => void;
   onOpenInFileManager?: (node: WorkspaceNode) => void;
   onOpenInPreferredEditor?: (node: WorkspaceNode) => void;
@@ -76,6 +77,7 @@ interface WorkspaceSidebarProps {
     | 'folders'
     | 'graph'
     | 'inbox'
+    | 'pinned'
     | 'views'
     | null;
   onSystemNavCollapsedChange?: (collapsed: boolean) => void;
@@ -101,6 +103,7 @@ export function WorkspaceSidebar({
   onOpenGlobalSearch,
   onOpenGraph,
   onOpenPinnedNode,
+  onOpenPinnedOverview,
   onOpenInbox,
   onOpenInFileManager,
   onOpenInPreferredEditor,
@@ -134,6 +137,10 @@ export function WorkspaceSidebar({
   const regularNodes = useMemo(
     () => filterRegularWorkspaceNodes(workspace.snapshot?.nodes ?? []),
     [workspace.snapshot?.nodes],
+  );
+  const visiblePinnedNodes = useMemo(
+    () => pinnedNodes.filter((node) => !isInsideDotPrefixedDirectory(node)),
+    [pinnedNodes],
   );
   const isDailyActive =
     systemPage === 'daily' ||
@@ -181,10 +188,7 @@ export function WorkspaceSidebar({
         <WorkspaceSidebarHeader
           workspace={workspace}
           onOpenGlobalSearch={onOpenGlobalSearch}
-          pinnedNodes={pinnedNodes}
-          onOpenPinnedNode={onOpenPinnedNode}
           onRemoveWorkspace={onRemoveWorkspace}
-          onUnpinNode={onUnpinNode}
         />
 
         {workspace.snapshot ? (
@@ -193,7 +197,11 @@ export function WorkspaceSidebar({
             inboxActiveCount={inboxActiveCount}
             isDailyActive={isDailyActive}
             layout={systemNavLayout}
-            systemPage={systemPage === 'folders' ? null : systemPage}
+            systemPage={
+              systemPage === 'folders' || systemPage === 'pinned'
+                ? null
+                : systemPage
+            }
             onCollapsedChange={onSystemNavCollapsedChange}
             onLayoutChange={onSystemNavLayoutChange}
             onOpenCodex={onOpenCodex}
@@ -220,37 +228,57 @@ export function WorkspaceSidebar({
           ) : workspace.snapshot && systemPage === 'drawings' ? (
             drawingContent
           ) : workspace.snapshot ? (
-            <DocumentTree
-              currentDirectoryPath={
-                workspace.currentDirectory?.absolutePath ?? null
-              }
-              currentDocumentPath={workspace.currentDocument?.absolutePath ?? null}
-              nodes={regularNodes}
-              pendingRenameNodePath={workspace.pendingRenameNodePath}
-              searchQuery=""
-              onCreateDirectory={workspace.createDirectory}
-              onCreateDocument={createDocument}
-              onDeleteNode={deleteNode}
-              onExportNode={onExportNode}
-              onImportDocuments={onImportDocuments}
-              onImportMarkdown={(targetDir) =>
-                void onImportDocuments?.(targetDir, 'markdown')
-              }
-              onMoveNode={workspace.moveNode}
-              onOpenInFileManager={onOpenInFileManager}
-              onOpenInPreferredEditor={onOpenInPreferredEditor}
-              onOpenWorkspaceOverview={onOpenWorkspaceOverview}
-              onPendingRenameConsumed={workspace.clearPendingRenameNode}
-              onRefresh={onRefreshWorkspaceTree}
-              preferredEditorLabel={preferredEditorLabel}
-              revealNodePath={revealNodePath}
-              revealNodeRequestId={revealNodeRequestId}
-              onRenameNode={renameNode}
-              onSelectDirectory={selectDirectory}
-              onSelectDocument={selectDocument}
-              onTogglePinned={onTogglePinned}
-              workspaceOverviewActive={systemPage === 'folders'}
-            />
+            <div className="flex flex-col">
+              {onOpenPinnedNode && onOpenPinnedOverview && onUnpinNode ? (
+                <PinnedSidebarSection
+                  active={systemPage === 'pinned'}
+                  currentDirectoryPath={
+                    workspace.currentDirectory?.absolutePath ?? null
+                  }
+                  currentDocumentPath={
+                    workspace.currentDocument?.absolutePath ?? null
+                  }
+                  key={workspace.snapshot.rootPath}
+                  nodes={visiblePinnedNodes}
+                  onOpenNode={onOpenPinnedNode}
+                  onOpenOverview={onOpenPinnedOverview}
+                  onUnpinNode={onUnpinNode}
+                />
+              ) : null}
+              <DocumentTree
+                currentDirectoryPath={
+                  workspace.currentDirectory?.absolutePath ?? null
+                }
+                currentDocumentPath={
+                  workspace.currentDocument?.absolutePath ?? null
+                }
+                nodes={regularNodes}
+                pendingRenameNodePath={workspace.pendingRenameNodePath}
+                searchQuery=""
+                onCreateDirectory={workspace.createDirectory}
+                onCreateDocument={createDocument}
+                onDeleteNode={deleteNode}
+                onExportNode={onExportNode}
+                onImportDocuments={onImportDocuments}
+                onImportMarkdown={(targetDir) =>
+                  void onImportDocuments?.(targetDir, 'markdown')
+                }
+                onMoveNode={workspace.moveNode}
+                onOpenInFileManager={onOpenInFileManager}
+                onOpenInPreferredEditor={onOpenInPreferredEditor}
+                onOpenWorkspaceOverview={onOpenWorkspaceOverview}
+                onPendingRenameConsumed={workspace.clearPendingRenameNode}
+                onRefresh={onRefreshWorkspaceTree}
+                preferredEditorLabel={preferredEditorLabel}
+                revealNodePath={revealNodePath}
+                revealNodeRequestId={revealNodeRequestId}
+                onRenameNode={renameNode}
+                onSelectDirectory={selectDirectory}
+                onSelectDocument={selectDocument}
+                onTogglePinned={onTogglePinned}
+                workspaceOverviewActive={systemPage === 'folders'}
+              />
+            </div>
           ) : null}
         </div>
 
@@ -291,17 +319,11 @@ export function WorkspaceSidebar({
 function WorkspaceSidebarHeader({
   workspace,
   onOpenGlobalSearch,
-  onOpenPinnedNode,
   onRemoveWorkspace,
-  onUnpinNode,
-  pinnedNodes,
 }: {
   workspace: ReturnType<typeof useWorkspace>;
   onOpenGlobalSearch: () => void;
-  onOpenPinnedNode?: (node: WorkspaceNode) => void;
   onRemoveWorkspace?: (rootPath: string) => void;
-  onUnpinNode?: (node: WorkspaceNode) => void;
-  pinnedNodes: WorkspaceNode[];
 }) {
   return (
     <div className="px-3 pb-2">
@@ -327,13 +349,6 @@ function WorkspaceSidebarHeader({
         >
           <Search size={17} strokeWidth={1.8} />
         </button>
-        {onOpenPinnedNode && onUnpinNode ? (
-          <PinnedChromeMenu
-            nodes={pinnedNodes}
-            onOpenNode={onOpenPinnedNode}
-            onUnpinNode={onUnpinNode}
-          />
-        ) : null}
       </div>
     </div>
   );
@@ -364,4 +379,12 @@ function isDailyRootDirectory(node: WorkspaceNode) {
 
 function isDotPrefixedDirectory(node: WorkspaceNode) {
   return node.kind === 'directory' && node.name.startsWith('.');
+}
+
+function isInsideDotPrefixedDirectory(node: WorkspaceNode) {
+  const segments = node.relativePath.split(/[\\/]/).filter(Boolean);
+  const directorySegments =
+    node.kind === 'directory' ? segments : segments.slice(0, -1);
+
+  return directorySegments.some((segment) => segment.startsWith('.'));
 }

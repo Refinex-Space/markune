@@ -1,9 +1,31 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { WorkspaceSidebar } from '../workspace-sidebar';
 import type { useWorkspace } from '../use-workspace';
+
+const originalResizeObserver = globalThis.ResizeObserver;
+
+class TestResizeObserver implements ResizeObserver {
+  disconnect() {}
+  observe() {}
+  unobserve() {}
+}
+
+beforeAll(() => {
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    configurable: true,
+    value: TestResizeObserver,
+  });
+});
+
+afterAll(() => {
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    configurable: true,
+    value: originalResizeObserver,
+  });
+});
 
 function createWorkspaceStub() {
   return {
@@ -225,6 +247,149 @@ describe('WorkspaceSidebar update entry', () => {
 
     await user.click(overviewEntry);
     expect(onOpenWorkspaceOverview).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows pinned items above folders as a collapsed interactive section', async () => {
+    const user = userEvent.setup();
+    const onOpenPinnedNode = vi.fn();
+    const onOpenPinnedOverview = vi.fn();
+    const onUnpinNode = vi.fn();
+    const workspace = createOpenWorkspaceStub();
+    const pinnedDocument = {
+      id: 'pinned-note',
+      name: 'pinned.md',
+      kind: 'document' as const,
+      relativePath: '项目/pinned.md',
+      absolutePath: '/workspace/项目/pinned.md',
+      title: '置顶文档',
+      pinned: true,
+    };
+    const hiddenPinnedDocument = {
+      id: 'hidden-pinned-note',
+      name: 'private.md',
+      kind: 'document' as const,
+      relativePath: '.attachments/private.md',
+      absolutePath: '/workspace/.attachments/private.md',
+      title: '隐藏置顶文档',
+      pinned: true,
+    };
+    const pinnedDirectory = {
+      id: 'projects',
+      name: '项目',
+      kind: 'directory' as const,
+      relativePath: '项目',
+      absolutePath: '/workspace/项目',
+      children: [pinnedDocument],
+      pinned: true,
+    };
+    workspace.snapshot!.nodes = [
+      pinnedDirectory,
+      {
+        id: 'attachments',
+        name: '.attachments',
+        kind: 'directory',
+        relativePath: '.attachments',
+        absolutePath: '/workspace/.attachments',
+        children: [hiddenPinnedDocument],
+      },
+    ];
+    workspace.currentDocument = pinnedDocument;
+
+    render(
+      <WorkspaceSidebar
+        pinnedNodes={[pinnedDirectory, pinnedDocument, hiddenPinnedDocument]}
+        systemPage="pinned"
+        width={280}
+        workspace={workspace}
+        onOpenGlobalSearch={vi.fn()}
+        onOpenPinnedNode={onOpenPinnedNode}
+        onOpenPinnedOverview={onOpenPinnedOverview}
+        onUnpinNode={onUnpinNode}
+      />,
+    );
+
+    const overviewEntry = screen.getByRole('button', {
+      name: '打开置顶内容总览',
+    });
+    const toggle = screen.getByRole('button', { name: '展开置顶内容' });
+    const folderOverview = screen.getByRole('button', {
+      name: '打开工作区文件夹总览',
+    });
+
+    expect(overviewEntry.getAttribute('aria-current')).toBe('page');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.getByTestId('pinned-sidebar-count').textContent).toBe('2');
+    expect(screen.getByTestId('pinned-sidebar-count').className).toContain(
+      'group-hover:opacity-0',
+    );
+    expect(toggle.className).toContain('group-hover:opacity-100');
+    expect(
+      screen.queryByRole('button', { name: '打开文档 置顶文档' }),
+    ).toBeNull();
+    expect(screen.queryByRole('button', { name: '打开置顶内容' })).toBeNull();
+    expect(
+      screen.getByTestId('pinned-sidebar-section').nextElementSibling?.contains(
+        folderOverview,
+      ),
+    ).toBe(true);
+
+    await user.click(overviewEntry);
+    expect(onOpenPinnedOverview).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByRole('button', { name: '打开文档 置顶文档' }),
+    ).toBeNull();
+
+    await user.click(toggle);
+
+    expect(
+      screen.getByRole('button', { name: '折叠置顶内容' }).getAttribute(
+        'aria-expanded',
+      ),
+    ).toBe('true');
+    expect(screen.queryByText('隐藏置顶文档')).toBeNull();
+    expect(
+      screen.getByTestId('pinned-folder-icon-projects').getAttribute('class'),
+    ).toContain('size-[13px]');
+    expect(
+      screen.getByRole('button', { name: '打开目录 项目' }).className,
+    ).toContain('pl-[11px]');
+    expect(
+      screen
+        .getByRole('button', { name: '打开文档 置顶文档' })
+        .getAttribute('aria-current'),
+    ).toBe('page');
+
+    await user.click(
+      screen.getByRole('button', { name: '打开文档 置顶文档' }),
+    );
+    expect(onOpenPinnedNode).toHaveBeenCalledWith(pinnedDocument);
+
+    const unpinButton = screen.getByRole('button', {
+      name: '取消置顶 置顶文档',
+    });
+    await user.hover(unpinButton);
+    expect((await screen.findByRole('tooltip')).textContent).toContain(
+      '取消置顶',
+    );
+    await user.click(unpinButton);
+    expect(onUnpinNode).toHaveBeenCalledWith(pinnedDocument);
+  });
+
+  it('does not show a zero count for an empty pinned section', () => {
+    render(
+      <WorkspaceSidebar
+        pinnedNodes={[]}
+        width={280}
+        workspace={createOpenWorkspaceStub()}
+        onOpenGlobalSearch={vi.fn()}
+        onOpenPinnedNode={vi.fn()}
+        onOpenPinnedOverview={vi.fn()}
+        onUnpinNode={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '展开置顶内容' })).toBeTruthy();
+    expect(screen.queryByTestId('pinned-sidebar-count')).toBeNull();
   });
 
   it('opens the Daily overview as an active system page', async () => {

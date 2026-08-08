@@ -17,7 +17,10 @@ import { WorkspaceTreeFolderIcon } from './workspace-tree-folder-icon';
 import type { WorkspaceNode } from './workspace-types';
 
 type DirectoryViewMode = 'grid' | 'list';
-type DirectoryPageVariant = 'directory' | 'workspace-overview';
+type DirectoryPageVariant =
+  | 'directory'
+  | 'pinned-overview'
+  | 'workspace-overview';
 
 const DIRECTORY_PREVIEW_BATCH_SIZE = 24;
 const DIRECTORY_PREVIEW_READ_CONCURRENCY = 4;
@@ -50,7 +53,9 @@ export function DirectoryPage({
     Record<string, DocumentPreview>
   >({});
   const normalizedQuery = query.trim().toLocaleLowerCase();
+  const isPinnedOverview = variant === 'pinned-overview';
   const isWorkspaceOverview = variant === 'workspace-overview';
+  const usesOverviewCards = isPinnedOverview || isWorkspaceOverview;
   const childDirectories = React.useMemo(
     () => getChildDirectories(directory),
     [directory],
@@ -170,9 +175,11 @@ export function DirectoryPage({
               />
               <Input
                 aria-label={
-                  isWorkspaceOverview
-                    ? '搜索工作区文档'
-                    : '搜索当前目录下的文档'
+                  isPinnedOverview
+                    ? '搜索置顶内容'
+                    : isWorkspaceOverview
+                      ? '搜索工作区文档'
+                      : '搜索当前目录下的文档'
                 }
                 className="h-9 rounded-lg border-transparent bg-muted/50 pl-9 text-sm transition-all hover:bg-muted/70 focus-visible:border-ring focus-visible:bg-background focus-visible:ring-2 focus-visible:ring-ring/20"
                 placeholder="搜索..."
@@ -186,11 +193,19 @@ export function DirectoryPage({
 
         {!normalizedQuery && childDirectories.length > 0 ? (
           <section>
-            <SectionHeading title={isWorkspaceOverview ? '工作区' : '子目录'} />
+            <SectionHeading
+              title={
+                isPinnedOverview
+                  ? '置顶目录'
+                  : isWorkspaceOverview
+                    ? '工作区'
+                    : '子目录'
+              }
+            />
             <div
               className={cn(
                 'grid gap-4',
-                isWorkspaceOverview
+                usesOverviewCards
                   ? 'grid-cols-[repeat(auto-fill,minmax(180px,220px))]'
                   : 'grid-cols-[repeat(auto-fill,minmax(160px,1fr))]',
               )}
@@ -199,7 +214,7 @@ export function DirectoryPage({
                 <DirectoryCard
                   key={child.absolutePath}
                   directory={child}
-                  workspaceOverview={isWorkspaceOverview}
+                  workspaceOverview={usesOverviewCards}
                   onSelectDirectory={onSelectDirectory}
                 />
               ))}
@@ -209,7 +224,15 @@ export function DirectoryPage({
 
         {visibleDocuments.length > 0 || normalizedQuery ? (
           <section>
-            <SectionHeading title={normalizedQuery ? '搜索结果' : '文档'} />
+            <SectionHeading
+              title={
+                normalizedQuery
+                  ? '搜索结果'
+                  : isPinnedOverview
+                    ? '置顶文档'
+                    : '文档'
+              }
+            />
 
             {visibleDocuments.length > 0 ? (
               <div
@@ -236,6 +259,13 @@ export function DirectoryPage({
               <EmptyDirectoryState query={query} />
             )}
           </section>
+        ) : null}
+
+        {isPinnedOverview &&
+        !normalizedQuery &&
+        childDirectories.length === 0 &&
+        directDocuments.length === 0 ? (
+          <PinnedOverviewEmptyState />
         ) : null}
       </div>
     </div>
@@ -436,6 +466,17 @@ function EmptyDirectoryState({ query }: { query: string }) {
   );
 }
 
+function PinnedOverviewEmptyState() {
+  return (
+    <div className="flex min-h-[220px] flex-col items-center justify-center rounded-2xl border border-dashed border-border/50 bg-muted/10 px-6 text-center">
+      <p className="text-sm font-medium text-foreground">暂无置顶内容</p>
+      <p className="mt-1 text-xs text-muted-foreground/80">
+        可以从目录树的项目菜单中添加置顶内容。
+      </p>
+    </div>
+  );
+}
+
 function getChildDirectories(directory: WorkspaceNode) {
   return (directory.children ?? []).filter(
     (child) => child.kind === 'directory' && !isHiddenDirectory(child),
@@ -448,11 +489,15 @@ function getDirectDocuments(directory: WorkspaceNode) {
 
 function collectDocuments(directory: WorkspaceNode) {
   const documents: Array<{ depth: number; node: WorkspaceNode }> = [];
+  const seenPaths = new Set<string>();
 
   function visit(node: WorkspaceNode, depth: number) {
     for (const child of node.children ?? []) {
       if (child.kind === 'document') {
-        documents.push({ depth, node: child });
+        if (!seenPaths.has(child.absolutePath)) {
+          seenPaths.add(child.absolutePath);
+          documents.push({ depth, node: child });
+        }
         continue;
       }
 

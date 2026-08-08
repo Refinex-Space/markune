@@ -96,6 +96,88 @@ describe('DirectoryPage', () => {
     expect(screen.getByText('没有找到“隐藏目录中的文档”')).toBeTruthy();
   });
 
+  it('renders pinned folders and documents without duplicate search results', () => {
+    const pinnedDocument: WorkspaceNode = {
+      id: 'pinned-note',
+      name: 'pinned.md',
+      kind: 'document',
+      relativePath: '项目合集/pinned.md',
+      absolutePath: '/repo/项目合集/pinned.md',
+      title: '置顶文档',
+      pinned: true,
+    };
+    const pinnedDirectory: WorkspaceNode = {
+      id: 'pinned-directory',
+      name: '项目合集',
+      kind: 'directory',
+      relativePath: '项目合集',
+      absolutePath: '/repo/项目合集',
+      children: [pinnedDocument],
+      pinned: true,
+    };
+    const directory: WorkspaceNode = {
+      id: 'pinned-root',
+      name: '置顶',
+      kind: 'directory',
+      relativePath: '',
+      absolutePath: '/repo',
+      children: [pinnedDirectory, pinnedDocument],
+    };
+
+    render(
+      <DirectoryPage
+        directory={directory}
+        variant="pinned-overview"
+        workspaceRootPath="/repo"
+        onOpenDocument={vi.fn()}
+        onSelectDirectory={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('heading', { name: '置顶' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '置顶目录' })).toBeTruthy();
+    expect(
+      screen.getByRole('heading', { level: 2, name: '置顶文档' }),
+    ).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: '搜索置顶内容' })).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: '打开目录 项目合集' }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: '打开文档 置顶文档' }),
+    ).toBeTruthy();
+
+    fireEvent.change(screen.getByRole('textbox', { name: '搜索置顶内容' }), {
+      target: { value: '置顶文档' },
+    });
+
+    expect(
+      screen.getAllByRole('button', { name: '打开文档 置顶文档' }),
+    ).toHaveLength(1);
+  });
+
+  it('renders an empty state for a workspace without pinned content', () => {
+    render(
+      <DirectoryPage
+        directory={{
+          id: 'pinned-root',
+          name: '置顶',
+          kind: 'directory',
+          relativePath: '',
+          absolutePath: '/repo',
+          children: [],
+        }}
+        variant="pinned-overview"
+        workspaceRootPath="/repo"
+        onOpenDocument={vi.fn()}
+        onSelectDirectory={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('暂无置顶内容')).toBeTruthy();
+    expect(screen.queryByText('0')).toBeNull();
+  });
+
   it('renders child directories as compact navigation cards without document previews', () => {
     const longTitle =
       '编辑或新增 settings.json 文件并为不同平台配置很长很长的环境变量说明';

@@ -11,9 +11,9 @@ const workspaceSidebarPath = join(
   process.cwd(),
   'components/workspace/workspace-sidebar.tsx',
 );
-const pinnedChromeMenuPath = join(
+const pinnedSidebarSectionPath = join(
   process.cwd(),
-  'components/workspace/pinned-chrome-menu.tsx',
+  'components/workspace/pinned-sidebar-section.tsx',
 );
 const tauriConfigPath = join(process.cwd(), 'src-tauri/tauri.conf.json');
 
@@ -132,39 +132,36 @@ describe('Workspace titlebar', () => {
 
   it('keeps 32px chrome hit targets while limiting hover backgrounds to 28px', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
-    const pinnedChromeMenuSource = readFileSync(pinnedChromeMenuPath, 'utf8');
 
     expect(
       workspaceLayoutSource.match(/data-chrome-hover-surface/g),
     ).toHaveLength(1);
     expect(workspaceLayoutSource).not.toContain('aria-label="刷新工作区"');
-    expect(
-      pinnedChromeMenuSource.match(/data-chrome-hover-surface/g),
-    ).toHaveLength(1);
     expect(workspaceLayoutSource).toContain(
       'group inline-flex size-8 items-center justify-center',
     );
     expect(workspaceLayoutSource).toContain(
       'inline-flex size-7 items-center justify-center rounded-md',
     );
-    expect(pinnedChromeMenuSource).toContain(
-      'group-data-[state=open]:bg-accent',
-    );
   });
 
-  it('places pinned content beside workspace search instead of the window chrome', () => {
+  it('places the collapsible pinned section above workspace folders', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
     const workspaceSidebarSource = readFileSync(workspaceSidebarPath, 'utf8');
-    const pinnedChromeMenuSource = readFileSync(pinnedChromeMenuPath, 'utf8');
-
-    expect(workspaceLayoutSource).not.toContain('PinnedChromeMenu');
-    expect(workspaceSidebarSource).toContain("import { PinnedChromeMenu }");
-    expect(workspaceSidebarSource.indexOf('aria-label="全局搜索"')).toBeLessThan(
-      workspaceSidebarSource.indexOf('<PinnedChromeMenu'),
+    const pinnedSidebarSectionSource = readFileSync(
+      pinnedSidebarSectionPath,
+      'utf8',
     );
-    expect(pinnedChromeMenuSource).toContain('shadow-none');
-    expect(pinnedChromeMenuSource).toContain('ring-0');
-    expect(pinnedChromeMenuSource).not.toContain('shadow-[0_18px_48px');
+
+    expect(workspaceLayoutSource).not.toContain('PinnedSidebarSection');
+    expect(workspaceSidebarSource).toContain(
+      "import { PinnedSidebarSection }",
+    );
+    expect(
+      workspaceSidebarSource.indexOf('<PinnedSidebarSection'),
+    ).toBeLessThan(workspaceSidebarSource.indexOf('<DocumentTree'));
+    expect(pinnedSidebarSectionSource).toContain('aria-expanded={expanded}');
+    expect(pinnedSidebarSectionSource).not.toContain('<Popover');
   });
 
   it('does not reset the macOS traffic light position when the document title changes', () => {
