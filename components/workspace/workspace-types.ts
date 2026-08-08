@@ -314,6 +314,8 @@ export interface AppearanceFontSettings {
 export interface AppearanceSettings {
   fonts: AppearanceFontSettings;
   pageWidthMode: PageWidthMode;
+  showGitLogEntry: boolean;
+  showGitPanelEntry: boolean;
   systemNavCollapsed: boolean;
   systemNavLayout: SystemNavLayout;
   windowOpacity: number;

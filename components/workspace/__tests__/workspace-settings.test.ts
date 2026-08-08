@@ -23,6 +23,22 @@ describe('workspace settings defaults', () => {
       weekStartsOn: 'monday',
     });
     expect(settings.appearance.windowOpacity).toBe(100);
+    expect(settings.appearance.showGitLogEntry).toBe(false);
+    expect(settings.appearance.showGitPanelEntry).toBe(false);
+  });
+
+  it('preserves enabled Git entry visibility settings', () => {
+    const settings = withDefaultAppSettings({
+      appearance: {
+        showGitLogEntry: true,
+        showGitPanelEntry: true,
+      },
+      schemaVersion: 1,
+      storage: { defaultProvider: 'local' },
+    });
+
+    expect(settings.appearance.showGitLogEntry).toBe(true);
+    expect(settings.appearance.showGitPanelEntry).toBe(true);
   });
 
   it('preserves provided calendar settings', () => {

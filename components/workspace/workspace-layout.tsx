@@ -3056,6 +3056,14 @@ export function WorkspaceLayout({
             workspaceRootPath={workspace.snapshot?.rootPath ?? null}
             onBack={() => setSystemPage(null)}
             onSettingsSaved={(settings) => {
+              if (!settings.appearance.showGitPanelEntry) {
+                setLeftPanelMode('workspace');
+              }
+              if (!settings.appearance.showGitLogEntry) {
+                setBottomPanelMode((current) =>
+                  current === 'git-log' ? null : current,
+                );
+              }
               setAppSettings(settings);
               setPageWidthMode(settings.appearance.pageWidthMode);
               setSystemNavCollapsed(settings.appearance.systemNavCollapsed);
@@ -3275,6 +3283,8 @@ export function WorkspaceLayout({
                     isTauriRuntime &&
                     isWindowsRuntime
                   }
+                  showGitLogEntry={appSettings.appearance.showGitLogEntry}
+                  showGitPanelEntry={appSettings.appearance.showGitPanelEntry}
                   terminalOpen={terminalOpen}
                   windowsChromeInset={isTauriRuntime && isWindowsRuntime}
                   onOpenGitPanel={openGitPanel}
@@ -3874,6 +3884,8 @@ function WorkspaceMainHeader({
   leftPanelMode,
   macChromeInset,
   overlayContent,
+  showGitLogEntry,
+  showGitPanelEntry,
   terminalOpen,
   windowsChromeInset,
   onOpenGitPanel,
@@ -3887,6 +3899,8 @@ function WorkspaceMainHeader({
   leftPanelMode: LeftPanelMode;
   macChromeInset: boolean;
   overlayContent: boolean;
+  showGitLogEntry: boolean;
+  showGitPanelEntry: boolean;
   terminalOpen: boolean;
   windowsChromeInset: boolean;
   onOpenGitPanel: () => void;
@@ -3915,16 +3929,18 @@ function WorkspaceMainHeader({
           data-testid="right-header-tools"
         >
           <ThemeQuickMenu />
-          <HeaderToolTooltip label="打开 Git 面板">
-            <button
-              aria-label="打开 Git 面板"
-              className={headerToolButtonClassName(leftPanelMode === 'git')}
-              type="button"
-              onClick={onOpenGitPanel}
-            >
-              <GitBranch size={16} strokeWidth={1.75} />
-            </button>
-          </HeaderToolTooltip>
+          {showGitPanelEntry ? (
+            <HeaderToolTooltip label="打开 Git 面板">
+              <button
+                aria-label="打开 Git 面板"
+                className={headerToolButtonClassName(leftPanelMode === 'git')}
+                type="button"
+                onClick={onOpenGitPanel}
+              >
+                <GitBranch size={16} strokeWidth={1.75} />
+              </button>
+            </HeaderToolTooltip>
+          ) : null}
           <HeaderToolTooltip label={terminalOpen ? '关闭终端' : '打开终端'}>
             <button
               aria-label={terminalOpen ? '关闭终端' : '打开终端'}
@@ -3935,16 +3951,20 @@ function WorkspaceMainHeader({
               <SquareTerminal size={16} strokeWidth={1.75} />
             </button>
           </HeaderToolTooltip>
-          <HeaderToolTooltip label={gitLogOpen ? '关闭 Git 日志' : '打开 Git 日志'}>
-            <button
-              aria-label={gitLogOpen ? '关闭 Git 日志' : '打开 Git 日志'}
-              className={headerToolButtonClassName(gitLogOpen)}
-              type="button"
-              onClick={onToggleGitLog}
+          {showGitLogEntry ? (
+            <HeaderToolTooltip
+              label={gitLogOpen ? '关闭 Git 日志' : '打开 Git 日志'}
             >
-              <GitGraph size={16} strokeWidth={1.75} />
-            </button>
-          </HeaderToolTooltip>
+              <button
+                aria-label={gitLogOpen ? '关闭 Git 日志' : '打开 Git 日志'}
+                className={headerToolButtonClassName(gitLogOpen)}
+                type="button"
+                onClick={onToggleGitLog}
+              >
+                <GitGraph size={16} strokeWidth={1.75} />
+              </button>
+            </HeaderToolTooltip>
+          ) : null}
           {children}
         </div>
       </TooltipProvider>

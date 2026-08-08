@@ -48,6 +48,8 @@ const initialSettings: AppSettings = {
       ui: 'SF Pro Text',
     },
     pageWidthMode: 'wide',
+    showGitLogEntry: false,
+    showGitPanelEntry: false,
     systemNavCollapsed: false,
     systemNavLayout: 'vertical',
     windowOpacity: 100,
@@ -503,10 +505,57 @@ describe('WorkspaceSettingsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Git Sync' }));
 
     expect(screen.getByTestId('git-sync-enable-card')).toBeTruthy();
+    expect(screen.getByTestId('git-entry-preferences-card')).toBeTruthy();
     expect(screen.getByTestId('git-sync-repository-card')).toBeTruthy();
     expect(screen.getByTestId('git-sync-preferences-card')).toBeTruthy();
     expect(screen.getByTestId('git-sync-last-synced').textContent).toBe(
       '尚未同步',
+    );
+  });
+
+  it('persists the Git panel and log entry visibility independently', async () => {
+    const user = userEvent.setup();
+    const onSettingsSaved = vi.fn();
+
+    render(
+      <WorkspaceSettingsPage
+        appUpdate={appUpdateController}
+        initialSectionId="git-sync"
+        initialSettings={initialSettings}
+        sessionCache={createWorkspaceSettingsSessionCache()}
+        workspaceRootPath="D:/notes"
+        onBack={vi.fn()}
+        onSettingsSaved={onSettingsSaved}
+      />,
+    );
+
+    const gitPanelSwitch = screen.getByRole('switch', {
+      name: '显示 Git 面板入口',
+    });
+    const gitLogSwitch = screen.getByRole('switch', {
+      name: '显示 Git 日志入口',
+    });
+    expect(gitPanelSwitch.getAttribute('aria-checked')).toBe('false');
+    expect(gitLogSwitch.getAttribute('aria-checked')).toBe('false');
+
+    await user.click(gitPanelSwitch);
+    expect(onSettingsSaved).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        appearance: expect.objectContaining({
+          showGitLogEntry: false,
+          showGitPanelEntry: true,
+        }),
+      }),
+    );
+
+    await user.click(gitLogSwitch);
+    expect(onSettingsSaved).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        appearance: expect.objectContaining({
+          showGitLogEntry: true,
+          showGitPanelEntry: true,
+        }),
+      }),
     );
   });
 

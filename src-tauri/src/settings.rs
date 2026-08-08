@@ -29,6 +29,10 @@ pub struct AppearanceSettings {
     #[serde(default = "default_window_opacity")]
     pub window_opacity: u8,
     #[serde(default)]
+    pub show_git_log_entry: bool,
+    #[serde(default)]
+    pub show_git_panel_entry: bool,
+    #[serde(default)]
     pub system_nav_collapsed: bool,
     #[serde(default = "default_system_nav_layout")]
     pub system_nav_layout: String,
@@ -57,6 +61,8 @@ impl Default for AppearanceSettings {
             fonts: AppearanceFontSettings::default(),
             page_width_mode: default_page_width_mode(),
             window_opacity: default_window_opacity(),
+            show_git_log_entry: false,
+            show_git_panel_entry: false,
             system_nav_collapsed: false,
             system_nav_layout: default_system_nav_layout(),
         }
@@ -200,6 +206,8 @@ mod tests {
 
         assert_eq!(parsed.appearance.page_width_mode, "wide");
         assert_eq!(parsed.appearance.window_opacity, 100);
+        assert!(!parsed.appearance.show_git_log_entry);
+        assert!(!parsed.appearance.show_git_panel_entry);
         assert_eq!(parsed.appearance.system_nav_layout, "vertical");
         assert!(!parsed.appearance.system_nav_collapsed);
         assert!(parsed.calendar.expanded);
@@ -239,6 +247,19 @@ mod tests {
         settings.appearance.system_nav_layout = "horizontal".to_string();
         settings.appearance.system_nav_collapsed = true;
         assert!(validate_app_settings(&settings).is_ok());
+    }
+
+    #[test]
+    fn git_entry_visibility_round_trips_when_enabled() {
+        let mut settings = default_app_settings();
+        settings.appearance.show_git_log_entry = true;
+        settings.appearance.show_git_panel_entry = true;
+
+        let json = serde_json::to_string(&settings).expect("settings should serialize");
+        let parsed: AppSettings = serde_json::from_str(&json).expect("settings should deserialize");
+
+        assert!(parsed.appearance.show_git_log_entry);
+        assert!(parsed.appearance.show_git_panel_entry);
     }
 
     #[test]

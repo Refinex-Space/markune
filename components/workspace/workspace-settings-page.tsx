@@ -653,7 +653,21 @@ export function WorkspaceSettingsPage({
                   probe={gitProbeState}
                   remote={gitRemote}
                   settings={gitSettings}
+                  showGitLogEntry={settings.appearance.showGitLogEntry}
+                  showGitPanelEntry={settings.appearance.showGitPanelEntry}
                   onOpenRemoteRepository={openRemoteRepository}
+                  onShowGitLogEntryChange={(showGitLogEntry) =>
+                    updateAppearance((current) => ({
+                      ...current,
+                      showGitLogEntry,
+                    }))
+                  }
+                  onShowGitPanelEntryChange={(showGitPanelEntry) =>
+                    updateAppearance((current) => ({
+                      ...current,
+                      showGitPanelEntry,
+                    }))
+                  }
                   onSettingsChange={updateGitSettings}
                   onSyncNow={() => void syncNow()}
                 />
@@ -1347,7 +1361,11 @@ function GitSyncSection({
   probe,
   remote,
   settings,
+  showGitLogEntry,
+  showGitPanelEntry,
   onOpenRemoteRepository,
+  onShowGitLogEntryChange,
+  onShowGitPanelEntryChange,
   onSettingsChange,
   onSyncNow,
 }: {
@@ -1356,10 +1374,14 @@ function GitSyncSection({
   probe: GitProbe | null;
   remote: GitRemoteInfo;
   settings: WorkspaceGitSyncSettings;
+  showGitLogEntry: boolean;
+  showGitPanelEntry: boolean;
   onOpenRemoteRepository: (
     event: React.MouseEvent<HTMLAnchorElement>,
     url: string,
   ) => void;
+  onShowGitLogEntryChange: (show: boolean) => void;
+  onShowGitPanelEntryChange: (show: boolean) => void;
   onSettingsChange: (
     update: (
       current: WorkspaceGitSyncSettings,
@@ -1455,6 +1477,42 @@ function GitSyncSection({
             </span>
           </div>
         </div>
+      </section>
+
+      <section>
+        <h3 className="text-sm font-medium text-muted-foreground">界面入口</h3>
+        <div
+          className="mt-2 divide-y divide-border/60 overflow-hidden rounded-xl bg-muted/30"
+          data-testid="git-entry-preferences-card"
+        >
+          <SettingRow
+            control={
+              <PillSwitch
+                checked={showGitPanelEntry}
+                label="显示 Git 面板入口"
+                testId="git-panel-entry-switch"
+                onChange={onShowGitPanelEntryChange}
+              />
+            }
+            description="在工作区右上角显示 Git 面板入口。"
+            label="显示 Git 面板入口"
+          />
+          <SettingRow
+            control={
+              <PillSwitch
+                checked={showGitLogEntry}
+                label="显示 Git 日志入口"
+                testId="git-log-entry-switch"
+                onChange={onShowGitLogEntryChange}
+              />
+            }
+            description="在工作区右上角显示 Git 日志入口。"
+            label="显示 Git 日志入口"
+          />
+        </div>
+        <p className="mt-2 text-xs leading-5 text-muted-foreground">
+          仅控制入口显示，不影响 Git Sync、自动同步或仓库数据。
+        </p>
       </section>
 
       <section>

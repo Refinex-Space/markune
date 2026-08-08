@@ -17,6 +17,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   appearance: {
     fonts: DEFAULT_APPEARANCE_FONTS,
     pageWidthMode: 'wide',
+    showGitLogEntry: false,
+    showGitPanelEntry: false,
     systemNavCollapsed: false,
     systemNavLayout: 'vertical',
     windowOpacity: MAX_WINDOW_OPACITY,

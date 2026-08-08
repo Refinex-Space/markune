@@ -220,6 +220,25 @@ describe('Workspace titlebar', () => {
     );
   });
 
+  it('guards the Git panel and log header entries with global preferences', () => {
+    const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
+
+    expect(workspaceLayoutSource).toContain(
+      'showGitPanelEntry={appSettings.appearance.showGitPanelEntry}',
+    );
+    expect(workspaceLayoutSource).toContain(
+      'showGitLogEntry={appSettings.appearance.showGitLogEntry}',
+    );
+    expect(workspaceLayoutSource).toContain('showGitPanelEntry ? (');
+    expect(workspaceLayoutSource).toContain('showGitLogEntry ? (');
+    expect(workspaceLayoutSource).toMatch(
+      /if \(!settings\.appearance\.showGitPanelEntry\) \{\s*setLeftPanelMode\('workspace'\)/,
+    );
+    expect(workspaceLayoutSource).toMatch(
+      /if \(!settings\.appearance\.showGitLogEntry\) \{\s*setBottomPanelMode\(\(current\) =>\s*current === 'git-log' \? null : current/,
+    );
+  });
+
   it('moves global search to the workspace sidebar and removes the centered trigger', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
     const workspaceSidebarSource = readFileSync(workspaceSidebarPath, 'utf8');
