@@ -17,6 +17,7 @@ referenced_by: AGENTS.md#knowledge-map
 
 - 前端调用必须经 `components/workspace/workspace-api.ts`。
 - 命令注册位于 `src-tauri/src/lib.rs`。
+- `set_app_window_opacity(opacity)` 只接受 `70`–`100` 的整数百分比，并调整当前原生应用窗口的整体合成透明度。macOS 使用 AppKit，Windows 使用分层窗口 alpha；前端拖动时可以高频预览，但设置文件仅在交互提交后写入。非桌面环境不得用 CSS 内容透明度伪造窗口效果。
 - `get_macos_titlebar_metrics() -> { trafficLightCenterY } | null` 只读 AppKit 原生关闭按钮在当前 WKWebView 坐标系中的垂直中心，供左上角 Web 控件对齐；返回值只包含经过有限值与标题栏范围校验的逻辑像素，不暴露原生句柄、窗口内容或设备信息，非 macOS 返回 `null`。
 - `select_workspace_directory() -> string | null` 通过原生文件夹选择器打开工作区根目录；取消返回 `null`，成功返回 canonicalize 后的本地目录绝对路径。打开/新建工作区不得再依赖前端 `@tauri-apps/plugin-dialog` 的 `open()`。
 - `load_workspace_tree(rootPath)` / `ensure_workspace(rootPath)` / `create_workspace_root(parentPath, workspaceName)` 继续作为工作区树读取、元数据初始化与新建入口。

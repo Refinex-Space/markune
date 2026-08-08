@@ -143,6 +143,7 @@ import {
   readMarkdownDocument,
   saveAppSettings,
   saveWorkspaceGitSyncSettings,
+  setAppWindowOpacity,
   minimizeAppWindow,
   openDailyNote,
   openPathInFileManager,
@@ -1158,6 +1159,12 @@ export function WorkspaceLayout({
         if (!cancelled) {
           const normalizedSettings = withDefaultAppSettings(settings);
 
+          void setAppWindowOpacity(
+            normalizedSettings.appearance.windowOpacity,
+          ).catch((error) => {
+            console.error('恢复应用透明度失败', error);
+          });
+
           setPageWidthMode(normalizedSettings.appearance.pageWidthMode);
           setSystemNavCollapsed(
             normalizedSettings.appearance.systemNavCollapsed,
@@ -1168,6 +1175,11 @@ export function WorkspaceLayout({
         }
       } catch {
         if (!cancelled) {
+          void setAppWindowOpacity(
+            DEFAULT_APP_SETTINGS.appearance.windowOpacity,
+          ).catch((error) => {
+            console.error('恢复默认应用透明度失败', error);
+          });
           setAppSettings(DEFAULT_APP_SETTINGS);
           setPageWidthMode(DEFAULT_APP_SETTINGS.appearance.pageWidthMode);
           setSystemNavCollapsed(

@@ -58,6 +58,7 @@ import {
   openUrlInDefaultBrowser,
   saveAppSettings,
   saveWorkspaceGitSyncSettings,
+  setAppWindowOpacity,
 } from './workspace-api';
 import type { AppUpdateController } from './use-app-update';
 import type {
@@ -65,7 +66,11 @@ import type {
   WorkspaceSettingsSessionCache,
 } from './workspace-settings-cache';
 import { WorkspaceResizeHandle } from './workspace-resize-handle';
-import { withDefaultAppSettings } from './workspace-settings';
+import {
+  MAX_WINDOW_OPACITY,
+  MIN_WINDOW_OPACITY,
+  withDefaultAppSettings,
+} from './workspace-settings';
 import type {
   AppearanceFontSettings,
   AppSettings,
@@ -209,6 +214,7 @@ export function WorkspaceSettingsPage({
   const [settings, setSettings] = React.useState(
     () => withDefaultAppSettings(cacheEntry.settings ?? initialSettings),
   );
+  const settingsRef = React.useRef(settings);
   const [fontOptions, setFontOptions] = React.useState(
     () => sessionCache.systemFonts ?? DEFAULT_FONTS,
   );
@@ -238,6 +244,10 @@ export function WorkspaceSettingsPage({
         : 'idle',
   );
   const [gitMessage, setGitMessage] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
 
   React.useEffect(() => {
     if (sessionCache.systemFonts) return;
@@ -303,6 +313,7 @@ export function WorkspaceSettingsPage({
     async (next: AppSettings) => {
       const entry = getSettingsCacheEntry(sessionCache, workspaceRootPath);
       entry.settings = next;
+      settingsRef.current = next;
       setSettings(next);
       onSettingsSaved?.(next);
       if (!isTauriRuntime()) return;
@@ -312,6 +323,7 @@ export function WorkspaceSettingsPage({
       try {
         const saved = await saveAppSettings(next);
         entry.settings = saved;
+        settingsRef.current = saved;
         setSettings(saved);
         onSettingsSaved?.(saved);
         setSaveState('saved');
@@ -333,6 +345,30 @@ export function WorkspaceSettingsPage({
       appearance: update(settings.appearance),
     });
   };
+
+  const previewWindowOpacity = React.useCallback((windowOpacity: number) => {
+    const current = settingsRef.current;
+    const next = {
+      ...current,
+      appearance: { ...current.appearance, windowOpacity },
+    };
+    settingsRef.current = next;
+    setSettings(next);
+
+    if (!isTauriRuntime()) return;
+    setError(null);
+    void setAppWindowOpacity(windowOpacity).catch((reason) => {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : '无法预览应用透明度',
+      );
+    });
+  }, []);
+
+  const commitWindowOpacity = React.useCallback(() => {
+    void saveSettings(settingsRef.current);
+  }, [saveSettings]);
 
   const updateCalendar = (
     update: (calendar: AppSettings['calendar']) => AppSettings['calendar'],
@@ -570,6 +606,8 @@ export function WorkspaceSettingsPage({
                       pageWidthMode,
                     }))
                   }
+                  onWindowOpacityCommit={commitWindowOpacity}
+                  onWindowOpacityPreview={previewWindowOpacity}
                   onSystemNavCollapsedChange={(systemNavCollapsed) =>
                     updateAppearance((current) => ({
                       ...current,
@@ -648,6 +686,8 @@ function AppearanceSection({
   saveState,
   onFontChange,
   onPageWidthChange,
+  onWindowOpacityCommit,
+  onWindowOpacityPreview,
   onSystemNavCollapsedChange,
   onSystemNavLayoutChange,
   onThemeChange,
@@ -659,6 +699,8 @@ function AppearanceSection({
   saveState: 'idle' | 'saving' | 'saved' | 'error';
   onFontChange: (key: keyof AppearanceFontSettings, value: string) => void;
   onPageWidthChange: (value: PageWidthMode) => void;
+  onWindowOpacityCommit: () => void;
+  onWindowOpacityPreview: (value: number) => void;
   onSystemNavCollapsedChange: (collapsed: boolean) => void;
   onSystemNavLayoutChange: (layout: SystemNavLayout) => void;
   onThemeChange: (theme: string) => void;
@@ -666,7 +708,7 @@ function AppearanceSection({
   return (
     <div className="space-y-6 pb-8" data-testid="appearance-settings-shell">
       <SettingsSectionHeader
-        description="调整应用主题、编辑器页面宽度、系统入口和阅读字体。"
+        description="调整应用主题、窗口透明度、编辑器页面宽度、系统入口和阅读字体。"
         title="外观"
       />
 
@@ -699,6 +741,13 @@ function AppearanceSection({
           />
         </div>
       </section>
+
+      <WindowOpacitySetting
+        available={isTauriRuntime()}
+        value={settings.appearance.windowOpacity}
+        onCommit={onWindowOpacityCommit}
+        onPreview={onWindowOpacityPreview}
+      />
 
       <section className="rounded-xl bg-muted/30 p-5">
         <h3 className="text-sm font-medium">页面宽度</h3>
@@ -805,6 +854,99 @@ function AppearanceSection({
         state={saveState}
       />
     </div>
+  );
+}
+
+function WindowOpacitySetting({
+  available,
+  value,
+  onCommit,
+  onPreview,
+}: {
+  available: boolean;
+  value: number;
+  onCommit: () => void;
+  onPreview: (value: number) => void;
+}) {
+  const progress =
+    ((value - MIN_WINDOW_OPACITY) /
+      (MAX_WINDOW_OPACITY - MIN_WINDOW_OPACITY)) *
+    100;
+  const commitValue = () => onCommit();
+  const restoreDefault = () => {
+    onPreview(MAX_WINDOW_OPACITY);
+    onCommit();
+  };
+
+  return (
+    <section data-testid="window-opacity-settings">
+      <h3 className="text-sm font-medium">窗口</h3>
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+        调整整个应用窗口与桌面背景之间的通透程度。
+      </p>
+      <div className="mt-4 rounded-xl bg-muted/30 px-5 py-4">
+        <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_300px] sm:items-center">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">应用透明度</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              拖动时会即时预览。为保证文字清晰和窗口可找回，最低限制为 70%。
+            </p>
+            {!available ? (
+              <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                应用透明度仅在桌面客户端中可用。
+              </p>
+            ) : null}
+          </div>
+          <div className="min-w-0">
+            <div className="mb-3 flex h-7 items-center justify-between gap-3">
+              <span className="text-xs text-muted-foreground">更通透</span>
+              <div className="flex items-center gap-2">
+                {value < MAX_WINDOW_OPACITY ? (
+                  <button
+                    className="rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3574f0]/45 disabled:pointer-events-none disabled:opacity-50"
+                    disabled={!available}
+                    type="button"
+                    onClick={restoreDefault}
+                  >
+                    恢复默认
+                  </button>
+                ) : null}
+                <output
+                  className="min-w-12 rounded-md bg-background px-2 py-1 text-center text-xs font-medium tabular-nums shadow-sm ring-1 ring-border/70"
+                  htmlFor="app-window-opacity"
+                >
+                  {value}%
+                </output>
+              </div>
+            </div>
+            <input
+              aria-label="应用透明度"
+              className="h-5 w-full cursor-pointer appearance-none bg-transparent disabled:cursor-not-allowed disabled:opacity-50 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-background [&::-moz-range-thumb]:bg-[#3574f0] [&::-moz-range-thumb]:shadow-sm [&::-moz-range-track]:h-1.5 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-transparent [&::-webkit-slider-thumb]:mt-[-5px] [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-background [&::-webkit-slider-thumb]:bg-[#3574f0] [&::-webkit-slider-thumb]:shadow-sm [&::-webkit-slider-runnable-track]:h-1.5 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-transparent"
+              disabled={!available}
+              id="app-window-opacity"
+              max={MAX_WINDOW_OPACITY}
+              min={MIN_WINDOW_OPACITY}
+              step={1}
+              style={{
+                background: `linear-gradient(to right, #3574f0 0%, #3574f0 ${progress}%, var(--border) ${progress}%, var(--border) 100%) center / 100% 6px no-repeat`,
+                borderRadius: 9999,
+              }}
+              type="range"
+              value={value}
+              onBlur={commitValue}
+              onChange={(event) => onPreview(Number(event.currentTarget.value))}
+              onKeyUp={commitValue}
+              onPointerCancel={commitValue}
+              onPointerUp={commitValue}
+            />
+            <div className="mt-1 flex justify-between text-[11px] tabular-nums text-muted-foreground">
+              <span>70%</span>
+              <span>100%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 

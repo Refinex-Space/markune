@@ -13,6 +13,7 @@ mod settings;
 mod system_fonts;
 mod terminal;
 mod window_chrome;
+mod window_opacity;
 mod workspace;
 
 use tauri::Manager;
@@ -149,6 +150,7 @@ pub fn run() {
             settings::save_app_settings,
             system_fonts::list_system_fonts,
             window_chrome::get_macos_titlebar_metrics,
+            window_opacity::set_app_window_opacity,
             workspace::ensure_workspace,
             workspace::select_workspace_directory,
             workspace::open_path_in_preferred_editor,

@@ -1157,6 +1157,13 @@ export async function saveAppSettings(settings: AppSettings) {
   return invoke<AppSettings>('save_app_settings', { settings });
 }
 
+export async function setAppWindowOpacity(opacity: number) {
+  if (!isTauriRuntime()) return;
+
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<void>('set_app_window_opacity', { opacity });
+}
+
 export async function saveWorkspaceGitSyncSettings(
   rootPath: string,
   settings: WorkspaceGitSyncSettings,

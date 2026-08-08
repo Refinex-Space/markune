@@ -26,6 +26,8 @@ pub struct AppearanceSettings {
     pub fonts: AppearanceFontSettings,
     #[serde(default = "default_page_width_mode")]
     pub page_width_mode: String,
+    #[serde(default = "default_window_opacity")]
+    pub window_opacity: u8,
     #[serde(default)]
     pub system_nav_collapsed: bool,
     #[serde(default = "default_system_nav_layout")]
@@ -54,6 +56,7 @@ impl Default for AppearanceSettings {
         Self {
             fonts: AppearanceFontSettings::default(),
             page_width_mode: default_page_width_mode(),
+            window_opacity: default_window_opacity(),
             system_nav_collapsed: false,
             system_nav_layout: default_system_nav_layout(),
         }
@@ -118,6 +121,10 @@ fn default_page_width_mode() -> String {
     "wide".to_string()
 }
 
+fn default_window_opacity() -> u8 {
+    100
+}
+
 fn default_system_nav_layout() -> String {
     "vertical".to_string()
 }
@@ -144,6 +151,9 @@ fn validate_app_settings(settings: &AppSettings) -> Result<(), String> {
     }
     if !matches!(settings.appearance.page_width_mode.as_str(), "standard" | "wide") {
         return Err("页面宽度设置无效".to_string());
+    }
+    if !(70..=100).contains(&settings.appearance.window_opacity) {
+        return Err("应用透明度设置无效".to_string());
     }
     if !matches!(
         settings.appearance.system_nav_layout.as_str(),
@@ -189,6 +199,7 @@ mod tests {
         }"#).expect("legacy settings should remain readable");
 
         assert_eq!(parsed.appearance.page_width_mode, "wide");
+        assert_eq!(parsed.appearance.window_opacity, 100);
         assert_eq!(parsed.appearance.system_nav_layout, "vertical");
         assert!(!parsed.appearance.system_nav_collapsed);
         assert!(parsed.calendar.expanded);
@@ -207,6 +218,7 @@ mod tests {
         .expect("settings without system nav fields should remain readable");
 
         assert_eq!(parsed.appearance.system_nav_layout, "vertical");
+        assert_eq!(parsed.appearance.window_opacity, 100);
         assert!(!parsed.appearance.system_nav_collapsed);
         assert!(validate_app_settings(&parsed).is_ok());
     }
@@ -227,6 +239,26 @@ mod tests {
         settings.appearance.system_nav_layout = "horizontal".to_string();
         settings.appearance.system_nav_collapsed = true;
         assert!(validate_app_settings(&settings).is_ok());
+    }
+
+    #[test]
+    fn window_opacity_accepts_safe_range_boundaries() {
+        let mut settings = default_app_settings();
+        settings.appearance.window_opacity = 70;
+        assert!(validate_app_settings(&settings).is_ok());
+
+        settings.appearance.window_opacity = 100;
+        assert!(validate_app_settings(&settings).is_ok());
+    }
+
+    #[test]
+    fn window_opacity_rejects_values_outside_safe_range() {
+        let mut settings = default_app_settings();
+        settings.appearance.window_opacity = 69;
+        assert_eq!(
+            validate_app_settings(&settings).unwrap_err(),
+            "应用透明度设置无效"
+        );
     }
 
     #[test]

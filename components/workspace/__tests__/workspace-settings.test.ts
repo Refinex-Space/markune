@@ -22,6 +22,7 @@ describe('workspace settings defaults', () => {
       expanded: true,
       weekStartsOn: 'monday',
     });
+    expect(settings.appearance.windowOpacity).toBe(100);
   });
 
   it('preserves provided calendar settings', () => {
@@ -35,5 +36,15 @@ describe('workspace settings defaults', () => {
       expanded: false,
       weekStartsOn: 'sunday',
     });
+  });
+
+  it('falls back to full opacity when persisted opacity is outside the safe range', () => {
+    const settings = withDefaultAppSettings({
+      appearance: { windowOpacity: 40 },
+      schemaVersion: 1,
+      storage: { defaultProvider: 'local' },
+    });
+
+    expect(settings.appearance.windowOpacity).toBe(100);
   });
 });

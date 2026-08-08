@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -10,7 +10,21 @@ import type { AppSettings } from '../workspace-types';
 const themeState = vi.hoisted(() => ({ setTheme: vi.fn() }));
 const workspaceApiState = vi.hoisted(() => ({
   isTauriRuntime: vi.fn(() => false),
+  listSystemFonts: vi.fn(() =>
+    Promise.resolve({
+      code: ['JetBrains Mono'],
+      document: ['Songti SC'],
+      recommendations: {
+        code: 'JetBrains Mono',
+        document: 'Songti SC',
+        ui: 'SF Pro Text',
+      },
+      ui: ['SF Pro Text'],
+    }),
+  ),
   openUrlInDefaultBrowser: vi.fn(() => Promise.resolve()),
+  saveAppSettings: vi.fn((settings: AppSettings) => Promise.resolve(settings)),
+  setAppWindowOpacity: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('next-themes', () => ({
@@ -20,7 +34,10 @@ vi.mock('next-themes', () => ({
 vi.mock('../workspace-api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../workspace-api')>()),
   isTauriRuntime: workspaceApiState.isTauriRuntime,
+  listSystemFonts: workspaceApiState.listSystemFonts,
   openUrlInDefaultBrowser: workspaceApiState.openUrlInDefaultBrowser,
+  saveAppSettings: workspaceApiState.saveAppSettings,
+  setAppWindowOpacity: workspaceApiState.setAppWindowOpacity,
 }));
 
 const initialSettings: AppSettings = {
@@ -33,6 +50,7 @@ const initialSettings: AppSettings = {
     pageWidthMode: 'wide',
     systemNavCollapsed: false,
     systemNavLayout: 'vertical',
+    windowOpacity: 100,
   },
   calendar: {
     expanded: true,
@@ -98,7 +116,10 @@ describe('WorkspaceSettingsPage', () => {
       update: null,
     } satisfies AppUpdateController);
     workspaceApiState.isTauriRuntime.mockReturnValue(false);
+    workspaceApiState.listSystemFonts.mockClear();
     workspaceApiState.openUrlInDefaultBrowser.mockClear();
+    workspaceApiState.saveAppSettings.mockClear();
+    workspaceApiState.setAppWindowOpacity.mockClear();
   });
 
   it('restores the full-width non-AI settings shell and appearance previews', () => {
@@ -138,10 +159,65 @@ describe('WorkspaceSettingsPage', () => {
     expect(screen.getByTestId('system-nav-settings')).toBeTruthy();
     expect(screen.getByTestId('system-nav-layout-select')).toBeTruthy();
     expect(screen.getByTestId('system-nav-collapsed-switch')).toBeTruthy();
+    expect(screen.getByTestId('window-opacity-settings')).toBeTruthy();
+    expect(
+      (screen.getByRole('slider', { name: '应用透明度' }) as HTMLInputElement)
+        .disabled,
+    ).toBe(true);
     expect(screen.getByText('Madora · 本地知识库')).toBeTruthy();
     expect(
       screen.getByText('这是一段用于预览文档字体的文本。'),
     ).toBeTruthy();
+  });
+
+  it('previews window opacity while dragging and persists it on commit', async () => {
+    workspaceApiState.isTauriRuntime.mockReturnValue(true);
+    const onSettingsSaved = vi.fn();
+
+    render(
+      <WorkspaceSettingsPage
+        appUpdate={appUpdateController}
+        initialSettings={initialSettings}
+        sessionCache={createWorkspaceSettingsSessionCache()}
+        workspaceRootPath={null}
+        onBack={vi.fn()}
+        onSettingsSaved={onSettingsSaved}
+      />,
+    );
+
+    const slider = screen.getByRole('slider', { name: '应用透明度' });
+    expect((slider as HTMLInputElement).disabled).toBe(false);
+
+    fireEvent.change(slider, { target: { value: '82' } });
+    expect(screen.getByText('82%')).toBeTruthy();
+    expect(workspaceApiState.setAppWindowOpacity).toHaveBeenLastCalledWith(82);
+    expect(workspaceApiState.saveAppSettings).not.toHaveBeenCalled();
+
+    fireEvent.pointerUp(slider);
+    await waitFor(() =>
+      expect(workspaceApiState.saveAppSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appearance: expect.objectContaining({ windowOpacity: 82 }),
+        }),
+      ),
+    );
+    expect(onSettingsSaved).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appearance: expect.objectContaining({ windowOpacity: 82 }),
+      }),
+    );
+
+    await userEvent.setup().click(
+      screen.getByRole('button', { name: '恢复默认' }),
+    );
+    expect(workspaceApiState.setAppWindowOpacity).toHaveBeenLastCalledWith(100);
+    await waitFor(() =>
+      expect(workspaceApiState.saveAppSettings).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          appearance: expect.objectContaining({ windowOpacity: 100 }),
+        }),
+      ),
+    );
   });
 
   it('searches the full font list without rendering every option at once', async () => {

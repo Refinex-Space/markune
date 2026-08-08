@@ -78,7 +78,7 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 
 ## App Settings
 
-`src-tauri/src/settings.rs` 持久化全局设置。当前 schema version 为 `1`，包含 `storage.defaultProvider: local`、`appearance.pageWidthMode`（`standard` 或 `wide`）、`appearance.systemNavLayout`（`vertical` 或 `horizontal`，默认 `vertical`）、`appearance.systemNavCollapsed`（默认 `false`）、`appearance.fonts.ui`、`appearance.fonts.document`、`appearance.fonts.code`，以及 `calendar.expanded`（默认 `true`）和 `calendar.weekStartsOn`（`monday` 或 `sunday`，默认 `monday`）。
+`src-tauri/src/settings.rs` 持久化全局设置。当前 schema version 为 `1`，包含 `storage.defaultProvider: local`、`appearance.pageWidthMode`（`standard` 或 `wide`）、`appearance.windowOpacity`（整数百分比 `70`–`100`，默认 `100`）、`appearance.systemNavLayout`（`vertical` 或 `horizontal`，默认 `vertical`）、`appearance.systemNavCollapsed`（默认 `false`）、`appearance.fonts.ui`、`appearance.fonts.document`、`appearance.fonts.code`，以及 `calendar.expanded`（默认 `true`）和 `calendar.weekStartsOn`（`monday` 或 `sunday`，默认 `monday`）。
 
 旧设置文件中的未知字段读取时会忽略；用户保存设置后仅写回当前 schema 支持的字段。
 

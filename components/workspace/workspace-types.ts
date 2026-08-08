@@ -316,6 +316,7 @@ export interface AppearanceSettings {
   pageWidthMode: PageWidthMode;
   systemNavCollapsed: boolean;
   systemNavLayout: SystemNavLayout;
+  windowOpacity: number;
 }
 
 export interface SystemFontOptions {
