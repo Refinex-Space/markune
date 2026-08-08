@@ -403,7 +403,7 @@ export function DocumentTree({
           </div>
         </div>
         {showTree && (
-          <div className="space-y-0.5 px-2">
+          <div className="mt-1 space-y-0.5 px-2">
             {visibleNodes.map((node) => (
               <TreeNode
                 key={node.id}

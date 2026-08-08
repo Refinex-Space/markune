@@ -219,6 +219,9 @@ describe('WorkspaceSidebar update entry', () => {
 
     expect(overviewEntry.getAttribute('aria-current')).toBe('page');
     expect(overviewEntry.parentElement?.className).toContain('bg-sidebar-accent');
+    expect(
+      screen.getByTestId('tree-node-projects').parentElement?.className,
+    ).toContain('mt-1');
 
     await user.click(overviewEntry);
     expect(onOpenWorkspaceOverview).toHaveBeenCalledTimes(1);
