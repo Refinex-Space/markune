@@ -1,8 +1,30 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { WorkspaceSystemNav } from '../workspace-system-nav';
+
+const originalResizeObserver = globalThis.ResizeObserver;
+
+class TestResizeObserver implements ResizeObserver {
+  disconnect() {}
+  observe() {}
+  unobserve() {}
+}
+
+beforeAll(() => {
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    configurable: true,
+    value: TestResizeObserver,
+  });
+});
+
+afterAll(() => {
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    configurable: true,
+    value: originalResizeObserver,
+  });
+});
 
 describe('WorkspaceSystemNav', () => {
   it('renders seven vertical labeled entries by default', () => {
@@ -104,7 +126,9 @@ describe('WorkspaceSystemNav', () => {
     expect(onLayoutChange).toHaveBeenCalledWith('horizontal');
   });
 
-  it('renders icon-only horizontal entries with inbox badge', () => {
+  it('renders centered horizontal entries with bottom tooltips and an inbox badge', async () => {
+    const user = userEvent.setup();
+
     render(
       <WorkspaceSystemNav inboxActiveCount={4} layout="horizontal" />,
     );
@@ -112,13 +136,32 @@ describe('WorkspaceSystemNav', () => {
     const notes = screen.getByRole('button', { name: '笔记' });
     expect(notes.textContent).not.toContain('笔记');
     expect(notes.getAttribute('aria-label')).toBe('笔记');
-    expect(notes.className).toContain('justify-start');
+    expect(notes.className).toContain('justify-center');
     expect(screen.getByTestId('system-nav-entries').className).toContain(
-      'pr-1',
+      'pr-2.5',
     );
 
     const inbox = screen.getByRole('button', { name: 'Inbox · 4' });
     expect(inbox.getAttribute('aria-label')).toBe('Inbox · 4');
     expect(screen.getByTestId('inbox-entry-badge').textContent).toBe('4');
+    expect(screen.queryByRole('button', { name: '收起系统入口' })).toBeNull();
+    expect(screen.getByRole('button', { name: '系统入口选项' })).toBeTruthy();
+
+    await user.hover(notes);
+    expect(
+      (await screen.findByRole('tooltip'))
+        .closest('[data-side]')
+        ?.getAttribute('data-side'),
+    ).toBe('bottom');
+  });
+
+  it('keeps horizontal entries visible when the stored collapsed preference is true', () => {
+    render(<WorkspaceSystemNav collapsed layout="horizontal" />);
+
+    expect(screen.getByRole('button', { name: '笔记' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Codex' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '系统入口选项' })).toBeTruthy();
+    expect(screen.queryByTestId('system-nav-collapse-button')).toBeNull();
+    expect(screen.queryByTestId('system-nav-hitbox')).toBeNull();
   });
 });

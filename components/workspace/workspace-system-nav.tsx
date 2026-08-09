@@ -137,7 +137,7 @@ export function WorkspaceSystemNav({
     },
   ];
 
-  if (collapsed) {
+  if (collapsed && !horizontal) {
     return (
       <div
         className="relative flex h-5 items-center justify-center px-2"
@@ -226,7 +226,7 @@ export function WorkspaceSystemNav({
         <div
           className={
             horizontal
-              ? 'flex items-center justify-between pl-[11px] pr-1'
+              ? 'flex items-center justify-between pl-[11px] pr-2.5'
               : 'space-y-0.5'
           }
           data-testid="system-nav-entries"
@@ -239,23 +239,13 @@ export function WorkspaceSystemNav({
             />
           ))}
           {horizontal ? (
-            <div className="flex items-center gap-0.5 text-sidebar-foreground/60">
+            <div className="flex items-center text-sidebar-foreground/60">
               <SystemNavOptionsMenu
                 layout={layout}
                 open={menuOpen}
                 onLayoutChange={onLayoutChange}
                 onOpenChange={setMenuOpen}
               />
-              <button
-                aria-expanded
-                aria-label="收起系统入口"
-                className="flex size-5 items-center justify-center rounded-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                data-testid="system-nav-collapse-button"
-                type="button"
-                onClick={() => onCollapsedChange?.(true)}
-              >
-                <ChevronUp size={12} strokeWidth={2} />
-              </button>
             </div>
           ) : null}
         </div>
@@ -368,7 +358,7 @@ function SystemNavEntryButton({
   return (
     <Tooltip>
       <TooltipTrigger asChild>{button}</TooltipTrigger>
-      <TooltipContent side="right" sideOffset={6}>
+      <TooltipContent side="bottom" sideOffset={6}>
         {accessibleLabel}
       </TooltipContent>
     </Tooltip>
@@ -386,7 +376,7 @@ function getSystemEntryClassName(active: boolean) {
 
 function getHorizontalEntryClassName(active: boolean) {
   return cn(
-    'relative flex size-7 shrink-0 items-center justify-start rounded-md transition-colors',
+    'relative flex size-7 shrink-0 items-center justify-center rounded-md transition-colors',
     active
       ? 'bg-sidebar-accent text-sidebar-accent-foreground'
       : 'text-sidebar-foreground/80 hover:bg-sidebar-accent/75 hover:text-sidebar-accent-foreground',

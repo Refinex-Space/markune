@@ -808,12 +808,18 @@ function AppearanceSection({
             <div className="min-w-0">
               <p className="text-sm font-medium">收起系统入口</p>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                收起后仅在悬停命中条时显示展开控件。
+                {settings.appearance.systemNavLayout === 'horizontal'
+                  ? '横向排列始终展示七个入口，仅通过省略号切换形态。'
+                  : '收起后仅在悬停命中条时显示展开控件。'}
               </p>
             </div>
             <div className="flex justify-start sm:justify-end">
               <PillSwitch
-                checked={settings.appearance.systemNavCollapsed}
+                checked={
+                  settings.appearance.systemNavLayout === 'vertical' &&
+                  settings.appearance.systemNavCollapsed
+                }
+                disabled={settings.appearance.systemNavLayout === 'horizontal'}
                 label="收起系统入口"
                 testId="system-nav-collapsed-switch"
                 onChange={onSystemNavCollapsedChange}

@@ -311,15 +311,12 @@ describe('WorkspaceSettingsPage', () => {
       }),
     );
 
-    await user.click(screen.getByTestId('system-nav-collapsed-switch'));
-    expect(onSettingsSaved).toHaveBeenCalledWith(
-      expect.objectContaining({
-        appearance: expect.objectContaining({
-          systemNavLayout: 'horizontal',
-          systemNavCollapsed: true,
-        }),
-      }),
-    );
+    const collapsedSwitch = screen.getByTestId('system-nav-collapsed-switch');
+    expect((collapsedSwitch as HTMLButtonElement).disabled).toBe(true);
+    expect(collapsedSwitch.getAttribute('aria-checked')).toBe('false');
+    expect(
+      screen.getByText('横向排列始终展示七个入口，仅通过省略号切换形态。'),
+    ).toBeTruthy();
   });
 
   it('persists calendar expansion and week start settings', async () => {

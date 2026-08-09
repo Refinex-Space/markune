@@ -106,12 +106,13 @@ describe('DocumentTree', () => {
 
     const archiveCount = screen.getByTestId('directory-document-count-archive');
     expect(archiveCount.textContent).toBe('1');
-    expect(archiveCount.className).toContain('min-w-5');
+    expect(archiveCount.className).toContain('absolute right-2');
+    expect(archiveCount.className).toContain('size-6');
     expect(archiveCount.className).toContain('tabular-nums');
     expect(archiveCount.className).toContain('group-hover/tree-row:opacity-0');
     expect(
       screen.getByRole('button', { name: '打开 Archive 操作菜单' }).className,
-    ).toContain('absolute right-1 top-0.5');
+    ).toContain('absolute right-2 top-0.5');
   });
 
   it('creates documents and directories at the workspace root from the blank area menu', async () => {

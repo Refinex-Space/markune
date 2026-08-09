@@ -754,7 +754,7 @@ function TreeNode({
               style={{ marginLeft: rowSurfaceLeft }}
             >
               {isEditing ? (
-                <div className="relative z-[1] flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md pl-[11px] pr-3 text-left">
+                <div className="relative z-[1] flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md pl-[11px] pr-9 text-left">
                   <DirectoryIcon
                     isDirectory={isDirectory}
                     isExpanded={isExpanded}
@@ -777,7 +777,7 @@ function TreeNode({
                   ) : null}
                 </div>
               ) : (
-                <div className="relative z-[1] flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md pl-[11px] pr-3 text-left text-foreground/80">
+                <div className="relative z-[1] flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md pl-[11px] pr-9 text-left text-foreground/80">
                   <DirectoryIcon
                     isDirectory={isDirectory}
                     isExpanded={isExpanded}
@@ -969,7 +969,7 @@ function DirectoryDocumentCount({
 }) {
   return (
     <span
-      className="ml-auto min-w-5 shrink-0 px-1.5 text-center text-[10px] font-medium leading-4 text-sidebar-foreground/55 tabular-nums transition-opacity group-hover/tree-row:opacity-0"
+      className="absolute right-2 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center text-center text-[10px] font-medium leading-4 text-sidebar-foreground/55 tabular-nums transition-opacity group-hover/tree-row:opacity-0"
       data-testid={`directory-document-count-${nodeId}`}
     >
       {count}
@@ -1108,7 +1108,7 @@ function NodeActionDropdown({
       <DropdownMenuTrigger asChild>
         <button
           aria-label={`打开 ${node.name} 操作菜单`}
-          className="absolute right-1 top-0.5 z-[1] hidden size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground group-hover/tree-row:flex data-[state=open]:flex"
+          className="absolute right-2 top-0.5 z-[1] hidden size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground group-hover/tree-row:flex data-[state=open]:flex"
           data-tree-drag-disabled="true"
           type="button"
           onClick={(event) => event.stopPropagation()}
