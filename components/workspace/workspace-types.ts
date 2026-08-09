@@ -199,7 +199,37 @@ export interface WorkspaceNode {
   updatedAt?: number;
   pinned?: boolean;
   locked?: boolean;
+  appearance?: TreeNodeAppearance;
   children?: WorkspaceNode[];
+}
+
+export type TreeNodeIcon =
+  | { type: 'builtin'; name: string }
+  | { type: 'emoji'; value: string }
+  | { type: 'local'; assetId: string };
+
+export type TreeNodeIconColor =
+  | { type: 'preset'; value: TreeNodeIconColorPreset }
+  | { type: 'custom'; value: string };
+
+export type TreeNodeIconColorPreset =
+  | 'slate'
+  | 'red'
+  | 'orange'
+  | 'amber'
+  | 'green'
+  | 'teal'
+  | 'cyan'
+  | 'blue'
+  | 'indigo'
+  | 'violet'
+  | 'purple'
+  | 'pink'
+  | 'rose';
+
+export interface TreeNodeAppearance {
+  icon?: TreeNodeIcon;
+  color?: TreeNodeIconColor;
 }
 
 export interface WorkspaceSnapshot {
@@ -281,6 +311,7 @@ export interface WorkspaceGitSyncSettings {
 export interface WorkspaceNodeState {
   pinned: boolean;
   locked: boolean;
+  appearance?: TreeNodeAppearance;
 }
 
 export interface WorkspaceDailyNotes {
@@ -318,7 +349,15 @@ export interface AppearanceSettings {
   showGitPanelEntry: boolean;
   systemNavCollapsed: boolean;
   systemNavLayout: SystemNavLayout;
+  treeIconPicker: TreeIconPickerSettings;
   windowOpacity: number;
+}
+
+export type TreeIconPickerTab = 'builtin' | 'emoji' | 'local';
+
+export interface TreeIconPickerSettings {
+  lastTab: TreeIconPickerTab;
+  recentIcons: TreeNodeIcon[];
 }
 
 export interface SystemFontOptions {
@@ -361,6 +400,12 @@ export interface UploadedWorkspaceAsset {
   mediaType: string;
   size: number;
   absolutePath: string;
+}
+
+export interface ImportedTreeIconAsset {
+  assetId: string;
+  mediaType: 'image/png' | 'image/svg+xml' | 'image/webp';
+  name: string;
 }
 
 export interface ResolvedWorkspaceAsset {

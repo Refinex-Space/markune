@@ -1,4 +1,7 @@
-use crate::assets::{cleanup_unreferenced_assets, extract_asset_ids};
+use crate::assets::{
+    cleanup_unreferenced_assets, extract_asset_ids, resolve_workspace_asset_impl,
+    validate_stored_tree_icon_asset,
+};
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, SecondsFormat, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
@@ -38,6 +41,8 @@ pub struct WorkspaceNode {
     pub updated_at: u128,
     pub pinned: bool,
     pub locked: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub appearance: Option<TreeNodeAppearance>,
     pub children: Option<Vec<WorkspaceNode>>,
 }
 
@@ -73,6 +78,39 @@ pub struct WorkspaceNodeState {
     pub pinned: bool,
     #[serde(default)]
     pub locked: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub appearance: Option<TreeNodeAppearance>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeNodeAppearance {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<TreeNodeIcon>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<TreeNodeIconColor>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum TreeNodeIcon {
+    Builtin {
+        name: String,
+    },
+    Emoji {
+        value: String,
+    },
+    Local {
+        #[serde(rename = "assetId", alias = "asset_id")]
+        asset_id: String,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum TreeNodeIconColor {
+    Preset { value: String },
+    Custom { value: String },
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -267,7 +305,11 @@ pub fn ensure_workspace(root_path: String) -> Result<WorkspaceMetadata, String> 
 
 #[tauri::command]
 pub async fn select_workspace_directory(app: AppHandle) -> Result<Option<String>, String> {
-    let selected = app.dialog().file().set_title("选择工作区文件夹").blocking_pick_folder();
+    let selected = app
+        .dialog()
+        .file()
+        .set_title("选择工作区文件夹")
+        .blocking_pick_folder();
     let Some(selected) = selected else {
         return Ok(None);
     };
@@ -344,11 +386,57 @@ pub fn set_workspace_node_state(
         entry.locked = next_locked;
     }
 
-    if !entry.pinned && !entry.locked {
+    if workspace_node_state_is_empty(entry) {
         metadata.node_state.remove(&relative_path);
     }
 
     write_workspace_metadata(&root, &metadata).map_err(|_| "无法写入工作区元数据".to_string())?;
+    build_workspace_snapshot(&root).map_err(|error| format!("读取工作区失败：{error}"))
+}
+
+#[tauri::command]
+pub fn set_tree_node_appearance(
+    root_path: String,
+    node_path: String,
+    appearance: Option<TreeNodeAppearance>,
+) -> Result<WorkspaceSnapshot, String> {
+    let (root, node, kind) = validate_workspace_node_path(&root_path, &node_path)?;
+
+    if kind != WorkspaceNodeKind::Directory {
+        return Err("当前仅支持自定义目录图标".to_string());
+    }
+
+    let appearance = appearance.filter(|value| value.icon.is_some() || value.color.is_some());
+    if let Some(value) = &appearance {
+        validate_tree_node_appearance(&root, value)?;
+    }
+
+    let relative_path = to_relative_path(&root, &node);
+    let mut metadata =
+        ensure_workspace_metadata(&root).map_err(|_| "无法读取工作区元数据".to_string())?;
+    let previous_local_asset = metadata
+        .node_state
+        .get(&relative_path)
+        .and_then(|state| state.appearance.as_ref())
+        .and_then(tree_node_local_asset_id)
+        .map(str::to_string);
+    let entry = metadata
+        .node_state
+        .entry(relative_path.clone())
+        .or_default();
+    entry.appearance = appearance;
+
+    if workspace_node_state_is_empty(entry) {
+        metadata.node_state.remove(&relative_path);
+    }
+
+    write_workspace_metadata_atomic(&root, &metadata)
+        .map_err(|_| "无法写入目录图标设置".to_string())?;
+    if let Some(asset_id) = previous_local_asset {
+        if let Err(error) = cleanup_unreferenced_assets(&root, BTreeSet::from([asset_id])) {
+            log::warn!("本地图标资产清理失败：{error}");
+        }
+    }
     build_workspace_snapshot(&root).map_err(|error| format!("读取工作区失败：{error}"))
 }
 
@@ -512,9 +600,8 @@ fn load_workspace_tree_sync(root_path: String) -> Result<WorkspaceSnapshot, Stri
     let result = (|| {
         let root = canonical_workspace_root(&root_path)?;
         ensure_workspace_metadata(&root).map_err(|error| format!("初始化工作区失败：{error}"))?;
-        build_workspace_snapshot(&root).map_err(|error| {
-            format!("读取工作区失败：{error}（{}）", root.display())
-        })
+        build_workspace_snapshot(&root)
+            .map_err(|error| format!("读取工作区失败：{error}（{}）", root.display()))
     })();
     let details = match &result {
         Ok(snapshot) if timer.is_some() => {
@@ -983,7 +1070,7 @@ pub fn delete_workspace_node(
 ) -> Result<DeletedWorkspaceNode, String> {
     let (root, node, kind) = validate_workspace_node_path(&root_path, &node_path)?;
     let deleted_path = node.to_string_lossy().to_string();
-    let cleanup_candidates = match kind {
+    let mut cleanup_candidates = match kind {
         WorkspaceNodeKind::Directory => {
             let mut documents = Vec::new();
             collect_markdown_document_paths(&node, &mut documents)
@@ -1004,14 +1091,25 @@ pub fn delete_workspace_node(
         }
     }
 
-    if let Err(error) = cleanup_unreferenced_assets(&root, cleanup_candidates) {
-        log::warn!("本地资产清理失败：{error}");
-    }
     let mut metadata =
         ensure_workspace_metadata(&root).map_err(|_| "无法读取工作区元数据".to_string())?;
     let relative_path = to_relative_path(&root, &node);
+    cleanup_candidates.extend(
+        metadata
+            .node_state
+            .iter()
+            .filter(|(path, _)| {
+                path.as_str() == relative_path || path.starts_with(&format!("{relative_path}/"))
+            })
+            .filter_map(|(_, state)| state.appearance.as_ref())
+            .filter_map(tree_node_local_asset_id)
+            .map(str::to_string),
+    );
     remove_node_state_path_prefix(&mut metadata.node_state, &relative_path);
     write_workspace_metadata(&root, &metadata).map_err(|_| "无法写入工作区元数据".to_string())?;
+    if let Err(error) = cleanup_unreferenced_assets(&root, cleanup_candidates) {
+        log::warn!("本地资产清理失败：{error}");
+    }
 
     Ok(DeletedWorkspaceNode { path: deleted_path })
 }
@@ -1550,6 +1648,115 @@ fn remove_node_state_path_prefix(
     prefix: &str,
 ) {
     node_state.retain(|path, _| path != prefix && !path.starts_with(&format!("{prefix}/")));
+}
+
+fn workspace_node_state_is_empty(state: &WorkspaceNodeState) -> bool {
+    !state.pinned && !state.locked && state.appearance.is_none()
+}
+
+fn tree_node_local_asset_id(appearance: &TreeNodeAppearance) -> Option<&str> {
+    match appearance.icon.as_ref() {
+        Some(TreeNodeIcon::Local { asset_id }) => Some(asset_id),
+        _ => None,
+    }
+}
+
+fn validate_tree_node_appearance(
+    root: &Path,
+    appearance: &TreeNodeAppearance,
+) -> Result<(), String> {
+    if let Some(icon) = &appearance.icon {
+        match icon {
+            TreeNodeIcon::Builtin { name } => {
+                let Some(icon_name) = name.strip_prefix("tabler:") else {
+                    return Err("内置图标名称无效".to_string());
+                };
+                if icon_name.is_empty()
+                    || icon_name.len() > 128
+                    || icon_name.starts_with('-')
+                    || icon_name.ends_with('-')
+                    || icon_name.contains("--")
+                    || !icon_name.chars().all(|character| {
+                        character.is_ascii_lowercase()
+                            || character.is_ascii_digit()
+                            || character == '-'
+                    })
+                {
+                    return Err("内置图标名称无效".to_string());
+                }
+            }
+            TreeNodeIcon::Emoji { value } => validate_tree_node_emoji(value)?,
+            TreeNodeIcon::Local { asset_id } => {
+                let asset = resolve_workspace_asset_impl(
+                    root.to_string_lossy().to_string(),
+                    asset_id.clone(),
+                )?;
+                if !matches!(
+                    asset.media_type.as_str(),
+                    "image/svg+xml" | "image/png" | "image/webp"
+                ) {
+                    return Err("本地图标格式无效".to_string());
+                }
+                validate_stored_tree_icon_asset(&asset)?;
+            }
+        }
+    }
+
+    if let Some(color) = &appearance.color {
+        match color {
+            TreeNodeIconColor::Preset { value } => {
+                if !matches!(
+                    value.as_str(),
+                    "slate"
+                        | "red"
+                        | "orange"
+                        | "amber"
+                        | "green"
+                        | "teal"
+                        | "cyan"
+                        | "blue"
+                        | "indigo"
+                        | "violet"
+                        | "purple"
+                        | "pink"
+                        | "rose"
+                ) {
+                    return Err("图标预设颜色无效".to_string());
+                }
+            }
+            TreeNodeIconColor::Custom { value } => {
+                if value.len() != 7
+                    || !value.starts_with('#')
+                    || !value[1..]
+                        .chars()
+                        .all(|character| character.is_ascii_hexdigit())
+                {
+                    return Err("自定义图标颜色必须是六位 HEX".to_string());
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_tree_node_emoji(value: &str) -> Result<(), String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty()
+        || trimmed != value
+        || value.len() > 64
+        || value.chars().any(char::is_control)
+        || !value.chars().any(|character| {
+            matches!(
+                character as u32,
+                0x203C..=0x3299 | 0x1F000..=0x1FAFF
+            )
+        })
+    {
+        return Err("Emoji 图标无效".to_string());
+    }
+
+    Ok(())
 }
 
 fn rewrite_relative_prefix(value: &str, old_prefix: &str, new_prefix: &str) -> String {
@@ -2563,6 +2770,7 @@ fn build_directory_node(
         updated_at,
         pinned: state.pinned,
         locked: state.locked,
+        appearance: state.appearance,
         children: Some(children),
     })
 }
@@ -2603,6 +2811,7 @@ fn build_document_node(
         updated_at,
         pinned: state.pinned,
         locked: state.locked,
+        appearance: None,
         children: None,
     })
 }
@@ -3427,8 +3636,7 @@ mod tests {
         )
         .expect("创建坏目录符号链接失败");
 
-        let snapshot =
-            build_workspace_snapshot(temp_dir.path()).expect("含坏链接的工作区也应可读");
+        let snapshot = build_workspace_snapshot(temp_dir.path()).expect("含坏链接的工作区也应可读");
         let debug = format!("{snapshot:?}");
 
         assert!(debug.contains("ok.md"));
@@ -3518,6 +3726,7 @@ mod tests {
             Some(&WorkspaceNodeState {
                 pinned: true,
                 locked: true,
+                appearance: None,
             }),
         );
 
@@ -3534,6 +3743,169 @@ mod tests {
         let metadata: WorkspaceMetadata =
             serde_json::from_str(&raw).expect("解析 workspace.json 失败");
         assert!(metadata.node_state.is_empty());
+    }
+
+    #[test]
+    fn local_tree_icon_serializes_asset_id_for_the_frontend() {
+        let appearance: TreeNodeAppearance = serde_json::from_value(serde_json::json!({
+            "icon": { "type": "local", "assetId": "asset-123" }
+        }))
+        .expect("前端本地图标参数应可解析");
+
+        assert_eq!(
+            appearance.icon,
+            Some(TreeNodeIcon::Local {
+                asset_id: "asset-123".to_string(),
+            })
+        );
+        let serialized = serde_json::to_value(&appearance).expect("目录外观应可序列化");
+        assert_eq!(serialized["icon"]["assetId"], "asset-123");
+        assert!(serialized["icon"].get("asset_id").is_none());
+
+        let legacy: TreeNodeAppearance = serde_json::from_value(serde_json::json!({
+            "icon": { "type": "local", "asset_id": "asset-legacy" }
+        }))
+        .expect("已有 snake_case 本地图标应保持兼容");
+        assert_eq!(
+            legacy.icon,
+            Some(TreeNodeIcon::Local {
+                asset_id: "asset-legacy".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn set_tree_node_appearance_persists_and_clears_directory_state() {
+        let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
+        let directory_path = temp_dir.path().join("Guides");
+        fs::create_dir(&directory_path).expect("创建目录失败");
+        ensure_workspace(temp_dir.path().to_string_lossy().to_string()).expect("初始化工作区失败");
+
+        let appearance = TreeNodeAppearance {
+            icon: Some(TreeNodeIcon::Builtin {
+                name: "tabler:book".to_string(),
+            }),
+            color: Some(TreeNodeIconColor::Preset {
+                value: "blue".to_string(),
+            }),
+        };
+        let snapshot = set_tree_node_appearance(
+            temp_dir.path().to_string_lossy().to_string(),
+            directory_path.to_string_lossy().to_string(),
+            Some(appearance.clone()),
+        )
+        .expect("保存目录外观失败");
+
+        assert_eq!(snapshot.nodes[0].appearance, Some(appearance));
+
+        let snapshot = set_tree_node_appearance(
+            temp_dir.path().to_string_lossy().to_string(),
+            directory_path.to_string_lossy().to_string(),
+            None,
+        )
+        .expect("恢复默认目录外观失败");
+        assert_eq!(snapshot.nodes[0].appearance, None);
+
+        let raw = fs::read_to_string(temp_dir.path().join(".madora/workspace.json"))
+            .expect("读取 workspace.json 失败");
+        let metadata: WorkspaceMetadata =
+            serde_json::from_str(&raw).expect("解析 workspace.json 失败");
+        assert!(metadata.node_state.is_empty());
+    }
+
+    #[test]
+    fn set_tree_node_appearance_rejects_invalid_values_and_documents() {
+        let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
+        let directory_path = temp_dir.path().join("Guides");
+        let document_path = temp_dir.path().join("README.md");
+        fs::create_dir(&directory_path).expect("创建目录失败");
+        fs::write(&document_path, "# README\n").expect("创建文档失败");
+
+        let invalid_icon = set_tree_node_appearance(
+            temp_dir.path().to_string_lossy().to_string(),
+            directory_path.to_string_lossy().to_string(),
+            Some(TreeNodeAppearance {
+                icon: Some(TreeNodeIcon::Builtin {
+                    name: "lucide:Book".to_string(),
+                }),
+                color: None,
+            }),
+        )
+        .expect_err("非法内置图标不应被接受");
+        assert_eq!(invalid_icon, "内置图标名称无效");
+
+        let invalid_color = set_tree_node_appearance(
+            temp_dir.path().to_string_lossy().to_string(),
+            directory_path.to_string_lossy().to_string(),
+            Some(TreeNodeAppearance {
+                icon: None,
+                color: Some(TreeNodeIconColor::Custom {
+                    value: "red".to_string(),
+                }),
+            }),
+        )
+        .expect_err("非法自定义颜色不应被接受");
+        assert_eq!(invalid_color, "自定义图标颜色必须是六位 HEX");
+
+        let document_error = set_tree_node_appearance(
+            temp_dir.path().to_string_lossy().to_string(),
+            document_path.to_string_lossy().to_string(),
+            Some(TreeNodeAppearance {
+                icon: Some(TreeNodeIcon::Emoji {
+                    value: "📚".to_string(),
+                }),
+                color: None,
+            }),
+        )
+        .expect_err("文档不应支持目录外观");
+        assert_eq!(document_error, "当前仅支持自定义目录图标");
+    }
+
+    #[test]
+    fn clearing_tree_node_appearance_removes_an_unreferenced_local_icon() {
+        let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
+        let directory_path = temp_dir.path().join("Guides");
+        fs::create_dir(&directory_path).expect("创建目录失败");
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M2 2h20v20H2z"/></svg>"#;
+        let uploaded = crate::assets::upload_workspace_asset_impl(
+            temp_dir.path().to_string_lossy().to_string(),
+            crate::assets::UploadWorkspaceAssetInput {
+                file_name: "folder.svg".to_string(),
+                media_type: "image/svg+xml".to_string(),
+                base64_data: general_purpose::STANDARD.encode(svg),
+            },
+        )
+        .expect("写入本地图标资产失败");
+
+        set_tree_node_appearance(
+            temp_dir.path().to_string_lossy().to_string(),
+            directory_path.to_string_lossy().to_string(),
+            Some(TreeNodeAppearance {
+                icon: Some(TreeNodeIcon::Local {
+                    asset_id: uploaded.id.clone(),
+                }),
+                color: None,
+            }),
+        )
+        .expect("保存本地图标失败");
+        assert!(Path::new(&uploaded.absolute_path).is_file());
+
+        set_tree_node_appearance(
+            temp_dir.path().to_string_lossy().to_string(),
+            directory_path.to_string_lossy().to_string(),
+            None,
+        )
+        .expect("恢复默认图标失败");
+
+        assert!(!Path::new(&uploaded.absolute_path).exists());
+        assert_eq!(
+            resolve_workspace_asset_impl(
+                temp_dir.path().to_string_lossy().to_string(),
+                uploaded.id,
+            )
+            .unwrap_err(),
+            "资产不存在"
+        );
     }
 
     #[test]

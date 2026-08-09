@@ -2398,6 +2398,7 @@ dependencies = [
  "objc2-foundation",
  "objc2-web-kit",
  "portable-pty",
+ "quick-xml",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

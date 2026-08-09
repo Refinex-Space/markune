@@ -1313,6 +1313,16 @@ export function WorkspaceLayout({
     [appSettings.appearance, persistAppearanceSettings],
   );
 
+  const handleTreeIconPickerSettingsChange = React.useCallback(
+    async (treeIconPicker: AppSettings['appearance']['treeIconPicker']) => {
+      await persistAppearanceSettings({
+        ...appSettings.appearance,
+        treeIconPicker,
+      });
+    },
+    [appSettings.appearance, persistAppearanceSettings],
+  );
+
   const handleDailyCalendarExpandedChange = React.useCallback(
     async (expanded: boolean) => {
       const previous = appSettings;
@@ -3244,8 +3254,12 @@ export function WorkspaceLayout({
                 inboxActiveCount={inbox.activeCount}
                 systemNavCollapsed={systemNavCollapsed}
                 systemNavLayout={systemNavLayout}
+                treeIconPickerSettings={appSettings.appearance.treeIconPicker}
                 onSystemNavCollapsedChange={handleSystemNavCollapsedChange}
                 onSystemNavLayoutChange={handleSystemNavLayoutChange}
+                onTreeIconPickerSettingsChange={
+                  handleTreeIconPickerSettingsChange
+                }
                 systemPage={
                   systemPage === 'drawings' ||
                   systemPage === 'codex' ||

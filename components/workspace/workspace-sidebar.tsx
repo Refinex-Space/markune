@@ -15,6 +15,7 @@ import type { useWorkspace } from './use-workspace';
 import { WorkspaceSwitcher } from './workspace-switcher';
 import type {
   SystemNavLayout,
+  TreeIconPickerSettings,
   WorkspaceExportFormat,
   WorkspaceImportFormat,
   WorkspaceNode,
@@ -74,6 +75,7 @@ interface WorkspaceSidebarProps {
   inboxActiveCount?: number;
   systemNavCollapsed?: boolean;
   systemNavLayout?: SystemNavLayout;
+  treeIconPickerSettings?: TreeIconPickerSettings;
   systemPage?:
     | 'codex'
     | 'daily'
@@ -86,6 +88,9 @@ interface WorkspaceSidebarProps {
     | null;
   onSystemNavCollapsedChange?: (collapsed: boolean) => void;
   onSystemNavLayoutChange?: (layout: SystemNavLayout) => void;
+  onTreeIconPickerSettingsChange?: (
+    settings: TreeIconPickerSettings,
+  ) => Promise<void> | void;
 }
 
 export function WorkspaceSidebar({
@@ -129,10 +134,12 @@ export function WorkspaceSidebar({
   inboxActiveCount = 0,
   systemNavCollapsed = false,
   systemNavLayout = 'vertical',
+  treeIconPickerSettings,
   systemPage = null,
   windowsChromeInset = false,
   onSystemNavCollapsedChange,
   onSystemNavLayoutChange,
+  onTreeIconPickerSettingsChange,
 }: WorkspaceSidebarProps) {
   const createDocument = onCreateDocument ?? workspace.createDocument;
   const deleteNode = onDeleteNode ?? workspace.deleteNode;
@@ -248,6 +255,7 @@ export function WorkspaceSidebar({
                   }
                   key={workspace.snapshot.rootPath}
                   nodes={visiblePinnedNodes}
+                  rootPath={workspace.snapshot.rootPath}
                   onOpenNode={onOpenPinnedNode}
                   onOpenOverview={onOpenPinnedOverview}
                   onUnpinNode={onUnpinNode}
@@ -272,6 +280,10 @@ export function WorkspaceSidebar({
                   void onImportDocuments?.(targetDir, 'markdown')
                 }
                 onMoveNode={workspace.moveNode}
+                onUpdateNodeAppearance={workspace.updateTreeNodeAppearance}
+                onTreeIconPickerSettingsChange={
+                  onTreeIconPickerSettingsChange
+                }
                 onOpenInFileManager={onOpenInFileManager}
                 onOpenInPreferredEditor={onOpenInPreferredEditor}
                 onOpenWorkspaceOverview={onOpenWorkspaceOverview}
@@ -284,6 +296,8 @@ export function WorkspaceSidebar({
                 onSelectDirectory={selectDirectory}
                 onSelectDocument={selectDocument}
                 onTogglePinned={onTogglePinned}
+                rootPath={workspace.snapshot.rootPath}
+                treeIconPickerSettings={treeIconPickerSettings}
                 workspaceOverviewActive={systemPage === 'folders'}
               />
             </div>

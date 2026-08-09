@@ -25,6 +25,35 @@ describe('workspace settings defaults', () => {
     expect(settings.appearance.windowOpacity).toBe(100);
     expect(settings.appearance.showGitLogEntry).toBe(false);
     expect(settings.appearance.showGitPanelEntry).toBe(false);
+    expect(settings.appearance.treeIconPicker).toEqual({
+      lastTab: 'builtin',
+      recentIcons: [],
+    });
+  });
+
+  it('normalizes tree icon picker preferences from persisted settings', () => {
+    const settings = withDefaultAppSettings({
+      appearance: {
+        treeIconPicker: {
+          lastTab: 'emoji',
+          recentIcons: [
+            { type: 'emoji', value: '📚' },
+            { type: 'builtin', name: 'tabler:book' },
+            { type: 'builtin', name: 'invalid' },
+          ],
+        },
+      },
+      schemaVersion: 1,
+      storage: { defaultProvider: 'local' },
+    });
+
+    expect(settings.appearance.treeIconPicker).toEqual({
+      lastTab: 'emoji',
+      recentIcons: [
+        { type: 'emoji', value: '📚' },
+        { type: 'builtin', name: 'tabler:book' },
+      ],
+    });
   });
 
   it('preserves enabled Git entry visibility settings', () => {

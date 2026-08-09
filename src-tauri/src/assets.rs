@@ -3,10 +3,11 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::io;
+use std::io::{self, Cursor};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager, Runtime};
+use tauri_plugin_dialog::DialogExt;
 
 const ASSET_SCHEMA_VERSION: u32 = 1;
 const ASSET_URL_PREFIX: &str = "madora-asset://";
@@ -14,6 +15,8 @@ const ASSET_RELATIVE_PREFIX: &str = ".madora/assets/files/";
 const WORKSPACE_PRIVATE_DIR: &str = ".madora";
 const MAX_LOCAL_ASSET_BYTES: usize = 100 * 1024 * 1024;
 const MAX_ASSET_RESOLUTION_BATCH: usize = 2_048;
+const MAX_TREE_ICON_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_TREE_ICON_DIMENSION: u32 = 4_096;
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -91,6 +94,330 @@ pub struct WorkspaceAssetData {
     pub media_type: String,
     pub name: String,
     pub base64_data: String,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportedTreeIconAsset {
+    pub asset_id: String,
+    pub media_type: String,
+    pub name: String,
+}
+
+#[tauri::command]
+pub async fn select_tree_icon_asset(
+    app: AppHandle,
+    root_path: String,
+) -> Result<Option<ImportedTreeIconAsset>, String> {
+    let (selected_sender, mut selected_receiver) = tauri::async_runtime::channel(1);
+    app.dialog()
+        .file()
+        .set_title("选择本地图标")
+        .add_filter("图标", &["svg", "png", "webp"])
+        .pick_file(move |selected| {
+            let _ = selected_sender.try_send(selected);
+        });
+    let selected = selected_receiver
+        .recv()
+        .await
+        .ok_or_else(|| "文件选择器未返回结果".to_string())?;
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    let path = selected
+        .into_path()
+        .map_err(|_| "所选图标不是本地文件系统路径".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || import_tree_icon_asset_impl(root_path, &path))
+        .await
+        .map_err(|error| format!("图标导入任务异常: {error}"))?
+        .map(Some)
+}
+
+#[tauri::command]
+pub fn discard_unreferenced_tree_icon_asset(
+    root_path: String,
+    asset_id: String,
+) -> Result<(), String> {
+    if !is_valid_asset_id(&asset_id) {
+        return Err("资产 ID 无效".to_string());
+    }
+    let root = canonical_workspace_root(&root_path)?;
+    cleanup_unreferenced_assets(&root, BTreeSet::from([asset_id]))
+}
+
+fn import_tree_icon_asset_impl(
+    root_path: String,
+    path: &Path,
+) -> Result<ImportedTreeIconAsset, String> {
+    let path = path
+        .canonicalize()
+        .map_err(|_| "无法读取该图标文件".to_string())?;
+    let metadata = fs::metadata(&path).map_err(|_| "无法读取该图标文件".to_string())?;
+    if !metadata.is_file() || metadata.len() == 0 {
+        return Err("无法读取该图标文件".to_string());
+    }
+    if metadata.len() > MAX_TREE_ICON_BYTES {
+        return Err("图标文件不能超过 2 MB".to_string());
+    }
+
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| "图标文件名不是有效 Unicode".to_string())?
+        .to_string();
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let bytes = fs::read(&path).map_err(|_| "无法读取该图标文件".to_string())?;
+    let media_type = validate_tree_icon_bytes(&extension, &bytes)?;
+    let (uploaded, _) =
+        store_workspace_asset_bytes_impl(root_path, name.clone(), media_type.to_string(), bytes)?;
+
+    Ok(ImportedTreeIconAsset {
+        asset_id: uploaded.id,
+        media_type: uploaded.media_type,
+        name,
+    })
+}
+
+fn validate_tree_icon_bytes(extension: &str, bytes: &[u8]) -> Result<&'static str, String> {
+    match extension {
+        "svg" => {
+            validate_safe_svg(bytes)?;
+            Ok("image/svg+xml")
+        }
+        "png" => {
+            validate_raster_tree_icon(bytes, image::ImageFormat::Png)?;
+            if bytes.windows(4).any(|chunk| chunk == b"acTL") {
+                return Err("不支持动态图标".to_string());
+            }
+            Ok("image/png")
+        }
+        "webp" => {
+            validate_raster_tree_icon(bytes, image::ImageFormat::WebP)?;
+            if bytes
+                .windows(4)
+                .any(|chunk| matches!(chunk, b"ANIM" | b"ANMF"))
+            {
+                return Err("不支持动态图标".to_string());
+            }
+            Ok("image/webp")
+        }
+        _ => Err("仅支持 SVG、PNG 和 WebP".to_string()),
+    }
+}
+
+pub(crate) fn validate_stored_tree_icon_asset(
+    asset: &ResolvedWorkspaceAsset,
+) -> Result<(), String> {
+    if asset.size == 0 || asset.size > MAX_TREE_ICON_BYTES {
+        return Err("本地图标文件大小无效".to_string());
+    }
+    let extension = match asset.media_type.as_str() {
+        "image/svg+xml" => "svg",
+        "image/png" => "png",
+        "image/webp" => "webp",
+        _ => return Err("本地图标格式无效".to_string()),
+    };
+    let bytes = fs::read(&asset.absolute_path).map_err(|_| "无法读取本地图标".to_string())?;
+    validate_tree_icon_bytes(extension, &bytes)?;
+    Ok(())
+}
+
+fn validate_raster_tree_icon(
+    bytes: &[u8],
+    expected_format: image::ImageFormat,
+) -> Result<(), String> {
+    let actual_format = image::guess_format(bytes).map_err(|_| "图标文件格式无效".to_string())?;
+    if actual_format != expected_format {
+        return Err("图标文件格式与扩展名不匹配".to_string());
+    }
+
+    let reader = image::ImageReader::with_format(Cursor::new(bytes), expected_format);
+    let (width, height) = reader
+        .into_dimensions()
+        .map_err(|_| "无法解码该图标文件".to_string())?;
+    if width == 0
+        || height == 0
+        || width > MAX_TREE_ICON_DIMENSION
+        || height > MAX_TREE_ICON_DIMENSION
+    {
+        return Err("图标尺寸无效或超过 4096 × 4096".to_string());
+    }
+
+    Ok(())
+}
+
+fn validate_safe_svg(bytes: &[u8]) -> Result<(), String> {
+    use quick_xml::events::Event;
+
+    let source = std::str::from_utf8(bytes).map_err(|_| "SVG 必须使用 UTF-8 编码".to_string())?;
+    if source.to_ascii_lowercase().contains("<!doctype") {
+        return Err("该 SVG 包含不受支持的内容".to_string());
+    }
+
+    let mut reader = quick_xml::Reader::from_str(source);
+    reader.config_mut().trim_text(false);
+    let mut depth = 0_usize;
+    let mut saw_root = false;
+
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(element)) => {
+                validate_safe_svg_start(&reader, &element, &mut saw_root, depth)?;
+                depth = depth.saturating_add(1);
+            }
+            Ok(Event::Empty(element)) => {
+                validate_safe_svg_start(&reader, &element, &mut saw_root, depth)?;
+            }
+            Ok(Event::End(_)) if depth > 0 => depth -= 1,
+            Ok(Event::End(_)) => return Err("SVG 文件格式无效".to_string()),
+            Ok(Event::Text(_)) | Ok(Event::Comment(_)) | Ok(Event::Decl(_)) => {}
+            Ok(Event::Eof) => break,
+            Ok(Event::CData(_))
+            | Ok(Event::DocType(_))
+            | Ok(Event::PI(_))
+            | Ok(Event::GeneralRef(_)) => {
+                return Err("该 SVG 包含不受支持的内容".to_string());
+            }
+            Err(_) => return Err("SVG 文件格式无效".to_string()),
+        }
+    }
+
+    if !saw_root || depth != 0 {
+        return Err("SVG 文件格式无效".to_string());
+    }
+    Ok(())
+}
+
+fn validate_safe_svg_start(
+    reader: &quick_xml::Reader<&[u8]>,
+    element: &quick_xml::events::BytesStart<'_>,
+    saw_root: &mut bool,
+    depth: usize,
+) -> Result<(), String> {
+    let element_name = element.name();
+    let name =
+        std::str::from_utf8(element_name.as_ref()).map_err(|_| "SVG 元素名称无效".to_string())?;
+    if !is_safe_svg_element(name) {
+        return Err("该 SVG 包含不受支持的内容".to_string());
+    }
+    if *saw_root && depth == 0 {
+        return Err("SVG 只能包含一个根元素".to_string());
+    }
+    if !*saw_root {
+        if name != "svg" {
+            return Err("SVG 根元素无效".to_string());
+        }
+        *saw_root = true;
+    }
+    validate_safe_svg_attributes(reader, element)
+}
+
+fn is_safe_svg_element(name: &str) -> bool {
+    matches!(
+        name,
+        "svg"
+            | "g"
+            | "path"
+            | "rect"
+            | "circle"
+            | "ellipse"
+            | "line"
+            | "polyline"
+            | "polygon"
+            | "defs"
+            | "linearGradient"
+            | "radialGradient"
+            | "stop"
+            | "clipPath"
+            | "mask"
+            | "title"
+            | "desc"
+    )
+}
+
+fn validate_safe_svg_attributes(
+    reader: &quick_xml::Reader<&[u8]>,
+    element: &quick_xml::events::BytesStart<'_>,
+) -> Result<(), String> {
+    for attribute in element.attributes() {
+        let attribute = attribute.map_err(|_| "SVG 属性格式无效".to_string())?;
+        let name = std::str::from_utf8(attribute.key.as_ref())
+            .map_err(|_| "SVG 属性名称无效".to_string())?;
+        if name.to_ascii_lowercase().starts_with("on") || !is_safe_svg_attribute(name) {
+            return Err("该 SVG 包含不受支持的内容".to_string());
+        }
+        let value = attribute
+            .decode_and_unescape_value(reader.decoder())
+            .map_err(|_| "SVG 属性值无效".to_string())?;
+        let normalized = value.to_ascii_lowercase();
+        if name == "xmlns" && normalized == "http://www.w3.org/2000/svg" {
+            continue;
+        }
+        if normalized.contains("http:")
+            || normalized.contains("https:")
+            || normalized.contains("data:")
+            || normalized.contains("javascript:")
+            || normalized.contains("//")
+        {
+            return Err("该 SVG 包含外部资源引用".to_string());
+        }
+        if let Some(index) = normalized.find("url(") {
+            let url_value = normalized[index..].trim();
+            if !url_value.starts_with("url(#") || !url_value.ends_with(')') {
+                return Err("该 SVG 包含外部资源引用".to_string());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn is_safe_svg_attribute(name: &str) -> bool {
+    matches!(
+        name,
+        "xmlns"
+            | "id"
+            | "viewBox"
+            | "width"
+            | "height"
+            | "x"
+            | "y"
+            | "x1"
+            | "y1"
+            | "x2"
+            | "y2"
+            | "cx"
+            | "cy"
+            | "r"
+            | "rx"
+            | "ry"
+            | "d"
+            | "points"
+            | "transform"
+            | "fill"
+            | "fill-opacity"
+            | "fill-rule"
+            | "stroke"
+            | "stroke-width"
+            | "stroke-linecap"
+            | "stroke-linejoin"
+            | "stroke-opacity"
+            | "stroke-dasharray"
+            | "stroke-dashoffset"
+            | "opacity"
+            | "offset"
+            | "stop-color"
+            | "stop-opacity"
+            | "clip-path"
+            | "mask"
+            | "preserveAspectRatio"
+            | "role"
+            | "aria-hidden"
+            | "focusable"
+    )
 }
 
 #[tauri::command]
@@ -216,7 +543,10 @@ pub(crate) fn resolve_workspace_assets_impl(
         return Err("单次解析的资产数量过多".to_string());
     }
 
-    if asset_ids.iter().any(|asset_id| !is_valid_asset_id(asset_id)) {
+    if asset_ids
+        .iter()
+        .any(|asset_id| !is_valid_asset_id(asset_id))
+    {
         return Err("资产 ID 无效".to_string());
     }
 
@@ -475,7 +805,46 @@ fn collect_workspace_asset_references(root: &Path) -> Result<BTreeSet<String>, S
         }
     }
 
+    collect_tree_icon_asset_references(root, &mut ids);
+
     Ok(ids)
+}
+
+fn collect_tree_icon_asset_references(root: &Path, ids: &mut BTreeSet<String>) {
+    let metadata_path = workspace_private_dir(root).join("workspace.json");
+    let Ok(raw) = fs::read_to_string(metadata_path) else {
+        return;
+    };
+    let Ok(metadata) = serde_json::from_str::<Value>(&raw) else {
+        return;
+    };
+    let Some(node_state) = metadata.get("nodeState") else {
+        return;
+    };
+    collect_local_tree_icon_ids(node_state, ids);
+}
+
+fn collect_local_tree_icon_ids(value: &Value, ids: &mut BTreeSet<String>) {
+    match value {
+        Value::Object(map) => {
+            if map.get("type").and_then(Value::as_str) == Some("local") {
+                if let Some(asset_id) = map.get("assetId").and_then(Value::as_str) {
+                    if is_valid_asset_id(asset_id) {
+                        ids.insert(asset_id.to_string());
+                    }
+                }
+            }
+            for child in map.values() {
+                collect_local_tree_icon_ids(child, ids);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_local_tree_icon_ids(item, ids);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn collect_markdown_documents(dir: &Path, paths: &mut Vec<PathBuf>) -> io::Result<()> {
@@ -723,6 +1092,38 @@ mod tests {
     }
 
     #[test]
+    fn discards_only_unreferenced_tree_icon_assets() {
+        let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
+        let uploaded = upload_workspace_asset_impl(
+            temp_dir.path().to_string_lossy().to_string(),
+            UploadWorkspaceAssetInput {
+                file_name: "folder.svg".to_string(),
+                media_type: "image/svg+xml".to_string(),
+                base64_data: encoded(
+                    br#"<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>"#,
+                ),
+            },
+        )
+        .expect("写入图标资产失败");
+
+        discard_unreferenced_tree_icon_asset(
+            temp_dir.path().to_string_lossy().to_string(),
+            uploaded.id.clone(),
+        )
+        .expect("清理未引用图标失败");
+
+        assert!(!Path::new(&uploaded.absolute_path).exists());
+        assert_eq!(
+            resolve_workspace_asset_impl(
+                temp_dir.path().to_string_lossy().to_string(),
+                uploaded.id,
+            )
+            .unwrap_err(),
+            "资产不存在"
+        );
+    }
+
+    #[test]
     fn resolves_assets_in_one_bounded_batch_and_reports_missing_items() {
         let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
         let uploaded = upload_workspace_asset_impl(
@@ -737,14 +1138,24 @@ mod tests {
 
         let result = resolve_workspace_assets_impl(
             temp_dir.path().to_string_lossy().to_string(),
-            vec![uploaded.id.clone(), "missing".to_string(), uploaded.id.clone()],
+            vec![
+                uploaded.id.clone(),
+                "missing".to_string(),
+                uploaded.id.clone(),
+            ],
         )
         .expect("批量解析资产失败");
 
         assert_eq!(result.items.len(), 2);
         assert_eq!(result.items[0].id, uploaded.id);
         assert_eq!(result.items[0].status, "resolved");
-        assert_eq!(result.items[0].asset.as_ref().map(|asset| asset.name.as_str()), Some("voice.mp3"));
+        assert_eq!(
+            result.items[0]
+                .asset
+                .as_ref()
+                .map(|asset| asset.name.as_str()),
+            Some("voice.mp3")
+        );
         assert_eq!(result.items[1].id, "missing");
         assert_eq!(result.items[1].status, "missing");
         assert!(result.items[1].asset.is_none());
@@ -910,10 +1321,49 @@ mod tests {
             "![private](madora-asset://private-asset)",
         )
         .expect("写入私有 Markdown 失败");
+        fs::write(
+            root.join(".madora/workspace.json"),
+            r#"{
+              "nodeState": {
+                "Guides": {
+                  "appearance": {
+                    "icon": { "type": "local", "assetId": "tree-icon-asset" }
+                  }
+                }
+              }
+            }"#,
+        )
+        .expect("写入工作区元数据失败");
 
         assert_eq!(
             collect_workspace_asset_references(root).expect("扫描资产引用失败"),
-            BTreeSet::from(["capture-asset".to_string(), "note-asset".to_string()])
+            BTreeSet::from([
+                "capture-asset".to_string(),
+                "note-asset".to_string(),
+                "tree-icon-asset".to_string(),
+            ])
         );
+    }
+
+    #[test]
+    fn accepts_static_safe_svg_tree_icons() {
+        let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><defs><linearGradient id="a"><stop offset="0" stop-color="#000"/></linearGradient></defs><path fill="url(#a)" d="M2 2h20v20H2z"/></svg>"##;
+
+        assert_eq!(
+            validate_tree_icon_bytes("svg", svg).unwrap(),
+            "image/svg+xml"
+        );
+    }
+
+    #[test]
+    fn rejects_active_or_remote_svg_tree_icons() {
+        let script = br#"<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>"#;
+        let event =
+            br#"<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><path d="M0 0"/></svg>"#;
+        let remote = br#"<svg xmlns="http://www.w3.org/2000/svg"><path fill="url(https://example.com/a.svg#x)" d="M0 0"/></svg>"#;
+
+        assert!(validate_tree_icon_bytes("svg", script).is_err());
+        assert!(validate_tree_icon_bytes("svg", event).is_err());
+        assert!(validate_tree_icon_bytes("svg", remote).is_err());
     }
 }

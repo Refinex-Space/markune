@@ -19,6 +19,8 @@ import {
   Pin,
   Plus,
   RefreshCw,
+  RotateCcw,
+  Shapes,
   Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -64,14 +66,23 @@ import {
 import { cn } from '@/lib/utils';
 
 import { isDescendantPath } from './workspace-paths';
-import { WorkspaceTreeFolderIcon } from './workspace-tree-folder-icon';
+import { hasTreeNodeAppearance, TreeNodeIconRenderer } from './tree-node-icon';
 import { filterWorkspaceNodes } from './workspace-tree';
 import type {
   WorkspaceExportFormat,
   WorkspaceImportFormat,
   WorkspaceMoveRequest,
   WorkspaceNode,
+  TreeIconPickerSettings,
+  TreeNodeAppearance,
 } from './workspace-types';
+
+const TreeIconPicker = React.lazy(() => import('./tree-icon-picker'));
+
+const DEFAULT_TREE_ICON_PICKER_SETTINGS: TreeIconPickerSettings = {
+  lastTab: 'builtin',
+  recentIcons: [],
+};
 
 interface DocumentTreeProps {
   nodes: WorkspaceNode[];
@@ -111,6 +122,15 @@ interface DocumentTreeProps {
   onRefresh?: () => Promise<unknown> | void;
   onSelectDocument: (node: WorkspaceNode) => void;
   onTogglePinned?: (node: WorkspaceNode) => void;
+  onUpdateNodeAppearance?: (
+    node: WorkspaceNode,
+    appearance: TreeNodeAppearance | null,
+  ) => Promise<unknown> | unknown;
+  onTreeIconPickerSettingsChange?: (
+    settings: TreeIconPickerSettings,
+  ) => Promise<void> | void;
+  rootPath?: string;
+  treeIconPickerSettings?: TreeIconPickerSettings;
   workspaceOverviewActive?: boolean;
 }
 
@@ -139,6 +159,10 @@ export function DocumentTree({
   onRefresh,
   onSelectDocument,
   onTogglePinned,
+  onUpdateNodeAppearance,
+  onTreeIconPickerSettingsChange,
+  rootPath = '',
+  treeIconPickerSettings = DEFAULT_TREE_ICON_PICKER_SETTINGS,
   workspaceOverviewActive = false,
 }: DocumentTreeProps) {
   const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set());
@@ -153,7 +177,12 @@ export function DocumentTree({
   const [dropPreview, setDropPreview] = React.useState<DropPreview | null>(
     null,
   );
+  const [iconPickerTarget, setIconPickerTarget] = React.useState<{
+    anchor: { left: number; top: number };
+    nodePath: string;
+  } | null>(null);
   const draggedNodeRef = React.useRef<WorkspaceNode | null>(null);
+  const iconPickerOpenFrameRef = React.useRef<number | null>(null);
   const treeRootRef = React.useRef<HTMLDivElement>(null);
   const visibleNodes = filterWorkspaceNodes(nodes, searchQuery);
   const directoryDocumentCounts = React.useMemo(
@@ -162,6 +191,51 @@ export function DocumentTree({
   );
   const forceExpanded = searchQuery.trim().length > 0;
   const dragDisabled = searchQuery.trim().length > 0 || !onMoveNode;
+  const iconPickerNode = iconPickerTarget
+    ? findNodeByAbsolutePath(nodes, iconPickerTarget.nodePath)
+    : null;
+
+  const openIconPicker = React.useCallback((node: WorkspaceNode) => {
+    const row = Array.from(
+      treeRootRef.current?.querySelectorAll<HTMLElement>(
+        '[data-workspace-node-path]',
+      ) ?? [],
+    ).find((element) => element.dataset.workspaceNodePath === node.absolutePath);
+    const bounds = row?.getBoundingClientRect();
+    if (iconPickerOpenFrameRef.current !== null) {
+      window.cancelAnimationFrame(iconPickerOpenFrameRef.current);
+    }
+    iconPickerOpenFrameRef.current = window.requestAnimationFrame(() => {
+      iconPickerOpenFrameRef.current = null;
+      setIconPickerTarget({
+        anchor: {
+          left: bounds?.right ?? window.innerWidth / 2,
+          top: bounds?.top ?? window.innerHeight / 2,
+        },
+        nodePath: node.absolutePath,
+      });
+    });
+  }, []);
+
+  React.useEffect(
+    () => () => {
+      if (iconPickerOpenFrameRef.current !== null) {
+        window.cancelAnimationFrame(iconPickerOpenFrameRef.current);
+      }
+    },
+    [],
+  );
+
+  const resetNodeAppearance = React.useCallback(
+    async (node: WorkspaceNode) => {
+      try {
+        await onUpdateNodeAppearance?.(node, null);
+      } catch (error) {
+        toast.error(getDocumentTreeErrorMessage(error, '无法恢复默认图标'));
+      }
+    },
+    [onUpdateNodeAppearance],
+  );
 
   React.useEffect(() => {
     if (!revealNodePath) {
@@ -424,6 +498,9 @@ export function DocumentTree({
                 onDeleteRequest={setDeleteTarget}
                 onExportNode={onExportNode}
                 onImportDocuments={onImportDocuments}
+                onCustomizeIcon={
+                  onUpdateNodeAppearance ? openIconPicker : undefined
+                }
                 onOpenInFileManager={onOpenInFileManager}
                 onOpenInPreferredEditor={onOpenInPreferredEditor}
                 onDropPreviewChange={setDropPreview}
@@ -431,6 +508,9 @@ export function DocumentTree({
                 onMoveNode={onMoveNode}
                 onPendingRenameConsumed={onPendingRenameConsumed}
                 onRefresh={onRefresh}
+                onResetIcon={
+                  onUpdateNodeAppearance ? resetNodeAppearance : undefined
+                }
                 onRenameRequest={startEditingNode}
                 onRenameSubmit={handleRenameNode}
                 onResolveDraggedNode={resolveDraggedNode}
@@ -440,6 +520,7 @@ export function DocumentTree({
                 onTreeDragStart={handleDragStart}
                 onSelectDocument={onSelectDocument}
                 preferredEditorLabel={preferredEditorLabel}
+                rootPath={rootPath}
               />
             ))}
           </div>
@@ -504,6 +585,29 @@ export function DocumentTree({
           setDeleteTarget(null);
         }}
       />
+
+      {iconPickerTarget && iconPickerNode?.kind === 'directory' ? (
+        <React.Suspense fallback={null}>
+          <TreeIconPicker
+            anchor={iconPickerTarget.anchor}
+            node={iconPickerNode}
+            open
+            preferences={treeIconPickerSettings}
+            rootPath={rootPath}
+            onAppearanceChange={async (appearance) => {
+              await onUpdateNodeAppearance?.(iconPickerNode, appearance);
+            }}
+            onOpenChange={(open) => {
+              if (!open) {
+                setIconPickerTarget(null);
+              }
+            }}
+            onPreferencesChange={async (settings) => {
+              await onTreeIconPickerSettingsChange?.(settings);
+            }}
+          />
+        </React.Suspense>
+      ) : null}
     </>
   );
 }
@@ -523,6 +627,7 @@ function TreeNode({
   pendingRenameNodePath,
   onCreateDirectory,
   onCreateDocument,
+  onCustomizeIcon,
   onDeleteRequest,
   onExportNode,
   onImportDocuments,
@@ -533,6 +638,7 @@ function TreeNode({
   onMoveNode,
   onPendingRenameConsumed,
   onRefresh,
+  onResetIcon,
   onSelectDirectory,
   onRenameRequest,
   onRenameSubmit,
@@ -542,6 +648,7 @@ function TreeNode({
   onTreeDragStart,
   onSelectDocument,
   preferredEditorLabel,
+  rootPath,
 }: TreeNodeProps) {
   const isDirectory = node.kind === 'directory';
   const isExpanded =
@@ -759,6 +866,7 @@ function TreeNode({
                     isDirectory={isDirectory}
                     isExpanded={isExpanded}
                     node={node}
+                    rootPath={rootPath}
                   />
                   <RenameInput
                     initialValue={displayName}
@@ -782,6 +890,7 @@ function TreeNode({
                     isDirectory={isDirectory}
                     isExpanded={isExpanded}
                     node={node}
+                    rootPath={rootPath}
                   />
                   <span className="truncate">{displayName}</span>
                   {showDocumentCount ? (
@@ -797,12 +906,14 @@ function TreeNode({
                 node={node}
                 onCreateDirectory={onCreateDirectory}
                 onCreateDocument={onCreateDocument}
+                onCustomizeIcon={onCustomizeIcon}
                 onDeleteRequest={onDeleteRequest}
                 onExportNode={onExportNode}
                 onImportDocuments={onImportDocuments}
                 onOpenInFileManager={onOpenInFileManager}
                 onOpenInPreferredEditor={onOpenInPreferredEditor}
                 preferredEditorLabel={preferredEditorLabel}
+                onResetIcon={onResetIcon}
                 onRenameRequest={onRenameRequest}
                 onTogglePinned={onTogglePinned}
               />
@@ -817,6 +928,7 @@ function TreeNode({
             node={node}
             onCreateDirectory={onCreateDirectory}
             onCreateDocument={onCreateDocument}
+            onCustomizeIcon={onCustomizeIcon}
             onDeleteRequest={onDeleteRequest}
             onExportNode={onExportNode}
             onImportDocuments={onImportDocuments}
@@ -824,6 +936,7 @@ function TreeNode({
             onOpenInPreferredEditor={onOpenInPreferredEditor}
             preferredEditorLabel={preferredEditorLabel}
             onRefresh={onRefresh}
+            onResetIcon={onResetIcon}
             onRenameRequest={onRenameRequest}
             onTogglePinned={onTogglePinned}
           />
@@ -859,6 +972,7 @@ function TreeNode({
               pendingRenameNodePath={pendingRenameNodePath}
               onCreateDirectory={onCreateDirectory}
               onCreateDocument={onCreateDocument}
+              onCustomizeIcon={onCustomizeIcon}
               onDeleteRequest={onDeleteRequest}
               onExportNode={onExportNode}
               onImportDocuments={onImportDocuments}
@@ -869,6 +983,7 @@ function TreeNode({
               onMoveNode={onMoveNode}
               onPendingRenameConsumed={onPendingRenameConsumed}
               onRefresh={onRefresh}
+              onResetIcon={onResetIcon}
               onRenameRequest={onRenameRequest}
               onRenameSubmit={onRenameSubmit}
               onResolveDraggedNode={onResolveDraggedNode}
@@ -878,6 +993,7 @@ function TreeNode({
               onTreeDragStart={onTreeDragStart}
               onSelectDocument={onSelectDocument}
               preferredEditorLabel={preferredEditorLabel}
+              rootPath={rootPath}
             />
           ))}
         </div>
@@ -903,6 +1019,7 @@ interface TreeNodeProps {
   onCreateDocument: (
     parentPath: string,
   ) => Promise<WorkspaceNode | null | void> | WorkspaceNode | null | void;
+  onCustomizeIcon?: (node: WorkspaceNode) => void;
   onDeleteRequest: (node: WorkspaceNode) => void;
   onExportNode?: (
     node: WorkspaceNode,
@@ -920,6 +1037,7 @@ interface TreeNodeProps {
   onMoveNode?: (request: WorkspaceMoveRequest) => Promise<void> | void;
   onPendingRenameConsumed?: () => void;
   onRefresh?: () => Promise<unknown> | void;
+  onResetIcon?: (node: WorkspaceNode) => Promise<void> | void;
   onSelectDirectory?: (node: WorkspaceNode) => Promise<void> | void;
   onRenameRequest: (node: WorkspaceNode) => void;
   onRenameSubmit: (node: WorkspaceNode, nextName: string) => Promise<void>;
@@ -930,6 +1048,7 @@ interface TreeNodeProps {
   onTreeDragEnd: () => void;
   onTreeDragStart: (node: WorkspaceNode) => void;
   onSelectDocument: (node: WorkspaceNode) => void;
+  rootPath: string;
 }
 
 interface DropPreview {
@@ -1002,10 +1121,12 @@ function DirectoryIcon({
   isDirectory,
   isExpanded,
   node,
+  rootPath,
 }: {
   isDirectory: boolean;
   isExpanded: boolean;
   node: WorkspaceNode;
+  rootPath: string;
 }) {
   if (!isDirectory) {
     return (
@@ -1018,14 +1139,15 @@ function DirectoryIcon({
   }
 
   return (
-    <WorkspaceTreeFolderIcon
-      className="text-muted-foreground"
-      data-testid={
+    <TreeNodeIconRenderer
+      expanded={isExpanded}
+      node={node}
+      rootPath={rootPath}
+      testId={
         isExpanded
           ? `directory-folder-open-${node.id}`
           : `directory-folder-closed-${node.id}`
       }
-      expanded={isExpanded}
     />
   );
 }
@@ -1094,12 +1216,14 @@ function NodeActionDropdown({
   node,
   onCreateDirectory,
   onCreateDocument,
+  onCustomizeIcon,
   onDeleteRequest,
   onExportNode,
   onImportDocuments,
   onOpenInFileManager,
   onOpenInPreferredEditor,
   preferredEditorLabel,
+  onResetIcon,
   onRenameRequest,
   onTogglePinned,
 }: NodeActionProps) {
@@ -1125,12 +1249,14 @@ function NodeActionDropdown({
           node={node}
           onCreateDirectory={onCreateDirectory}
           onCreateDocument={onCreateDocument}
+          onCustomizeIcon={onCustomizeIcon}
           onDeleteRequest={onDeleteRequest}
           onExportNode={onExportNode}
           onImportDocuments={onImportDocuments}
           onOpenInFileManager={onOpenInFileManager}
           onOpenInPreferredEditor={onOpenInPreferredEditor}
           preferredEditorLabel={preferredEditorLabel}
+          onResetIcon={onResetIcon}
           onRenameRequest={onRenameRequest}
           onTogglePinned={onTogglePinned}
         />
@@ -1145,6 +1271,7 @@ interface NodeActionProps {
   onCreateDocument: (
     parentPath: string,
   ) => Promise<WorkspaceNode | null | void> | WorkspaceNode | null | void;
+  onCustomizeIcon?: (node: WorkspaceNode) => void;
   onDeleteRequest: (node: WorkspaceNode) => void;
   onExportNode?: (
     node: WorkspaceNode,
@@ -1158,6 +1285,7 @@ interface NodeActionProps {
   onOpenInPreferredEditor?: (node: WorkspaceNode) => Promise<void> | void;
   preferredEditorLabel?: string;
   onRefresh?: () => Promise<unknown> | void;
+  onResetIcon?: (node: WorkspaceNode) => Promise<void> | void;
   onRenameRequest: (node: WorkspaceNode) => void;
   onTogglePinned?: (node: WorkspaceNode) => void;
 }
@@ -1166,12 +1294,14 @@ function NodeDropdownActions({
   node,
   onCreateDirectory,
   onCreateDocument,
+  onCustomizeIcon,
   onDeleteRequest,
   onExportNode,
   onImportDocuments,
   onOpenInFileManager,
   onOpenInPreferredEditor,
   preferredEditorLabel,
+  onResetIcon,
   onRenameRequest,
   onTogglePinned,
 }: NodeActionProps) {
@@ -1200,6 +1330,22 @@ function NodeDropdownActions({
           <Pencil />
           重命名
         </DropdownMenuItem>
+        {onCustomizeIcon ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => onCustomizeIcon(node)}>
+              <Shapes />
+              更换图标...
+            </DropdownMenuItem>
+            {hasTreeNodeAppearance(node.appearance) && onResetIcon ? (
+              <DropdownMenuItem onSelect={() => void onResetIcon(node)}>
+                <RotateCcw />
+                恢复默认图标
+              </DropdownMenuItem>
+            ) : null}
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
         {onOpenInFileManager ? (
           <DropdownMenuItem
             onSelect={() => void onOpenInFileManager(node)}
@@ -1307,6 +1453,7 @@ function NodeContextActions({
   node,
   onCreateDirectory,
   onCreateDocument,
+  onCustomizeIcon,
   onDeleteRequest,
   onExportNode,
   onImportDocuments,
@@ -1314,6 +1461,7 @@ function NodeContextActions({
   onOpenInPreferredEditor,
   preferredEditorLabel,
   onRefresh,
+  onResetIcon,
   onRenameRequest,
   onTogglePinned,
 }: NodeActionProps) {
@@ -1348,6 +1496,22 @@ function NodeContextActions({
           <Pencil />
           重命名
         </ContextMenuItem>
+        {onCustomizeIcon ? (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => onCustomizeIcon(node)}>
+              <Shapes />
+              更换图标...
+            </ContextMenuItem>
+            {hasTreeNodeAppearance(node.appearance) && onResetIcon ? (
+              <ContextMenuItem onSelect={() => void onResetIcon(node)}>
+                <RotateCcw />
+                恢复默认图标
+              </ContextMenuItem>
+            ) : null}
+            <ContextMenuSeparator />
+          </>
+        ) : null}
         <CopyPathContextMenu node={node} />
         {onOpenInFileManager ? (
           <ContextMenuItem
@@ -1689,4 +1853,8 @@ function scrollTreeContainer(row: HTMLElement, clientY: number) {
   if (rect.bottom - clientY < edgeSize) {
     container.scrollTop += 12;
   }
+}
+
+function getDocumentTreeErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
 }

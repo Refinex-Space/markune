@@ -35,6 +35,7 @@ import type {
   MarkdownDocumentContent,
   ImportCommitSession,
   ImportedDocumentResult,
+  ImportedTreeIconAsset,
   InboxCapture,
   InboxCaptureListResult,
   InboxCaptureListView,
@@ -60,6 +61,7 @@ import type {
   WorkspaceMetadata,
   WorkspaceNode,
   WorkspaceSnapshot,
+  TreeNodeAppearance,
   SystemFontOptions,
 } from './workspace-types';
 import { getParentPath } from './workspace-paths';
@@ -924,6 +926,20 @@ export async function renameWorkspaceNode(
   });
 }
 
+export async function setTreeNodeAppearance(
+  rootPath: string,
+  nodePath: string,
+  appearance: TreeNodeAppearance | null,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<WorkspaceSnapshot>('set_tree_node_appearance', {
+    rootPath,
+    nodePath,
+    appearance,
+  });
+}
+
 export async function deleteWorkspaceNode(rootPath: string, nodePath: string) {
   const { invoke } = await import('@tauri-apps/api/core');
 
@@ -1213,6 +1229,26 @@ export async function readWorkspaceAssetData(rootPath: string, assetId: string) 
   const { invoke } = await import('@tauri-apps/api/core');
 
   return invoke<WorkspaceAssetData>('read_workspace_asset_data', {
+    rootPath,
+    assetId,
+  });
+}
+
+export async function selectTreeIconAsset(rootPath: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<ImportedTreeIconAsset | null>('select_tree_icon_asset', {
+    rootPath,
+  });
+}
+
+export async function discardUnreferencedTreeIconAsset(
+  rootPath: string,
+  assetId: string,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('discard_unreferenced_tree_icon_asset', {
     rootPath,
     assetId,
   });

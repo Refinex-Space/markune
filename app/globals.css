@@ -193,6 +193,19 @@
   --sidebar-ring: oklch(0.704 0.04 256.788);
   --highlight: oklch(0.852 0.199 91.936);
   --brand: oklch(0.623 0.214 259.815);
+  --tree-icon-slate: oklch(0.59 0.045 255);
+  --tree-icon-red: oklch(0.64 0.19 25);
+  --tree-icon-orange: oklch(0.69 0.18 53);
+  --tree-icon-amber: oklch(0.75 0.16 78);
+  --tree-icon-green: oklch(0.66 0.16 145);
+  --tree-icon-teal: oklch(0.65 0.14 180);
+  --tree-icon-cyan: oklch(0.68 0.13 210);
+  --tree-icon-blue: oklch(0.63 0.18 250);
+  --tree-icon-indigo: oklch(0.62 0.17 275);
+  --tree-icon-violet: oklch(0.65 0.17 300);
+  --tree-icon-purple: oklch(0.65 0.16 320);
+  --tree-icon-pink: oklch(0.68 0.17 350);
+  --tree-icon-rose: oklch(0.66 0.18 12);
 }
 
 .dark {
@@ -229,6 +242,19 @@
   --sidebar-ring: oklch(0.556 0 0);
   --highlight: oklch(0.852 0.199 91.936);
   --brand: oklch(0.707 0.165 254.624);
+  --tree-icon-slate: oklch(0.76 0.045 255);
+  --tree-icon-red: oklch(0.74 0.17 25);
+  --tree-icon-orange: oklch(0.77 0.16 53);
+  --tree-icon-amber: oklch(0.81 0.15 78);
+  --tree-icon-green: oklch(0.76 0.15 145);
+  --tree-icon-teal: oklch(0.75 0.13 180);
+  --tree-icon-cyan: oklch(0.77 0.12 210);
+  --tree-icon-blue: oklch(0.73 0.16 250);
+  --tree-icon-indigo: oklch(0.73 0.15 275);
+  --tree-icon-violet: oklch(0.75 0.15 300);
+  --tree-icon-purple: oklch(0.75 0.14 320);
+  --tree-icon-pink: oklch(0.77 0.15 350);
+  --tree-icon-rose: oklch(0.75 0.16 12);
 }
 
 @layer base {

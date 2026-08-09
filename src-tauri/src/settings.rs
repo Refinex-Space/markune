@@ -36,6 +36,41 @@ pub struct AppearanceSettings {
     pub system_nav_collapsed: bool,
     #[serde(default = "default_system_nav_layout")]
     pub system_nav_layout: String,
+    #[serde(default)]
+    pub tree_icon_picker: TreeIconPickerSettings,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeIconPickerSettings {
+    #[serde(default = "default_tree_icon_picker_tab")]
+    pub last_tab: String,
+    #[serde(default)]
+    pub recent_icons: Vec<TreeIconRecent>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum TreeIconRecent {
+    Builtin {
+        name: String,
+    },
+    Emoji {
+        value: String,
+    },
+    Local {
+        #[serde(rename = "assetId", alias = "asset_id")]
+        asset_id: String,
+    },
+}
+
+impl Default for TreeIconPickerSettings {
+    fn default() -> Self {
+        Self {
+            last_tab: default_tree_icon_picker_tab(),
+            recent_icons: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -65,6 +100,7 @@ impl Default for AppearanceSettings {
             show_git_panel_entry: false,
             system_nav_collapsed: false,
             system_nav_layout: default_system_nav_layout(),
+            tree_icon_picker: TreeIconPickerSettings::default(),
         }
     }
 }
@@ -109,7 +145,8 @@ pub fn save_app_settings(app: AppHandle, settings: AppSettings) -> Result<AppSet
         fs::create_dir_all(parent).map_err(|_| "无法创建应用设置目录".to_string())?;
     }
 
-    let json = serde_json::to_string_pretty(&settings).map_err(|_| "无法序列化应用设置".to_string())?;
+    let json =
+        serde_json::to_string_pretty(&settings).map_err(|_| "无法序列化应用设置".to_string())?;
     fs::write(&path, format!("{json}\n")).map_err(|_| "无法保存应用设置".to_string())?;
     Ok(settings)
 }
@@ -117,7 +154,9 @@ pub fn save_app_settings(app: AppHandle, settings: AppSettings) -> Result<AppSet
 fn default_app_settings() -> AppSettings {
     AppSettings {
         schema_version: 1,
-        storage: StorageSettings { default_provider: "local".to_string() },
+        storage: StorageSettings {
+            default_provider: "local".to_string(),
+        },
         appearance: AppearanceSettings::default(),
         calendar: CalendarSettings::default(),
     }
@@ -135,6 +174,10 @@ fn default_system_nav_layout() -> String {
     "vertical".to_string()
 }
 
+fn default_tree_icon_picker_tab() -> String {
+    "builtin".to_string()
+}
+
 fn default_calendar_expanded() -> bool {
     true
 }
@@ -144,7 +187,10 @@ fn default_calendar_week_starts_on() -> String {
 }
 
 fn settings_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
-    let config_dir = app.path().app_config_dir().map_err(|_| "无法定位应用设置目录".to_string())?;
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|_| "无法定位应用设置目录".to_string())?;
     Ok(config_dir.join("settings.json"))
 }
 
@@ -155,7 +201,10 @@ fn validate_app_settings(settings: &AppSettings) -> Result<(), String> {
     if settings.storage.default_provider != "local" {
         return Err("仅支持本地存储".to_string());
     }
-    if !matches!(settings.appearance.page_width_mode.as_str(), "standard" | "wide") {
+    if !matches!(
+        settings.appearance.page_width_mode.as_str(),
+        "standard" | "wide"
+    ) {
         return Err("页面宽度设置无效".to_string());
     }
     if !(70..=100).contains(&settings.appearance.window_opacity) {
@@ -167,6 +216,7 @@ fn validate_app_settings(settings: &AppSettings) -> Result<(), String> {
     ) {
         return Err("系统入口排列设置无效".to_string());
     }
+    validate_tree_icon_picker_settings(&settings.appearance.tree_icon_picker)?;
     if !matches!(
         settings.calendar.week_starts_on.as_str(),
         "monday" | "sunday"
@@ -176,6 +226,51 @@ fn validate_app_settings(settings: &AppSettings) -> Result<(), String> {
     validate_font(&settings.appearance.fonts.ui, "UI 字体")?;
     validate_font(&settings.appearance.fonts.document, "文档字体")?;
     validate_font(&settings.appearance.fonts.code, "代码块字体")?;
+    Ok(())
+}
+
+fn validate_tree_icon_picker_settings(settings: &TreeIconPickerSettings) -> Result<(), String> {
+    if !matches!(settings.last_tab.as_str(), "builtin" | "emoji" | "local") {
+        return Err("目录图标选择器设置无效".to_string());
+    }
+    if settings.recent_icons.len() > 20 {
+        return Err("最近使用的目录图标过多".to_string());
+    }
+
+    for icon in &settings.recent_icons {
+        let valid = match icon {
+            TreeIconRecent::Builtin { name } => {
+                let icon_name = name.strip_prefix("tabler:").unwrap_or_default();
+                !icon_name.is_empty()
+                    && icon_name.len() <= 128
+                    && !icon_name.starts_with('-')
+                    && !icon_name.ends_with('-')
+                    && !icon_name.contains("--")
+                    && icon_name.chars().all(|character| {
+                        character.is_ascii_lowercase()
+                            || character.is_ascii_digit()
+                            || character == '-'
+                    })
+            }
+            TreeIconRecent::Emoji { value } => {
+                !value.is_empty()
+                    && value.trim() == value
+                    && value.len() <= 64
+                    && !value.chars().any(char::is_control)
+            }
+            TreeIconRecent::Local { asset_id } => {
+                !asset_id.is_empty()
+                    && asset_id.len() <= 128
+                    && asset_id.chars().all(|character| {
+                        character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+                    })
+            }
+        };
+        if !valid {
+            return Err("最近使用的目录图标无效".to_string());
+        }
+    }
+
     Ok(())
 }
 
@@ -197,12 +292,15 @@ mod tests {
 
     #[test]
     fn unknown_legacy_field_is_ignored() {
-        let parsed: AppSettings = serde_json::from_str(r#"{
+        let parsed: AppSettings = serde_json::from_str(
+            r#"{
           "schemaVersion": 1,
           "storage": { "defaultProvider": "local" },
           "appearance": { "pageWidthMode": "wide" },
           "legacy": { "enabledProfileId": "legacy" }
-        }"#).expect("legacy settings should remain readable");
+        }"#,
+        )
+        .expect("legacy settings should remain readable");
 
         assert_eq!(parsed.appearance.page_width_mode, "wide");
         assert_eq!(parsed.appearance.window_opacity, 100);
@@ -228,7 +326,41 @@ mod tests {
         assert_eq!(parsed.appearance.system_nav_layout, "vertical");
         assert_eq!(parsed.appearance.window_opacity, 100);
         assert!(!parsed.appearance.system_nav_collapsed);
+        assert_eq!(parsed.appearance.tree_icon_picker.last_tab, "builtin");
+        assert!(parsed.appearance.tree_icon_picker.recent_icons.is_empty());
         assert!(validate_app_settings(&parsed).is_ok());
+    }
+
+    #[test]
+    fn validates_tree_icon_picker_preferences() {
+        let mut settings = default_app_settings();
+        settings.appearance.tree_icon_picker.last_tab = "emoji".to_string();
+        settings.appearance.tree_icon_picker.recent_icons = vec![
+            TreeIconRecent::Emoji {
+                value: "📚".to_string(),
+            },
+            TreeIconRecent::Builtin {
+                name: "tabler:book".to_string(),
+            },
+            TreeIconRecent::Local {
+                asset_id: "asset-123".to_string(),
+            },
+        ];
+        assert!(validate_app_settings(&settings).is_ok());
+        let serialized = serde_json::to_value(&settings).expect("设置应可序列化");
+        assert_eq!(
+            serialized["appearance"]["treeIconPicker"]["recentIcons"][2]["assetId"],
+            "asset-123"
+        );
+        assert!(serialized["appearance"]["treeIconPicker"]["recentIcons"][2]
+            .get("asset_id")
+            .is_none());
+
+        settings.appearance.tree_icon_picker.last_tab = "remote".to_string();
+        assert_eq!(
+            validate_app_settings(&settings).unwrap_err(),
+            "目录图标选择器设置无效"
+        );
     }
 
     #[test]

@@ -21,6 +21,7 @@ import {
   selectWorkspaceParentDirectory,
   selectWorkspaceRoot,
   setWorkspaceNodeState,
+  setTreeNodeAppearance,
 } from './workspace-api';
 import {
   extractH1FromMarkdown,
@@ -47,6 +48,7 @@ import type {
   WorkspaceMoveRequest,
   WorkspaceNode,
   WorkspaceSnapshot,
+  TreeNodeAppearance,
 } from './workspace-types';
 
 const FRONTMATTER_OPENING_PATTERN = /^---\r?\n/;
@@ -941,6 +943,24 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     [currentDirectoryPath, currentDocument?.absolutePath, snapshot],
   );
 
+  const updateTreeNodeAppearance = React.useCallback(
+    async (node: WorkspaceNode, appearance: TreeNodeAppearance | null) => {
+      if (!snapshot || node.kind !== 'directory') {
+        return null;
+      }
+
+      const nextSnapshot = await setTreeNodeAppearance(
+        snapshot.rootPath,
+        node.absolutePath,
+        appearance,
+      );
+      setSnapshot(nextSnapshot);
+
+      return findNodeByAbsolutePath(nextSnapshot.nodes, node.absolutePath);
+    },
+    [snapshot],
+  );
+
   const workspaceHistory = React.useMemo(() => {
     return storedWorkspaceHistory;
   }, [storedWorkspaceHistory]);
@@ -1107,6 +1127,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     switchWorkspace: loadWorkspace,
     updateMarkdown,
     updateNodeState,
+    updateTreeNodeAppearance,
     workspaceHistory,
     removeWorkspace,
   };

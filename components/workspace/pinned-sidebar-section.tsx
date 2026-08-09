@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
-import { WorkspaceTreeFolderIcon } from './workspace-tree-folder-icon';
+import { TreeNodeIconRenderer } from './tree-node-icon';
 import type { WorkspaceNode } from './workspace-types';
 
 interface PinnedSidebarSectionProps {
@@ -22,6 +22,7 @@ interface PinnedSidebarSectionProps {
   onOpenNode: (node: WorkspaceNode) => void;
   onOpenOverview: () => void;
   onUnpinNode: (node: WorkspaceNode) => void;
+  rootPath: string;
 }
 
 export function PinnedSidebarSection({
@@ -32,6 +33,7 @@ export function PinnedSidebarSection({
   onOpenNode,
   onOpenOverview,
   onUnpinNode,
+  rootPath,
 }: PinnedSidebarSectionProps) {
   const [expanded, setExpanded] = React.useState(false);
   const contentId = React.useId();
@@ -98,6 +100,7 @@ export function PinnedSidebarSection({
                   }
                   key={node.absolutePath}
                   node={node}
+                  rootPath={rootPath}
                   onOpen={() => onOpenNode(node)}
                   onUnpin={() => onUnpinNode(node)}
                 />
@@ -119,11 +122,13 @@ function PinnedSidebarItem({
   node,
   onOpen,
   onUnpin,
+  rootPath,
 }: {
   active: boolean;
   node: WorkspaceNode;
   onOpen: () => void;
   onUnpin: () => void;
+  rootPath: string;
 }) {
   const isDirectory = node.kind === 'directory';
   const label = getPinnedNodeLabel(node);
@@ -144,10 +149,12 @@ function PinnedSidebarItem({
         onClick={onOpen}
       >
         {isDirectory ? (
-          <WorkspaceTreeFolderIcon
+          <TreeNodeIconRenderer
             className="text-sidebar-foreground/55"
-            data-testid={`pinned-folder-icon-${node.id}`}
             expanded={false}
+            node={node}
+            rootPath={rootPath}
+            testId={`pinned-folder-icon-${node.id}`}
           />
         ) : (
           <FileText

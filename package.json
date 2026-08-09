@@ -91,6 +91,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@iconify-json/tabler": "1.2.37",
     "@openai/codex": "0.144.4",
     "@tailwindcss/postcss": "^4",
     "@tauri-apps/cli": "^2.11.2",

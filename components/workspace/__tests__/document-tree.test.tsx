@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -80,6 +80,73 @@ const countedNodes: WorkspaceNode[] = [
 ];
 
 describe('DocumentTree', () => {
+  it('keeps the icon picker open after launching it from the context menu', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <DocumentTree
+        currentDocumentPath={null}
+        nodes={nodes}
+        rootPath="/repo"
+        searchQuery=""
+        onCreateDirectory={vi.fn()}
+        onCreateDocument={vi.fn()}
+        onDeleteNode={vi.fn()}
+        onImportMarkdown={vi.fn()}
+        onRenameNode={vi.fn()}
+        onSelectDocument={vi.fn()}
+        onUpdateNodeAppearance={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByTestId('tree-row-guides'));
+    await user.click(screen.getByRole('menuitem', { name: '更换图标...' }));
+
+    await screen.findByRole('tablist', { name: '目录图标类型' });
+    act(() => screen.getByTestId('tree-row-guides').focus());
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
+    expect(
+      screen.queryByRole('tablist', { name: '目录图标类型' }),
+    ).not.toBeNull();
+  });
+
+  it('renders a customized emoji and restores the default appearance from the context menu', async () => {
+    const user = userEvent.setup();
+    const onUpdateNodeAppearance = vi.fn().mockResolvedValue(undefined);
+    const customizedNodes: WorkspaceNode[] = [
+      {
+        ...nodes[0],
+        appearance: { icon: { type: 'emoji', value: '📚' } },
+      },
+    ];
+
+    render(
+      <DocumentTree
+        currentDocumentPath={null}
+        nodes={customizedNodes}
+        rootPath="/repo"
+        searchQuery=""
+        onCreateDirectory={vi.fn()}
+        onCreateDocument={vi.fn()}
+        onDeleteNode={vi.fn()}
+        onImportMarkdown={vi.fn()}
+        onRenameNode={vi.fn()}
+        onSelectDocument={vi.fn()}
+        onUpdateNodeAppearance={onUpdateNodeAppearance}
+      />,
+    );
+
+    expect(screen.getByTestId('directory-folder-closed-guides').textContent).toBe(
+      '📚',
+    );
+    fireEvent.contextMenu(screen.getByTestId('tree-row-guides'));
+    await user.click(screen.getByRole('menuitem', { name: '恢复默认图标' }));
+
+    await waitFor(() =>
+      expect(onUpdateNodeAppearance).toHaveBeenCalledWith(customizedNodes[0], null),
+    );
+  });
+
   it('shows recursive document counts in a stable right-side rail for directories', async () => {
     const user = userEvent.setup();
 
