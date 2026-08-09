@@ -107,6 +107,39 @@ describe('DrawingSidebar', () => {
     expect(screen.getByTestId('drawing-tree-guide-产品')).toBeTruthy();
   });
 
+  it('opens every ancestor album for the active drawing', async () => {
+    const nestedDrawing = { ...drawing, albumPath: '产品/移动端' };
+    const value = controller({
+      selection: { id: nestedDrawing.id, kind: 'drawing' },
+      snapshot: snapshot([
+        {
+          children: [
+            {
+              children: [],
+              drawings: [nestedDrawing],
+              name: '移动端',
+              path: '产品/移动端',
+            },
+          ],
+          drawings: [],
+          name: '产品',
+          path: '产品',
+        },
+      ]),
+    });
+    value.snapshot.drawings = [nestedDrawing];
+
+    render(<DrawingSidebar controller={value} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('drawing-folder-open-产品')).toBeTruthy();
+      expect(
+        screen.getByTestId('drawing-folder-open-产品/移动端'),
+      ).toBeTruthy();
+      expect(screen.getByTestId(`drawing-row-${nestedDrawing.id}`)).toBeTruthy();
+    });
+  });
+
   it('opens the same album actions from right click and ellipsis', async () => {
     const user = userEvent.setup();
     const value = controller();

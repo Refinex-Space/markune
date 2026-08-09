@@ -5,12 +5,15 @@ mod document_converter;
 mod drawings;
 mod export;
 mod git;
+mod graph;
 mod import;
 mod inbox;
 mod link_preview;
 mod settings;
 mod system_fonts;
 mod terminal;
+mod window_chrome;
+mod window_opacity;
 mod workspace;
 
 use tauri::Manager;
@@ -48,6 +51,8 @@ pub fn run() {
             assets::resolve_workspace_asset,
             assets::resolve_workspace_assets,
             assets::read_workspace_asset_data,
+            assets::select_tree_icon_asset,
+            assets::discard_unreferenced_tree_icon_asset,
             codex::codex_runtime_probe,
             codex::codex_runtime_start,
             codex::codex_runtime_stop,
@@ -137,6 +142,7 @@ pub fn run() {
             git::git_sync_now,
             git::git_revert_file,
             git::git_delete_file,
+            graph::load_workspace_graph,
             link_preview::resolve_link_preview,
             terminal::terminal_spawn,
             terminal::terminal_write,
@@ -145,10 +151,14 @@ pub fn run() {
             settings::read_app_settings,
             settings::save_app_settings,
             system_fonts::list_system_fonts,
+            window_chrome::get_macos_titlebar_metrics,
+            window_opacity::set_app_window_opacity,
             workspace::ensure_workspace,
+            workspace::select_workspace_directory,
             workspace::open_path_in_preferred_editor,
             workspace::record_recent_document,
             workspace::set_workspace_node_state,
+            workspace::set_tree_node_appearance,
             workspace::save_workspace_git_sync_settings,
             workspace::open_daily_note,
             workspace::list_daily_notes_for_month,

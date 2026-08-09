@@ -1,33 +1,36 @@
 import {
-  CalendarDays,
-  Inbox,
-  Paintbrush,
-  RefreshCw,
   Search,
   Settings,
-  Sheet,
 } from 'lucide-react';
-import { Openai } from '@thesvg/react';
 import type { ReactNode } from 'react';
 import { useMemo } from 'react';
 
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
+import { isDailyDocumentPath } from './daily-notes';
 import { DocumentTree } from './document-tree';
+import { PinnedSidebarSection } from './pinned-sidebar-section';
+import { WorkspaceSystemNav } from './workspace-system-nav';
 import type { useWorkspace } from './use-workspace';
 import { WorkspaceSwitcher } from './workspace-switcher';
 import type {
+  SystemNavLayout,
+  TreeIconPickerSettings,
   WorkspaceExportFormat,
   WorkspaceImportFormat,
   WorkspaceNode,
 } from './workspace-types';
+
+const DEFAULT_PANEL_MARGIN = 8;
+const DEFAULT_TITLEBAR_SPACER = 40;
 
 interface WorkspaceSidebarProps {
   appUpdateAvailable?: boolean;
   dailyCalendar?: ReactNode;
   drawingContent?: ReactNode;
   inboxContent?: ReactNode;
+  macChromeContentTop?: number;
+  panelMargin?: number;
   width: number;
   windowsChromeInset?: boolean;
   workspace: ReturnType<typeof useWorkspace>;
@@ -41,14 +44,20 @@ interface WorkspaceSidebarProps {
     targetDir: string,
     format: WorkspaceImportFormat,
   ) => Promise<void> | void;
-  onOpenDailyNote?: () => void;
+  onOpenDailyNotes?: () => void;
+  onOpenNotes?: () => void;
   onOpenCodex?: () => void;
   onOpenDrawings?: () => void;
   onOpenGlobalSearch: () => void;
+  onOpenGraph?: () => void;
+  onOpenPinnedNode?: (node: WorkspaceNode) => void;
+  onOpenPinnedOverview?: () => void;
   onOpenInbox?: () => void;
   onOpenInFileManager?: (node: WorkspaceNode) => void;
   onOpenInPreferredEditor?: (node: WorkspaceNode) => void;
+  onOpenWorkspaceOverview?: () => void;
   onOpenViews?: () => void;
+  onRefreshWorkspaceTree?: () => Promise<unknown> | void;
   onOpenSettings?: (sectionId?: 'appearance' | 'version') => void;
   onRemoveWorkspace?: (rootPath: string) => void;
   onRenameNode?: (
@@ -61,8 +70,27 @@ interface WorkspaceSidebarProps {
   onSelectDirectory?: (node: WorkspaceNode) => Promise<void> | void;
   onSelectDocument?: (node: WorkspaceNode) => void;
   onTogglePinned?: (node: WorkspaceNode) => void;
+  onUnpinNode?: (node: WorkspaceNode) => void;
+  pinnedNodes?: WorkspaceNode[];
   inboxActiveCount?: number;
-  systemPage?: 'codex' | 'drawings' | 'inbox' | 'views' | null;
+  systemNavCollapsed?: boolean;
+  systemNavLayout?: SystemNavLayout;
+  treeIconPickerSettings?: TreeIconPickerSettings;
+  systemPage?:
+    | 'codex'
+    | 'daily'
+    | 'drawings'
+    | 'folders'
+    | 'graph'
+    | 'inbox'
+    | 'pinned'
+    | 'views'
+    | null;
+  onSystemNavCollapsedChange?: (collapsed: boolean) => void;
+  onSystemNavLayoutChange?: (layout: SystemNavLayout) => void;
+  onTreeIconPickerSettingsChange?: (
+    settings: TreeIconPickerSettings,
+  ) => Promise<void> | void;
 }
 
 export function WorkspaceSidebar({
@@ -70,20 +98,28 @@ export function WorkspaceSidebar({
   dailyCalendar,
   drawingContent,
   inboxContent,
+  macChromeContentTop,
+  panelMargin = DEFAULT_PANEL_MARGIN,
   width,
   workspace,
   onCreateDocument,
   onDeleteNode,
   onExportNode,
   onImportDocuments,
-  onOpenDailyNote,
+  onOpenDailyNotes,
+  onOpenNotes,
   onOpenCodex,
   onOpenDrawings,
   onOpenGlobalSearch,
+  onOpenGraph,
+  onOpenPinnedNode,
+  onOpenPinnedOverview,
   onOpenInbox,
   onOpenInFileManager,
   onOpenInPreferredEditor,
+  onOpenWorkspaceOverview,
   onOpenViews,
+  onRefreshWorkspaceTree,
   onOpenSettings,
   onRemoveWorkspace,
   onRenameNode,
@@ -93,9 +129,17 @@ export function WorkspaceSidebar({
   onSelectDirectory,
   onSelectDocument,
   onTogglePinned,
+  onUnpinNode,
+  pinnedNodes = [],
   inboxActiveCount = 0,
+  systemNavCollapsed = false,
+  systemNavLayout = 'vertical',
+  treeIconPickerSettings,
   systemPage = null,
   windowsChromeInset = false,
+  onSystemNavCollapsedChange,
+  onSystemNavLayoutChange,
+  onTreeIconPickerSettingsChange,
 }: WorkspaceSidebarProps) {
   const createDocument = onCreateDocument ?? workspace.createDocument;
   const deleteNode = onDeleteNode ?? workspace.deleteNode;
@@ -106,14 +150,24 @@ export function WorkspaceSidebar({
     () => filterRegularWorkspaceNodes(workspace.snapshot?.nodes ?? []),
     [workspace.snapshot?.nodes],
   );
-  const isDailyActive = isDailyDocumentPath(
-    workspace.currentDocument?.relativePath ?? null,
+  const visiblePinnedNodes = useMemo(
+    () => pinnedNodes.filter((node) => !isInsideDotPrefixedDirectory(node)),
+    [pinnedNodes],
   );
+  const isDailyActive =
+    systemPage === 'daily' ||
+    isDailyDocumentPath(workspace.currentDocument?.relativePath ?? null);
+  const titlebarSpacerHeight = windowsChromeInset
+    ? null
+    : Math.max(
+        0,
+        (macChromeContentTop ?? DEFAULT_TITLEBAR_SPACER) - panelMargin,
+      );
 
   return (
     <aside
       className={cn(
-        'flex h-full shrink-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground transition-[width,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
+        'flex h-full shrink-0 flex-col overflow-hidden bg-transparent text-sidebar-foreground transition-[width,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
         workspace.isSidebarCollapsed ? 'opacity-0' : 'opacity-100',
       )}
       data-chrome="workspace-sidebar"
@@ -123,18 +177,27 @@ export function WorkspaceSidebar({
       <div
         aria-hidden={workspace.isSidebarCollapsed}
         className={cn(
-          'flex h-full flex-col transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
+          'flex flex-col overflow-hidden rounded-xl border border-border/70 bg-background transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
           workspace.isSidebarCollapsed
             ? 'pointer-events-none -translate-x-2 opacity-0'
             : 'translate-x-0 opacity-100',
         )}
         data-testid="workspace-sidebar-content"
-        style={{ width }}
+        style={{
+          height: `calc(100% - ${panelMargin * 2}px)`,
+          margin: `${panelMargin}px 0 ${panelMargin}px ${panelMargin}px`,
+          width: Math.max(0, width - panelMargin),
+        }}
       >
         <header
-          className={cn('shrink-0', windowsChromeInset ? 'h-2' : 'h-10')}
+          className={cn('shrink-0', windowsChromeInset && 'h-2')}
           data-tauri-drag-region="deep"
           data-testid="workspace-sidebar-titlebar-spacer"
+          style={
+            titlebarSpacerHeight === null
+              ? undefined
+              : { height: titlebarSpacerHeight }
+          }
         />
 
         <WorkspaceSidebarHeader
@@ -144,75 +207,26 @@ export function WorkspaceSidebar({
         />
 
         {workspace.snapshot ? (
-          <div className="border-y border-sidebar-border/45 px-2 py-1">
-            <button
-              aria-current={isDailyActive ? 'page' : undefined}
-              className={getSystemEntryClassName(isDailyActive)}
-              data-testid="daily-note-entry"
-              type="button"
-              onClick={onOpenDailyNote}
-            >
-              <CalendarDays size={13} strokeWidth={1.75} />
-              <span className="truncate">日程</span>
-            </button>
-            <button
-              aria-current={systemPage === 'inbox' ? 'page' : undefined}
-              className={cn(
-                'mt-0.5',
-                getSystemEntryClassName(systemPage === 'inbox'),
-              )}
-              data-testid="inbox-entry"
-              type="button"
-              onClick={onOpenInbox}
-            >
-              <Inbox size={13} strokeWidth={1.75} />
-              <span className="truncate">Inbox</span>
-              {inboxActiveCount > 0 ? (
-                <span className="ml-auto min-w-5 px-1.5 text-center text-[10px] font-medium leading-4 text-sidebar-foreground/55 tabular-nums">
-                  {inboxActiveCount > 99 ? '99+' : inboxActiveCount}
-                </span>
-              ) : null}
-            </button>
-            <button
-              aria-current={systemPage === 'drawings' ? 'page' : undefined}
-              className={cn(
-                'mt-0.5',
-                getSystemEntryClassName(systemPage === 'drawings'),
-              )}
-              data-testid="drawing-entry"
-              type="button"
-              onClick={onOpenDrawings}
-            >
-              <Paintbrush size={13} strokeWidth={1.75} />
-              <span className="truncate">画板</span>
-            </button>
-            <button
-              aria-current={systemPage === 'views' ? 'page' : undefined}
-              className={cn(
-                'mt-0.5',
-                getSystemEntryClassName(systemPage === 'views'),
-              )}
-              data-testid="workspace-views-entry"
-              type="button"
-              onClick={onOpenViews}
-            >
-              <Sheet size={13} strokeWidth={1.75} />
-              <span className="truncate">视图</span>
-            </button>
-            <button
-              aria-current={systemPage === 'codex' ? 'page' : undefined}
-              className={cn(
-                'mt-0.5',
-                getSystemEntryClassName(systemPage === 'codex'),
-              )}
-              data-testid="codex-workspace-entry"
-              type="button"
-              onClick={onOpenCodex}
-            >
-              <Openai className="size-[13px]" variant="light" />
-              <span className="truncate">Codex</span>
-            </button>
-          </div>
+          <WorkspaceSystemNav
+            collapsed={systemNavCollapsed}
+            inboxActiveCount={inboxActiveCount}
+            isDailyActive={isDailyActive}
+            layout={systemNavLayout}
+            systemPage={
+              systemPage === 'folders' || systemPage === 'pinned'
+                ? null
+                : systemPage
+            }
+            onCollapsedChange={onSystemNavCollapsedChange}
+            onLayoutChange={onSystemNavLayoutChange}
+            onOpenCodex={onOpenCodex}
+            onOpenDailyNotes={onOpenDailyNotes}
+            onOpenDrawings={onOpenDrawings}
+            onOpenGraph={onOpenGraph}
+            onOpenInbox={onOpenInbox}
+            onOpenNotes={onOpenNotes}
+            onOpenViews={onOpenViews}
+          />
         ) : null}
 
         <div
@@ -220,7 +234,7 @@ export function WorkspaceSidebar({
             'workspace-tree-scrollarea min-h-0 flex-1',
             systemPage === 'inbox' || systemPage === 'drawings'
               ? 'overflow-hidden'
-              : 'overflow-y-auto px-2 pb-3',
+              : 'overflow-y-auto pb-3',
           )}
           data-workspace-tree-scroll-container="true"
         >
@@ -229,51 +243,66 @@ export function WorkspaceSidebar({
           ) : workspace.snapshot && systemPage === 'drawings' ? (
             drawingContent
           ) : workspace.snapshot ? (
-            <DocumentTree
-              currentDirectoryPath={
-                workspace.currentDirectory?.absolutePath ?? null
-              }
-              currentDocumentPath={workspace.currentDocument?.absolutePath ?? null}
-              nodes={regularNodes}
-              pendingRenameNodePath={workspace.pendingRenameNodePath}
-              searchQuery=""
-              onCreateDirectory={workspace.createDirectory}
-              onCreateDocument={createDocument}
-              onDeleteNode={deleteNode}
-              onExportNode={onExportNode}
-              onImportDocuments={onImportDocuments}
-              onImportMarkdown={(targetDir) =>
-                void onImportDocuments?.(targetDir, 'markdown')
-              }
-              onMoveNode={workspace.moveNode}
-              onOpenInFileManager={onOpenInFileManager}
-              onOpenInPreferredEditor={onOpenInPreferredEditor}
-              onPendingRenameConsumed={workspace.clearPendingRenameNode}
-              preferredEditorLabel={preferredEditorLabel}
-              revealNodePath={revealNodePath}
-              revealNodeRequestId={revealNodeRequestId}
-              onRenameNode={renameNode}
-              onSelectDirectory={selectDirectory}
-              onSelectDocument={selectDocument}
-              onTogglePinned={onTogglePinned}
-            />
+            <div className="flex flex-col">
+              {onOpenPinnedNode && onOpenPinnedOverview && onUnpinNode ? (
+                <PinnedSidebarSection
+                  active={systemPage === 'pinned'}
+                  currentDirectoryPath={
+                    workspace.currentDirectory?.absolutePath ?? null
+                  }
+                  currentDocumentPath={
+                    workspace.currentDocument?.absolutePath ?? null
+                  }
+                  key={workspace.snapshot.rootPath}
+                  nodes={visiblePinnedNodes}
+                  rootPath={workspace.snapshot.rootPath}
+                  onOpenNode={onOpenPinnedNode}
+                  onOpenOverview={onOpenPinnedOverview}
+                  onUnpinNode={onUnpinNode}
+                />
+              ) : null}
+              <DocumentTree
+                currentDirectoryPath={
+                  workspace.currentDirectory?.absolutePath ?? null
+                }
+                currentDocumentPath={
+                  workspace.currentDocument?.absolutePath ?? null
+                }
+                nodes={regularNodes}
+                pendingRenameNodePath={workspace.pendingRenameNodePath}
+                searchQuery=""
+                onCreateDirectory={workspace.createDirectory}
+                onCreateDocument={createDocument}
+                onDeleteNode={deleteNode}
+                onExportNode={onExportNode}
+                onImportDocuments={onImportDocuments}
+                onImportMarkdown={(targetDir) =>
+                  void onImportDocuments?.(targetDir, 'markdown')
+                }
+                onMoveNode={workspace.moveNode}
+                onUpdateNodeAppearance={workspace.updateTreeNodeAppearance}
+                onTreeIconPickerSettingsChange={
+                  onTreeIconPickerSettingsChange
+                }
+                onOpenInFileManager={onOpenInFileManager}
+                onOpenInPreferredEditor={onOpenInPreferredEditor}
+                onOpenWorkspaceOverview={onOpenWorkspaceOverview}
+                onPendingRenameConsumed={workspace.clearPendingRenameNode}
+                onRefresh={onRefreshWorkspaceTree}
+                preferredEditorLabel={preferredEditorLabel}
+                revealNodePath={revealNodePath}
+                revealNodeRequestId={revealNodeRequestId}
+                onRenameNode={renameNode}
+                onSelectDirectory={selectDirectory}
+                onSelectDocument={selectDocument}
+                onTogglePinned={onTogglePinned}
+                rootPath={workspace.snapshot.rootPath}
+                treeIconPickerSettings={treeIconPickerSettings}
+                workspaceOverviewActive={systemPage === 'folders'}
+              />
+            </div>
           ) : null}
         </div>
-
-        {workspace.error ? (
-          <footer className="border-t p-3 text-xs text-destructive">
-            <p>{workspace.error.message}</p>
-            <Button
-              className="mt-2 h-7 px-2 text-xs"
-              type="button"
-              variant="outline"
-              onClick={workspace.openWorkspace}
-            >
-              <RefreshCw size={13} />
-              重新选择
-            </Button>
-          </footer>
-        ) : null}
 
         {systemPage === 'inbox' || systemPage === 'drawings'
           ? null
@@ -347,15 +376,6 @@ function WorkspaceSidebarHeader({
   );
 }
 
-function getSystemEntryClassName(active: boolean) {
-  return cn(
-    'flex h-7 w-[calc(100%-0.75rem)] items-center gap-1.5 rounded-md px-[11px] text-[13px] transition-colors',
-    active
-      ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-      : 'text-sidebar-foreground/80 hover:bg-sidebar-accent/75 hover:text-sidebar-accent-foreground',
-  );
-}
-
 function filterRegularWorkspaceNodes(nodes: WorkspaceNode[]): WorkspaceNode[] {
   return nodes
     .filter((node) => !isDailyRootDirectory(node) && !isDotPrefixedDirectory(node))
@@ -383,6 +403,10 @@ function isDotPrefixedDirectory(node: WorkspaceNode) {
   return node.kind === 'directory' && node.name.startsWith('.');
 }
 
-function isDailyDocumentPath(relativePath: string | null) {
-  return relativePath?.startsWith('Daily/') ?? false;
+function isInsideDotPrefixedDirectory(node: WorkspaceNode) {
+  const segments = node.relativePath.split(/[\\/]/).filter(Boolean);
+  const directorySegments =
+    node.kind === 'directory' ? segments : segments.slice(0, -1);
+
+  return directorySegments.some((segment) => segment.startsWith('.'));
 }

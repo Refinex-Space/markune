@@ -6,6 +6,178 @@ import { DirectoryPage } from '../directory-page';
 import type { WorkspaceNode } from '../workspace-types';
 
 describe('DirectoryPage', () => {
+  it('renders the workspace overview as a Craft-inspired root folder grid', () => {
+    const onSelectDirectory = vi.fn();
+    const directory: WorkspaceNode = {
+      id: 'workspace-root',
+      name: '文件夹',
+      kind: 'directory',
+      relativePath: '',
+      absolutePath: '/repo',
+      children: [
+        {
+          id: 'projects',
+          name: '项目合集',
+          kind: 'directory',
+          relativePath: '项目合集',
+          absolutePath: '/repo/项目合集',
+          children: [
+            {
+              id: 'project-note',
+              name: 'overview.md',
+              kind: 'document',
+              relativePath: '项目合集/overview.md',
+              absolutePath: '/repo/项目合集/overview.md',
+            },
+            {
+              id: 'attachments',
+              name: '.attachments',
+              kind: 'directory',
+              relativePath: '项目合集/.attachments',
+              absolutePath: '/repo/项目合集/.attachments',
+              children: [
+                {
+                  id: 'private-note',
+                  name: 'private.md',
+                  kind: 'document',
+                  relativePath: '项目合集/.attachments/private.md',
+                  absolutePath: '/repo/项目合集/.attachments/private.md',
+                  title: '隐藏目录中的文档',
+                },
+              ],
+            },
+          ],
+        },
+        {
+          id: 'octarine',
+          name: '.octarine',
+          kind: 'directory',
+          relativePath: '.octarine',
+          absolutePath: '/repo/.octarine',
+          children: [],
+        },
+      ],
+    };
+
+    render(
+      <DirectoryPage
+        directory={directory}
+        variant="workspace-overview"
+        workspaceRootPath="/repo"
+        onOpenDocument={vi.fn()}
+        onSelectDirectory={onSelectDirectory}
+      />,
+    );
+
+    const card = screen.getByRole('button', { name: '打开目录 项目合集' });
+
+    expect(screen.getByRole('heading', { name: '文件夹' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '工作区' })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: '搜索工作区文档' })).toBeTruthy();
+    expect(screen.getByText('1 个项目')).toBeTruthy();
+    expect(screen.queryByText('.octarine')).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: '打开目录 .octarine' }),
+    ).toBeNull();
+    expect(card.className).toContain('min-h-44');
+    expect(
+      screen.getByRole('heading', { name: '工作区' }).nextElementSibling
+        ?.className,
+    ).toContain('grid-cols-[repeat(auto-fill,minmax(180px,220px))]');
+
+    fireEvent.click(card);
+    expect(onSelectDirectory).toHaveBeenCalledWith(directory.children?.[0]);
+
+    fireEvent.change(screen.getByRole('textbox', { name: '搜索工作区文档' }), {
+      target: { value: '隐藏目录中的文档' },
+    });
+
+    expect(screen.queryByText('隐藏目录中的文档')).toBeNull();
+    expect(screen.getByText('没有找到“隐藏目录中的文档”')).toBeTruthy();
+  });
+
+  it('renders pinned folders and documents without duplicate search results', () => {
+    const pinnedDocument: WorkspaceNode = {
+      id: 'pinned-note',
+      name: 'pinned.md',
+      kind: 'document',
+      relativePath: '项目合集/pinned.md',
+      absolutePath: '/repo/项目合集/pinned.md',
+      title: '置顶文档',
+      pinned: true,
+    };
+    const pinnedDirectory: WorkspaceNode = {
+      id: 'pinned-directory',
+      name: '项目合集',
+      kind: 'directory',
+      relativePath: '项目合集',
+      absolutePath: '/repo/项目合集',
+      children: [pinnedDocument],
+      pinned: true,
+    };
+    const directory: WorkspaceNode = {
+      id: 'pinned-root',
+      name: '置顶',
+      kind: 'directory',
+      relativePath: '',
+      absolutePath: '/repo',
+      children: [pinnedDirectory, pinnedDocument],
+    };
+
+    render(
+      <DirectoryPage
+        directory={directory}
+        variant="pinned-overview"
+        workspaceRootPath="/repo"
+        onOpenDocument={vi.fn()}
+        onSelectDirectory={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('heading', { name: '置顶' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '置顶目录' })).toBeTruthy();
+    expect(
+      screen.getByRole('heading', { level: 2, name: '置顶文档' }),
+    ).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: '搜索置顶内容' })).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: '打开目录 项目合集' }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: '打开文档 置顶文档' }),
+    ).toBeTruthy();
+
+    fireEvent.change(screen.getByRole('textbox', { name: '搜索置顶内容' }), {
+      target: { value: '置顶文档' },
+    });
+
+    expect(
+      screen.getAllByRole('button', { name: '打开文档 置顶文档' }),
+    ).toHaveLength(1);
+  });
+
+  it('renders an empty state for a workspace without pinned content', () => {
+    render(
+      <DirectoryPage
+        directory={{
+          id: 'pinned-root',
+          name: '置顶',
+          kind: 'directory',
+          relativePath: '',
+          absolutePath: '/repo',
+          children: [],
+        }}
+        variant="pinned-overview"
+        workspaceRootPath="/repo"
+        onOpenDocument={vi.fn()}
+        onSelectDirectory={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('暂无置顶内容')).toBeTruthy();
+    expect(screen.queryByText('0')).toBeNull();
+  });
+
   it('renders child directories as compact navigation cards without document previews', () => {
     const longTitle =
       '编辑或新增 settings.json 文件并为不同平台配置很长很长的环境变量说明';
@@ -49,9 +221,7 @@ describe('DirectoryPage', () => {
       name: '打开目录 13_Skills',
     });
 
-    expect(card.className).toContain('min-h-[72px]');
-    expect(card.className).toContain('min-w-0');
-    expect(card.className).toContain('max-w-full');
+    expect(card.className).toContain('rounded-2xl');
     expect(card.className).toContain('overflow-hidden');
     expect(screen.queryByText(longTitle)).toBeNull();
     expect(screen.queryByRole('heading', { name: '文档' })).toBeNull();
@@ -94,17 +264,15 @@ describe('DirectoryPage', () => {
     const gridViewButton = screen.getByRole('button', { name: '网格视图' });
     const controlRow = searchInput.parentElement?.parentElement;
 
-    expect(card.className).toContain('min-h-[112px]');
-    expect(card.className).toContain('rounded-lg');
-    expect(card.className).not.toContain('rounded-2xl');
-    expect(gridViewButton.className).not.toContain('shadow-sm');
+    expect(card.className).toContain('min-h-[240px]');
+    expect(card.className).toContain('rounded-2xl');
+    expect(gridViewButton.className).toContain('shadow-sm');
     expect(searchInput.closest('header')?.contains(gridViewButton)).toBe(true);
-    expect(controlRow?.className).toContain('w-full');
-    expect(controlRow?.className).toContain('justify-between');
+    expect(controlRow?.className).toContain('flex items-center gap-2');
     expect(screen.queryByText(/当前目录 · 更新/u)).toBeNull();
-    expect(container.querySelector('.max-w-6xl')).not.toBeNull();
+    expect(container.querySelector('.max-w-5xl')).not.toBeNull();
     expect(container.querySelector('.max-w-7xl')).toBeNull();
-    expect(container.querySelector('.xl\\:grid-cols-4')).not.toBeNull();
+    expect(container.querySelector('.lg\\:grid-cols-3')).toBeNull();
     expect(container.querySelector('.h-52')).toBeNull();
   });
 
@@ -167,12 +335,11 @@ describe('DirectoryPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '列表视图' }));
 
-    expect(screen.getByText('名称')).not.toBeNull();
     expect(screen.getByText('LLM HelloWorld')).not.toBeNull();
     expect(
       screen.getByRole('button', { name: '打开文档 LLM HelloWorld' })
         .className,
-    ).toContain('py-2.5');
+    ).toContain('py-3');
     expect(container.querySelector('.w-\\[50px\\]')).toBeNull();
 
     fireEvent.change(

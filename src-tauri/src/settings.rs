@@ -9,6 +9,8 @@ pub struct AppSettings {
     pub storage: StorageSettings,
     #[serde(default)]
     pub appearance: AppearanceSettings,
+    #[serde(default)]
+    pub calendar: CalendarSettings,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -24,6 +26,60 @@ pub struct AppearanceSettings {
     pub fonts: AppearanceFontSettings,
     #[serde(default = "default_page_width_mode")]
     pub page_width_mode: String,
+    #[serde(default = "default_window_opacity")]
+    pub window_opacity: u8,
+    #[serde(default)]
+    pub show_git_log_entry: bool,
+    #[serde(default)]
+    pub show_git_panel_entry: bool,
+    #[serde(default)]
+    pub system_nav_collapsed: bool,
+    #[serde(default = "default_system_nav_layout")]
+    pub system_nav_layout: String,
+    #[serde(default)]
+    pub tree_icon_picker: TreeIconPickerSettings,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeIconPickerSettings {
+    #[serde(default = "default_tree_icon_picker_tab")]
+    pub last_tab: String,
+    #[serde(default)]
+    pub recent_icons: Vec<TreeIconRecent>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum TreeIconRecent {
+    Builtin {
+        name: String,
+    },
+    Emoji {
+        value: String,
+    },
+    Local {
+        #[serde(rename = "assetId", alias = "asset_id")]
+        asset_id: String,
+    },
+}
+
+impl Default for TreeIconPickerSettings {
+    fn default() -> Self {
+        Self {
+            last_tab: default_tree_icon_picker_tab(),
+            recent_icons: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarSettings {
+    #[serde(default = "default_calendar_expanded")]
+    pub expanded: bool,
+    #[serde(default = "default_calendar_week_starts_on")]
+    pub week_starts_on: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -39,6 +95,12 @@ impl Default for AppearanceSettings {
         Self {
             fonts: AppearanceFontSettings::default(),
             page_width_mode: default_page_width_mode(),
+            window_opacity: default_window_opacity(),
+            show_git_log_entry: false,
+            show_git_panel_entry: false,
+            system_nav_collapsed: false,
+            system_nav_layout: default_system_nav_layout(),
+            tree_icon_picker: TreeIconPickerSettings::default(),
         }
     }
 }
@@ -49,6 +111,15 @@ impl Default for AppearanceFontSettings {
             code: "JetBrains Mono".to_string(),
             document: "Songti SC".to_string(),
             ui: "SF Pro Text".to_string(),
+        }
+    }
+}
+
+impl Default for CalendarSettings {
+    fn default() -> Self {
+        Self {
+            expanded: default_calendar_expanded(),
+            week_starts_on: default_calendar_week_starts_on(),
         }
     }
 }
@@ -74,7 +145,8 @@ pub fn save_app_settings(app: AppHandle, settings: AppSettings) -> Result<AppSet
         fs::create_dir_all(parent).map_err(|_| "无法创建应用设置目录".to_string())?;
     }
 
-    let json = serde_json::to_string_pretty(&settings).map_err(|_| "无法序列化应用设置".to_string())?;
+    let json =
+        serde_json::to_string_pretty(&settings).map_err(|_| "无法序列化应用设置".to_string())?;
     fs::write(&path, format!("{json}\n")).map_err(|_| "无法保存应用设置".to_string())?;
     Ok(settings)
 }
@@ -82,8 +154,11 @@ pub fn save_app_settings(app: AppHandle, settings: AppSettings) -> Result<AppSet
 fn default_app_settings() -> AppSettings {
     AppSettings {
         schema_version: 1,
-        storage: StorageSettings { default_provider: "local".to_string() },
+        storage: StorageSettings {
+            default_provider: "local".to_string(),
+        },
         appearance: AppearanceSettings::default(),
+        calendar: CalendarSettings::default(),
     }
 }
 
@@ -91,8 +166,31 @@ fn default_page_width_mode() -> String {
     "wide".to_string()
 }
 
+fn default_window_opacity() -> u8 {
+    100
+}
+
+fn default_system_nav_layout() -> String {
+    "vertical".to_string()
+}
+
+fn default_tree_icon_picker_tab() -> String {
+    "builtin".to_string()
+}
+
+fn default_calendar_expanded() -> bool {
+    true
+}
+
+fn default_calendar_week_starts_on() -> String {
+    "monday".to_string()
+}
+
 fn settings_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
-    let config_dir = app.path().app_config_dir().map_err(|_| "无法定位应用设置目录".to_string())?;
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|_| "无法定位应用设置目录".to_string())?;
     Ok(config_dir.join("settings.json"))
 }
 
@@ -103,12 +201,76 @@ fn validate_app_settings(settings: &AppSettings) -> Result<(), String> {
     if settings.storage.default_provider != "local" {
         return Err("仅支持本地存储".to_string());
     }
-    if !matches!(settings.appearance.page_width_mode.as_str(), "standard" | "wide") {
+    if !matches!(
+        settings.appearance.page_width_mode.as_str(),
+        "standard" | "wide"
+    ) {
         return Err("页面宽度设置无效".to_string());
+    }
+    if !(70..=100).contains(&settings.appearance.window_opacity) {
+        return Err("应用透明度设置无效".to_string());
+    }
+    if !matches!(
+        settings.appearance.system_nav_layout.as_str(),
+        "vertical" | "horizontal"
+    ) {
+        return Err("系统入口排列设置无效".to_string());
+    }
+    validate_tree_icon_picker_settings(&settings.appearance.tree_icon_picker)?;
+    if !matches!(
+        settings.calendar.week_starts_on.as_str(),
+        "monday" | "sunday"
+    ) {
+        return Err("每周起始日设置无效".to_string());
     }
     validate_font(&settings.appearance.fonts.ui, "UI 字体")?;
     validate_font(&settings.appearance.fonts.document, "文档字体")?;
     validate_font(&settings.appearance.fonts.code, "代码块字体")?;
+    Ok(())
+}
+
+fn validate_tree_icon_picker_settings(settings: &TreeIconPickerSettings) -> Result<(), String> {
+    if !matches!(settings.last_tab.as_str(), "builtin" | "emoji" | "local") {
+        return Err("目录图标选择器设置无效".to_string());
+    }
+    if settings.recent_icons.len() > 20 {
+        return Err("最近使用的目录图标过多".to_string());
+    }
+
+    for icon in &settings.recent_icons {
+        let valid = match icon {
+            TreeIconRecent::Builtin { name } => {
+                let icon_name = name.strip_prefix("tabler:").unwrap_or_default();
+                !icon_name.is_empty()
+                    && icon_name.len() <= 128
+                    && !icon_name.starts_with('-')
+                    && !icon_name.ends_with('-')
+                    && !icon_name.contains("--")
+                    && icon_name.chars().all(|character| {
+                        character.is_ascii_lowercase()
+                            || character.is_ascii_digit()
+                            || character == '-'
+                    })
+            }
+            TreeIconRecent::Emoji { value } => {
+                !value.is_empty()
+                    && value.trim() == value
+                    && value.len() <= 64
+                    && !value.chars().any(char::is_control)
+            }
+            TreeIconRecent::Local { asset_id } => {
+                !asset_id.is_empty()
+                    && asset_id.len() <= 128
+                    && asset_id.chars().all(|character| {
+                        character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+                    })
+            }
+        };
+        if !valid {
+            return Err("最近使用的目录图标无效".to_string());
+        }
+    }
+
     Ok(())
 }
 
@@ -130,13 +292,159 @@ mod tests {
 
     #[test]
     fn unknown_legacy_field_is_ignored() {
-        let parsed: AppSettings = serde_json::from_str(r#"{
+        let parsed: AppSettings = serde_json::from_str(
+            r#"{
           "schemaVersion": 1,
           "storage": { "defaultProvider": "local" },
           "appearance": { "pageWidthMode": "wide" },
           "legacy": { "enabledProfileId": "legacy" }
-        }"#).expect("legacy settings should remain readable");
+        }"#,
+        )
+        .expect("legacy settings should remain readable");
 
         assert_eq!(parsed.appearance.page_width_mode, "wide");
+        assert_eq!(parsed.appearance.window_opacity, 100);
+        assert!(!parsed.appearance.show_git_log_entry);
+        assert!(!parsed.appearance.show_git_panel_entry);
+        assert_eq!(parsed.appearance.system_nav_layout, "vertical");
+        assert!(!parsed.appearance.system_nav_collapsed);
+        assert!(parsed.calendar.expanded);
+        assert_eq!(parsed.calendar.week_starts_on, "monday");
+    }
+
+    #[test]
+    fn missing_system_nav_fields_use_defaults() {
+        let parsed: AppSettings = serde_json::from_str(
+            r#"{
+          "schemaVersion": 1,
+          "storage": { "defaultProvider": "local" },
+          "appearance": { "pageWidthMode": "standard" }
+        }"#,
+        )
+        .expect("settings without system nav fields should remain readable");
+
+        assert_eq!(parsed.appearance.system_nav_layout, "vertical");
+        assert_eq!(parsed.appearance.window_opacity, 100);
+        assert!(!parsed.appearance.system_nav_collapsed);
+        assert_eq!(parsed.appearance.tree_icon_picker.last_tab, "builtin");
+        assert!(parsed.appearance.tree_icon_picker.recent_icons.is_empty());
+        assert!(validate_app_settings(&parsed).is_ok());
+    }
+
+    #[test]
+    fn validates_tree_icon_picker_preferences() {
+        let mut settings = default_app_settings();
+        settings.appearance.tree_icon_picker.last_tab = "emoji".to_string();
+        settings.appearance.tree_icon_picker.recent_icons = vec![
+            TreeIconRecent::Emoji {
+                value: "📚".to_string(),
+            },
+            TreeIconRecent::Builtin {
+                name: "tabler:book".to_string(),
+            },
+            TreeIconRecent::Local {
+                asset_id: "asset-123".to_string(),
+            },
+        ];
+        assert!(validate_app_settings(&settings).is_ok());
+        let serialized = serde_json::to_value(&settings).expect("设置应可序列化");
+        assert_eq!(
+            serialized["appearance"]["treeIconPicker"]["recentIcons"][2]["assetId"],
+            "asset-123"
+        );
+        assert!(serialized["appearance"]["treeIconPicker"]["recentIcons"][2]
+            .get("asset_id")
+            .is_none());
+
+        settings.appearance.tree_icon_picker.last_tab = "remote".to_string();
+        assert_eq!(
+            validate_app_settings(&settings).unwrap_err(),
+            "目录图标选择器设置无效"
+        );
+    }
+
+    #[test]
+    fn invalid_system_nav_layout_is_rejected() {
+        let mut settings = default_app_settings();
+        settings.appearance.system_nav_layout = "grid".to_string();
+        assert_eq!(
+            validate_app_settings(&settings).unwrap_err(),
+            "系统入口排列设置无效"
+        );
+    }
+
+    #[test]
+    fn horizontal_collapsed_system_nav_is_valid() {
+        let mut settings = default_app_settings();
+        settings.appearance.system_nav_layout = "horizontal".to_string();
+        settings.appearance.system_nav_collapsed = true;
+        assert!(validate_app_settings(&settings).is_ok());
+    }
+
+    #[test]
+    fn git_entry_visibility_round_trips_when_enabled() {
+        let mut settings = default_app_settings();
+        settings.appearance.show_git_log_entry = true;
+        settings.appearance.show_git_panel_entry = true;
+
+        let json = serde_json::to_string(&settings).expect("settings should serialize");
+        let parsed: AppSettings = serde_json::from_str(&json).expect("settings should deserialize");
+
+        assert!(parsed.appearance.show_git_log_entry);
+        assert!(parsed.appearance.show_git_panel_entry);
+    }
+
+    #[test]
+    fn window_opacity_accepts_safe_range_boundaries() {
+        let mut settings = default_app_settings();
+        settings.appearance.window_opacity = 70;
+        assert!(validate_app_settings(&settings).is_ok());
+
+        settings.appearance.window_opacity = 100;
+        assert!(validate_app_settings(&settings).is_ok());
+    }
+
+    #[test]
+    fn window_opacity_rejects_values_outside_safe_range() {
+        let mut settings = default_app_settings();
+        settings.appearance.window_opacity = 69;
+        assert_eq!(
+            validate_app_settings(&settings).unwrap_err(),
+            "应用透明度设置无效"
+        );
+    }
+
+    #[test]
+    fn missing_calendar_settings_use_defaults() {
+        let parsed: AppSettings = serde_json::from_str(
+            r#"{
+          "schemaVersion": 1,
+          "storage": { "defaultProvider": "local" },
+          "appearance": { "pageWidthMode": "wide" }
+        }"#,
+        )
+        .expect("settings without calendar fields should remain readable");
+
+        assert!(parsed.calendar.expanded);
+        assert_eq!(parsed.calendar.week_starts_on, "monday");
+        assert!(validate_app_settings(&parsed).is_ok());
+    }
+
+    #[test]
+    fn sunday_calendar_start_is_valid() {
+        let mut settings = default_app_settings();
+        settings.calendar.expanded = false;
+        settings.calendar.week_starts_on = "sunday".to_string();
+        assert!(validate_app_settings(&settings).is_ok());
+    }
+
+    #[test]
+    fn invalid_calendar_week_start_is_rejected() {
+        let mut settings = default_app_settings();
+        settings.calendar.week_starts_on = "friday".to_string();
+        assert_eq!(
+            validate_app_settings(&settings).unwrap_err(),
+            "每周起始日设置无效"
+        );
     }
 }

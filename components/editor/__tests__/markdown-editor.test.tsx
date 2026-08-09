@@ -1,10 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import * as React from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { MarkdownEditor } from '@/components/editor/markdown-editor';
+import {
+  MarkdownEditor,
+  type MarkdownEditorHandle,
+} from '@/components/editor/markdown-editor';
 
 const { resolvedThemeMock } = vi.hoisted(() => ({
   resolvedThemeMock: vi.fn(),
@@ -13,6 +17,7 @@ const { resolvedThemeMock } = vi.hoisted(() => ({
 const globalsCssPath = join(process.cwd(), 'app/globals.css');
 
 const {
+  aiEditControllerMock,
   cancelAnimationFrameMock,
   markweaveEditorMock,
   markweaveUnmountMock,
@@ -26,6 +31,12 @@ const {
   searchListeners,
   searchState,
 } = vi.hoisted(() => ({
+  aiEditControllerMock: {
+    discard: vi.fn(),
+    getState: vi.fn<
+      () => { context: { id: string } | null; phase: string }
+    >(() => ({ context: null, phase: 'idle' })),
+  },
   cancelAnimationFrameMock: vi.fn(),
   markweaveEditorMock: vi.fn(),
   markweaveUnmountMock: vi.fn(),
@@ -40,6 +51,7 @@ const {
   useWorkspaceAssetUploaderMock: vi.fn(
     (_rootPath: string | null, markdown: string) => ({
       editorMarkdown: markdown,
+      onAttachmentDownload: vi.fn(),
       onSlashCommandUpload: uploadHandlerMock,
       toStorageMarkdown: toStorageMarkdownMock,
     }),
@@ -78,22 +90,22 @@ vi.mock('@markweave/react', async () => {
         String(props.defaultContent ?? props.content ?? ''),
       );
       markweaveEditorMock(props);
+      const onAiEditControllerChange = props.onAiEditControllerChange as
+        | ((controller: typeof aiEditControllerMock | null) => void)
+        | undefined;
+      const onSearchControllerChange = props.onSearchControllerChange as
+        | ((controller: typeof searchControllerMock | null) => void)
+        | undefined;
       React.useEffect(() => {
-        (
-          props.onSearchControllerChange as
-            | ((controller: typeof searchControllerMock | null) => void)
-            | undefined
-        )?.(searchControllerMock);
+        onAiEditControllerChange?.(aiEditControllerMock);
+        onSearchControllerChange?.(searchControllerMock);
 
         return () => {
-          (
-            props.onSearchControllerChange as
-              | ((controller: typeof searchControllerMock | null) => void)
-              | undefined
-          )?.(null);
+          onAiEditControllerChange?.(null);
+          onSearchControllerChange?.(null);
           markweaveUnmountMock();
         };
-      }, [props.onSearchControllerChange]);
+      }, [onAiEditControllerChange, onSearchControllerChange]);
 
       return (
         <div
@@ -215,6 +227,12 @@ describe('MarkdownEditor', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     cancelAnimationFrameMock.mockClear();
+    aiEditControllerMock.discard.mockClear();
+    aiEditControllerMock.getState.mockClear();
+    aiEditControllerMock.getState.mockReturnValue({
+      context: null,
+      phase: 'idle',
+    });
     markweaveEditorMock.mockClear();
     markweaveUnmountMock.mockClear();
     payloadFieldReadMock.mockClear();
@@ -274,6 +292,7 @@ describe('MarkdownEditor', () => {
     useWorkspaceAssetUploaderMock.mockImplementation(
       (_rootPath: string | null, markdown: string) => ({
         editorMarkdown: markdown,
+        onAttachmentDownload: vi.fn(),
         onSlashCommandUpload: uploadHandlerMock,
         toStorageMarkdown: toStorageMarkdownMock,
       }),
@@ -314,6 +333,7 @@ describe('MarkdownEditor', () => {
       innerToc: true,
       innerTocPlacement: 'container',
       lang: 'zh',
+      onAttachmentDownload: expect.any(Function),
       onSlashCommandUpload: uploadHandlerMock,
       theme: 'light',
       mode: 'live',
@@ -349,6 +369,78 @@ describe('MarkdownEditor', () => {
     expect(
       screen.getByTestId('markweave-editor').getAttribute('data-editable'),
     ).toBe('false');
+  });
+
+  it('仅在可编辑 Live 文档发布 Ask AI handler 和 controller', () => {
+    const askAiHandler = vi.fn();
+    const ref = React.createRef<MarkdownEditorHandle>();
+    const { rerender } = render(
+      <MarkdownEditor
+        aiEnabled
+        askAiHandler={askAiHandler}
+        markdown="# AI"
+        ref={ref}
+      />,
+    );
+
+    expect(markweaveEditorMock.mock.calls.at(-1)?.[0]).toMatchObject({
+      askAi: { enabled: true, handler: askAiHandler },
+    });
+    expect(ref.current?.getAiEditController()).toBe(aiEditControllerMock);
+
+    rerender(
+      <MarkdownEditor
+        aiEnabled
+        askAiHandler={askAiHandler}
+        markdown="# AI"
+        readOnly
+        ref={ref}
+      />,
+    );
+
+    expect(markweaveEditorMock.mock.calls.at(-1)?.[0].askAi).toBeUndefined();
+    expect(ref.current?.getAiEditController()).toBeNull();
+  });
+
+  it('离开 Live 模式时舍弃活动的 AI 预编辑上下文', () => {
+    aiEditControllerMock.getState.mockReturnValue({
+      context: { id: 'ai-context' },
+      phase: 'streaming',
+    });
+    const { rerender } = render(
+      <MarkdownEditor aiEnabled askAiHandler={vi.fn()} markdown="# AI" />,
+    );
+
+    rerender(
+      <MarkdownEditor
+        aiEnabled={false}
+        askAiHandler={vi.fn()}
+        markdown="# AI"
+      />,
+    );
+
+    expect(aiEditControllerMock.discard).toHaveBeenCalledWith('ai-context');
+  });
+
+  it('切换到 Source 模式后不再暴露 AI controller', () => {
+    const ref = React.createRef<MarkdownEditorHandle>();
+    render(
+      <MarkdownEditor
+        aiEnabled
+        askAiHandler={vi.fn()}
+        markdown="# AI"
+        ref={ref}
+      />,
+    );
+
+    fireEvent.keyDown(screen.getByTestId('markdown-editor-root'), {
+      code: 'Slash',
+      ctrlKey: true,
+      key: '/',
+    });
+
+    expect(ref.current?.getAiEditController()).toBeNull();
+    expect(markweaveEditorMock.mock.calls.at(-1)?.[0].askAi).toBeUndefined();
   });
 
   it('保护 frontmatter，只把正文传给 Markweave，idle 时再序列化完整 Markdown', () => {
@@ -605,12 +697,14 @@ describe('MarkdownEditor', () => {
     const markdown =
       '---\ntitle: 源码文档\nupdatedAt: 2026-07-14\n---\n\n# 正文\n\n- [ ] 任务\n';
     const onMarkdownChange = vi.fn();
+    const onSourceModeChange = vi.fn();
 
     render(
       <MarkdownEditor
         documentKey="source-doc"
         markdown={markdown}
         onMarkdownChange={onMarkdownChange}
+        onSourceModeChange={onSourceModeChange}
       />,
     );
 
@@ -630,8 +724,10 @@ describe('MarkdownEditor', () => {
     expect(source.value).toBe(markdown);
     expect(source.readOnly).toBe(false);
     expect(document.activeElement).toBe(source);
-    expect(screen.getByText('Markdown 源码')).toBeTruthy();
-    expect(screen.getByText('可编辑 · Ctrl / Cmd + / 返回')).toBeTruthy();
+    expect(screen.queryByText('Markdown 源码')).toBeNull();
+    expect(screen.queryByText('可编辑 · Ctrl / Cmd + / 返回')).toBeNull();
+    expect(screen.queryByText('Ctrl / Cmd + / 返回')).toBeNull();
+    expect(onSourceModeChange).toHaveBeenLastCalledWith(true);
     expect(screen.getByTestId('markweave-editor')).toBeTruthy();
     expect(screen.getByTestId('markweave-editor-mode').className).toContain(
       'hidden',
@@ -667,6 +763,114 @@ describe('MarkdownEditor', () => {
     );
     expect(document.activeElement).toBe(screen.getByLabelText('Markdown 正文'));
     expect(markweaveUnmountMock).toHaveBeenCalledTimes(1);
+    expect(onSourceModeChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it('Live 编辑后往返源码模式时保留最新内容', async () => {
+    const markdown = '# 原始内容\n';
+    const nextMarkdown = '# 已输入的最新内容\n';
+    const onMarkdownChange = vi.fn();
+
+    render(
+      <MarkdownEditor
+        documentKey="live-source-roundtrip"
+        markdown={markdown}
+        onMarkdownChange={onMarkdownChange}
+      />,
+    );
+
+    const editorRoot = screen.getByTestId('markdown-editor-root');
+    fireEvent.change(screen.getByLabelText('Markdown 正文'), {
+      target: { value: nextMarkdown },
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(editorRoot, {
+        code: 'Slash',
+        ctrlKey: true,
+        key: '/',
+      });
+      await Promise.resolve();
+    });
+
+    const source = screen.getByLabelText(
+      'Markdown 文档源码',
+    ) as HTMLTextAreaElement;
+    expect(source.value).toBe(nextMarkdown);
+
+    await act(async () => {
+      fireEvent.keyDown(source, {
+        code: 'Slash',
+        ctrlKey: true,
+        key: '/',
+      });
+      await Promise.resolve();
+    });
+
+    expect(
+      (screen.getByLabelText('Markdown 正文') as HTMLTextAreaElement).value,
+    ).toBe(nextMarkdown);
+    expect(onMarkdownChange).toHaveBeenCalledWith(
+      nextMarkdown,
+      undefined,
+      'source-toggle',
+    );
+  });
+
+  it('自动保存后往返源码模式时保留最新内容', async () => {
+    const markdown = '# 原始内容\n';
+    const nextMarkdown = '# 自动保存后的最新内容\n';
+    const onMarkdownChange = vi.fn();
+
+    render(
+      <MarkdownEditor
+        documentKey="saved-live-source-roundtrip"
+        markdown={markdown}
+        onMarkdownChange={onMarkdownChange}
+      />,
+    );
+
+    const editorRoot = screen.getByTestId('markdown-editor-root');
+    fireEvent.change(screen.getByLabelText('Markdown 正文'), {
+      target: { value: nextMarkdown },
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(500);
+      await Promise.resolve();
+    });
+    expect(onMarkdownChange).toHaveBeenLastCalledWith(
+      nextMarkdown,
+      undefined,
+      'idle',
+    );
+
+    await act(async () => {
+      fireEvent.keyDown(editorRoot, {
+        code: 'Slash',
+        ctrlKey: true,
+        key: '/',
+      });
+      await Promise.resolve();
+    });
+
+    const source = screen.getByLabelText(
+      'Markdown 文档源码',
+    ) as HTMLTextAreaElement;
+    expect(source.value).toBe(nextMarkdown);
+
+    await act(async () => {
+      fireEvent.keyDown(source, {
+        code: 'Slash',
+        ctrlKey: true,
+        key: '/',
+      });
+      await Promise.resolve();
+    });
+
+    expect(
+      (screen.getByLabelText('Markdown 正文') as HTMLTextAreaElement).value,
+    ).toBe(nextMarkdown);
   });
 
   it('锁定文档的源码模式保持只读', () => {
@@ -691,7 +895,7 @@ describe('MarkdownEditor', () => {
     ) as HTMLTextAreaElement;
 
     expect(source.readOnly).toBe(true);
-    expect(screen.getByText('只读 · Ctrl / Cmd + / 返回')).toBeTruthy();
+    expect(screen.queryByText('Ctrl / Cmd + / 返回')).toBeNull();
     fireEvent.change(source, { target: { value: '# 不应写入' } });
     expect(onMarkdownChange).not.toHaveBeenCalled();
   });

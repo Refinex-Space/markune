@@ -2568,6 +2568,9 @@ fn inject_madora_dynamic_tools(params: &mut Value) -> Result<(), String> {
     if params.contains_key("dynamicTools") {
         return Err("渲染器不得提交 Codex dynamicTools".to_string());
     }
+    if params.get("ephemeral").and_then(Value::as_bool) == Some(true) {
+        return Ok(());
+    }
     params.insert(
         "dynamicTools".to_string(),
         json!([{
@@ -4306,6 +4309,11 @@ mod tests {
 
         let mut unsafe_params = json!({ "dynamicTools": [] });
         assert!(inject_madora_dynamic_tools(&mut unsafe_params).is_err());
+
+        let mut ephemeral_params = json!({ "ephemeral": true });
+        inject_madora_dynamic_tools(&mut ephemeral_params)
+            .expect("ephemeral threads skip drawing tools");
+        assert!(ephemeral_params.get("dynamicTools").is_none());
     }
 
     #[test]

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -10,7 +10,21 @@ import type { AppSettings } from '../workspace-types';
 const themeState = vi.hoisted(() => ({ setTheme: vi.fn() }));
 const workspaceApiState = vi.hoisted(() => ({
   isTauriRuntime: vi.fn(() => false),
+  listSystemFonts: vi.fn(() =>
+    Promise.resolve({
+      code: ['JetBrains Mono'],
+      document: ['Songti SC'],
+      recommendations: {
+        code: 'JetBrains Mono',
+        document: 'Songti SC',
+        ui: 'SF Pro Text',
+      },
+      ui: ['SF Pro Text'],
+    }),
+  ),
   openUrlInDefaultBrowser: vi.fn(() => Promise.resolve()),
+  saveAppSettings: vi.fn((settings: AppSettings) => Promise.resolve(settings)),
+  setAppWindowOpacity: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('next-themes', () => ({
@@ -20,7 +34,10 @@ vi.mock('next-themes', () => ({
 vi.mock('../workspace-api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../workspace-api')>()),
   isTauriRuntime: workspaceApiState.isTauriRuntime,
+  listSystemFonts: workspaceApiState.listSystemFonts,
   openUrlInDefaultBrowser: workspaceApiState.openUrlInDefaultBrowser,
+  saveAppSettings: workspaceApiState.saveAppSettings,
+  setAppWindowOpacity: workspaceApiState.setAppWindowOpacity,
 }));
 
 const initialSettings: AppSettings = {
@@ -31,6 +48,15 @@ const initialSettings: AppSettings = {
       ui: 'SF Pro Text',
     },
     pageWidthMode: 'wide',
+    showGitLogEntry: false,
+    showGitPanelEntry: false,
+    systemNavCollapsed: false,
+    systemNavLayout: 'vertical',
+    windowOpacity: 100,
+  },
+  calendar: {
+    expanded: true,
+    weekStartsOn: 'monday',
   },
   schemaVersion: 1,
   storage: { defaultProvider: 'local' },
@@ -64,6 +90,20 @@ function renderSettingsPage() {
 
 describe('WorkspaceSettingsPage', () => {
   beforeEach(() => {
+    Element.prototype.hasPointerCapture = vi.fn(() => false);
+    Element.prototype.releasePointerCapture = vi.fn();
+    Element.prototype.setPointerCapture = vi.fn();
+    Element.prototype.scrollIntoView = vi.fn();
+    vi.stubGlobal(
+      'ResizeObserver',
+      class ResizeObserver {
+        disconnect() {}
+
+        observe() {}
+
+        unobserve() {}
+      },
+    );
     Object.assign(appUpdateController, {
       available: false,
       check: vi.fn(() => Promise.resolve()),
@@ -78,7 +118,10 @@ describe('WorkspaceSettingsPage', () => {
       update: null,
     } satisfies AppUpdateController);
     workspaceApiState.isTauriRuntime.mockReturnValue(false);
+    workspaceApiState.listSystemFonts.mockClear();
     workspaceApiState.openUrlInDefaultBrowser.mockClear();
+    workspaceApiState.saveAppSettings.mockClear();
+    workspaceApiState.setAppWindowOpacity.mockClear();
   });
 
   it('restores the full-width non-AI settings shell and appearance previews', () => {
@@ -115,10 +158,199 @@ describe('WorkspaceSettingsPage', () => {
     ).toBeNull();
     expect(screen.getByTestId('page-width-preview-standard')).toBeTruthy();
     expect(screen.getByTestId('page-width-preview-wide')).toBeTruthy();
+    expect(screen.getByTestId('system-nav-settings')).toBeTruthy();
+    expect(screen.getByTestId('system-nav-layout-select')).toBeTruthy();
+    expect(screen.getByTestId('system-nav-collapsed-switch')).toBeTruthy();
+    expect(screen.getByTestId('window-opacity-settings')).toBeTruthy();
+    expect(
+      (screen.getByRole('slider', { name: '应用透明度' }) as HTMLInputElement)
+        .disabled,
+    ).toBe(true);
     expect(screen.getByText('Madora · 本地知识库')).toBeTruthy();
     expect(
       screen.getByText('这是一段用于预览文档字体的文本。'),
     ).toBeTruthy();
+  });
+
+  it('previews window opacity while dragging and persists it on commit', async () => {
+    workspaceApiState.isTauriRuntime.mockReturnValue(true);
+    const onSettingsSaved = vi.fn();
+
+    render(
+      <WorkspaceSettingsPage
+        appUpdate={appUpdateController}
+        initialSettings={initialSettings}
+        sessionCache={createWorkspaceSettingsSessionCache()}
+        workspaceRootPath={null}
+        onBack={vi.fn()}
+        onSettingsSaved={onSettingsSaved}
+      />,
+    );
+
+    const slider = screen.getByRole('slider', { name: '应用透明度' });
+    expect((slider as HTMLInputElement).disabled).toBe(false);
+
+    fireEvent.change(slider, { target: { value: '82' } });
+    expect(screen.getByText('82%')).toBeTruthy();
+    expect(workspaceApiState.setAppWindowOpacity).toHaveBeenLastCalledWith(82);
+    expect(workspaceApiState.saveAppSettings).not.toHaveBeenCalled();
+
+    fireEvent.pointerUp(slider);
+    await waitFor(() =>
+      expect(workspaceApiState.saveAppSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appearance: expect.objectContaining({ windowOpacity: 82 }),
+        }),
+      ),
+    );
+    expect(onSettingsSaved).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appearance: expect.objectContaining({ windowOpacity: 82 }),
+      }),
+    );
+
+    await userEvent.setup().click(
+      screen.getByRole('button', { name: '恢复默认' }),
+    );
+    expect(workspaceApiState.setAppWindowOpacity).toHaveBeenLastCalledWith(100);
+    await waitFor(() =>
+      expect(workspaceApiState.saveAppSettings).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          appearance: expect.objectContaining({ windowOpacity: 100 }),
+        }),
+      ),
+    );
+  });
+
+  it('searches the full font list without rendering every option at once', async () => {
+    const user = userEvent.setup();
+    const onSettingsSaved = vi.fn();
+    const sessionCache = createWorkspaceSettingsSessionCache();
+    sessionCache.systemFonts = {
+      code: ['JetBrains Mono'],
+      document: ['Songti SC'],
+      recommendations: {
+        code: 'JetBrains Mono',
+        document: 'Songti SC',
+        ui: 'SF Pro Text',
+      },
+      ui: [
+        'SF Pro Text',
+        ...Array.from(
+          { length: 70 },
+          (_, index) => `System Font ${String(index).padStart(2, '0')}`,
+        ),
+        'Fira Sans',
+      ],
+    };
+
+    render(
+      <WorkspaceSettingsPage
+        appUpdate={appUpdateController}
+        initialSettings={initialSettings}
+        sessionCache={sessionCache}
+        workspaceRootPath="D:/notes"
+        onBack={vi.fn()}
+        onSettingsSaved={onSettingsSaved}
+      />,
+    );
+
+    await user.click(screen.getByRole('combobox', { name: 'UI 字体' }));
+
+    const searchInput = screen.getByLabelText('搜索UI 字体');
+    expect(screen.getByText(/请继续输入以缩小范围/)).toBeTruthy();
+    expect(screen.queryByText('Fira Sans')).toBeNull();
+
+    await user.type(searchInput, 'fira');
+    expect(screen.getByText('Fira Sans')).toBeTruthy();
+    expect(screen.queryByText('System Font 00')).toBeNull();
+
+    await user.clear(searchInput);
+    await user.type(searchInput, 'missing font');
+    expect(screen.getByText('未找到匹配的字体')).toBeTruthy();
+
+    await user.clear(searchInput);
+    await user.type(searchInput, 'fira');
+    await user.click(screen.getByText('Fira Sans'));
+
+    await waitFor(() =>
+      expect(onSettingsSaved).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appearance: expect.objectContaining({
+            fonts: expect.objectContaining({ ui: 'Fira Sans' }),
+          }),
+        }),
+      ),
+    );
+    expect(screen.queryByLabelText('搜索UI 字体')).toBeNull();
+  });
+
+  it('persists system nav layout and collapsed preference from appearance settings', async () => {
+    const user = userEvent.setup();
+    const onSettingsSaved = vi.fn();
+
+    render(
+      <WorkspaceSettingsPage
+        appUpdate={appUpdateController}
+        initialSettings={initialSettings}
+        sessionCache={createWorkspaceSettingsSessionCache()}
+        workspaceRootPath="D:/notes"
+        onBack={vi.fn()}
+        onSettingsSaved={onSettingsSaved}
+      />,
+    );
+
+    await user.click(screen.getByTestId('system-nav-layout-select'));
+    await user.click(screen.getByTestId('system-nav-layout-horizontal'));
+    expect(onSettingsSaved).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appearance: expect.objectContaining({
+          systemNavLayout: 'horizontal',
+          systemNavCollapsed: false,
+        }),
+      }),
+    );
+
+    const collapsedSwitch = screen.getByTestId('system-nav-collapsed-switch');
+    expect((collapsedSwitch as HTMLButtonElement).disabled).toBe(true);
+    expect(collapsedSwitch.getAttribute('aria-checked')).toBe('false');
+    expect(
+      screen.getByText('横向排列始终展示七个入口，仅通过省略号切换形态。'),
+    ).toBeTruthy();
+  });
+
+  it('persists calendar expansion and week start settings', async () => {
+    const user = userEvent.setup();
+    const onSettingsSaved = vi.fn();
+
+    render(
+      <WorkspaceSettingsPage
+        appUpdate={appUpdateController}
+        initialSettings={initialSettings}
+        sessionCache={createWorkspaceSettingsSessionCache()}
+        workspaceRootPath="D:/notes"
+        onBack={vi.fn()}
+        onSettingsSaved={onSettingsSaved}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '日历' }));
+    expect(screen.getByTestId('calendar-settings-shell')).toBeTruthy();
+
+    await user.click(screen.getByTestId('calendar-expanded-switch'));
+    expect(onSettingsSaved).toHaveBeenCalledWith(
+      expect.objectContaining({
+        calendar: { expanded: false, weekStartsOn: 'monday' },
+      }),
+    );
+
+    await user.click(screen.getByTestId('calendar-week-start-select'));
+    await user.click(screen.getByTestId('calendar-week-start-sunday'));
+    expect(onSettingsSaved).toHaveBeenCalledWith(
+      expect.objectContaining({
+        calendar: { expanded: false, weekStartsOn: 'sunday' },
+      }),
+    );
   });
 
   it('uses the compact sidebar top inset below Windows titlebar controls', () => {
@@ -137,6 +369,25 @@ describe('WorkspaceSettingsPage', () => {
       'workspace-settings-sidebar-titlebar-spacer',
     );
     expect(spacer.className).toContain('h-2');
+    expect(spacer.className).not.toContain('h-10');
+  });
+
+  it('uses the measured macOS chrome content inset before settings controls', () => {
+    render(
+      <WorkspaceSettingsPage
+        appUpdate={appUpdateController}
+        initialSettings={initialSettings}
+        macChromeContentTop={46}
+        sessionCache={createWorkspaceSettingsSessionCache()}
+        workspaceRootPath="/notes"
+        onBack={vi.fn()}
+      />,
+    );
+
+    const spacer = screen.getByTestId(
+      'workspace-settings-sidebar-titlebar-spacer',
+    );
+    expect(spacer.style.height).toBe('46px');
     expect(spacer.className).not.toContain('h-10');
   });
 
@@ -251,10 +502,57 @@ describe('WorkspaceSettingsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Git Sync' }));
 
     expect(screen.getByTestId('git-sync-enable-card')).toBeTruthy();
+    expect(screen.getByTestId('git-entry-preferences-card')).toBeTruthy();
     expect(screen.getByTestId('git-sync-repository-card')).toBeTruthy();
     expect(screen.getByTestId('git-sync-preferences-card')).toBeTruthy();
     expect(screen.getByTestId('git-sync-last-synced').textContent).toBe(
       '尚未同步',
+    );
+  });
+
+  it('persists the Git panel and log entry visibility independently', async () => {
+    const user = userEvent.setup();
+    const onSettingsSaved = vi.fn();
+
+    render(
+      <WorkspaceSettingsPage
+        appUpdate={appUpdateController}
+        initialSectionId="git-sync"
+        initialSettings={initialSettings}
+        sessionCache={createWorkspaceSettingsSessionCache()}
+        workspaceRootPath="D:/notes"
+        onBack={vi.fn()}
+        onSettingsSaved={onSettingsSaved}
+      />,
+    );
+
+    const gitPanelSwitch = screen.getByRole('switch', {
+      name: '显示 Git 面板入口',
+    });
+    const gitLogSwitch = screen.getByRole('switch', {
+      name: '显示 Git 日志入口',
+    });
+    expect(gitPanelSwitch.getAttribute('aria-checked')).toBe('false');
+    expect(gitLogSwitch.getAttribute('aria-checked')).toBe('false');
+
+    await user.click(gitPanelSwitch);
+    expect(onSettingsSaved).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        appearance: expect.objectContaining({
+          showGitLogEntry: false,
+          showGitPanelEntry: true,
+        }),
+      }),
+    );
+
+    await user.click(gitLogSwitch);
+    expect(onSettingsSaved).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        appearance: expect.objectContaining({
+          showGitLogEntry: true,
+          showGitPanelEntry: true,
+        }),
+      }),
     );
   });
 

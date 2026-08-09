@@ -199,13 +199,75 @@ export interface WorkspaceNode {
   updatedAt?: number;
   pinned?: boolean;
   locked?: boolean;
+  appearance?: TreeNodeAppearance;
   children?: WorkspaceNode[];
+}
+
+export type TreeNodeIcon =
+  | { type: 'builtin'; name: string }
+  | { type: 'emoji'; value: string }
+  | { type: 'local'; assetId: string };
+
+export type TreeNodeIconColor =
+  | { type: 'preset'; value: TreeNodeIconColorPreset }
+  | { type: 'custom'; value: string };
+
+export type TreeNodeIconColorPreset =
+  | 'slate'
+  | 'red'
+  | 'orange'
+  | 'amber'
+  | 'green'
+  | 'teal'
+  | 'cyan'
+  | 'blue'
+  | 'indigo'
+  | 'violet'
+  | 'purple'
+  | 'pink'
+  | 'rose';
+
+export interface TreeNodeAppearance {
+  icon?: TreeNodeIcon;
+  color?: TreeNodeIconColor;
 }
 
 export interface WorkspaceSnapshot {
   rootPath: string;
   rootName: string;
   nodes: WorkspaceNode[];
+}
+
+export type WorkspaceGraphNodeKind =
+  | 'daily'
+  | 'note'
+  | 'property'
+  | 'tag'
+  | 'weekly';
+
+export type WorkspaceGraphEdgeKind = 'link' | 'property' | 'tag';
+
+export interface WorkspaceGraphNode {
+  id: string;
+  label: string;
+  kind: WorkspaceGraphNodeKind;
+  relativePath: string | null;
+  degree: number;
+}
+
+export interface WorkspaceGraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  kind: WorkspaceGraphEdgeKind;
+  weight: number;
+}
+
+export interface WorkspaceGraphSnapshot {
+  nodes: WorkspaceGraphNode[];
+  edges: WorkspaceGraphEdge[];
+  documentCount: number;
+  warnings: string[];
 }
 
 export interface WorkspaceHistoryItem {
@@ -249,6 +311,7 @@ export interface WorkspaceGitSyncSettings {
 export interface WorkspaceNodeState {
   pinned: boolean;
   locked: boolean;
+  appearance?: TreeNodeAppearance;
 }
 
 export interface WorkspaceDailyNotes {
@@ -264,6 +327,15 @@ export interface WorkspaceDailyNoteEntry {
 
 export type PageWidthMode = 'standard' | 'wide';
 
+export type SystemNavLayout = 'vertical' | 'horizontal';
+
+export type CalendarWeekStartsOn = 'monday' | 'sunday';
+
+export interface CalendarSettings {
+  expanded: boolean;
+  weekStartsOn: CalendarWeekStartsOn;
+}
+
 export interface AppearanceFontSettings {
   code: string;
   document: string;
@@ -273,6 +345,19 @@ export interface AppearanceFontSettings {
 export interface AppearanceSettings {
   fonts: AppearanceFontSettings;
   pageWidthMode: PageWidthMode;
+  showGitLogEntry: boolean;
+  showGitPanelEntry: boolean;
+  systemNavCollapsed: boolean;
+  systemNavLayout: SystemNavLayout;
+  treeIconPicker: TreeIconPickerSettings;
+  windowOpacity: number;
+}
+
+export type TreeIconPickerTab = 'builtin' | 'emoji' | 'local';
+
+export interface TreeIconPickerSettings {
+  lastTab: TreeIconPickerTab;
+  recentIcons: TreeNodeIcon[];
 }
 
 export interface SystemFontOptions {
@@ -294,6 +379,7 @@ export interface LinkPreviewMetadata {
 
 export interface AppSettings {
   schemaVersion: 1;
+  calendar: CalendarSettings;
   storage: {
     defaultProvider: 'local';
   };
@@ -314,6 +400,12 @@ export interface UploadedWorkspaceAsset {
   mediaType: string;
   size: number;
   absolutePath: string;
+}
+
+export interface ImportedTreeIconAsset {
+  assetId: string;
+  mediaType: 'image/png' | 'image/svg+xml' | 'image/webp';
+  name: string;
 }
 
 export interface ResolvedWorkspaceAsset {
@@ -386,8 +478,18 @@ export interface CreatedMarkdownDocument {
 export interface DailyNoteEntry {
   date: string;
   documentPath: string;
+  excerpt: string | null;
   hasContent: boolean;
+  taskCompleted: number;
+  taskPreview: DailyNoteTaskPreview[];
+  taskTotal: number;
+  title: string | null;
   updatedAt: number;
+}
+
+export interface DailyNoteTaskPreview {
+  completed: boolean;
+  text: string;
 }
 
 export interface DailyNoteMonth {

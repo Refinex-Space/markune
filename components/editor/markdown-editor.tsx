@@ -5,6 +5,8 @@ import { ArrowUp } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import {
   MarkweaveEditor,
+  type MarkweaveAiEditController,
+  type MarkweaveAskAiHandler,
   type MarkweaveEditorUpdatePayload,
   type MarkweaveSearchController,
 } from '@markweave/react';
@@ -47,9 +49,12 @@ export type MarkdownEditorFlushReason =
 
 export interface MarkdownEditorHandle {
   flushDraft: (reason: MarkdownEditorFlushReason) => Promise<boolean>;
+  getAiEditController: () => MarkweaveAiEditController | null;
 }
 
 interface MarkdownEditorProps {
+  aiEnabled?: boolean;
+  askAiHandler?: MarkweaveAskAiHandler | null;
   documentKey?: string;
   markdown: string;
   pageWidthMode?: PageWidthMode;
@@ -59,6 +64,7 @@ interface MarkdownEditorProps {
     origin?: MarkdownEditorChangeOrigin,
     reason?: MarkdownEditorFlushReason,
   ) => boolean | void | Promise<boolean | void>;
+  onSourceModeChange?: (sourceMode: boolean) => void;
   readOnly?: boolean;
   themeOverride?: 'dark' | 'light';
   workspaceRootPath?: string | null;
@@ -87,11 +93,14 @@ export const MarkdownEditor = React.forwardRef<
   MarkdownEditorHandle,
   MarkdownEditorProps
 >(function MarkdownEditor({
+  aiEnabled = false,
+  askAiHandler = null,
   documentKey,
   markdown,
   pageWidthMode = 'wide',
   onSaveRequested,
   onMarkdownChange,
+  onSourceModeChange,
   readOnly = false,
   themeOverride,
   workspaceRootPath = null,
@@ -104,6 +113,9 @@ export const MarkdownEditor = React.forwardRef<
   const sourceModeToggledRef = React.useRef(false);
   const liveEditorRevisionRef = React.useRef(0);
   const sourceEditorRef = React.useRef<MarkdownSourceEditorHandle | null>(null);
+  const aiEditControllerRef = React.useRef<MarkweaveAiEditController | null>(
+    null,
+  );
   const sourceDraftMarkdownRef = React.useRef(markdown);
   const pendingSourceMarkdownRef = React.useRef<string | null>(null);
   const pendingPayloadRef = React.useRef<MarkweaveEditorUpdatePayload | null>(
@@ -139,6 +151,13 @@ export const MarkdownEditor = React.forwardRef<
     () => normalizeDrawingMarkdownReferences(loadedMarkdown),
     [loadedMarkdown],
   );
+  const askAiConfig = React.useMemo(
+    () =>
+      aiEnabled && askAiHandler && !readOnly && !sourceMode
+        ? { enabled: true as const, handler: askAiHandler }
+        : undefined,
+    [aiEnabled, askAiHandler, readOnly, sourceMode],
+  );
   const frontmatterView = React.useMemo(() => {
     const parsed = parseFrontmatter(normalizedMarkdown);
     const hasFrontmatter = Object.keys(parsed.metadata).length > 0;
@@ -163,6 +182,7 @@ export const MarkdownEditor = React.forwardRef<
   );
   const {
     editorMarkdown,
+    onAttachmentDownload,
     onSlashCommandUpload,
     resolveMediaSource,
     toStorageMarkdown,
@@ -341,12 +361,31 @@ export const MarkdownEditor = React.forwardRef<
     },
     [findRequest, flushDraft, onMarkdownChange, readOnly],
   );
+  const handleAiEditControllerChange = React.useCallback(
+    (controller: MarkweaveAiEditController | null) => {
+      aiEditControllerRef.current = controller;
+    },
+    [],
+  );
 
   React.useImperativeHandle(
     forwardedRef,
-    () => ({ flushDraft }),
-    [flushDraft],
+    () => ({
+      flushDraft,
+      getAiEditController: () =>
+        aiEnabled && !readOnly && !sourceMode
+          ? aiEditControllerRef.current
+          : null,
+    }),
+    [aiEnabled, flushDraft, readOnly, sourceMode],
   );
+
+  React.useEffect(() => {
+    if (aiEnabled && !readOnly && !sourceMode) return;
+    const controller = aiEditControllerRef.current;
+    const contextId = controller?.getState().context?.id;
+    if (controller && contextId) controller.discard(contextId);
+  }, [aiEnabled, readOnly, sourceMode]);
 
   React.useEffect(
     () => () => {
@@ -363,6 +402,14 @@ export const MarkdownEditor = React.forwardRef<
       setSourceFindText(normalizedMarkdown);
     }
   }, [normalizedMarkdown, sourceMode]);
+
+  React.useEffect(() => {
+    onSourceModeChange?.(sourceMode);
+
+    return () => {
+      onSourceModeChange?.(false);
+    };
+  }, [onSourceModeChange, sourceMode]);
 
   const handleTocChange = React.useCallback(() => {
     // Markweave owns the visible inner TOC; this callback keeps the runtime
@@ -556,6 +603,10 @@ export const MarkdownEditor = React.forwardRef<
           if (sourceMode) {
             void flushDraft('source-toggle').then((flushed) => {
               if (flushed) {
+                loadedDocumentRef.current = {
+                  documentKey,
+                  markdown: sourceDraftMarkdownRef.current,
+                };
                 liveEditorRevisionRef.current += 1;
                 setSourceMode(false);
               }
@@ -568,8 +619,7 @@ export const MarkdownEditor = React.forwardRef<
               }
             });
           } else {
-            sourceDraftMarkdownRef.current = normalizedMarkdown;
-            setSourceFindText(normalizedMarkdown);
+            setSourceFindText(sourceDraftMarkdownRef.current);
             setSourceMode(true);
           }
           return;
@@ -605,6 +655,7 @@ export const MarkdownEditor = React.forwardRef<
         >
           <MarkweaveEditor
             ariaLabel="Markdown 正文"
+            askAi={askAiConfig}
             canvasColor="var(--background)"
             className="madora-markweave-editor"
             defaultContent={editorMarkdown}
@@ -615,6 +666,8 @@ export const MarkdownEditor = React.forwardRef<
             key={`${documentKey ?? 'document'}:${liveEditorRevisionRef.current}`}
             lang="zh"
             mode={readOnly ? 'view' : 'live'}
+            onAiEditControllerChange={handleAiEditControllerChange}
+            onAttachmentDownload={onAttachmentDownload}
             onSlashCommandUpload={onSlashCommandUpload}
             {...{ resolveMediaSource }}
             onSearchControllerChange={handleSearchControllerChange}
@@ -632,14 +685,6 @@ export const MarkdownEditor = React.forwardRef<
             className="flex min-h-0 w-full flex-1 flex-col bg-background"
             data-testid="markdown-source-mode"
           >
-            <div className="flex h-10 shrink-0 items-center justify-between border-b bg-muted/30 px-4 text-xs text-muted-foreground">
-              <span className="font-medium text-foreground">
-                Markdown 源码
-              </span>
-              <span>
-                {readOnly ? '只读' : '可编辑'} · Ctrl / Cmd + / 返回
-              </span>
-            </div>
             <MarkdownSourceEditor
               editorRef={sourceEditorRef}
               initialValue={sourceDraftMarkdownRef.current}

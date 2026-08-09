@@ -1530,6 +1530,8 @@ mod tests {
         run_git(root.path(), &["init"]).expect("init repo");
         run_git(root.path(), &["config", "user.email", "test@example.com"]).expect("config email");
         run_git(root.path(), &["config", "user.name", "Test User"]).expect("config name");
+        run_git(root.path(), &["config", "core.autocrlf", "false"])
+            .expect("disable line ending conversion");
         root
     }
 }

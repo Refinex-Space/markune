@@ -11,6 +11,10 @@ const workspaceSidebarPath = join(
   process.cwd(),
   'components/workspace/workspace-sidebar.tsx',
 );
+const pinnedSidebarSectionPath = join(
+  process.cwd(),
+  'components/workspace/pinned-sidebar-section.tsx',
+);
 const tauriConfigPath = join(process.cwd(), 'src-tauri/tauri.conf.json');
 
 describe('Workspace titlebar', () => {
@@ -31,9 +35,11 @@ describe('Workspace titlebar', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
     const workspaceSidebarSource = readFileSync(workspaceSidebarPath, 'utf8');
 
+    expect(workspaceSidebarSource).toContain("windowsChromeInset && 'h-2'");
     expect(workspaceSidebarSource).toContain(
-      "windowsChromeInset ? 'h-2' : 'h-10'",
+      'macChromeContentTop ?? DEFAULT_TITLEBAR_SPACER',
     );
+    expect(workspaceSidebarSource).toContain('- panelMargin');
     expect(workspaceLayoutSource).toContain(
       'windowsChromeInset={isTauriRuntime && isWindowsRuntime}',
     );
@@ -42,6 +48,20 @@ describe('Workspace titlebar', () => {
       '<div className="min-w-0 flex-1">{documentTabs}</div>',
     );
     expect(workspaceLayoutSource.match(/<DocumentTabBar/g)).toHaveLength(1);
+  });
+
+  it('aligns the drawing detail divider with the sidebar across native titlebars', () => {
+    const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
+
+    expect(workspaceLayoutSource).toContain("systemPage === 'drawings' && drawings.selection.kind === 'drawing'");
+    expect(workspaceLayoutSource).toContain('const WORKSPACE_PANEL_MARGIN = 8');
+    expect(workspaceLayoutSource).toContain('const WORKSPACE_SIDEBAR_HEADER_HEIGHT = 44');
+    expect(workspaceLayoutSource).toContain('? macChromeContentTop');
+    expect(workspaceLayoutSource).toContain('editorHeaderHeight={drawingEditorHeaderHeight}');
+    expect(workspaceLayoutSource).toContain('overlayContent={');
+    expect(workspaceLayoutSource).toMatch(
+      /overlayContent\s*\? 'absolute inset-x-0 top-0 z-10 h-11'/,
+    );
   });
 
   it('reserves the macOS left chrome area when the workspace sidebar is collapsed', () => {
@@ -55,7 +75,7 @@ describe('Workspace titlebar', () => {
     );
   });
 
-  it('moves the macOS traffic lights and left chrome tools below the panel edge', () => {
+  it('aligns the macOS traffic lights, chrome tools, and sidebar content rhythm', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
     const tauriConfig = JSON.parse(readFileSync(tauriConfigPath, 'utf8')) as {
       app: {
@@ -67,14 +87,81 @@ describe('Workspace titlebar', () => {
 
     expect(tauriConfig.app.windows[0]?.trafficLightPosition).toEqual({
       x: 15,
-      y: 32,
+      y: 26,
     });
     expect(workspaceLayoutSource).toMatch(
       /macChromeOffset=\{\s*isTauriRuntime\s*&&\s*isMacRuntime\s*\}/,
     );
     expect(workspaceLayoutSource).toContain(
-      "macChromeOffset ? 'top-3.5' : 'top-0'",
+      'macChromeControlsTop={macChromeControlsTop}',
     );
+    expect(
+      workspaceLayoutSource.match(/macChromeContentTop=\{/g),
+    ).toHaveLength(2);
+    expect(workspaceLayoutSource).toContain(
+      "style={macChromeOffset ? { top: macChromeControlsTop } : undefined}",
+    );
+    expect(workspaceLayoutSource).not.toContain("'top-3.5'");
+    expect(workspaceLayoutSource).toContain('SidebarExpandedIcon');
+    expect(workspaceLayoutSource).toContain('SidebarCollapsedIcon');
+    expect(workspaceLayoutSource).not.toContain('PanelLeftClose');
+    expect(workspaceLayoutSource).not.toContain('PanelLeftOpen');
+  });
+
+  it('allocates separate non-overlapping rows for macOS chrome and system-page tools', () => {
+    const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
+
+    expect(workspaceLayoutSource).toContain(
+      '? macChromeContentTop - WORKSPACE_PANEL_MARGIN',
+    );
+    expect(workspaceLayoutSource).toContain(
+      'const macSidebarHeaderOffset =',
+    );
+    expect(workspaceLayoutSource).toContain(
+      'headerHeight={workspaceMainHeaderHeight}',
+    );
+    expect(workspaceLayoutSource).toContain(
+      "'--workspace-main-header-height': `${workspaceMainHeaderHeight}px`",
+    );
+    expect(
+      workspaceLayoutSource.match(
+        /sidebarHeaderOffset=\{macSidebarHeaderOffset\}/g,
+      ),
+    ).toHaveLength(3);
+  });
+
+  it('keeps 32px chrome hit targets while limiting hover backgrounds to 28px', () => {
+    const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
+
+    expect(
+      workspaceLayoutSource.match(/data-chrome-hover-surface/g),
+    ).toHaveLength(1);
+    expect(workspaceLayoutSource).not.toContain('aria-label="刷新工作区"');
+    expect(workspaceLayoutSource).toContain(
+      'group inline-flex size-8 items-center justify-center',
+    );
+    expect(workspaceLayoutSource).toContain(
+      'inline-flex size-7 items-center justify-center rounded-md',
+    );
+  });
+
+  it('places the collapsible pinned section above workspace folders', () => {
+    const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
+    const workspaceSidebarSource = readFileSync(workspaceSidebarPath, 'utf8');
+    const pinnedSidebarSectionSource = readFileSync(
+      pinnedSidebarSectionPath,
+      'utf8',
+    );
+
+    expect(workspaceLayoutSource).not.toContain('PinnedSidebarSection');
+    expect(workspaceSidebarSource).toContain(
+      "import { PinnedSidebarSection }",
+    );
+    expect(
+      workspaceSidebarSource.indexOf('<PinnedSidebarSection'),
+    ).toBeLessThan(workspaceSidebarSource.indexOf('<DocumentTree'));
+    expect(pinnedSidebarSectionSource).toContain('aria-expanded={expanded}');
+    expect(pinnedSidebarSectionSource).not.toContain('<Popover');
   });
 
   it('does not reset the macOS traffic light position when the document title changes', () => {
@@ -90,6 +177,7 @@ describe('Workspace titlebar', () => {
 
   it('renders the compact AI and metadata panels beside the rounded main panel', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
+    const workspaceSidebarSource = readFileSync(workspaceSidebarPath, 'utf8');
 
     expect(workspaceLayoutSource).toContain(
       'data-testid="workspace-panel-group"',
@@ -104,6 +192,12 @@ describe('Workspace titlebar', () => {
       /className="([^"]+)"\s+data-testid="workspace-editor-column"/,
     )?.[1];
     expect(editorColumnClass).not.toContain('shadow-[');
+    expect(workspaceLayoutSource).toContain(
+      'panelMargin={WORKSPACE_PANEL_MARGIN}',
+    );
+    expect(workspaceSidebarSource).toContain(
+      'rounded-xl border border-border/70 bg-background',
+    );
     expect(workspaceLayoutSource.indexOf('data-testid="workspace-editor-column"'))
       .toBeLessThan(workspaceLayoutSource.indexOf('<RightSidePanel'));
   });
@@ -115,8 +209,10 @@ describe('Workspace titlebar', () => {
       "'min-h-0 shrink-0'",
     );
     expect(workspaceLayoutSource).toContain(
-      "'mt-10 [&>aside]:rounded-none [&>aside]:border-0 [&>aside]:bg-transparent'",
+      "'[&>aside]:rounded-none [&>aside]:border-0 [&>aside]:bg-transparent'",
     );
+    expect(workspaceLayoutSource).toContain('marginTop:');
+    expect(workspaceLayoutSource).toContain('? macChromeContentTop');
     expect(workspaceLayoutSource).toContain(
       ": 'my-2 ml-2'",
     );
@@ -125,6 +221,25 @@ describe('Workspace titlebar', () => {
     );
     expect(workspaceLayoutSource).not.toContain(
       "'mb-2 ml-2 min-h-0 shrink-0'",
+    );
+  });
+
+  it('guards the Git panel and log header entries with global preferences', () => {
+    const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
+
+    expect(workspaceLayoutSource).toContain(
+      'showGitPanelEntry={appSettings.appearance.showGitPanelEntry}',
+    );
+    expect(workspaceLayoutSource).toContain(
+      'showGitLogEntry={appSettings.appearance.showGitLogEntry}',
+    );
+    expect(workspaceLayoutSource).toContain('showGitPanelEntry ? (');
+    expect(workspaceLayoutSource).toContain('showGitLogEntry ? (');
+    expect(workspaceLayoutSource).toMatch(
+      /if \(!settings\.appearance\.showGitPanelEntry\) \{\s*setLeftPanelMode\('workspace'\)/,
+    );
+    expect(workspaceLayoutSource).toMatch(
+      /if \(!settings\.appearance\.showGitLogEntry\) \{\s*setBottomPanelMode\(\(current\) =>\s*current === 'git-log' \? null : current/,
     );
   });
 

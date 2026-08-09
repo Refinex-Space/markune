@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-25
+updated: 2026-08-09
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -33,6 +33,10 @@ referenced_by: AGENTS.md#knowledge-map
 
 ## Codex Runtime
 
+- Markweave 选区、表格内容和用户预编辑指令都属于不可信用户数据。固定开发者指令必须明确禁止把目标内容解释为高优先级指令，并要求只返回可替换 Markdown；表格结果还必须遵守请求中的 scope、rows、columns 与 `fragment | table` 形态。
+- 内联预编辑只能主动发送当前目标。不得附加整篇文档、活动/提及文档、图稿、文件附件、mention、Plugin、Skill、Goal、Plan 或普通 AI 会话历史；渲染器不得保存供应商 API key，也不得复制 playground 的 OpenRouter route。
+- 每次内联请求使用独立 `ephemeral` 线程、`:read-only` profile、`on-request` user reviewer、禁用 Web Search 和空 Environment。`ephemeral` 只保证线程不写入 Codex 历史，不是密码学隔离；只读 profile 仍保留既有工作区读取边界，因此任何命令、文件、MCP、动态工具、联网、审批和用户追问事件都必须失败关闭并中断 turn。Rust 不得为 `ephemeral: true` 的线程注入 Madora Drawing 动态工具。
+- 普通 AI 面板和内联 runner 可以并行，但事件必须按显式 thread/turn ownership 隔离。面板不得消费 ephemeral 或其他非当前可见线程事件；runner 只消费自身 `final_answer` 增量。Abort、冲突、标签/工作区切换和运行时退出必须中断 turn；`thread/delete` 失败不得回退到持久线程或输出原始诊断。
 - Codex App Server 必须由 Tauri 在本地通过 stdio 启动；不得监听 TCP，也不得把 API key、登录 Token 或认证响应传入 React state、local storage 或日志。
 - 新线程默认使用 Codex 命名权限配置 `:workspace`、`on-request` 审批策略和 `user` reviewer，并把已 canonicalize 的当前工作区作为唯一 runtime workspace root。`turn/start` 不得携带权限覆盖；恢复线程不得隐式重置权限，后续切换只能走 `thread/settings/update`。
 - 权限模式必须保持 profile 与 reviewer 分层：自动审查只可使用 `:workspace + on-request + auto_review`，不得扩大文件或网络边界；完全访问必须经过显式风险确认并固定为 `:danger-full-access + never + user`；只读模式使用 `:read-only + on-request + user`。运行中的 turn 或待审批请求存在时禁止切换。
@@ -61,6 +65,8 @@ referenced_by: AGENTS.md#knowledge-map
 ## Uploads And Links
 
 - 上传资源必须保留在工作区资源目录内，Markdown 新写入只存储 `madora-asset://{assetId}`，不得把绝对路径、Windows 盘符或文档层级相关路径作为资产身份。批量协议解析最多接受 2,048 个经格式校验并去重的 ID，只能复用一次工作区 canonicalize/索引读取；每个命中仍必须逐文件 canonicalize、拒绝符号链接/目录/边界逃逸，并且只有校验成功的单个物理文件可以动态加入当前进程的资源协议范围，不得授权整个工作区、磁盘或卷。缺失和不可读结果可以负缓存，但不得包含正文或扩大权限。旧 `.madora/assets/files/...` 引用只读兼容。
+- 目录本地图标只能由原生文件选择器导入 SVG、PNG 或 WebP，单文件不超过 2 MiB，栅格边长不超过 4096 px，并拒绝 APNG/动画 WebP、签名与扩展名不一致的内容。SVG 必须是 UTF-8 单根静态文档，只允许受控图形元素和属性，拒绝脚本、事件处理器、CDATA、DOCTYPE、处理指令、外部 URL、Data URL 与非内部片段 `url()`。渲染器只取得资产 ID、媒体类型和显示名称，不取得源绝对路径；导入不扩大 capability 或资产协议 scope。
+- 目录外观引用必须计入工作区资产回收扫描。更换图标、恢复默认或删除目录时，只能删除已经不被 Markdown、Inbox 或其他目录外观引用的候选资产；损坏或伪造的 `local` 资产 ID 必须在写入节点状态前失败关闭。
 - 图稿引用的剪贴板兼容只允许 64 位十六进制 `madora-asset://{assetId}` 和合法 UUID `madora-drawing://{drawingId}` 的精确组合；这只是编辑器图片粘贴解析规则，不得扩大浏览器导航协议、Tauri capability 或 `assetProtocol.scope`。
 - 链接卡片只能使用既有的受限预览 route 或 Tauri 命令；不得在渲染器直接请求任意 URL。
 

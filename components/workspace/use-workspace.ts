@@ -21,6 +21,7 @@ import {
   selectWorkspaceParentDirectory,
   selectWorkspaceRoot,
   setWorkspaceNodeState,
+  setTreeNodeAppearance,
 } from './workspace-api';
 import {
   extractH1FromMarkdown,
@@ -47,6 +48,7 @@ import type {
   WorkspaceMoveRequest,
   WorkspaceNode,
   WorkspaceSnapshot,
+  TreeNodeAppearance,
 } from './workspace-types';
 
 const FRONTMATTER_OPENING_PATTERN = /^---\r?\n/;
@@ -99,6 +101,8 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     React.useState<string[]>([]);
 
   const suppressNextAutoRestoreRef = React.useRef(false);
+  const loadWorkspaceRequestIdRef = React.useRef(0);
+  const autoRestoreAttemptedRef = React.useRef(false);
   const currentDirectory = React.useMemo(() => {
     if (!snapshot || !currentDirectoryPath) {
       return null;
@@ -174,31 +178,64 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     return nextSnapshot;
   }, [snapshot]);
 
-  const loadWorkspace = React.useCallback(async (rootPath: string) => {
-    setIsLoading(true);
-    setError(null);
+  const loadWorkspace = React.useCallback(
+    async (
+      rootPath: string,
+      options?: { reason?: 'auto-restore' | 'user' },
+    ) => {
+      const requestId = ++loadWorkspaceRequestIdRef.current;
+      const reason = options?.reason ?? 'user';
+      setIsLoading(true);
+      setError(null);
 
-    try {
-      const [nextSnapshot, metadata] = await Promise.all([
-        loadWorkspaceTree(rootPath),
-        ensureWorkspace(rootPath).catch(() => null),
-      ]);
-      setSnapshot(nextSnapshot);
-      setInitialRecentDocumentPaths(
-        metadata?.recentDocumentPaths ?? [],
-      );
-      resetDocumentState();
-      saveRecentWorkspacePath(nextSnapshot.rootPath);
-      setStoredWorkspaceHistory(recordWorkspaceHistory(nextSnapshot));
-    } catch {
-      setError({
-        message: '无法读取工作区，请重新选择文件夹。',
-        recoverable: true,
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [resetDocumentState]);
+      try {
+        const [nextSnapshot, metadata] = await Promise.all([
+          loadWorkspaceTree(rootPath),
+          ensureWorkspace(rootPath).catch(() => null),
+        ]);
+
+        if (requestId !== loadWorkspaceRequestIdRef.current) {
+          return;
+        }
+
+        setSnapshot(nextSnapshot);
+        setInitialRecentDocumentPaths(
+          metadata?.recentDocumentPaths ?? [],
+        );
+        resetDocumentState();
+        saveRecentWorkspacePath(nextSnapshot.rootPath);
+        setStoredWorkspaceHistory(recordWorkspaceHistory(nextSnapshot));
+      } catch (loadError) {
+        if (requestId !== loadWorkspaceRequestIdRef.current) {
+          return;
+        }
+
+        setSnapshot(null);
+        resetDocumentState();
+
+        // Auto-restore of a stale/missing recent path should not block the empty
+        // state with a hard error; forget the bad entry and let the user pick.
+        // author: refinex
+        if (reason === 'auto-restore') {
+          setStoredWorkspaceHistory(removeWorkspaceHistory(rootPath));
+          setError(null);
+        } else {
+          setError({
+            message: getWorkspaceErrorMessage(
+              loadError,
+              '无法读取工作区，请重新选择文件夹。',
+            ),
+            recoverable: true,
+          });
+        }
+      } finally {
+        if (requestId === loadWorkspaceRequestIdRef.current) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [resetDocumentState],
+  );
 
   const saveCurrentDocumentNow = React.useCallback(
     async (draftOverride?: MarkdownDraft | null) => {
@@ -906,6 +943,24 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     [currentDirectoryPath, currentDocument?.absolutePath, snapshot],
   );
 
+  const updateTreeNodeAppearance = React.useCallback(
+    async (node: WorkspaceNode, appearance: TreeNodeAppearance | null) => {
+      if (!snapshot || node.kind !== 'directory') {
+        return null;
+      }
+
+      const nextSnapshot = await setTreeNodeAppearance(
+        snapshot.rootPath,
+        node.absolutePath,
+        appearance,
+      );
+      setSnapshot(nextSnapshot);
+
+      return findNodeByAbsolutePath(nextSnapshot.nodes, node.absolutePath);
+    },
+    [snapshot],
+  );
+
   const workspaceHistory = React.useMemo(() => {
     return storedWorkspaceHistory;
   }, [storedWorkspaceHistory]);
@@ -926,13 +981,29 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   );
 
   const openWorkspace = React.useCallback(async () => {
-    const selected = await selectWorkspaceRoot();
+    // Invalidate any in-flight auto-restore before the folder dialog blocks.
+    loadWorkspaceRequestIdRef.current += 1;
+    setIsLoading(false);
+    setError(null);
 
-    if (!selected) {
-      return;
+    try {
+      const selected = await selectWorkspaceRoot();
+
+      if (!selected) {
+        return;
+      }
+
+      await loadWorkspace(selected);
+    } catch (openWorkspaceError) {
+      setError({
+        message: getWorkspaceErrorMessage(
+          openWorkspaceError,
+          '无法打开工作区，请重新选择文件夹。',
+        ),
+        recoverable: true,
+      });
+      setIsLoading(false);
     }
-
-    await loadWorkspace(selected);
   }, [loadWorkspace]);
 
   const createWorkspace = React.useCallback(
@@ -978,6 +1049,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
 
   React.useEffect(() => {
     if (snapshot) {
+      autoRestoreAttemptedRef.current = false;
       return;
     }
 
@@ -986,11 +1058,16 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       return;
     }
 
+    if (autoRestoreAttemptedRef.current) {
+      return;
+    }
+
     const recentPath = getRecentWorkspacePath();
 
     if (recentPath) {
+      autoRestoreAttemptedRef.current = true;
       queueMicrotask(() => {
-        void loadWorkspace(recentPath);
+        void loadWorkspace(recentPath, { reason: 'auto-restore' });
       });
     }
   }, [loadWorkspace, snapshot]);
@@ -1050,6 +1127,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     switchWorkspace: loadWorkspace,
     updateMarkdown,
     updateNodeState,
+    updateTreeNodeAppearance,
     workspaceHistory,
     removeWorkspace,
   };
@@ -1057,11 +1135,18 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
 
 function getWorkspaceErrorMessage(error: unknown, fallback: string) {
   if (error instanceof Error) {
-    return error.message;
+    return error.message || fallback;
   }
 
   if (typeof error === 'string') {
-    return error;
+    return error || fallback;
+  }
+
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string' && message.length > 0) {
+      return message;
+    }
   }
 
   return fallback;

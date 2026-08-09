@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Madora",
-  "version": "0.1.15",
+  "version": "0.2.0",
   "identifier": "com.madora.app",
   "build": {
     "frontendDist": "../out",
@@ -23,7 +23,7 @@
         "titleBarStyle": "Overlay",
         "trafficLightPosition": {
           "x": 15,
-          "y": 32
+          "y": 26
         },
         "hiddenTitle": true,
         "dragDropEnabled": false,

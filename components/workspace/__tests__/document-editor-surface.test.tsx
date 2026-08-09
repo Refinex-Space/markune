@@ -12,14 +12,25 @@ vi.mock('@/components/editor/markdown-editor', async () => {
 
   return {
     MarkdownEditor: React.forwardRef(function MockMarkdownEditor(
-      props: { documentKey?: string; markdown: string },
-      ref: React.ForwardedRef<{ flushDraft: () => Promise<boolean> }>,
+      props: {
+        aiEnabled?: boolean;
+        documentKey?: string;
+        markdown: string;
+        onSourceModeChange?: (sourceMode: boolean) => void;
+      },
+      ref: React.ForwardedRef<{
+        flushDraft: () => Promise<boolean>;
+        getAiEditController: () => null;
+      }>,
     ) {
       const initialDocumentKey = React.useRef(props.documentKey);
 
       React.useImperativeHandle(
         ref,
-        () => ({ flushDraft: async () => true }),
+        () => ({
+          flushDraft: async () => true,
+          getAiEditController: () => null,
+        }),
         [],
       );
       React.useEffect(() => {
@@ -30,7 +41,18 @@ vi.mock('@/components/editor/markdown-editor', async () => {
       }, []);
 
       return (
-        <div data-testid={`editor-${props.markdown}`}>{props.markdown}</div>
+        <div
+          data-ai-enabled={String(props.aiEnabled)}
+          data-testid={`editor-${props.markdown}`}
+        >
+          {props.markdown}
+          <button
+            type="button"
+            onClick={() => props.onSourceModeChange?.(true)}
+          >
+            进入源码 {props.markdown}
+          </button>
+        </div>
       );
     }),
   };
@@ -55,7 +77,11 @@ function doc(id: string): WorkspaceNode {
   };
 }
 
-function SurfaceHarness() {
+function SurfaceHarness({
+  onActiveSourceModeChange = () => {},
+}: {
+  onActiveSourceModeChange?: (sourceMode: boolean) => void;
+}) {
   const [layout, setLayout] = React.useState(() => {
     let value = createInitialEditorLayout();
     value = openDocumentTab(value, doc('a'));
@@ -96,6 +122,7 @@ function SurfaceHarness() {
           '/repo/b.md': { documentVersion: 20, markdown: 'B' },
         }}
         getDocumentReadOnly={() => false}
+        onActiveSourceModeChange={onActiveSourceModeChange}
         pageWidthMode="wide"
         warmDocumentPaths={['/repo/a.md', '/repo/b.md']}
         workspaceRootPath="/repo"
@@ -130,5 +157,31 @@ describe('DocumentEditorSurface', () => {
         .closest('[data-active]')
         ?.getAttribute('data-active'),
     ).toBe('true');
+    expect(screen.getByTestId('editor-A').getAttribute('data-ai-enabled')).toBe(
+      'true',
+    );
+    expect(screen.getByTestId('editor-B').getAttribute('data-ai-enabled')).toBe(
+      'false',
+    );
+  });
+
+  it('只上报当前活动文档的源码模式', () => {
+    const onActiveSourceModeChange = vi.fn();
+    render(
+      <SurfaceHarness onActiveSourceModeChange={onActiveSourceModeChange} />,
+    );
+
+    fireEvent.click(
+      screen.getByTestId('editor-B').querySelector('button') as HTMLButtonElement,
+    );
+    expect(onActiveSourceModeChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '进入源码 A' }));
+    expect(onActiveSourceModeChange).toHaveBeenLastCalledWith(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'b' }));
+    fireEvent.click(screen.getByRole('button', { name: '进入源码 B' }));
+    expect(onActiveSourceModeChange).toHaveBeenLastCalledWith(true);
+    expect(onActiveSourceModeChange).toHaveBeenCalledTimes(2);
   });
 });

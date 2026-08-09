@@ -288,7 +288,7 @@ export function InboxSidebar({
                 {lane.label}
                 <span className="ml-auto tabular-nums">{lane.items.length}</span>
               </h2>
-              <div>
+              <div className="space-y-1">
                 {lane.items.map((item) => (
                   <CaptureRow
                     key={item.id}

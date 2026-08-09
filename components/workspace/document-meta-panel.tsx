@@ -34,6 +34,7 @@ import {
 import {
   countMarkdownCharacters,
   countMarkdownLines,
+  countMarkdownWords,
   extractResourceReferencesFromMarkdown,
   type DocumentResourceReference,
 } from './workspace-document-insights';
@@ -68,6 +69,10 @@ export function DocumentMetaPanel({
   );
   const characterCount = React.useMemo(
     () => countMarkdownCharacters(deferredMarkdown),
+    [deferredMarkdown],
+  );
+  const wordCount = React.useMemo(
+    () => countMarkdownWords(deferredMarkdown),
     [deferredMarkdown],
   );
   const lineCount = React.useMemo(
@@ -112,6 +117,7 @@ export function DocumentMetaPanel({
             lineCount={lineCount}
             readOnly={readOnly}
             resourceCount={resources.length}
+            wordCount={wordCount}
             onToggleReadOnly={onToggleReadOnly}
           />
         ) : (
@@ -155,6 +161,7 @@ function DocumentMetaDetails({
   lineCount,
   readOnly,
   resourceCount,
+  wordCount,
   onToggleReadOnly,
 }: {
   characterCount: number;
@@ -163,6 +170,7 @@ function DocumentMetaDetails({
   lineCount: number;
   readOnly: boolean;
   resourceCount: number;
+  wordCount: number;
   onToggleReadOnly?: () => void;
 }) {
   const title =
@@ -199,7 +207,7 @@ function DocumentMetaDetails({
           <MetaRow
             icon={<Hash size={14} />}
             label="词数"
-            value={characterCount.toLocaleString('zh-CN')}
+            value={wordCount.toLocaleString('zh-CN')}
           />
           <MetaRow
             icon={<FileText size={14} />}

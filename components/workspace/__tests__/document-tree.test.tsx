@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -34,7 +34,154 @@ const nodes: WorkspaceNode[] = [
   },
 ];
 
+const countedNodes: WorkspaceNode[] = [
+  {
+    id: 'projects',
+    name: 'Projects',
+    kind: 'directory',
+    relativePath: 'Projects',
+    absolutePath: '/repo/Projects',
+    children: [
+      {
+        id: 'project-overview',
+        name: 'overview.md',
+        kind: 'document',
+        relativePath: 'Projects/overview.md',
+        absolutePath: '/repo/Projects/overview.md',
+        title: '项目概览',
+      },
+      {
+        id: 'archive',
+        name: 'Archive',
+        kind: 'directory',
+        relativePath: 'Projects/Archive',
+        absolutePath: '/repo/Projects/Archive',
+        children: [
+          {
+            id: 'project-notes',
+            name: 'notes.md',
+            kind: 'document',
+            relativePath: 'Projects/Archive/notes.md',
+            absolutePath: '/repo/Projects/Archive/notes.md',
+            title: '项目记录',
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'empty-directory',
+    name: 'Empty',
+    kind: 'directory',
+    relativePath: 'Empty',
+    absolutePath: '/repo/Empty',
+    children: [],
+  },
+];
+
 describe('DocumentTree', () => {
+  it('keeps the icon picker open after launching it from the context menu', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <DocumentTree
+        currentDocumentPath={null}
+        nodes={nodes}
+        rootPath="/repo"
+        searchQuery=""
+        onCreateDirectory={vi.fn()}
+        onCreateDocument={vi.fn()}
+        onDeleteNode={vi.fn()}
+        onImportMarkdown={vi.fn()}
+        onRenameNode={vi.fn()}
+        onSelectDocument={vi.fn()}
+        onUpdateNodeAppearance={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByTestId('tree-row-guides'));
+    await user.click(screen.getByRole('menuitem', { name: '更换图标...' }));
+
+    await screen.findByRole('tablist', { name: '目录图标类型' });
+    act(() => screen.getByTestId('tree-row-guides').focus());
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
+    expect(
+      screen.queryByRole('tablist', { name: '目录图标类型' }),
+    ).not.toBeNull();
+  });
+
+  it('renders a customized emoji and restores the default appearance from the context menu', async () => {
+    const user = userEvent.setup();
+    const onUpdateNodeAppearance = vi.fn().mockResolvedValue(undefined);
+    const customizedNodes: WorkspaceNode[] = [
+      {
+        ...nodes[0],
+        appearance: { icon: { type: 'emoji', value: '📚' } },
+      },
+    ];
+
+    render(
+      <DocumentTree
+        currentDocumentPath={null}
+        nodes={customizedNodes}
+        rootPath="/repo"
+        searchQuery=""
+        onCreateDirectory={vi.fn()}
+        onCreateDocument={vi.fn()}
+        onDeleteNode={vi.fn()}
+        onImportMarkdown={vi.fn()}
+        onRenameNode={vi.fn()}
+        onSelectDocument={vi.fn()}
+        onUpdateNodeAppearance={onUpdateNodeAppearance}
+      />,
+    );
+
+    expect(screen.getByTestId('directory-folder-closed-guides').textContent).toBe(
+      '📚',
+    );
+    fireEvent.contextMenu(screen.getByTestId('tree-row-guides'));
+    await user.click(screen.getByRole('menuitem', { name: '恢复默认图标' }));
+
+    await waitFor(() =>
+      expect(onUpdateNodeAppearance).toHaveBeenCalledWith(customizedNodes[0], null),
+    );
+  });
+
+  it('shows recursive document counts in a stable right-side rail for directories', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <DocumentTree
+        currentDocumentPath={null}
+        nodes={countedNodes}
+        searchQuery=""
+        onCreateDirectory={vi.fn()}
+        onCreateDocument={vi.fn()}
+        onDeleteNode={vi.fn()}
+        onImportMarkdown={vi.fn()}
+        onRenameNode={vi.fn()}
+        onSelectDocument={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('directory-document-count-projects').textContent).toBe('2');
+    expect(
+      screen.queryByTestId('directory-document-count-empty-directory'),
+    ).toBeNull();
+
+    await user.click(screen.getByText('Projects'));
+
+    const archiveCount = screen.getByTestId('directory-document-count-archive');
+    expect(archiveCount.textContent).toBe('1');
+    expect(archiveCount.className).toContain('absolute right-2');
+    expect(archiveCount.className).toContain('size-6');
+    expect(archiveCount.className).toContain('tabular-nums');
+    expect(archiveCount.className).toContain('group-hover/tree-row:opacity-0');
+    expect(
+      screen.getByRole('button', { name: '打开 Archive 操作菜单' }).className,
+    ).toContain('absolute right-2 top-0.5');
+  });
+
   it('creates documents and directories at the workspace root from the blank area menu', async () => {
     const user = userEvent.setup();
     const onCreateDocument = vi.fn();
@@ -65,6 +212,39 @@ describe('DocumentTree', () => {
     fireEvent.contextMenu(rootCreationArea);
     await user.click(screen.getByRole('menuitem', { name: '新建目录' }));
     expect(onCreateDirectory).toHaveBeenCalledWith('');
+  });
+
+  it('refreshes the workspace from directory, document, and blank-area menus', async () => {
+    const user = userEvent.setup();
+    const onRefresh = vi.fn();
+
+    render(
+      <DocumentTree
+        currentDocumentPath={null}
+        nodes={nodes}
+        searchQuery=""
+        onCreateDirectory={vi.fn()}
+        onCreateDocument={vi.fn()}
+        onDeleteNode={vi.fn()}
+        onImportMarkdown={vi.fn()}
+        onRefresh={onRefresh}
+        onRenameNode={vi.fn()}
+        onSelectDocument={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByTestId('tree-row-guides'));
+    await user.click(screen.getByRole('menuitem', { name: '刷新' }));
+
+    fireEvent.contextMenu(screen.getByTestId('tree-row-readme'));
+    await user.click(screen.getByRole('menuitem', { name: '刷新' }));
+
+    fireEvent.contextMenu(
+      screen.getByTestId('workspace-tree-root-creation-area'),
+    );
+    await user.click(screen.getByRole('menuitem', { name: '刷新' }));
+
+    expect(onRefresh).toHaveBeenCalledTimes(3);
   });
 
   it('uses folder state icons for directories and no icons for documents', async () => {

@@ -1,22 +1,28 @@
 ---
 owner: refinex
-updated: 2026-07-24
+updated: 2026-08-09
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
 
 # Architecture Overview
 
-Madora 是一个以本地 Markdown 文档为核心的桌面知识库，使用 Next.js App Router、React、TypeScript、Tauri v2 和 `@refinex/markora` 构建。
+Madora 是一个以本地 Markdown 文档为核心的桌面知识库，使用 Next.js App Router、React、TypeScript、Tauri v2 和 Markweave 构建。
 
 ## Runtime Shape
 
 - Web shell：Next.js App Router 与 React client components。
-- Editor：`components/editor/markdown-editor.tsx` 以非受控 `defaultContent` 包装 `@markweave/react` / `markweave`；编辑事务只保留惰性 payload 和 dirty 状态，完整 Markdown 字符串边界只位于 load/flush。源码模式动态加载 CodeMirror 6，Live/Source 切换只在边界互转一次。
-- Workspace shell：`components/workspace/workspace-layout.tsx` 管理文档树、编辑器标签、全文搜索、Git、终端、设置、文档元信息与 AI 侧栏。
-- Native boundary：前端经 `components/workspace/workspace-api.ts` 调用 Tauri 命令；实现位于 `src-tauri/src`。
+- Editor：`components/editor/markdown-editor.tsx` 以非受控 `defaultContent` 包装 `@markweave/react` / `markweave`；编辑事务只保留惰性 payload 和 dirty 状态，完整 Markdown 字符串边界只位于 load/flush。源码模式动态加载 CodeMirror 6，Live/Source 切换只在边界互转一次。Slash 附件经 `onSlashCommandUpload` 写入工作区资产并以 `madora-asset://` 持久化，激活下载由 `onAttachmentDownload` 处理。
+- Workspace shell：`components/workspace/workspace-layout.tsx` 管理文档树、编辑器标签、全文搜索、Git、终端、设置、文档元信息与 AI 侧栏。左侧顶部系统入口（笔记、日程、Inbox、画板、视图、图谱、Codex）由 `workspace-system-nav.tsx` 渲染，排列与折叠偏好写入全局 `appearance.systemNavLayout` / `appearance.systemNavCollapsed`；文档树“文件夹”标题切换到复用 `directory-page.tsx` 的工作区根级总览，根级文件夹卡片继续进入既有目录详情。
+- Native boundary：前端经 `components/workspace/workspace-api.ts` 调用 Tauri 命令；实现位于 `src-tauri/src`。`window_chrome.rs` 只读取 macOS AppKit 红绿灯在 WKWebView 中的垂直中心数值，使 Web 标题栏控件不依赖构建 SDK 的固定偏移；`window_opacity.rs` 通过 macOS AppKit 或 Windows 分层窗口接口调整整个原生窗口的合成透明度，Web 页面不使用 CSS `opacity` 模拟该能力。
 - Codex runtime：`components/workspace/codex-app-server.ts` 只消费协议消息；`src-tauri/src/codex.rs` 启动随应用打包的 Codex App Server sidecar，并通过 stdio JSONL 传递允许的方法、通知与审批请求。
 - Local state：全局设置由 `src-tauri/src/settings.rs` 持久化；面板尺寸使用浏览器 local storage；AI 会话由 Codex App Server 存入用户级 Codex Home，不属于工作区状态。
+
+## Directory Tree Appearance Boundary
+
+目录自定义外观只作用于目录节点，不改变文档图标、系统导航或文件系统名称。节点使用默认文件夹图标时不写显式外观；用户可选择离线打包的 Tabler 图标、单个 Emoji 或导入到当前工作区资产库的 SVG/PNG/WebP，并可独立设置语义预设色或六位 HEX。目录树与置顶区统一读取 `WorkspaceNode.appearance`，无效、缺失或仍在加载的图标回退到现有文件夹图标。
+
+工作区级权威状态保存在 `.madora/workspace.json` 的 `nodeState[relativePath].appearance`，随目录重命名和移动一起重写相对路径，删除目录时清除对应前缀。全局 `appearance.treeIconPicker` 只保存选择器最后标签和最多 20 个最近使用项，不保存节点选择。本地图标继续使用内容寻址的 `.madora/assets` 存储；外观切换、恢复默认或目录删除后，只有不再被 Markdown、Inbox 或其他目录外观引用的旧资产才会清理。
 
 ## Main Modules
 
@@ -33,6 +39,20 @@ Inbox 是工作区级快速捕获与分拣入口，不属于正式文档树、�
 前端由 `use-inbox-controller.ts` 统一持有列表、选中项、新建草稿与保存状态，`inbox-sidebar.tsx` 复用左侧目录树区域承载紧凑列表、状态筛选、局部搜索、状态行右侧的新建入口和分拣菜单，`inbox-page.tsx` 只保留无标题栏的 Markdown 编辑器。新建时先在主编辑区建立临时草稿，空白草稿不写盘，首个非空正文通过自动保存创建 Capture。Capture 的历史标签仍按原样保留在 Markdown frontmatter 与接口中以保证兼容，但 Inbox v1 不提供标签交互。工作区头部搜索入口统一打开全局文档与图稿搜索，Inbox 查询只由其侧栏内部的局部搜索框控制。原生边界集中在 `src-tauri/src/inbox.rs`：通用 Markdown 命令继续拒绝 `.madora`，Inbox 命令只接受受格式约束的 Capture ID，并在 canonicalize 后访问 `.madora/inbox/<id>.md`。Promote 和 Append 作为 Rust 组合操作完成；Daily 追加使用 `<!-- madora-capture:<id> -->` 防止重复，并在 Capture 留痕保存失败时恢复本次追加。
 
 Capture 的持久状态仅为 `open`、`processing`、`done`、`archived`。Inbox 不再提供新增 snooze 的交互；历史 Capture 中未来的 `snoozedUntil` 仍在读取后的视图层派生为“稍后”，并提供“恢复待处理”清除该字段，无需后台迁移。提升后的 Note 与追加后的 Daily 都是正式 Markdown 文档，Capture 本身保留为已处理记录。
+
+## Daily Calendar Boundary
+
+Daily 是工作区级日程总览，也是普通 Markdown 文档集合。顶部“日程”入口只切换到总览系统页，不创建或打开当天文件；左下角迷你日历继续作为具体日期的快捷入口，其展开状态与每周起始日由全局 `calendar` 设置统一控制，不保存到工作区。总览中的日期选择只更新选中状态，已有条目通过“打开详情”进入编辑器，空白日期必须显式选择“创建每日笔记”后才调用 `open_daily_note`。物理文件继续固定保存在 `Daily/YYYY/MM/YYYY-MM-DD.md`，不新增事件实体、数据库投影或会议日历语义。`Daily/` 根目录仍从普通文档树隐藏；单日导出不依赖树节点，而由日程检查器「导出」菜单与文档标签右键「导出」复用既有 `useDocumentExport` 管线（HTML / Markdown / PDF / Word），桌面端可用时才接线。
+
+macOS 工作区壳层把全局 Chrome 工具与系统页工具分为两个不重叠的纵向区段：主标题栏高度由 `macChromeContentTop - WORKSPACE_PANEL_MARGIN` 计算，日程与视图页再以零偏移接续，因此它们的工具行可与侧边栏搜索入口共用水平中线，而不通过负外边距侵入全局按钮区域。工作区侧边栏保留原有外层宽度和折叠边界，内部内容以同一 `WORKSPACE_PANEL_MARGIN` 内缩为圆角、有边框的独立面板；macOS 顶部占位同步扣除该间距，使原生红绿灯与侧栏内容的绝对位置不变。置顶内容不占用顶部 Chrome，而是在目录树“文件夹”之前以默认折叠的内联区域呈现；标题切换到复用 `directory-page.tsx` 的置顶汇总页，右侧箭头单独控制展开，展开后可打开文档或目录并取消置顶。Windows 与 Web 继续使用原有固定标题栏高度。
+
+`list_daily_notes_for_month` 在一次 Tauri 调用中扫描固定月份目录，并从当月 Markdown 正文派生有界标题、摘要、任务总数、完成数和最多三条任务预览；这些展示字段只存在于响应中，不写入 `.madora/workspace.json`。前端按请求序号忽略快速切月产生的过期响应，加载失败保留最近一次成功结果并提供显式重试。选中已有日期后，详情检查器通过既有 `read_markdown_document` 按需读取单篇正文并复用只读 Markdown 渲染器，不把整月正文带入月索引。检查器默认宽度为 420 px，可在 360–640 px 内通过鼠标或键盘调整并保存到浏览器 local storage；主内容宽度不足时检查器改为抽屉，不强制关闭已有 AI 或元信息面板。
+
+## Knowledge Graph Boundary
+
+图谱是工作区级只读 `systemPage`，入口位于左侧顶部导航。它不建立数据库、不修改 Markdown，也不把图布局写回工作区。`src-tauri/src/graph.rs` 在有界后台任务中一次扫描工作区 Markdown/MDX，跳过 `.madora`、`.git`、依赖和构建目录，只向渲染器返回相对文档路径、显示标题、节点类型、聚合边与有限警告；单篇文件、文档总数和关系总数都有硬上限。标准 Markdown `.md/.mdx` 链接与 `[[Wiki Link]]` 只在图谱读取层解析，后者不改变编辑器或持久化格式。节点包含普通笔记、`Daily/`、`Weekly/`、标签和 frontmatter 属性字段；`title`、`tags`、时间戳、`refinexDialect`、`aliases` 等系统字段不会生成属性中心节点。
+
+`workspace-graph-page.tsx` 通过 `workspace-api.ts` 的单次 Tauri 调用取得快照，继续复用现有工作区树节点完成“打开文档”，不接受原生层返回的绝对路径或全文。`workspace-graph-canvas.tsx` 使用 D3 force/zoom/drag/quadtree 与单个高 DPI Canvas：物理模拟在数据或力参数改变时重启并自然停止，绘制由 `requestAnimationFrame` 合并，边按类型批量描画，标签只在缩放阈值以上且节点位于视口内时显示，命中检测使用四叉树。搜索只高亮并聚焦匹配节点；类型筛选和隐藏孤立节点只投影可见数组，不重新读取工作区。力参数、显示类型和标签阈值仅以工作区路径散列后的 key 保存在浏览器 local storage，不保存原始路径。
 
 ## Drawing Workspace Boundary
 
@@ -56,7 +76,7 @@ Markdown/HTML 相对图片只能从已授权源文档目录内读取；跨工作
 
 ## Single-document Export Boundary
 
-单文档导出由 `components/workspace/use-document-export.tsx` 统一编排，文档树右键菜单与省略号菜单只传入文档节点和格式。导出源按当前未保存草稿、已打开标签缓存、磁盘 Markdown 的顺序解析，继续保持 Markdown-first 边界。
+单文档导出由 `components/workspace/use-document-export.tsx` 统一编排。入口包括文档树右键/省略号菜单、日程检查器「导出」菜单，以及文档标签右键「导出」子菜单；上述入口只传入文档节点和格式。导出源按当前未保存草稿、已打开标签缓存、磁盘 Markdown 的顺序解析，继续保持 Markdown-first 边界。日程导出通过 `toDailyExportNode` 把 `DailyNoteEntry` 映射为最小 `WorkspaceNode`（文件名 stem 优先使用 `YYYY-MM-DD`），不因导出调用 `open_daily_note` 创建空文件，也不新增批量/整月导出协议。
 
 `document-export-core.ts` 负责可移植 Markdown 资源包、只读 Markweave DOM 快照与静态 HTML 清理。HTML 跟随当前主题并使用 64 rem 标准正文宽度；导出快照必须移除编辑器目录、工具栏、大文档 `content-visibility` 属性和其他运行时 UI，但保留正文语义与内联图片。`document-export-professional.ts` 是 Madora 方言到通用 Markdown 的受控适配层：本地资产只映射到 staging，相同的 frontmatter 标题/H1 去重，Wiki 链接转为可读文本，远程图片转为普通链接，已成功渲染的 Mermaid 预览转为静态 PNG。
 
@@ -67,6 +87,10 @@ Word 与 PDF 默认使用固定版本 sidecar：Pandoc 3.10.1 负责 Markdown AS
 ## Codex AI Boundary
 
 AI 面板是工作区级客户端，不在浏览器渲染器中运行 Node.js SDK，也不持有 OpenAI API key。Tauri 启动固定版本的 `codex app-server --listen stdio://`，账户登录、线程历史、模型目录、MCP、联网搜索、工具调用和文件变更由 App Server 提供。前端仅能调用 `src-tauri/src/codex.rs` 中的 allowlist 方法，并把消息、计划、命令、文件修改与 MCP 事件按协议到达顺序写入统一会话流；助手消息使用禁用原始 HTML 的 GFM 渲染。
+
+Markweave 0.5.2 的 AI 预编辑由两条互补路径组成。可编辑的活动 Live 文档通过 `askAi` 启用编辑器内置入口，覆盖普通文本以及单元格、行、列、多单元格选区和整表；AI 面板通过活动 `MarkdownEditorHandle` 取得 `MarkweaveAiEditController`，仅对普通文本选区发起宿主驱动预编辑。Source、View、只读文档、Plan/AI 预览和隐藏缓存编辑器不发布可用 controller。两条路径都由 Markweave 持有临时差异、冲突检测、接受、舍弃、停止和一次 Undo；接受结果沿既有 `onUpdate`、500 ms 惰性 flush 与 Markdown 保存链路提交，不调用全量 `setContent`。
+
+`components/workspace/codex-inline-ai.ts` 为每次预编辑创建独立的 Codex `ephemeral` 线程，使用当前模型和非 Plan 推理强度，固定 `:read-only + on-request + user`、禁用 Web Search 与 Environment。请求只包含用户指令和 Markweave 提供的目标 Markdown/表格结构，不附加当前会话、整篇文档、文档/图稿引用、附件、mention、Plugin、Skill 或 Goal。runner 只消费自己 thread/turn 的 `final_answer` 增量；AI 面板拒绝归约 ephemeral 或非当前可见线程事件。目标中止、冲突、文档/工作区切换和运行时退出会中断 turn，终态后 best-effort 删除线程；Rust 对 `ephemeral: true` 的 thread 不注入 Madora Drawing 动态工具。
 
 AI 画图是宿主内的受控 Codex 能力，不接入远程 Excalidraw MCP UI。随应用打包的 `madora-diagram` Skill 负责检查当前或显式提及图稿、收敛单一视角、选择图型和质量 profile、编排 Mermaid，并根据预览最多修复两轮；Rust 在新线程中固定注入 `madora_drawing.inspect_drawing`、`madora_drawing.preview_mermaid` 与 `madora_drawing.create_from_preview`，渲染器不能提供其他 dynamic tools。`inspect_drawing` 只接受当前 turn 已授权的 Drawing UUID，返回去除 files/blob 的有界元素结构和可选 PNG/WebP 预览。Mermaid 编译器只在工具调用时动态加载，成功结果必须是可编辑 Excalidraw 元素，SVG/image fallback 会作为失败返回；编译后按 `architecture | flow | default` profile 计算交叉、穿越节点、关系和分组预算、扇出、转折、逆向关系、重叠、标签裁切与画布比例，返回确定性的 grade、blockers 和 repair suggestions。预览按工作区保存在前端内存中，最多 3 个且 10 分钟有效；未达 A 级或存在 blocker 的预览保留供模型检查，但 `create_from_preview` 必须失败关闭。创建只能提交对应 opaque `previewId` 的已编译场景，不能替换定义。
 

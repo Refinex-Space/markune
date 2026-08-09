@@ -8,20 +8,19 @@ const workspaceRoot = process.cwd();
 describe('Inbox workspace shell', () => {
   it('places Inbox directly below Daily and renders the active badge', () => {
     const source = readFileSync(
-      join(workspaceRoot, 'components/workspace/workspace-sidebar.tsx'),
+      join(workspaceRoot, 'components/workspace/workspace-system-nav.tsx'),
       'utf8',
     );
-    const daily = source.indexOf('data-testid="daily-note-entry"');
-    const inbox = source.indexOf('data-testid="inbox-entry"');
-    const drawings = source.indexOf('data-testid="drawing-entry"');
-    const views = source.indexOf('data-testid="workspace-views-entry"');
+    const daily = source.indexOf("id: 'daily'");
+    const inbox = source.indexOf("id: 'inbox'");
+    const drawings = source.indexOf("id: 'drawings'");
+    const views = source.indexOf("id: 'views'");
 
     expect(daily).toBeGreaterThan(-1);
     expect(inbox).toBeGreaterThan(daily);
     expect(drawings).toBeGreaterThan(inbox);
     expect(views).toBeGreaterThan(drawings);
-    expect(source).toContain("inboxActiveCount > 99 ? '99+' : inboxActiveCount");
-    expect(source).not.toContain('bg-sidebar-primary');
+    expect(source).toContain("entry.badgeCount > 99");
   });
 
   it('wires the shortcut and status-row plus button to the main editor draft', () => {

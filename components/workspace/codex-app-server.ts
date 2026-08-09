@@ -422,6 +422,13 @@ export class CodexAppServerClient {
 
 export const codexAppServerClient = new CodexAppServerClient();
 
+export function codexProtocolThreadId(message: CodexProtocolMessage) {
+  const direct = nonEmptyString(message.params?.threadId);
+  if (direct) return direct;
+  const thread = asRecord(message.params?.thread);
+  return thread ? nonEmptyString(thread.id) : null;
+}
+
 export function threadTokenUsageUpdateFromMessage(
   message: CodexProtocolMessage,
 ): CodexThreadTokenUsageUpdate | null {

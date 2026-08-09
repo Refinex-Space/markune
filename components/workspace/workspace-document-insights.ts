@@ -29,6 +29,20 @@ export function countMarkdownCharacters(
   return Array.from(markdown.replace(/\s+/g, '')).length;
 }
 
+// Mixed CJK/Latin word count: each Han/kana/Hangul character is one word;
+// contiguous Latin/digit runs (with optional internal '’-_) count as one word.
+// author: refinex
+const MARKDOWN_WORD_PATTERN =
+  /\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Script=Hangul}|[\p{Script=Latin}\p{Nd}]+(?:['’_-][\p{Script=Latin}\p{Nd}]+)*/gu;
+
+export function countMarkdownWords(markdown: string | undefined): number {
+  if (!markdown) {
+    return 0;
+  }
+
+  return markdown.match(MARKDOWN_WORD_PATTERN)?.length ?? 0;
+}
+
 export function countMarkdownLines(markdown: string | undefined): number {
   if (!markdown) {
     return 0;

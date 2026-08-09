@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import type { MarkweaveAskAiHandler } from '@markweave/react';
 import { useTheme } from 'next-themes';
 import {
   Airplay,
@@ -11,7 +12,6 @@ import {
   Minus,
   Moon,
   Palette,
-  RefreshCw,
   Sun,
   SquareTerminal,
   Square,
@@ -51,10 +51,15 @@ import { AiDocumentPreview } from './ai-document-preview';
 import { DirectoryPage } from './directory-page';
 import { DailyNoteCalendar } from './daily-note-calendar';
 import {
+  DAILY_NOTES_INSPECTOR_WIDTH,
+  DailyNotesPage,
+  type DailyNotesViewMode,
+} from './daily-notes-page';
+import {
   createDateFromDailyDate,
   formatDailyDate,
-  formatDailyMonth,
   getDailyContentDates,
+  toDailyExportNode,
 } from './daily-notes';
 import { DocumentTabBar } from './document-tab-bar';
 import { DrawingSidebar } from './drawing-sidebar';
@@ -73,6 +78,7 @@ import {
   openPlanPreviewTab,
   renameDocumentTab,
   selectDocumentTab,
+  type DocumentEditorDocumentTab,
   type DocumentEditorLayout,
   updateDocumentEditorWarmPaths,
 } from './document-tabs';
@@ -82,7 +88,6 @@ import { GitLogDrawer } from './git-log-drawer';
 import { GitPanel } from './git-panel';
 import { InboxPage } from './inbox-page';
 import { InboxSidebar } from './inbox-sidebar';
-import { PinnedChromeMenu } from './pinned-chrome-menu';
 import { TerminalPanel, type TerminalTab } from './terminal-panel';
 import type {
   AiFileChange,
@@ -93,8 +98,13 @@ import { useWorkspace } from './use-workspace';
 import { useAiDrawingTools } from './use-ai-drawing-tools';
 import { drawingReferenceFromDescriptor } from './ai-drawing-inspector';
 import { useDrawingController } from './use-drawing-controller';
+import { useDailyNotes } from './use-daily-notes';
 import { useInboxController } from './use-inbox-controller';
 import { useAppUpdate } from './use-app-update';
+import {
+  getMacosChromeContentTop,
+  useMacosChromeControlsTop,
+} from './use-macos-titlebar-metrics';
 import { WorkspaceGlobalSearchDialog } from './workspace-global-search-dialog';
 import { useDocumentExport } from './use-document-export';
 import { useDocumentImport } from './use-document-import';
@@ -123,7 +133,6 @@ import {
   gitStatus,
   gitSyncNow,
   gitUnstage,
-  listDailyNotesForMonth,
   listenTerminalData,
   listenTerminalError,
   listenTerminalExit,
@@ -132,7 +141,9 @@ import {
   readAppSettings,
   recordRecentDocument,
   readMarkdownDocument,
+  saveAppSettings,
   saveWorkspaceGitSyncSettings,
+  setAppWindowOpacity,
   minimizeAppWindow,
   openDailyNote,
   openPathInFileManager,
@@ -159,10 +170,12 @@ import { createWorkspaceSettingsSessionCache } from './workspace-settings-cache'
 import { createTerminalOutputStore } from './terminal-output-store';
 import { WorkspaceResizeHandle } from './workspace-resize-handle';
 import { WorkspaceSidebar } from './workspace-sidebar';
+import { WorkspaceGraphPage } from './workspace-graph-page';
 import { WorkspaceViewsPage } from './workspace-views-page';
 import {
   countMarkdownCharacters,
   countMarkdownLines,
+  countMarkdownWords,
 } from './workspace-document-insights';
 import { createDocumentPanelData } from './workspace-document-panel-data';
 import { flattenDocuments } from './workspace-tree';
@@ -181,9 +194,11 @@ import type {
   GitProbe,
   GitSyncConflictResolution,
   GitStatus,
+  MarkdownDocumentContent,
   MarkdownDraft,
   PageWidthMode,
   RightPanelMode,
+  SystemNavLayout,
   WorkspaceNode,
   WorkspaceExportFormat,
   WorkspaceGitSyncSettings,
@@ -200,8 +215,12 @@ type GlobalSearchIndexStatus = 'error' | 'idle' | 'indexing' | 'ready';
 type ThemeMode = 'dark' | 'light' | 'system';
 type WorkspaceSystemPage =
   | 'codex'
+  | 'daily'
   | 'drawings'
+  | 'folders'
+  | 'graph'
   | 'inbox'
+  | 'pinned'
   | 'settings'
   | 'views'
   | null;
@@ -274,12 +293,16 @@ const WORKSPACE_PANEL_WIDTH_STORAGE_KEYS = {
   left: 'madora:workspace:left-sidebar-width',
   ai: 'madora:workspace:ai-panel-width',
   aiWorkspacePreview: 'madora:workspace:ai-workspace-preview-width:v2',
+  dailyNotesInspector: 'madora:workspace:daily-notes-inspector-width:v2',
   meta: 'madora:workspace:right-panel-width',
   terminalHeight: 'madora:workspace:terminal-height',
 };
 
 const GLOBAL_SEARCH_READ_CONCURRENCY = 6;
 const RECENT_DOCUMENT_LIMIT = 5;
+const WORKSPACE_PANEL_MARGIN = 8;
+const WORKSPACE_SIDEBAR_HEADER_HEIGHT = 44;
+const WEB_SIDEBAR_TITLEBAR_SPACER = 40;
 const UI_FONT_FALLBACK =
   "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 const DOCUMENT_FONT_FALLBACK =
@@ -335,6 +358,13 @@ export function WorkspaceLayout({
       AI_WORKSPACE_PREVIEW_WIDTH.defaultValue,
       AI_WORKSPACE_PREVIEW_WIDTH.min,
       AI_WORKSPACE_PREVIEW_WIDTH.max,
+    );
+  const [dailyNotesInspectorWidth, setDailyNotesInspectorWidth] =
+    useStoredPanelWidth(
+      WORKSPACE_PANEL_WIDTH_STORAGE_KEYS.dailyNotesInspector,
+      DAILY_NOTES_INSPECTOR_WIDTH.defaultValue,
+      DAILY_NOTES_INSPECTOR_WIDTH.min,
+      DAILY_NOTES_INSPECTOR_WIDTH.max,
     );
   const [settingsInitialSectionId, setSettingsInitialSectionId] =
     React.useState<SettingsSectionId>('appearance');
@@ -406,15 +436,53 @@ export function WorkspaceLayout({
   const [selectedDailyDate, setSelectedDailyDate] = React.useState(() =>
     formatDailyDate(new Date()),
   );
-  const [dailyNoteEntries, setDailyNoteEntries] = React.useState<
-    DailyNoteEntry[]
-  >([]);
-  const [dailyNotesLoading, setDailyNotesLoading] = React.useState(false);
+  const [dailyNotesViewMode, setDailyNotesViewMode] =
+    React.useState<DailyNotesViewMode>('month');
   const documentTitle =
     workspace.currentDocument?.title || workspace.currentDocument?.name;
   const pageTitle = documentTitle ?? workspace.currentDirectory?.name;
   const currentDocumentPath = workspace.currentDocument?.absolutePath ?? null;
   const workspaceRootPath = workspace.snapshot?.rootPath ?? null;
+  const visibleWorkspaceNodes = React.useMemo(
+    () => filterWorkspaceOverviewNodes(workspace.snapshot?.nodes ?? []),
+    [workspace.snapshot?.nodes],
+  );
+  const workspaceOverviewDirectory = React.useMemo<WorkspaceNode | null>(() => {
+    if (!workspace.snapshot) {
+      return null;
+    }
+
+    return {
+      id: `workspace-root:${workspace.snapshot.rootPath}`,
+      name: '文件夹',
+      kind: 'directory',
+      relativePath: '',
+      absolutePath: workspace.snapshot.rootPath,
+      children: visibleWorkspaceNodes,
+    };
+  }, [visibleWorkspaceNodes, workspace.snapshot]);
+  const pinnedNodes = React.useMemo(
+    () =>
+      flattenWorkspaceNodes(visibleWorkspaceNodes).filter(
+        (node) => node.pinned,
+      ),
+    [visibleWorkspaceNodes],
+  );
+  const pinnedOverviewDirectory = React.useMemo<WorkspaceNode | null>(() => {
+    if (!workspace.snapshot) {
+      return null;
+    }
+
+    return {
+      id: `pinned-root:${workspace.snapshot.rootPath}`,
+      name: '置顶',
+      kind: 'directory',
+      relativePath: '',
+      absolutePath: workspace.snapshot.rootPath,
+      children: pinnedNodes,
+    };
+  }, [pinnedNodes, workspace.snapshot]);
+  const dailyNotes = useDailyNotes({ rootPath: workspaceRootPath });
   const inbox = useInboxController({ rootPath: workspaceRootPath });
   const loadInbox = inbox.loadList;
   const startInboxCapture = inbox.startNewCapture;
@@ -430,7 +498,21 @@ export function WorkspaceLayout({
   const activeMarkdownEditorRef = React.useRef<MarkdownEditorHandle | null>(
     null,
   );
+  const [activeEditorSourceMode, setActiveEditorSourceMode] =
+    React.useState(false);
+  const [askAiHandler, setAskAiHandler] =
+    React.useState<MarkweaveAskAiHandler | null>(null);
   const appWindowExitPendingRef = React.useRef(false);
+  const getActiveEditorAiEditController = React.useCallback(
+    () => activeMarkdownEditorRef.current?.getAiEditController() ?? null,
+    [],
+  );
+  const handleAskAiHandlerChange = React.useCallback(
+    (handler: MarkweaveAskAiHandler | null) => {
+      setAskAiHandler(() => handler);
+    },
+    [],
+  );
 
   React.useEffect(() => {
     currentDocumentPathRef.current = currentDocumentPath;
@@ -474,8 +556,8 @@ export function WorkspaceLayout({
       : null;
   const hasOpenDocumentTabs = documentEditorLayout.tabs.length > 0;
   const dailyContentDates = React.useMemo(
-    () => getDailyContentDates(dailyNoteEntries),
-    [dailyNoteEntries],
+    () => getDailyContentDates(dailyNotes.entries),
+    [dailyNotes.entries],
   );
   const visibleRecentDocuments = React.useMemo(
     () =>
@@ -529,6 +611,10 @@ export function WorkspaceLayout({
     () => countMarkdownCharacters(deferredDocumentMarkdown),
     [deferredDocumentMarkdown],
   );
+  const documentWordCount = React.useMemo(
+    () => countMarkdownWords(deferredDocumentMarkdown),
+    [deferredDocumentMarkdown],
+  );
   const documentLineCount = React.useMemo(
     () => countMarkdownLines(deferredDocumentMarkdown),
     [deferredDocumentMarkdown],
@@ -566,6 +652,10 @@ export function WorkspaceLayout({
   const isTauriRuntime = useIsTauriRuntime();
   const isMacRuntime = useIsMacRuntime();
   const isWindowsRuntime = useIsWindowsRuntime();
+  const macChromeControlsTop = useMacosChromeControlsTop(
+    isTauriRuntime && isMacRuntime,
+  );
+  const macChromeContentTop = getMacosChromeContentTop(macChromeControlsTop);
 
   React.useEffect(() => {
     if (!isTauriRuntime) {
@@ -617,6 +707,12 @@ export function WorkspaceLayout({
   const [pageWidthMode, setPageWidthMode] = React.useState<PageWidthMode>(
     DEFAULT_APP_SETTINGS.appearance.pageWidthMode,
   );
+  const [systemNavCollapsed, setSystemNavCollapsed] = React.useState(
+    DEFAULT_APP_SETTINGS.appearance.systemNavCollapsed,
+  );
+  const [systemNavLayout, setSystemNavLayout] = React.useState<SystemNavLayout>(
+    DEFAULT_APP_SETTINGS.appearance.systemNavLayout,
+  );
   const [appearanceFonts, setAppearanceFonts] =
     React.useState<AppearanceFontSettings>(
       DEFAULT_APP_SETTINGS.appearance.fonts,
@@ -635,6 +731,7 @@ export function WorkspaceLayout({
     React.useState<LeftPanelMode>('workspace');
   const [systemPage, setSystemPage] = React.useState<WorkspaceSystemPage>(null);
   const showDocumentTabs =
+    Boolean(workspace.snapshot) &&
     leftPanelMode === 'workspace' &&
     systemPage === null &&
     (activeEditorTab?.kind === 'plan' ||
@@ -678,6 +775,26 @@ export function WorkspaceLayout({
     active: systemPage === 'drawings' || effectiveRightPanelMode === 'ai',
     rootPath: workspaceRootPath,
   });
+  const drawingDetailOpen =
+    systemPage === 'drawings' && drawings.selection.kind === 'drawing';
+  const workspaceMainHeaderHeight =
+    isTauriRuntime && isWindowsRuntime
+      ? 32
+      : isTauriRuntime && isMacRuntime
+        ? macChromeContentTop - WORKSPACE_PANEL_MARGIN
+        : 44;
+  const macSidebarHeaderOffset =
+    isTauriRuntime && isMacRuntime
+      ? macChromeContentTop -
+        WORKSPACE_PANEL_MARGIN -
+        workspaceMainHeaderHeight
+      : undefined;
+  const drawingEditorHeaderHeight =
+    isTauriRuntime && isWindowsRuntime
+      ? WORKSPACE_SIDEBAR_HEADER_HEIGHT
+      : (isTauriRuntime && isMacRuntime
+          ? macChromeContentTop
+          : WEB_SIDEBAR_TITLEBAR_SPACER) - WORKSPACE_PANEL_MARGIN;
   const flushActiveDrawing = drawings.flush;
   const prepareForAppUpdateInstall = React.useCallback(async () => {
     const confirmed = await confirmAction({
@@ -886,29 +1003,7 @@ export function WorkspaceLayout({
       };
     });
   }, [globalSearchState.rootPath, workspaceRootPath]);
-  const loadDailyNotesForMonth = React.useCallback(
-    async (month: Date) => {
-      if (!workspaceRootPath) {
-        setDailyNoteEntries([]);
-        return;
-      }
-
-      setDailyNotesLoading(true);
-
-      try {
-        const result = await listDailyNotesForMonth(
-          workspaceRootPath,
-          formatDailyMonth(month),
-        );
-        setDailyNoteEntries(result.entries);
-      } catch {
-        setDailyNoteEntries([]);
-      } finally {
-        setDailyNotesLoading(false);
-      }
-    },
-    [workspaceRootPath],
-  );
+  const loadDailyNotesForMonth = dailyNotes.loadMonth;
 
   React.useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -1092,6 +1187,10 @@ export function WorkspaceLayout({
       if (!isTauriRuntime) {
         setAppSettings(DEFAULT_APP_SETTINGS);
         setPageWidthMode(DEFAULT_APP_SETTINGS.appearance.pageWidthMode);
+        setSystemNavCollapsed(
+          DEFAULT_APP_SETTINGS.appearance.systemNavCollapsed,
+        );
+        setSystemNavLayout(DEFAULT_APP_SETTINGS.appearance.systemNavLayout);
         setAppearanceFonts(DEFAULT_APP_SETTINGS.appearance.fonts);
         return;
       }
@@ -1102,14 +1201,33 @@ export function WorkspaceLayout({
         if (!cancelled) {
           const normalizedSettings = withDefaultAppSettings(settings);
 
+          void setAppWindowOpacity(
+            normalizedSettings.appearance.windowOpacity,
+          ).catch((error) => {
+            console.error('恢复应用透明度失败', error);
+          });
+
           setPageWidthMode(normalizedSettings.appearance.pageWidthMode);
+          setSystemNavCollapsed(
+            normalizedSettings.appearance.systemNavCollapsed,
+          );
+          setSystemNavLayout(normalizedSettings.appearance.systemNavLayout);
           setAppearanceFonts(normalizedSettings.appearance.fonts);
           setAppSettings(normalizedSettings);
         }
       } catch {
         if (!cancelled) {
+          void setAppWindowOpacity(
+            DEFAULT_APP_SETTINGS.appearance.windowOpacity,
+          ).catch((error) => {
+            console.error('恢复默认应用透明度失败', error);
+          });
           setAppSettings(DEFAULT_APP_SETTINGS);
           setPageWidthMode(DEFAULT_APP_SETTINGS.appearance.pageWidthMode);
+          setSystemNavCollapsed(
+            DEFAULT_APP_SETTINGS.appearance.systemNavCollapsed,
+          );
+          setSystemNavLayout(DEFAULT_APP_SETTINGS.appearance.systemNavLayout);
           setAppearanceFonts(DEFAULT_APP_SETTINGS.appearance.fonts);
         }
       }
@@ -1138,6 +1256,93 @@ export function WorkspaceLayout({
       buildFontStack(appearanceFonts.code, CODE_FONT_FALLBACK),
     );
   }, [appearanceFonts]);
+
+  const persistAppearanceSettings = React.useCallback(
+    async (appearance: AppSettings['appearance']) => {
+      const previous = appSettings;
+      const next: AppSettings = {
+        ...previous,
+        appearance,
+      };
+      setAppSettings(next);
+      setPageWidthMode(appearance.pageWidthMode);
+      setSystemNavCollapsed(appearance.systemNavCollapsed);
+      setSystemNavLayout(appearance.systemNavLayout);
+      setAppearanceFonts(appearance.fonts);
+
+      if (!isTauriRuntime) {
+        return;
+      }
+
+      try {
+        const saved = withDefaultAppSettings(await saveAppSettings(next));
+        setAppSettings(saved);
+        setPageWidthMode(saved.appearance.pageWidthMode);
+        setSystemNavCollapsed(saved.appearance.systemNavCollapsed);
+        setSystemNavLayout(saved.appearance.systemNavLayout);
+        setAppearanceFonts(saved.appearance.fonts);
+      } catch (error) {
+        setAppSettings(previous);
+        setPageWidthMode(previous.appearance.pageWidthMode);
+        setSystemNavCollapsed(previous.appearance.systemNavCollapsed);
+        setSystemNavLayout(previous.appearance.systemNavLayout);
+        setAppearanceFonts(previous.appearance.fonts);
+        console.error('保存系统入口外观设置失败', error);
+      }
+    },
+    [appSettings, isTauriRuntime],
+  );
+
+  const handleSystemNavCollapsedChange = React.useCallback(
+    (collapsed: boolean) => {
+      void persistAppearanceSettings({
+        ...appSettings.appearance,
+        systemNavCollapsed: collapsed,
+      });
+    },
+    [appSettings.appearance, persistAppearanceSettings],
+  );
+
+  const handleSystemNavLayoutChange = React.useCallback(
+    (layout: SystemNavLayout) => {
+      void persistAppearanceSettings({
+        ...appSettings.appearance,
+        systemNavLayout: layout,
+      });
+    },
+    [appSettings.appearance, persistAppearanceSettings],
+  );
+
+  const handleTreeIconPickerSettingsChange = React.useCallback(
+    async (treeIconPicker: AppSettings['appearance']['treeIconPicker']) => {
+      await persistAppearanceSettings({
+        ...appSettings.appearance,
+        treeIconPicker,
+      });
+    },
+    [appSettings.appearance, persistAppearanceSettings],
+  );
+
+  const handleDailyCalendarExpandedChange = React.useCallback(
+    async (expanded: boolean) => {
+      const previous = appSettings;
+      const next: AppSettings = {
+        ...previous,
+        calendar: { ...previous.calendar, expanded },
+      };
+      setAppSettings(next);
+
+      if (!isTauriRuntime) return;
+
+      try {
+        setAppSettings(withDefaultAppSettings(await saveAppSettings(next)));
+      } catch (error) {
+        setAppSettings(previous);
+        console.error('保存日历展开设置失败', error);
+      }
+    },
+    [appSettings, isTauriRuntime],
+  );
 
   const handleLeftSidebarResize = React.useCallback((nextWidth: number) => {
     setLeftSidebarWidth(nextWidth);
@@ -1926,6 +2131,27 @@ export function WorkspaceLayout({
     ],
   );
 
+  const handleExportDailyNote = React.useCallback(
+    (entry: DailyNoteEntry, format: WorkspaceExportFormat) => {
+      if (!workspaceRootPath) {
+        return;
+      }
+
+      void handleExportDocument(
+        toDailyExportNode(entry, workspaceRootPath),
+        format,
+      );
+    },
+    [handleExportDocument, workspaceRootPath],
+  );
+
+  const handleExportDocumentTab = React.useCallback(
+    (tab: DocumentEditorDocumentTab, format: WorkspaceExportFormat) => {
+      void handleExportDocument(toDocumentTabExportNode(tab), format);
+    },
+    [handleExportDocument],
+  );
+
   const revealNodeInWorkspaceTree = React.useCallback(
     (absolutePath: string) => {
       setLeftPanelMode('workspace');
@@ -2106,10 +2332,94 @@ export function WorkspaceLayout({
     [loadDailyNotesForMonth, openDocumentNode, workspace, workspaceRootPath],
   );
 
+  const handleDailyContentSaved = React.useCallback(
+    (content: MarkdownDocumentContent, date: string) => {
+      const syncResult = workspace.syncExternalMarkdownDocument(content);
+      setEditorSessions((current) => {
+        if (!(content.path in current)) return current;
+        if (
+          content.path === currentDocumentPath &&
+          syncResult !== 'reloaded'
+        ) {
+          return current;
+        }
+        return {
+          ...current,
+          [content.path]: {
+            documentVersion: content.modifiedAt,
+            markdown: content.content,
+          },
+        };
+      });
+      void workspace.refreshWorkspaceTree();
+      void loadDailyNotesForMonth(createDateFromDailyDate(date));
+    },
+    [currentDocumentPath, loadDailyNotesForMonth, workspace],
+  );
+
+  const handleDailyMonthChange = React.useCallback(
+    (month: Date) => {
+      const nextMonth = new Date(month.getFullYear(), month.getMonth(), 1);
+      const currentSelection = createDateFromDailyDate(selectedDailyDate);
+      const day = Math.min(
+        currentSelection.getDate(),
+        new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate(),
+      );
+
+      setDailyCalendarMonth(nextMonth);
+      setSelectedDailyDate(
+        formatDailyDate(
+          new Date(nextMonth.getFullYear(), nextMonth.getMonth(), day),
+        ),
+      );
+    },
+    [selectedDailyDate],
+  );
+
+  const handleOpenDailyNotesPage = React.useCallback(() => {
+    setLeftPanelMode('workspace');
+    setSystemPage('daily');
+    showWorkspaceSidebar(false);
+    clearCurrentDocument();
+    void loadDailyNotesForMonth(dailyCalendarMonth);
+  }, [
+    clearCurrentDocument,
+    dailyCalendarMonth,
+    loadDailyNotesForMonth,
+    showWorkspaceSidebar,
+  ]);
+
   const handleOpenViewsPage = React.useCallback(() => {
     setSystemPage('views');
     workspace.clearCurrentDocument();
   }, [workspace]);
+
+  const handleOpenWorkspaceOverview = React.useCallback(async () => {
+    if (!(await flushActiveMarkdownEditor('document-switch'))) {
+      return;
+    }
+
+    setLeftPanelMode('workspace');
+    setSystemPage('folders');
+    showWorkspaceSidebar(false);
+  }, [flushActiveMarkdownEditor, showWorkspaceSidebar]);
+
+  const handleOpenPinnedOverview = React.useCallback(async () => {
+    if (!(await flushActiveMarkdownEditor('document-switch'))) {
+      return;
+    }
+
+    setLeftPanelMode('workspace');
+    setSystemPage('pinned');
+    showWorkspaceSidebar(false);
+  }, [flushActiveMarkdownEditor, showWorkspaceSidebar]);
+
+  const handleOpenGraphPage = React.useCallback(() => {
+    setLeftPanelMode('workspace');
+    setSystemPage('graph');
+    showWorkspaceSidebar(false);
+    clearCurrentDocument();
+  }, [clearCurrentDocument, showWorkspaceSidebar]);
 
   const handleOpenCodexPage = React.useCallback(() => {
     setLeftPanelMode('workspace');
@@ -2766,28 +3076,6 @@ export function WorkspaceLayout({
   const toggleLeftSidebar = React.useCallback(() => {
     workspace.setSidebarCollapsed(!workspace.isSidebarCollapsed);
   }, [workspace]);
-  const pinnedNodes = React.useMemo(
-    () => flattenWorkspaceNodes(workspace.snapshot?.nodes ?? []).filter(
-      (node) => node.pinned,
-    ),
-    [workspace.snapshot?.nodes],
-  );
-  const [isRefreshingWorkspaceTree, setIsRefreshingWorkspaceTree] =
-    React.useState(false);
-  const refreshWorkspaceTreeFromChrome = React.useCallback(() => {
-    if (isRefreshingWorkspaceTree) {
-      return;
-    }
-
-    setIsRefreshingWorkspaceTree(true);
-    void workspace
-      .refreshWorkspaceTree()
-      .catch(() => null)
-      .finally(() => {
-        setIsRefreshingWorkspaceTree(false);
-      });
-  }, [isRefreshingWorkspaceTree, workspace]);
-
   return (
     <main
       className="relative flex h-screen w-full overflow-hidden bg-sidebar text-foreground antialiased"
@@ -2808,13 +3096,9 @@ export function WorkspaceLayout({
         <SidebarChromeToggle
           collapsed={workspace.isSidebarCollapsed}
           macChromeOffset={isTauriRuntime && isMacRuntime}
-          refreshing={isRefreshingWorkspaceTree}
+          macChromeControlsTop={macChromeControlsTop}
           windowsChromeInset={isTauriRuntime && isWindowsRuntime}
-          pinnedNodes={pinnedNodes}
           onToggle={toggleLeftSidebar}
-          onOpenPinnedNode={handleOpenWorkspaceViewNode}
-          onRefresh={refreshWorkspaceTreeFromChrome}
-          onUnpinNode={handleUnpinNode}
         />
       )}
 
@@ -2847,6 +3131,11 @@ export function WorkspaceLayout({
             }
             initialSettings={appSettings}
             initialSectionId={settingsInitialSectionId}
+            macChromeContentTop={
+              isTauriRuntime && isMacRuntime
+                ? macChromeContentTop
+                : undefined
+            }
             sidebarResize={{
               max: LEFT_PANEL_WIDTH.max,
               min: LEFT_PANEL_WIDTH.min,
@@ -2858,8 +3147,18 @@ export function WorkspaceLayout({
             workspaceRootPath={workspace.snapshot?.rootPath ?? null}
             onBack={() => setSystemPage(null)}
             onSettingsSaved={(settings) => {
+              if (!settings.appearance.showGitPanelEntry) {
+                setLeftPanelMode('workspace');
+              }
+              if (!settings.appearance.showGitLogEntry) {
+                setBottomPanelMode((current) =>
+                  current === 'git-log' ? null : current,
+                );
+              }
               setAppSettings(settings);
               setPageWidthMode(settings.appearance.pageWidthMode);
+              setSystemNavCollapsed(settings.appearance.systemNavCollapsed);
+              setSystemNavLayout(settings.appearance.systemNavLayout);
               setAppearanceFonts(settings.appearance.fonts);
               setSettingsVersion((current) => current + 1);
             }}
@@ -2873,9 +3172,14 @@ export function WorkspaceLayout({
                   workspace.snapshot ? (
                     <DailyNoteCalendar
                       contentDates={dailyContentDates}
-                      isLoading={dailyNotesLoading}
+                      expanded={appSettings.calendar.expanded}
+                      isLoading={dailyNotes.isLoading}
                       month={dailyCalendarMonth}
                       selectedDate={selectedDailyDate}
+                      weekStartsOn={appSettings.calendar.weekStartsOn}
+                      onExpandedChange={(expanded) =>
+                        void handleDailyCalendarExpandedChange(expanded)
+                      }
                       onMonthChange={(month) =>
                         setDailyCalendarMonth(
                           new Date(month.getFullYear(), month.getMonth(), 1),
@@ -2901,6 +3205,12 @@ export function WorkspaceLayout({
                     <DrawingSidebar controller={drawings} />
                   ) : null
                 }
+                macChromeContentTop={
+                  isTauriRuntime && isMacRuntime
+                    ? macChromeContentTop
+                    : undefined
+                }
+                panelMargin={WORKSPACE_PANEL_MARGIN}
                 width={leftSidebarWidth}
                 workspace={workspace}
                 onCreateDocument={handleCreateDocument}
@@ -2912,14 +3222,23 @@ export function WorkspaceLayout({
                     ? documentImport.importDocuments
                     : undefined
                 }
-                onOpenDailyNote={() =>
-                  void handleOpenDailyNote(formatDailyDate(new Date()))
-                }
+                onOpenDailyNotes={handleOpenDailyNotesPage}
+                onOpenNotes={() => {
+                  setLeftPanelMode('workspace');
+                  setSystemPage(null);
+                }}
                 onOpenCodex={handleOpenCodexPage}
                 onOpenInbox={handleOpenInboxPage}
                 onOpenDrawings={handleOpenDrawingsPage}
                 onOpenGlobalSearch={openGlobalSearch}
+                onOpenGraph={handleOpenGraphPage}
+                onOpenWorkspaceOverview={handleOpenWorkspaceOverview}
+                onOpenPinnedOverview={handleOpenPinnedOverview}
+                pinnedNodes={pinnedNodes}
                 onOpenViews={handleOpenViewsPage}
+                onRefreshWorkspaceTree={() =>
+                  workspace.refreshWorkspaceTree().catch(() => null)
+                }
                 onOpenInFileManager={handleOpenNodeInFileManager}
                 onOpenSettings={openSettingsPage}
                 onRemoveWorkspace={handleRemoveWorkspace}
@@ -2930,11 +3249,25 @@ export function WorkspaceLayout({
                 onSelectDirectory={handleSelectWorkspaceDirectory}
                 onSelectDocument={openDocumentNode}
                 onTogglePinned={handleToggleNodePinned}
+                onOpenPinnedNode={handleOpenWorkspaceViewNode}
+                onUnpinNode={handleUnpinNode}
                 inboxActiveCount={inbox.activeCount}
+                systemNavCollapsed={systemNavCollapsed}
+                systemNavLayout={systemNavLayout}
+                treeIconPickerSettings={appSettings.appearance.treeIconPicker}
+                onSystemNavCollapsedChange={handleSystemNavCollapsedChange}
+                onSystemNavLayoutChange={handleSystemNavLayoutChange}
+                onTreeIconPickerSettingsChange={
+                  handleTreeIconPickerSettingsChange
+                }
                 systemPage={
                   systemPage === 'drawings' ||
                   systemPage === 'codex' ||
+                  systemPage === 'daily' ||
+                  systemPage === 'folders' ||
+                  systemPage === 'graph' ||
                   systemPage === 'inbox' ||
+                  systemPage === 'pinned' ||
                   systemPage === 'views'
                     ? systemPage
                     : null
@@ -2946,11 +3279,17 @@ export function WorkspaceLayout({
                 className={cn(
                   'min-h-0 shrink-0',
                   isTauriRuntime && isMacRuntime
-                    ? 'mt-10 [&>aside]:rounded-none [&>aside]:border-0 [&>aside]:bg-transparent'
+                    ? '[&>aside]:rounded-none [&>aside]:border-0 [&>aside]:bg-transparent'
                     : 'my-2 ml-2',
                 )}
                 data-testid="workspace-git-panel-column"
-                style={{ width: leftSidebarWidth }}
+                style={{
+                  marginTop:
+                    isTauriRuntime && isMacRuntime
+                      ? macChromeContentTop
+                      : undefined,
+                  width: leftSidebarWidth,
+                }}
               >
                 <GitPanel
                   error={gitError}
@@ -2998,8 +3337,7 @@ export function WorkspaceLayout({
               data-testid="workspace-panel-group"
               style={
                 {
-                  '--workspace-main-header-height':
-                    isTauriRuntime && isWindowsRuntime ? '2rem' : '2.75rem',
+                  '--workspace-main-header-height': `${workspaceMainHeaderHeight}px`,
                 } as React.CSSProperties
               }
             >
@@ -3008,7 +3346,7 @@ export function WorkspaceLayout({
                 data-testid="workspace-editor-column"
               >
               <section
-                className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
+                className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
                 data-chrome="workspace-main-surface"
                 data-testid="workspace-editor-block"
               >
@@ -3023,17 +3361,30 @@ export function WorkspaceLayout({
                         onCloseTab={handleCloseDocumentTab}
                         onCloseTabsToLeft={handleCloseDocumentTabsToLeft}
                         onCloseTabsToRight={handleCloseDocumentTabsToRight}
+                        onExportTab={
+                          documentExport.available
+                            ? handleExportDocumentTab
+                            : undefined
+                        }
                         onSelectTab={handleSelectDocumentTab}
                       />
                     ) : null
                   }
                   gitLogOpen={gitLogOpen}
+                  headerHeight={workspaceMainHeaderHeight}
                   leftPanelMode={leftPanelMode}
                   macChromeInset={
                     isTauriRuntime &&
                     isMacRuntime &&
                     workspace.isSidebarCollapsed
                   }
+                  overlayContent={
+                    drawingDetailOpen &&
+                    isTauriRuntime &&
+                    isWindowsRuntime
+                  }
+                  showGitLogEntry={appSettings.appearance.showGitLogEntry}
+                  showGitPanelEntry={appSettings.appearance.showGitPanelEntry}
                   terminalOpen={terminalOpen}
                   windowsChromeInset={isTauriRuntime && isWindowsRuntime}
                   onOpenGitPanel={openGitPanel}
@@ -3056,9 +3407,58 @@ export function WorkspaceLayout({
                       systemPage === 'codex' && 'hidden',
                     )}
                   >
-                    {systemPage === 'drawings' && workspace.snapshot ? (
+                    {systemPage === 'pinned' && pinnedOverviewDirectory ? (
+                      <DirectoryPage
+                        key={`pinned-overview:${pinnedOverviewDirectory.absolutePath}`}
+                        directory={pinnedOverviewDirectory}
+                        variant="pinned-overview"
+                        workspaceRootPath={pinnedOverviewDirectory.absolutePath}
+                        onOpenDocument={openDocumentNode}
+                        onSelectDirectory={handleSelectWorkspaceDirectory}
+                      />
+                    ) : systemPage === 'folders' && workspaceOverviewDirectory ? (
+                      <DirectoryPage
+                        key={`workspace-overview:${workspaceOverviewDirectory.absolutePath}`}
+                        directory={workspaceOverviewDirectory}
+                        variant="workspace-overview"
+                        workspaceRootPath={workspaceOverviewDirectory.absolutePath}
+                        onOpenDocument={openDocumentNode}
+                        onSelectDirectory={handleSelectWorkspaceDirectory}
+                      />
+                    ) : systemPage === 'daily' && workspace.snapshot ? (
+                      <DailyNotesPage
+                        entries={dailyNotes.entries}
+                        error={dailyNotes.error}
+                        inspectorWidth={dailyNotesInspectorWidth}
+                        isLoading={dailyNotes.isLoading}
+                        month={dailyCalendarMonth}
+                        pageWidthMode={pageWidthMode}
+                        rootPath={workspace.snapshot.rootPath}
+                        selectedDate={selectedDailyDate}
+                        sidebarHeaderOffset={macSidebarHeaderOffset}
+                        viewMode={dailyNotesViewMode}
+                        onCreateDaily={(date) => void handleOpenDailyNote(date)}
+                        onDailyContentSaved={handleDailyContentSaved}
+                        onExportDaily={
+                          documentExport.available
+                            ? handleExportDailyNote
+                            : undefined
+                        }
+                        onInspectorResize={setDailyNotesInspectorWidth}
+                        onMonthChange={handleDailyMonthChange}
+                        onOpenDaily={(entry) =>
+                          void handleOpenDailyNote(entry.date)
+                        }
+                        onRefresh={() =>
+                          void loadDailyNotesForMonth(dailyCalendarMonth)
+                        }
+                        onSelectDate={setSelectedDailyDate}
+                        onViewModeChange={setDailyNotesViewMode}
+                      />
+                    ) : systemPage === 'drawings' && workspace.snapshot ? (
                       <DrawingWorkspacePage
                         controller={drawings}
+                        editorHeaderHeight={drawingEditorHeaderHeight}
                         rootPath={workspace.snapshot.rootPath}
                         theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
                       />
@@ -3070,6 +3470,7 @@ export function WorkspaceLayout({
                       />
                     ) : systemPage === 'views' && workspace.snapshot ? (
                       <WorkspaceViewsPage
+                        sidebarHeaderOffset={macSidebarHeaderOffset}
                         nodes={filterRegularWorkspaceNodes(
                           workspace.snapshot.nodes,
                         )}
@@ -3078,6 +3479,16 @@ export function WorkspaceLayout({
                         onToggleLocked={handleToggleNodeLocked}
                         onTogglePinned={handleToggleNodePinned}
                       />
+                    ) : systemPage === 'graph' && workspace.snapshot ? (
+                      <WorkspaceGraphPage
+                        key={workspace.snapshot.rootPath}
+                        nodes={filterRegularWorkspaceNodes(
+                          workspace.snapshot.nodes,
+                        )}
+                        rootPath={workspace.snapshot.rootPath}
+                        sidebarHeaderOffset={macSidebarHeaderOffset}
+                        onOpenNode={handleOpenWorkspaceViewNode}
+                      />
                     ) : leftPanelMode === 'git' ? (
                       <GitDiffView
                         diff={gitDiffState}
@@ -3085,12 +3496,33 @@ export function WorkspaceLayout({
                         isLoading={gitLoading && Boolean(gitSelectedPath)}
                         label={gitDiffLabel}
                       />
+                    ) : !workspace.snapshot ? (
+                      <EditorPane
+                        currentDirectory={null}
+                        currentDocument={null}
+                        directoryContent={null}
+                        documentLoadError={null}
+                        documentLoadState="idle"
+                        hasWorkspace={false}
+                        isWorkspaceEmpty={false}
+                        workspaceOpenError={workspace.error?.message ?? null}
+                        onCreateDirectory={() => undefined}
+                        onCreateDocument={() => undefined}
+                        onImportMarkdown={() => undefined}
+                        onOpenRecentDocument={handleOpenRecentDocument}
+                        onOpenWorkspace={workspace.openWorkspace}
+                        onRetryDocument={workspace.retryCurrentDocument}
+                        recentDocuments={[]}
+                      >
+                        {null}
+                      </EditorPane>
                     ) : activeEditorTab?.kind === 'plan' ||
                       workspace.currentDocument ||
                       (!workspace.currentDirectory && hasOpenDocumentTabs) ? (
                       <DocumentEditorSurface
                         activeDocumentPath={activePanelDocumentPath}
                         activeEditorRef={activeMarkdownEditorRef}
+                        askAiHandler={askAiHandler}
                         currentDocumentPath={currentDocumentPath}
                         documentEditorLayout={documentEditorLayout}
                         documentLoadError={workspace.documentLoadError}
@@ -3102,6 +3534,7 @@ export function WorkspaceLayout({
                         warmDocumentPaths={warmDocumentPaths}
                         workspaceRootPath={workspace.snapshot?.rootPath ?? null}
                         getDocumentReadOnly={getDocumentReadOnly}
+                        onActiveSourceModeChange={setActiveEditorSourceMode}
                         onMarkdownChange={handleEditorMarkdownChange}
                         onRetryDocument={workspace.retryCurrentDocument}
                         onSaveRequested={() =>
@@ -3132,6 +3565,7 @@ export function WorkspaceLayout({
                         documentLoadState={workspace.documentLoadState}
                         hasWorkspace={workspace.snapshot !== null}
                         isWorkspaceEmpty={isWorkspaceEmpty}
+                        workspaceOpenError={workspace.error?.message ?? null}
                         onCreateDirectory={() => void workspace.createDirectory('')}
                         onCreateDocument={() => void handleCreateDocument('')}
                         onImportMarkdown={() =>
@@ -3165,12 +3599,14 @@ export function WorkspaceLayout({
                   lineCount={documentLineCount}
                   saveError={workspace.saveError}
                   saveState={workspace.saveState}
+                  sourceMode={activeEditorSourceMode}
                   visible={
                     systemPage !== 'codex' &&
                     activeEditorTab?.kind !== 'plan' &&
                     Boolean(workspace.currentDocument) &&
                     workspace.documentLoadState === 'loaded'
                   }
+                  wordCount={documentWordCount}
                 />
               </section>
               {gitLogOpen ? (
@@ -3300,11 +3736,15 @@ export function WorkspaceLayout({
                 mode={effectiveRightPanelMode}
                 width={rightPanelWidth}
                 workspaceRootPath={workspaceRootPath}
+                getActiveEditorAiEditController={
+                  getActiveEditorAiEditController
+                }
                 onBeforeTurnStart={handleBeforeAiTurnStart}
                 onDrawingToolCall={handleAiDrawingToolCall}
                 onAiWorkspacePreviewResize={setAiWorkspacePreviewWidth}
                 onOpenDocument={handleOpenAiDocument}
                 onOpenPlanPreview={handleOpenPlanPreview}
+                onAskAiHandlerChange={handleAskAiHandlerChange}
                 onWorkspaceChanged={handleAiWorkspaceChanged}
                 onToggleDocumentReadOnly={
                   activePanelDocument
@@ -3340,76 +3780,48 @@ function useIsTauriRuntime() {
 function SidebarChromeToggle({
   collapsed,
   macChromeOffset,
-  refreshing,
+  macChromeControlsTop,
   windowsChromeInset,
-  pinnedNodes,
   onToggle,
-  onOpenPinnedNode,
-  onRefresh,
-  onUnpinNode,
 }: {
   collapsed: boolean;
   macChromeOffset: boolean;
-  refreshing: boolean;
+  macChromeControlsTop: number;
   windowsChromeInset: boolean;
-  pinnedNodes: WorkspaceNode[];
   onToggle: () => void;
-  onOpenPinnedNode: (node: WorkspaceNode) => void;
-  onRefresh: () => void;
-  onUnpinNode: (node: WorkspaceNode) => void;
 }) {
   const label = collapsed ? '展开侧边栏' : '折叠侧边栏';
 
   return (
     <div
       className={cn(
-        'absolute z-50 flex h-8 items-center gap-1',
-        macChromeOffset ? 'top-3.5' : 'top-0',
+        'absolute z-50 flex h-8 items-center gap-0',
+        !macChromeOffset && 'top-0',
         windowsChromeInset ? 'left-2' : 'left-[80px]',
       )}
       data-testid="sidebar-chrome-toggle"
+      style={macChromeOffset ? { top: macChromeControlsTop } : undefined}
     >
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
             <button
               aria-label={label}
-              className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="group inline-flex size-8 items-center justify-center text-muted-foreground"
               data-sidebar-toggle-state={collapsed ? 'collapsed' : 'expanded'}
               type="button"
               onClick={onToggle}
             >
-              {collapsed ? <SidebarCollapsedIcon /> : <SidebarExpandedIcon />}
+              <span
+                className="inline-flex size-7 items-center justify-center rounded-md transition-colors group-hover:bg-accent group-hover:text-foreground"
+                data-chrome-hover-surface
+              >
+                {collapsed ? <SidebarCollapsedIcon /> : <SidebarExpandedIcon />}
+              </span>
             </button>
           </TooltipTrigger>
           <TooltipContent side="bottom" sideOffset={8}>
             {label}
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-      <PinnedChromeMenu
-        nodes={pinnedNodes}
-        onOpenNode={onOpenPinnedNode}
-        onUnpinNode={onUnpinNode}
-      />
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              aria-label="刷新工作区"
-              className="-ml-1 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              data-refreshing={refreshing ? 'true' : 'false'}
-              type="button"
-              onClick={onRefresh}
-            >
-              <RefreshCw
-                className={cn('size-4', refreshing && 'animate-spin')}
-                strokeWidth={1.85}
-              />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={8}>
-            刷新工作区
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
@@ -3587,8 +3999,12 @@ function WorkspaceMainHeader({
   children,
   documentTabs,
   gitLogOpen,
+  headerHeight,
   leftPanelMode,
   macChromeInset,
+  overlayContent,
+  showGitLogEntry,
+  showGitPanelEntry,
   terminalOpen,
   windowsChromeInset,
   onOpenGitPanel,
@@ -3598,8 +4014,12 @@ function WorkspaceMainHeader({
   children: React.ReactNode;
   documentTabs?: React.ReactNode;
   gitLogOpen: boolean;
+  headerHeight: number;
   leftPanelMode: LeftPanelMode;
   macChromeInset: boolean;
+  overlayContent: boolean;
+  showGitLogEntry: boolean;
+  showGitPanelEntry: boolean;
   terminalOpen: boolean;
   windowsChromeInset: boolean;
   onOpenGitPanel: () => void;
@@ -3610,11 +4030,16 @@ function WorkspaceMainHeader({
     <header
       className={cn(
         'relative flex shrink-0 items-center gap-1 pr-3',
-        windowsChromeInset ? 'h-8' : 'h-11',
+        overlayContent
+          ? 'absolute inset-x-0 top-0 z-10 h-11'
+          : windowsChromeInset
+            ? 'h-8'
+            : 'h-11',
         macChromeInset ? 'pl-44' : 'pl-3',
       )}
       data-tauri-drag-region="deep"
       data-testid="workspace-main-header"
+      style={overlayContent ? undefined : { height: headerHeight }}
     >
       <div className="min-w-0 flex-1">{documentTabs}</div>
       <TooltipProvider>
@@ -3623,16 +4048,18 @@ function WorkspaceMainHeader({
           data-testid="right-header-tools"
         >
           <ThemeQuickMenu />
-          <HeaderToolTooltip label="打开 Git 面板">
-            <button
-              aria-label="打开 Git 面板"
-              className={headerToolButtonClassName(leftPanelMode === 'git')}
-              type="button"
-              onClick={onOpenGitPanel}
-            >
-              <GitBranch size={16} strokeWidth={1.75} />
-            </button>
-          </HeaderToolTooltip>
+          {showGitPanelEntry ? (
+            <HeaderToolTooltip label="打开 Git 面板">
+              <button
+                aria-label="打开 Git 面板"
+                className={headerToolButtonClassName(leftPanelMode === 'git')}
+                type="button"
+                onClick={onOpenGitPanel}
+              >
+                <GitBranch size={16} strokeWidth={1.75} />
+              </button>
+            </HeaderToolTooltip>
+          ) : null}
           <HeaderToolTooltip label={terminalOpen ? '关闭终端' : '打开终端'}>
             <button
               aria-label={terminalOpen ? '关闭终端' : '打开终端'}
@@ -3643,16 +4070,20 @@ function WorkspaceMainHeader({
               <SquareTerminal size={16} strokeWidth={1.75} />
             </button>
           </HeaderToolTooltip>
-          <HeaderToolTooltip label={gitLogOpen ? '关闭 Git 日志' : '打开 Git 日志'}>
-            <button
-              aria-label={gitLogOpen ? '关闭 Git 日志' : '打开 Git 日志'}
-              className={headerToolButtonClassName(gitLogOpen)}
-              type="button"
-              onClick={onToggleGitLog}
+          {showGitLogEntry ? (
+            <HeaderToolTooltip
+              label={gitLogOpen ? '关闭 Git 日志' : '打开 Git 日志'}
             >
-              <GitGraph size={16} strokeWidth={1.75} />
-            </button>
-          </HeaderToolTooltip>
+              <button
+                aria-label={gitLogOpen ? '关闭 Git 日志' : '打开 Git 日志'}
+                className={headerToolButtonClassName(gitLogOpen)}
+                type="button"
+                onClick={onToggleGitLog}
+              >
+                <GitGraph size={16} strokeWidth={1.75} />
+              </button>
+            </HeaderToolTooltip>
+          ) : null}
           {children}
         </div>
       </TooltipProvider>
@@ -3763,6 +4194,7 @@ function headerToolButtonClassName(active: boolean) {
 export function DocumentEditorSurface({
   activeDocumentPath,
   activeEditorRef,
+  askAiHandler = null,
   currentDocumentPath,
   documentEditorLayout,
   documentLoadError,
@@ -3774,6 +4206,7 @@ export function DocumentEditorSurface({
   warmDocumentPaths,
   workspaceRootPath,
   getDocumentReadOnly,
+  onActiveSourceModeChange,
   onMarkdownChange,
   onRetryDocument,
   onSaveRequested,
@@ -3781,6 +4214,7 @@ export function DocumentEditorSurface({
 }: {
   activeDocumentPath: string | null;
   activeEditorRef: React.RefObject<MarkdownEditorHandle | null>;
+  askAiHandler?: MarkweaveAskAiHandler | null;
   currentDocumentPath: string | null;
   documentEditorLayout: DocumentEditorLayout;
   documentLoadError: string | null;
@@ -3792,6 +4226,7 @@ export function DocumentEditorSurface({
   warmDocumentPaths: readonly string[];
   workspaceRootPath: string | null;
   getDocumentReadOnly: (documentPath: string) => boolean;
+  onActiveSourceModeChange: (sourceMode: boolean) => void;
   onMarkdownChange: (
     documentPath: string,
     markdown: string,
@@ -3862,11 +4297,16 @@ export function DocumentEditorSurface({
             >
               <DocumentEditorInstance
                 activeEditorRef={isActive ? activeEditorRef : undefined}
+                aiEnabled={isActive}
+                askAiHandler={askAiHandler}
                 documentPath={documentPath}
                 editorSession={documentSession}
                 pageWidthMode={pageWidthMode}
                 readOnly={getDocumentReadOnly(documentPath)}
                 workspaceRootPath={workspaceRootPath}
+                onSourceModeChange={
+                  isActive ? onActiveSourceModeChange : undefined
+                }
                 onMarkdownChange={onMarkdownChange}
                 onSaveRequested={onSaveRequested}
               />
@@ -3992,20 +4432,26 @@ function renderDocumentEditorContent({
 
 function DocumentEditorInstance({
   activeEditorRef,
+  aiEnabled,
+  askAiHandler,
   documentPath,
   editorSession,
   pageWidthMode,
   readOnly,
   workspaceRootPath,
+  onSourceModeChange,
   onMarkdownChange,
   onSaveRequested,
 }: {
   activeEditorRef?: React.RefObject<MarkdownEditorHandle | null>;
+  aiEnabled: boolean;
+  askAiHandler: MarkweaveAskAiHandler | null;
   documentPath: string;
   editorSession: DocumentEditorSession;
   pageWidthMode: PageWidthMode;
   readOnly: boolean;
   workspaceRootPath: string | null;
+  onSourceModeChange?: (sourceMode: boolean) => void;
   onMarkdownChange: (
     documentPath: string,
     markdown: string,
@@ -4025,12 +4471,15 @@ function DocumentEditorInstance({
   return (
     <div className="relative h-full min-h-0">
       <MarkdownEditor
+        aiEnabled={aiEnabled && !readOnly}
+        askAiHandler={askAiHandler}
         documentKey={`${documentPath}:${editorSession.documentVersion}:${pageWidthMode}:${readOnly ? 'view' : 'live'}`}
         markdown={editorSession.markdown}
         pageWidthMode={pageWidthMode}
         readOnly={readOnly}
         ref={activeEditorRef}
         workspaceRootPath={workspaceRootPath}
+        onSourceModeChange={onSourceModeChange}
         onMarkdownChange={handleMarkdownChange}
         onSaveRequested={onSaveRequested}
       />
@@ -4288,6 +4737,36 @@ function filterRegularWorkspaceNodes(nodes: WorkspaceNode[]) {
   return nodes.filter((node) => !isDailyRootDirectory(node));
 }
 
+function filterWorkspaceOverviewNodes(nodes: WorkspaceNode[]): WorkspaceNode[] {
+  return nodes
+    .filter(
+      (node) =>
+        !isDailyRootDirectory(node) &&
+        !(node.kind === 'directory' && node.name.startsWith('.')),
+    )
+    .map((node) =>
+      node.kind === 'directory'
+        ? {
+            ...node,
+            children: filterWorkspaceOverviewNodes(node.children ?? []),
+          }
+        : node,
+    );
+}
+
+function toDocumentTabExportNode(
+  tab: DocumentEditorDocumentTab,
+): WorkspaceNode {
+  return {
+    id: tab.absolutePath,
+    name: tab.name,
+    kind: 'document',
+    relativePath: tab.name,
+    absolutePath: tab.absolutePath,
+    title: tab.title,
+  };
+}
+
 function isDailyRootDirectory(node: WorkspaceNode) {
   return (
     node.kind === 'directory' &&
@@ -4306,7 +4785,13 @@ function readStoredPanelWidth(
     return fallback;
   }
 
-  const parsed = Number(window.localStorage.getItem(key));
+  const storedValue = window.localStorage.getItem(key);
+
+  if (storedValue === null) {
+    return fallback;
+  }
+
+  const parsed = Number(storedValue);
 
   if (!Number.isFinite(parsed)) {
     return fallback;
@@ -4400,51 +4885,58 @@ function ExternalDocumentConflictBanner({
   );
 }
 
-function WorkspaceStatusBar({
+export function WorkspaceStatusBar({
   characterCount,
   lineCount,
   saveError,
   saveState,
+  sourceMode,
   visible,
+  wordCount,
 }: {
   characterCount: number;
   lineCount: number;
   saveError: string | null;
   saveState: DocumentSaveState;
+  sourceMode: boolean;
   visible: boolean;
+  wordCount: number;
 }) {
   return (
     <div
-      className="flex h-7 shrink-0 items-center justify-end gap-4 px-4 text-[12px] text-muted-foreground"
+      className="flex h-7 shrink-0 items-center px-4 text-[12px] text-muted-foreground"
       data-testid="workspace-status-bar"
     >
       {visible ? (
         <>
-          <span className="flex items-center gap-1">
-            <Check
-              className={cn(
-                'size-3',
-                saveState === 'error'
-                  ? 'text-destructive'
-                  : saveState === 'dirty'
-                    ? 'text-amber-600'
-                    : 'text-emerald-600',
-              )}
-              strokeWidth={2}
-            />
-            {saveState === 'dirty' ? '有未保存更改' : null}
-            {saveState === 'saving' ? '保存中...' : null}
-            {saveState === 'saved' ? '已保存' : null}
-            {saveState === 'error' ? (
-              <span className="text-destructive">
-                {saveError ?? '保存失败'}
-              </span>
-            ) : null}
-          </span>
-          <span>词数 {characterCount}</span>
-          <span>行数 {lineCount}</span>
-          <span>字符 {characterCount}</span>
-          <span>UTF-8 · Markdown</span>
+          {sourceMode ? <span>Ctrl / Cmd + / 返回</span> : null}
+          <div className="ml-auto flex items-center gap-4">
+            <span className="flex items-center gap-1">
+              <Check
+                className={cn(
+                  'size-3',
+                  saveState === 'error'
+                    ? 'text-destructive'
+                    : saveState === 'dirty'
+                      ? 'text-amber-600'
+                      : 'text-emerald-600',
+                )}
+                strokeWidth={2}
+              />
+              {saveState === 'dirty' ? '有未保存更改' : null}
+              {saveState === 'saving' ? '保存中...' : null}
+              {saveState === 'saved' ? '已保存' : null}
+              {saveState === 'error' ? (
+                <span className="text-destructive">
+                  {saveError ?? '保存失败'}
+                </span>
+              ) : null}
+            </span>
+            <span>词数 {wordCount}</span>
+            <span>行数 {lineCount}</span>
+            <span>字符 {characterCount}</span>
+            <span>UTF-8 · Markdown</span>
+          </div>
         </>
       ) : null}
     </div>

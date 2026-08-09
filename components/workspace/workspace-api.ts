@@ -35,6 +35,7 @@ import type {
   MarkdownDocumentContent,
   ImportCommitSession,
   ImportedDocumentResult,
+  ImportedTreeIconAsset,
   InboxCapture,
   InboxCaptureListResult,
   InboxCaptureListView,
@@ -54,11 +55,13 @@ import type {
   WorkspaceExportFormat,
   WorkspaceImportFormat,
   WorkspaceGitSyncSettings,
+  WorkspaceGraphSnapshot,
   WorkspaceMoveRequest,
   WorkspaceHistoryItem,
   WorkspaceMetadata,
   WorkspaceNode,
   WorkspaceSnapshot,
+  TreeNodeAppearance,
   SystemFontOptions,
 } from './workspace-types';
 import { getParentPath } from './workspace-paths';
@@ -71,6 +74,19 @@ const MAX_WORKSPACE_HISTORY = 8;
 
 export function isTauriRuntime() {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+}
+
+export interface MacosTitlebarMetrics {
+  trafficLightCenterY: number;
+}
+
+export async function getMacosTitlebarMetrics() {
+  if (!isTauriRuntime()) {
+    return null;
+  }
+
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<MacosTitlebarMetrics | null>('get_macos_titlebar_metrics');
 }
 
 export async function getMadoraVersion() {
@@ -210,13 +226,14 @@ export async function selectWorkspaceRoot() {
     return null;
   }
 
-  const { open } = await import('@tauri-apps/plugin-dialog');
-  const selected = await open({
-    directory: true,
-    multiple: false,
-  });
+  const { invoke } = await import('@tauri-apps/api/core');
+  const selected = await invoke<string | null>('select_workspace_directory');
 
-  return typeof selected === 'string' ? selected : null;
+  if (typeof selected === 'string' && selected.length > 0) {
+    return selected;
+  }
+
+  return null;
 }
 
 export async function selectWorkspaceParentDirectory() {
@@ -227,6 +244,12 @@ export async function loadWorkspaceTree(rootPath: string) {
   const { invoke } = await import('@tauri-apps/api/core');
 
   return invoke<WorkspaceSnapshot>('load_workspace_tree', { rootPath });
+}
+
+export async function loadWorkspaceGraph(rootPath: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<WorkspaceGraphSnapshot>('load_workspace_graph', { rootPath });
 }
 
 export async function listSystemFonts() {
@@ -903,6 +926,20 @@ export async function renameWorkspaceNode(
   });
 }
 
+export async function setTreeNodeAppearance(
+  rootPath: string,
+  nodePath: string,
+  appearance: TreeNodeAppearance | null,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<WorkspaceSnapshot>('set_tree_node_appearance', {
+    rootPath,
+    nodePath,
+    appearance,
+  });
+}
+
 export async function deleteWorkspaceNode(rootPath: string, nodePath: string) {
   const { invoke } = await import('@tauri-apps/api/core');
 
@@ -1136,6 +1173,13 @@ export async function saveAppSettings(settings: AppSettings) {
   return invoke<AppSettings>('save_app_settings', { settings });
 }
 
+export async function setAppWindowOpacity(opacity: number) {
+  if (!isTauriRuntime()) return;
+
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<void>('set_app_window_opacity', { opacity });
+}
+
 export async function saveWorkspaceGitSyncSettings(
   rootPath: string,
   settings: WorkspaceGitSyncSettings,
@@ -1185,6 +1229,26 @@ export async function readWorkspaceAssetData(rootPath: string, assetId: string) 
   const { invoke } = await import('@tauri-apps/api/core');
 
   return invoke<WorkspaceAssetData>('read_workspace_asset_data', {
+    rootPath,
+    assetId,
+  });
+}
+
+export async function selectTreeIconAsset(rootPath: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<ImportedTreeIconAsset | null>('select_tree_icon_asset', {
+    rootPath,
+  });
+}
+
+export async function discardUnreferencedTreeIconAsset(
+  rootPath: string,
+  assetId: string,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<void>('discard_unreferenced_tree_icon_asset', {
     rootPath,
     assetId,
   });
