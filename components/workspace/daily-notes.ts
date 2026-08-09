@@ -20,6 +20,10 @@ export function formatDailyMonth(date: Date) {
   return [date.getFullYear(), padDatePart(date.getMonth() + 1)].join('-');
 }
 
+export function createDailyMarkdownTemplate(date: string) {
+  return `# ${date}\n`;
+}
+
 export function createDateFromDailyDate(date: string) {
   const [year, month, day] = date.split('-').map(Number);
 

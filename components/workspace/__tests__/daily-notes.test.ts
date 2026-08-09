@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  createDailyMarkdownTemplate,
   isDailyDocumentPath,
   toDailyExportNode,
 } from '../daily-notes';
@@ -19,6 +20,10 @@ const entry: DailyNoteEntry = {
 };
 
 describe('daily-notes export helpers', () => {
+  it('creates a minimal unsaved Daily draft without native metadata', () => {
+    expect(createDailyMarkdownTemplate('2026-07-31')).toBe('# 2026-07-31\n');
+  });
+
   it('detects Daily document paths for relative and absolute forms', () => {
     expect(isDailyDocumentPath('Daily/2026/07/2026-07-31.md')).toBe(true);
     expect(isDailyDocumentPath('/workspace/Daily/2026/07/2026-07-31.md')).toBe(

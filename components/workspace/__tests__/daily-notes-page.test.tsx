@@ -1,40 +1,92 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ForwardedRef } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DailyNotesPage } from '../daily-notes-page';
 import type { DailyNoteEntry } from '../workspace-types';
 
 const mocks = vi.hoisted(() => ({
+  openDailyNote: vi.fn(),
   readMarkdownDocument: vi.fn(),
+  saveMarkdownDocument: vi.fn(),
 }));
 
 vi.mock('../workspace-api', () => ({
+  openDailyNote: mocks.openDailyNote,
   readMarkdownDocument: mocks.readMarkdownDocument,
+  saveMarkdownDocument: mocks.saveMarkdownDocument,
 }));
 
-vi.mock('@/components/editor/markdown-editor', () => ({
-  MarkdownEditor: ({
-    markdown,
-    pageWidthMode,
-    readOnly,
-    workspaceRootPath,
-  }: {
-    markdown: string;
-    pageWidthMode: string;
-    readOnly: boolean;
-    workspaceRootPath: string;
-  }) => (
-    <article
-      data-page-width={pageWidthMode}
-      data-read-only={readOnly}
-      data-root-path={workspaceRootPath}
-      data-testid="daily-markdown-preview"
-    >
-      {markdown}
-    </article>
-  ),
-}));
+vi.mock('@/components/editor/markdown-editor', async () => {
+  const ReactModule = await vi.importActual<typeof import('react')>('react');
+
+  return {
+    MarkdownEditor: ReactModule.forwardRef(function MockMarkdownEditor(
+      {
+        documentKey,
+        markdown,
+        onMarkdownChange,
+        pageWidthMode,
+        readOnly = false,
+        workspaceRootPath,
+      }: {
+        documentKey?: string;
+        markdown: string;
+        onMarkdownChange?: (
+          markdown: string,
+          origin?: string,
+          reason?: string,
+        ) => boolean | void | Promise<boolean | void>;
+        pageWidthMode: string;
+        readOnly?: boolean;
+        workspaceRootPath: string;
+      },
+      ref: ForwardedRef<{
+        flushDraft: (reason: string) => Promise<boolean>;
+        getAiEditController: () => null;
+      }>,
+    ) {
+      const [value, setValue] = ReactModule.useState(markdown);
+
+      ReactModule.useEffect(() => {
+        setValue(markdown);
+      }, [documentKey, markdown]);
+
+      ReactModule.useImperativeHandle(
+        ref,
+        () => ({
+          flushDraft: async (reason: string) => {
+            const result = await onMarkdownChange?.(value, undefined, reason);
+            return result !== false;
+          },
+          getAiEditController: () => null,
+        }),
+        [onMarkdownChange, value],
+      );
+
+      return readOnly ? (
+        <article
+          data-page-width={pageWidthMode}
+          data-read-only="true"
+          data-root-path={workspaceRootPath}
+          data-testid="daily-markdown-preview"
+        >
+          {markdown}
+        </article>
+      ) : (
+        <textarea
+          aria-label="Markdown 正文"
+          data-page-width={pageWidthMode}
+          data-root-path={workspaceRootPath}
+          data-testid="daily-markdown-editor"
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+        />
+      );
+    }),
+  };
+});
 
 const entry: DailyNoteEntry = {
   date: '2026-07-31',
@@ -77,11 +129,26 @@ function renderPage(overrides: Partial<React.ComponentProps<typeof DailyNotesPag
 
 describe('DailyNotesPage', () => {
   beforeEach(() => {
+    mocks.openDailyNote.mockReset();
     mocks.readMarkdownDocument.mockReset();
+    mocks.saveMarkdownDocument.mockReset();
     mocks.readMarkdownDocument.mockResolvedValue({
       content:
         '# 2026-07-31\n\n## 发布 v0.6.0\n\n完成验收与上线准备。\n\n- [x] 验收通过',
       modifiedAt: entry.updatedAt,
+      path: entry.documentPath,
+    });
+    mocks.openDailyNote.mockResolvedValue({
+      content: {
+        content:
+          '---\ntitle: 2026-07-30\ncreatedAt: 2026-07-30T00:00:00Z\nupdatedAt: 2026-07-30T00:00:00Z\nrefinexDialect: 1\ndailyDate: 2026-07-30\n---\n\n# 2026-07-30\n',
+        modifiedAt: 100,
+        path: '/workspace/Daily/2026/07/2026-07-30.md',
+      },
+      node: {},
+    });
+    mocks.saveMarkdownDocument.mockResolvedValue({
+      modifiedAt: entry.updatedAt + 1,
       path: entry.documentPath,
     });
   });
@@ -120,6 +187,216 @@ describe('DailyNotesPage', () => {
     expect(onExportDaily).toHaveBeenCalledWith(entry, 'pdf');
   });
 
+  it('previews indexed content in the month cell and opens quick edit from the preview', async () => {
+    const user = userEvent.setup();
+    const onSelectDate = vi.fn();
+    renderPage({ onSelectDate });
+
+    expect(screen.getByText('发布 v0.6.0')).toBeTruthy();
+    expect(screen.getByText('完成验收与上线准备，更新文档与发布说明。')).toBeTruthy();
+    expect(screen.getByText('监控与回滚方案')).toBeTruthy();
+
+    const previewAction = screen.getByRole('button', {
+      name: '快速编辑 2026-07-31 日程',
+    });
+    expect(previewAction.className).toContain(
+      'daily-notes-calendar-cell-preview-fade',
+    );
+    expect(previewAction.className).toContain('mt-0.5');
+    expect(previewAction.className).toContain('justify-start');
+    expect(previewAction.textContent).not.toContain('2/3 完成');
+
+    await user.click(previewAction);
+
+    expect(onSelectDate).toHaveBeenCalledWith('2026-07-31');
+    const dialog = await screen.findByRole('dialog', { name: '编辑日程' });
+    expect(dialog).toBeTruthy();
+    expect(dialog.className).toContain('inset-0');
+    expect(dialog.className).toContain('m-auto');
+    expect(dialog.className).toContain('translate-none');
+    expect(dialog.className).not.toContain('-translate-x-1/2');
+    expect(dialog.className).not.toContain('-translate-y-1/2');
+    expect(dialog.textContent).not.toContain('Daily/2026/07/2026-07-31.md');
+    expect(dialog.textContent).not.toContain('7月31日 周五');
+    expect(await screen.findByTestId('daily-markdown-editor')).toBeTruthy();
+  });
+
+  it('opens the same quick editor from the inspector preview area', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByTestId('daily-markdown-preview');
+    await user.click(
+      screen.getByRole('button', {
+        name: '从详情预览编辑 2026-07-31 日程',
+      }),
+    );
+
+    expect(
+      await screen.findByRole('dialog', { name: '编辑日程' }),
+    ).toBeTruthy();
+    expect(await screen.findByTestId('daily-markdown-editor')).toBeTruthy();
+  });
+
+  it('saves an existing Daily document from the core editor', async () => {
+    const user = userEvent.setup();
+    const onDailyContentSaved = vi.fn();
+    renderPage({ onDailyContentSaved });
+
+    await user.click(
+      screen.getByRole('button', {
+        name: '快速编辑 2026-07-31 日程',
+      }),
+    );
+    const editor = await screen.findByRole('textbox', {
+      name: 'Markdown 正文',
+    });
+    await user.clear(editor);
+    await user.type(editor, '# 2026-07-31\n\n更新后的日程内容');
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => {
+      expect(mocks.saveMarkdownDocument).toHaveBeenCalledWith(
+        '/workspace',
+        entry.documentPath,
+        '# 2026-07-31\n\n更新后的日程内容',
+        entry.updatedAt,
+      );
+    });
+    expect(onDailyContentSaved).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: '# 2026-07-31\n\n更新后的日程内容',
+        path: entry.documentPath,
+      }),
+      '2026-07-31',
+    );
+  });
+
+  it('creates an empty date only when saving and preserves the native frontmatter', async () => {
+    const user = userEvent.setup();
+    const onDailyContentSaved = vi.fn();
+    mocks.saveMarkdownDocument.mockResolvedValueOnce({
+      modifiedAt: 101,
+      path: '/workspace/Daily/2026/07/2026-07-30.md',
+    });
+    renderPage({
+      onDailyContentSaved,
+      selectedDate: '2026-07-30',
+    });
+
+    await user.click(
+      screen.getByRole('button', { name: '编辑 2026-07-30 日程' }),
+    );
+    expect(mocks.openDailyNote).not.toHaveBeenCalled();
+
+    const editor = await screen.findByRole('textbox', {
+      name: 'Markdown 正文',
+    });
+    expect((editor as HTMLTextAreaElement).value).toBe('# 2026-07-30\n');
+    await user.clear(editor);
+    await user.type(editor, '# 2026-07-30\n\n第一条记录');
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => {
+      expect(mocks.openDailyNote).toHaveBeenCalledWith(
+        '/workspace',
+        '2026-07-30',
+      );
+    });
+    expect(mocks.saveMarkdownDocument).toHaveBeenCalledWith(
+      '/workspace',
+      '/workspace/Daily/2026/07/2026-07-30.md',
+      expect.stringContaining('dailyDate: 2026-07-30'),
+      100,
+    );
+    expect(mocks.saveMarkdownDocument.mock.calls[0]?.[2]).toContain(
+      '第一条记录',
+    );
+    expect(onDailyContentSaved).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: '/workspace/Daily/2026/07/2026-07-30.md',
+      }),
+      '2026-07-30',
+    );
+  });
+
+  it('saves pending edits before opening the full Daily detail', async () => {
+    const user = userEvent.setup();
+    const onCreateDaily = vi.fn();
+    renderPage({ onCreateDaily });
+
+    await user.click(
+      screen.getByRole('button', {
+        name: '快速编辑 2026-07-31 日程',
+      }),
+    );
+    const editor = await screen.findByRole('textbox', {
+      name: 'Markdown 正文',
+    });
+    await user.clear(editor);
+    await user.type(editor, '# 2026-07-31\n\n打开详情前保存');
+    await user.click(
+      screen.getByRole('button', { name: '打开日程详情' }),
+    );
+
+    await waitFor(() => {
+      expect(mocks.saveMarkdownDocument).toHaveBeenCalledTimes(1);
+      expect(onCreateDaily).toHaveBeenCalledWith('2026-07-31');
+    });
+  });
+
+  it('protects an unsaved quick-edit draft before closing', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(
+      screen.getByRole('button', {
+        name: '快速编辑 2026-07-31 日程',
+      }),
+    );
+    const editor = await screen.findByRole('textbox', {
+      name: 'Markdown 正文',
+    });
+    await user.clear(editor);
+    await user.type(editor, '# 尚未保存');
+    await user.click(
+      screen.getByRole('button', { name: '关闭日程编辑器' }),
+    );
+
+    expect(await screen.findByText('放弃尚未保存的修改？')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '继续编辑' }));
+    expect(screen.getByRole('dialog', { name: '编辑日程' })).toBeTruthy();
+    await user.click(
+      screen.getByRole('button', { name: '关闭日程编辑器' }),
+    );
+    await user.click(screen.getByRole('button', { name: '放弃修改' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '编辑日程' })).toBeNull();
+    });
+  });
+
+  it('keeps the quick-edit draft available when saving fails', async () => {
+    const user = userEvent.setup();
+    mocks.saveMarkdownDocument.mockRejectedValueOnce(new Error('版本冲突'));
+    renderPage();
+
+    await user.click(
+      screen.getByRole('button', {
+        name: '快速编辑 2026-07-31 日程',
+      }),
+    );
+    const editor = await screen.findByRole('textbox', {
+      name: 'Markdown 正文',
+    });
+    await user.clear(editor);
+    await user.type(editor, '# 2026-07-31\n\n保留这次修改');
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('版本冲突');
+    expect((editor as HTMLTextAreaElement).value).toContain('保留这次修改');
+    expect(screen.getByRole('dialog', { name: '编辑日程' })).toBeTruthy();
+  });
+
   it('keeps the date at the card top-left and exposes an adjustable preview width', async () => {
     const user = userEvent.setup();
     const onInspectorResize = vi.fn();
@@ -128,11 +405,11 @@ describe('DailyNotesPage', () => {
     const dateCell = screen.getByRole('button', {
       name: '2026-07-31 每日笔记',
     });
-    expect(dateCell.className).toContain('items-start');
-    expect(dateCell.className).toContain('justify-start');
+    expect(dateCell.parentElement?.className).toContain('items-start');
+    expect(dateCell.parentElement?.className).toContain('justify-start');
     const regularDateBadge = screen
       .getByRole('button', { name: '2026-07-30 每日笔记' })
-      .querySelector('span');
+      .parentElement?.querySelector('span');
     expect(regularDateBadge?.className).toContain('bg-muted');
 
     const detailAction = screen.getByRole('button', {
@@ -184,7 +461,9 @@ describe('DailyNotesPage', () => {
     const emptyDateCell = screen.getByRole('button', {
       name: '2026-07-30 每日笔记',
     });
-    expect(emptyDateCell.className).toContain('dark:border-muted-foreground/25');
+    expect(emptyDateCell.parentElement?.className).toContain(
+      'dark:border-muted-foreground/25',
+    );
 
     const page = screen.getByTestId('daily-notes-page');
     expect(page.querySelector('header')?.style.marginTop).toBe('0px');

@@ -417,10 +417,10 @@
   }
 
   .daily-notes-calendar-cell-preview-fade {
-    height: 2.25rem;
+    min-height: 0;
     overflow: hidden;
-    -webkit-mask-image: linear-gradient(to bottom, #000 52%, transparent 100%);
-    mask-image: linear-gradient(to bottom, #000 52%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, #000 68%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 68%, transparent 100%);
   }
 
   .daily-notes-rendered-preview .markweave-editor-frame {
@@ -759,6 +759,15 @@
 .workspace-editor-shell .markweave-editor-frame[data-markweave-inner-toc='true'][data-markweave-inner-toc-placement='container'] {
   --madora-markweave-toc-gutter: 2rem;
   --markweave-inner-toc-gutter: var(--madora-markweave-toc-gutter);
+}
+
+.daily-notes-quick-editor .markweave-editor-frame {
+  padding-top: 1.25rem;
+  padding-bottom: 4rem;
+}
+
+.daily-notes-quick-editor .markweave-inner-toc {
+  display: none !important;
 }
 
 .terminal-surface {

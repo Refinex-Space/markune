@@ -6,13 +6,22 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  FilePenLine,
   List,
+  LoaderCircle,
   RefreshCw,
   Search,
   X,
 } from 'lucide-react';
 
-import { MarkdownEditor } from '@/components/editor/markdown-editor';
+import {
+  MarkdownEditor,
+  type MarkdownEditorHandle,
+} from '@/components/editor/markdown-editor';
+import {
+  parseFrontmatter,
+  serializeFrontmatter,
+} from '@/components/editor/markdown-frontmatter';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -30,13 +39,19 @@ import {
 import { cn } from '@/lib/utils';
 
 import {
+  createDailyMarkdownTemplate,
   createDateFromDailyDate,
   formatDailyDate,
 } from './daily-notes';
-import { readMarkdownDocument } from './workspace-api';
+import {
+  openDailyNote,
+  readMarkdownDocument,
+  saveMarkdownDocument,
+} from './workspace-api';
 import { WorkspaceResizeHandle } from './workspace-resize-handle';
 import type {
   DailyNoteEntry,
+  MarkdownDocumentContent,
   PageWidthMode,
   WorkspaceExportFormat,
 } from './workspace-types';
@@ -71,6 +86,10 @@ interface DailyNotesPageProps {
   sidebarHeaderOffset?: number;
   viewMode: DailyNotesViewMode;
   onCreateDaily: (date: string) => void;
+  onDailyContentSaved?: (
+    content: MarkdownDocumentContent,
+    date: string,
+  ) => void;
   onExportDaily?: (
     entry: DailyNoteEntry,
     format: WorkspaceExportFormat,
@@ -106,6 +125,7 @@ export function DailyNotesPage({
   sidebarHeaderOffset,
   viewMode,
   onCreateDaily,
+  onDailyContentSaved,
   onExportDaily,
   onInspectorResize,
   onMonthChange,
@@ -119,6 +139,8 @@ export function DailyNotesPage({
   const [query, setQuery] = React.useState('');
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [inspectorOpen, setInspectorOpen] = React.useState(false);
+  const [quickEditorTarget, setQuickEditorTarget] =
+    React.useState<DailyQuickEditorTarget | null>(null);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const entriesByDate = React.useMemo(
     () => new Map(entries.map((entry) => [entry.date, entry])),
@@ -165,6 +187,14 @@ export function DailyNotesPage({
     const today = new Date();
     onMonthChange(new Date(today.getFullYear(), today.getMonth(), 1));
     onSelectDate(formatDailyDate(today));
+  }
+
+  function openQuickEditor(date: string) {
+    onSelectDate(date);
+    setQuickEditorTarget({
+      date,
+      entry: entriesByDate.get(date) ?? null,
+    });
   }
 
   return (
@@ -289,6 +319,7 @@ export function DailyNotesPage({
               monthCells={monthCells}
               queryActive={Boolean(normalizedQuery)}
               selectedDate={selectedDate}
+              onEditDate={openQuickEditor}
               onSelectDate={onSelectDate}
             />
           ) : (
@@ -320,6 +351,7 @@ export function DailyNotesPage({
             rootPath={rootPath}
             selectedDate={selectedDate}
             onCreateDaily={onCreateDaily}
+            onEditDaily={openQuickEditor}
             onExportDaily={onExportDaily}
             onOpenDaily={onOpenDaily}
             onRetryPreview={dailyPreview.retry}
@@ -371,12 +403,31 @@ export function DailyNotesPage({
             rootPath={rootPath}
             selectedDate={selectedDate}
             onCreateDaily={onCreateDaily}
+            onEditDaily={openQuickEditor}
             onExportDaily={onExportDaily}
             onOpenDaily={onOpenDaily}
             onRetryPreview={dailyPreview.retry}
           />
         </DialogContent>
       </Dialog>
+
+      {quickEditorTarget ? (
+        <DailyQuickEditorDialog
+          key={`${quickEditorTarget.date}\u0000${quickEditorTarget.entry?.documentPath ?? ''}\u0000${quickEditorTarget.entry?.updatedAt ?? ''}`}
+          pageWidthMode={pageWidthMode}
+          rootPath={rootPath}
+          target={quickEditorTarget}
+          onClose={() => setQuickEditorTarget(null)}
+          onContentSaved={(content, date) => {
+            dailyPreview.retry();
+            onDailyContentSaved?.(content, date);
+          }}
+          onOpenDetails={(date) => {
+            setQuickEditorTarget(null);
+            onCreateDaily(date);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -388,6 +439,7 @@ function DailyMonthView({
   monthCells,
   queryActive,
   selectedDate,
+  onEditDate,
   onSelectDate,
 }: {
   entriesByDate: Map<string, DailyNoteEntry>;
@@ -396,6 +448,7 @@ function DailyMonthView({
   monthCells: Array<{ date: string; day: number } | null>;
   queryActive: boolean;
   selectedDate: string;
+  onEditDate: (date: string) => void;
   onSelectDate: (date: string) => void;
 }) {
   const rowCount = monthCells.length / 7;
@@ -434,49 +487,69 @@ function DailyMonthView({
           const queryMatch = !queryActive || filteredEntryDates.has(cell.date);
 
           return (
-            <button
-              aria-label={`${cell.date} 每日笔记`}
-              aria-pressed={selected}
+            <div
               className={cn(
-                'group relative flex min-h-24 flex-col items-start justify-start overflow-hidden border-r border-b border-border/45 p-2.5 text-left outline-none transition-[background-color,box-shadow] hover:bg-accent/35 focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/45 dark:border-muted-foreground/25',
+                'group relative flex min-h-24 flex-col items-start justify-start overflow-hidden border-r border-b border-border/45 p-2.5 text-left transition-[background-color,box-shadow] dark:border-muted-foreground/25',
                 selected &&
                   'z-[1] bg-brand/[0.035] shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--brand)_72%,transparent)]',
               )}
               key={cell.date}
-              type="button"
-              onClick={() => onSelectDate(cell.date)}
             >
+              <button
+                aria-label={`${cell.date} 每日笔记`}
+                aria-pressed={selected}
+                className="absolute inset-0 z-0 outline-none transition-colors hover:bg-accent/25 focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/45"
+                type="button"
+                onClick={() => onSelectDate(cell.date)}
+              />
               <span
                 className={cn(
-                  'inline-flex size-6 items-center justify-center rounded-full bg-muted text-sm text-foreground/85 tabular-nums transition-colors',
+                  'pointer-events-none relative z-10 inline-flex size-6 items-center justify-center rounded-full bg-muted text-sm text-foreground/85 tabular-nums transition-colors',
                   selected && 'bg-brand text-white',
                 )}
               >
                 {cell.day}
               </span>
               {entry?.hasContent && queryMatch ? (
-                <div className="mt-1.5 w-full min-w-0">
+                <button
+                  aria-label={`快速编辑 ${cell.date} 日程`}
+                  className="daily-notes-calendar-cell-preview-fade relative z-10 mt-0.5 flex w-full min-w-0 flex-1 cursor-text flex-col items-stretch justify-start overflow-hidden pb-7 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+                  type="button"
+                  onClick={() => onEditDate(cell.date)}
+                >
                   {entry.title ? (
                     <p className="truncate text-[13px] leading-5 font-medium text-foreground">
                       {entry.title}
                     </p>
                   ) : null}
                   {entry.excerpt ? (
-                    <p className="daily-notes-calendar-cell-excerpt daily-notes-calendar-cell-preview-fade text-xs leading-[1.125rem] text-muted-foreground">
+                    <p className="daily-notes-calendar-cell-excerpt text-xs leading-[1.125rem] text-muted-foreground">
                       {entry.excerpt}
                     </p>
                   ) : null}
-                  {entry.taskTotal > 0 ? (
-                    <p className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground tabular-nums">
-                      <TaskSquare completed={entry.taskCompleted === entry.taskTotal} />
-                      {entry.taskCompleted}/{entry.taskTotal}
-                    </p>
-                  ) : null}
-                </div>
+                  {entry.taskPreview.slice(0, 2).map((task, taskIndex) => (
+                    <span
+                      className="mt-1 flex min-w-0 items-start gap-1 text-[11px] leading-4 text-muted-foreground"
+                      key={`${task.text}-${taskIndex}`}
+                    >
+                      <TaskSquare completed={task.completed} />
+                      <span className="truncate">{task.text}</span>
+                    </span>
+                  ))}
+                </button>
               ) : entry?.hasContent && queryActive ? (
-                <span className="absolute right-2.5 bottom-2.5 size-1.5 rounded-full bg-muted-foreground/25" />
+                <span className="pointer-events-none absolute right-2.5 bottom-2.5 z-10 size-1.5 rounded-full bg-muted-foreground/25" />
               ) : null}
-            </button>
+              <button
+                aria-label={`编辑 ${cell.date} 日程`}
+                className="absolute bottom-2 left-2.5 z-20 flex h-6 items-center gap-1 rounded-md border border-border/55 bg-background/95 px-2 text-[11px] font-medium text-foreground opacity-0 shadow-xs transition-[opacity,background-color] hover:bg-accent focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 group-hover:opacity-100 group-focus-within:opacity-100"
+                type="button"
+                onClick={() => onEditDate(cell.date)}
+              >
+                <FilePenLine size={12} />
+                编辑日程
+              </button>
+            </div>
           );
         })}
       </div>
@@ -561,6 +634,7 @@ function DailyInspector({
   rootPath,
   selectedDate,
   onCreateDaily,
+  onEditDaily,
   onExportDaily,
   onOpenDaily,
   onRetryPreview,
@@ -573,6 +647,7 @@ function DailyInspector({
   rootPath: string;
   selectedDate: string;
   onCreateDaily: (date: string) => void;
+  onEditDaily: (date: string) => void;
   onExportDaily?: (
     entry: DailyNoteEntry,
     format: WorkspaceExportFormat,
@@ -608,13 +683,30 @@ function DailyInspector({
                 </div>
               </div>
             ) : preview.status === 'ready' ? (
-              <MarkdownEditor
-                documentKey={`daily-preview:${entry.documentPath}:${entry.updatedAt}:${previewRevision}`}
-                markdown={preview.markdown}
-                pageWidthMode={pageWidthMode}
-                readOnly
-                workspaceRootPath={rootPath}
-              />
+              <div
+                className="group/inspector relative h-full"
+                data-testid="daily-inspector-preview"
+              >
+                <MarkdownEditor
+                  documentKey={`daily-preview:${entry.documentPath}:${entry.updatedAt}:${previewRevision}`}
+                  markdown={preview.markdown}
+                  pageWidthMode={pageWidthMode}
+                  readOnly
+                  workspaceRootPath={rootPath}
+                />
+                <button
+                  aria-label={`从详情预览编辑 ${entry.date} 日程`}
+                  className="absolute inset-0 z-10 cursor-text rounded-none outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/40"
+                  title="点击快速编辑日程"
+                  type="button"
+                  onClick={() => onEditDaily(entry.date)}
+                >
+                  <span className="absolute top-3 right-3 flex h-7 items-center gap-1 rounded-md border border-border/55 bg-background/95 px-2 text-[11px] font-medium text-foreground opacity-0 shadow-xs transition-opacity group-hover/inspector:opacity-100 group-focus-within/inspector:opacity-100">
+                    <FilePenLine size={12} />
+                    编辑日程
+                  </span>
+                </button>
+              </div>
             ) : null}
           </div>
           <div className="flex shrink-0 gap-2 border-b border-border/55 p-3 dark:border-muted-foreground/25">
@@ -673,6 +765,350 @@ function DailyInspector({
       )}
     </div>
   );
+}
+
+interface DailyQuickEditorTarget {
+  date: string;
+  entry: DailyNoteEntry | null;
+}
+
+type DailyQuickEditorLoadState =
+  | { status: 'loading' }
+  | { message: string; status: 'error' }
+  | { document: DailyQuickEditorDocument; status: 'ready' };
+
+interface DailyQuickEditorDocument {
+  content: string;
+  modifiedAt: number | null;
+  path: string | null;
+}
+
+function DailyQuickEditorDialog({
+  pageWidthMode,
+  rootPath,
+  target,
+  onClose,
+  onContentSaved,
+  onOpenDetails,
+}: {
+  pageWidthMode: PageWidthMode;
+  rootPath: string;
+  target: DailyQuickEditorTarget;
+  onClose: () => void;
+  onContentSaved: (content: MarkdownDocumentContent, date: string) => void;
+  onOpenDetails: (date: string) => void;
+}) {
+  const initialDocument = target.entry
+    ? null
+    : ({
+        content: createDailyMarkdownTemplate(target.date),
+        modifiedAt: null,
+        path: null,
+      } satisfies DailyQuickEditorDocument);
+  const editorRef = React.useRef<MarkdownEditorHandle | null>(null);
+  const documentRef = React.useRef<DailyQuickEditorDocument | null>(
+    initialDocument,
+  );
+  const draftMarkdownRef = React.useRef(initialDocument?.content ?? '');
+  const savePromiseRef = React.useRef<Promise<MarkdownDocumentContent | null> | null>(
+    null,
+  );
+  const [loadState, setLoadState] = React.useState<DailyQuickEditorLoadState>(
+    initialDocument
+      ? { document: initialDocument, status: 'ready' }
+      : { status: 'loading' },
+  );
+  const [discardPromptVisible, setDiscardPromptVisible] = React.useState(false);
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
+  const targetKey = `${target.date}\u0000${target.entry?.documentPath ?? ''}\u0000${target.entry?.updatedAt ?? ''}`;
+
+  React.useEffect(() => {
+    if (!target.entry) return;
+    const entry = target.entry;
+
+    let cancelled = false;
+    void readMarkdownDocument(rootPath, entry.documentPath)
+      .then((content) => {
+        if (cancelled) return;
+        const document = {
+          content: content.content,
+          modifiedAt: content.modifiedAt,
+          path: content.path,
+        } satisfies DailyQuickEditorDocument;
+        documentRef.current = document;
+        draftMarkdownRef.current = document.content;
+        setLoadState({ document, status: 'ready' });
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setLoadState({
+          message: formatDailyQuickEditorError(error, '无法读取日程内容。'),
+          status: 'error',
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [rootPath, target.entry]);
+
+  const captureMarkdown = React.useCallback((markdown: string) => {
+    draftMarkdownRef.current = markdown;
+    setSaveError(null);
+    return true;
+  }, []);
+
+  const persistDraft = React.useCallback(
+    async (
+      reason: 'document-switch' | 'manual-save',
+    ): Promise<MarkdownDocumentContent | null> => {
+      if (loadState.status !== 'ready') return null;
+      if (savePromiseRef.current) return savePromiseRef.current;
+
+      const savePromise = (async () => {
+        const flushed = (await editorRef.current?.flushDraft(reason)) ?? true;
+        if (!flushed) return null;
+
+        const currentDocument = documentRef.current;
+        if (!currentDocument) return null;
+        const draftMarkdown = draftMarkdownRef.current;
+
+        if (currentDocument.path && draftMarkdown === currentDocument.content) {
+          return {
+            content: currentDocument.content,
+            modifiedAt: currentDocument.modifiedAt ?? 0,
+            path: currentDocument.path,
+          };
+        }
+
+        setIsSaving(true);
+        setSaveError(null);
+
+        try {
+          let documentPath = currentDocument.path;
+          let expectedModifiedAt = currentDocument.modifiedAt;
+          let contentToSave = draftMarkdown;
+
+          if (!documentPath) {
+            const opened = await openDailyNote(rootPath, target.date);
+            const nativeTemplate = parseFrontmatter(opened.content.content);
+            const editedDraft = parseFrontmatter(draftMarkdown);
+            contentToSave = serializeFrontmatter({
+              body: editedDraft.body,
+              metadata: {
+                ...nativeTemplate.metadata,
+                ...editedDraft.metadata,
+              },
+            });
+            documentPath = opened.content.path;
+            expectedModifiedAt = opened.content.modifiedAt;
+
+            if (contentToSave === opened.content.content) {
+              const savedDocument = opened.content;
+              const nextDocument = {
+                content: savedDocument.content,
+                modifiedAt: savedDocument.modifiedAt,
+                path: savedDocument.path,
+              } satisfies DailyQuickEditorDocument;
+              documentRef.current = nextDocument;
+              draftMarkdownRef.current = savedDocument.content;
+              setLoadState({ document: nextDocument, status: 'ready' });
+              onContentSaved(savedDocument, target.date);
+              return savedDocument;
+            }
+          }
+
+          const savedMeta = await saveMarkdownDocument(
+            rootPath,
+            documentPath,
+            contentToSave,
+            expectedModifiedAt,
+          );
+          const savedDocument = {
+            content: contentToSave,
+            modifiedAt: savedMeta.modifiedAt,
+            path: savedMeta.path,
+          } satisfies MarkdownDocumentContent;
+          const nextDocument = {
+            content: savedDocument.content,
+            modifiedAt: savedDocument.modifiedAt,
+            path: savedDocument.path,
+          } satisfies DailyQuickEditorDocument;
+          documentRef.current = nextDocument;
+          draftMarkdownRef.current = savedDocument.content;
+          setLoadState({ document: nextDocument, status: 'ready' });
+          onContentSaved(savedDocument, target.date);
+          return savedDocument;
+        } catch (error: unknown) {
+          setSaveError(
+            formatDailyQuickEditorError(error, '无法保存日程，请稍后重试。'),
+          );
+          return null;
+        } finally {
+          setIsSaving(false);
+        }
+      })();
+
+      savePromiseRef.current = savePromise;
+      try {
+        return await savePromise;
+      } finally {
+        savePromiseRef.current = null;
+      }
+    },
+    [loadState.status, onContentSaved, rootPath, target],
+  );
+
+  const requestClose = React.useCallback(async () => {
+    if (isSaving) return;
+    const flushed =
+      loadState.status === 'ready'
+        ? ((await editorRef.current?.flushDraft('document-switch')) ?? true)
+        : true;
+    if (!flushed) return;
+    const hasUnsavedChanges =
+      draftMarkdownRef.current !== documentRef.current?.content;
+    if (hasUnsavedChanges) {
+      setDiscardPromptVisible(true);
+      return;
+    }
+    onClose();
+  }, [isSaving, loadState.status, onClose]);
+
+  const handleOpenDetails = React.useCallback(async () => {
+    const saved = await persistDraft('document-switch');
+    if (!saved) return;
+    onOpenDetails(target.date);
+  }, [onOpenDetails, persistDraft, target]);
+
+  const canSave = loadState.status === 'ready' && !isSaving;
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) void requestClose();
+      }}
+    >
+      <DialogContent
+        className="daily-notes-quick-editor inset-0 m-auto flex h-[min(760px,calc(100vh-3rem))] w-[min(980px,calc(100vw-3rem))] max-w-none translate-none flex-col gap-0 overflow-hidden rounded-2xl border-border/70 bg-background p-0 shadow-2xl sm:max-w-none"
+        overlayClassName="bg-black/18 backdrop-blur-[2px]"
+        showCloseButton={false}
+      >
+        <header className="flex h-12 shrink-0 items-center border-b border-border/55 px-5 dark:border-muted-foreground/25">
+          <DialogTitle className="text-sm font-semibold">编辑日程</DialogTitle>
+          <DialogDescription className="sr-only">
+            快速编辑每日 Markdown 内容
+          </DialogDescription>
+          <button
+            aria-label="关闭日程编辑器"
+            className="ml-auto flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+            disabled={isSaving}
+            type="button"
+            onClick={() => void requestClose()}
+          >
+            <X size={16} />
+          </button>
+        </header>
+
+        <div className="min-h-0 flex-1 bg-background">
+          {loadState.status === 'loading' ? (
+            <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
+              <LoaderCircle className="animate-spin" size={16} />
+              正在加载日程…
+            </div>
+          ) : loadState.status === 'error' ? (
+            <div className="flex h-full items-center justify-center px-8 text-center">
+              <div className="max-w-sm">
+                <p className="text-sm font-medium">无法打开日程编辑器</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {loadState.message}
+                </p>
+              </div>
+            </div>
+          ) : loadState.status === 'ready' ? (
+            <MarkdownEditor
+              ref={editorRef}
+              documentKey={`daily-quick-editor:${targetKey}:${loadState.document.path ?? 'new'}:${loadState.document.modifiedAt ?? 'draft'}`}
+              markdown={loadState.document.content}
+              pageWidthMode={pageWidthMode}
+              workspaceRootPath={rootPath}
+              onMarkdownChange={captureMarkdown}
+              onSaveRequested={() => void persistDraft('manual-save')}
+            />
+          ) : null}
+        </div>
+
+        <footer className="shrink-0 border-t border-border/55 bg-background px-4 py-3 dark:border-muted-foreground/25">
+          {saveError ? (
+            <p className="mb-2 text-xs text-destructive" role="alert">
+              {saveError}
+            </p>
+          ) : null}
+          {discardPromptVisible ? (
+            <div className="flex items-center gap-3">
+              <p className="mr-auto text-xs text-muted-foreground">
+                放弃尚未保存的修改？
+              </p>
+              <Button
+                size="sm"
+                type="button"
+                variant="ghost"
+                onClick={() => setDiscardPromptVisible(false)}
+              >
+                继续编辑
+              </Button>
+              <Button
+                size="sm"
+                type="button"
+                variant="destructive"
+                onClick={onClose}
+              >
+                放弃修改
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <p className="mr-auto hidden text-[11px] text-muted-foreground sm:block">
+                Cmd/Ctrl + S 保存
+              </p>
+              <Button
+                size="sm"
+                type="button"
+                variant="ghost"
+                onClick={() => void requestClose()}
+              >
+                取消
+              </Button>
+              <Button
+                disabled={loadState.status !== 'ready' || isSaving}
+                size="sm"
+                type="button"
+                variant="outline"
+                onClick={() => void handleOpenDetails()}
+              >
+                打开日程详情
+              </Button>
+              <Button
+                disabled={!canSave}
+                size="sm"
+                type="button"
+                onClick={() => void persistDraft('manual-save')}
+              >
+                {isSaving ? <LoaderCircle className="animate-spin" /> : null}
+                保存
+              </Button>
+            </div>
+          )}
+        </footer>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function formatDailyQuickEditorError(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 type DailyPreviewLoadState =

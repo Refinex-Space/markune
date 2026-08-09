@@ -194,6 +194,7 @@ import type {
   GitProbe,
   GitSyncConflictResolution,
   GitStatus,
+  MarkdownDocumentContent,
   MarkdownDraft,
   PageWidthMode,
   RightPanelMode,
@@ -2321,6 +2322,31 @@ export function WorkspaceLayout({
     [loadDailyNotesForMonth, openDocumentNode, workspace, workspaceRootPath],
   );
 
+  const handleDailyContentSaved = React.useCallback(
+    (content: MarkdownDocumentContent, date: string) => {
+      const syncResult = workspace.syncExternalMarkdownDocument(content);
+      setEditorSessions((current) => {
+        if (!(content.path in current)) return current;
+        if (
+          content.path === currentDocumentPath &&
+          syncResult !== 'reloaded'
+        ) {
+          return current;
+        }
+        return {
+          ...current,
+          [content.path]: {
+            documentVersion: content.modifiedAt,
+            markdown: content.content,
+          },
+        };
+      });
+      void workspace.refreshWorkspaceTree();
+      void loadDailyNotesForMonth(createDateFromDailyDate(date));
+    },
+    [currentDocumentPath, loadDailyNotesForMonth, workspace],
+  );
+
   const handleDailyMonthChange = React.useCallback(
     (month: Date) => {
       const nextMonth = new Date(month.getFullYear(), month.getMonth(), 1);
@@ -3398,6 +3424,7 @@ export function WorkspaceLayout({
                         sidebarHeaderOffset={macSidebarHeaderOffset}
                         viewMode={dailyNotesViewMode}
                         onCreateDaily={(date) => void handleOpenDailyNote(date)}
+                        onDailyContentSaved={handleDailyContentSaved}
                         onExportDaily={
                           documentExport.available
                             ? handleExportDailyNote

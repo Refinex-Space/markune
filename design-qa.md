@@ -43,6 +43,75 @@
 
 final result: passed
 
+---
+
+# Daily calendar quick-edit Design QA
+
+- Source visual truth: `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-94ee5cf4-7463-4a4f-8bfb-a08cdf834380.png`
+- Month implementation: `/Users/refinex/.codex/visualizations/2026/08/08/019fe089-732a-7841-b79d-c1b6309f6c4e/daily-calendar-quick-edit-2026-08-09/daily-month.png`
+- Quick-editor implementation: `/Users/refinex/.codex/visualizations/2026/08/08/019fe089-732a-7841-b79d-c1b6309f6c4e/daily-calendar-quick-edit-2026-08-09/daily-quick-editor.png`
+- Source pixels: `4448 × 2652`; implementation pixels: `1460 × 768`
+- State: rebuilt unsigned Tauri debug bundle, light theme, August 2026 month view, real `refinex-vault` Daily content, August 9 selected
+
+## Full-view comparison evidence
+
+The source and rebuilt desktop month view were opened together in one comparison input. The implementation preserves the requested original month-grid composition, compact toolbar, selected-day border and fixed Markdown inspector. Populated cells now use indexed title, excerpt and task text to preview the Daily content instead of showing only a ratio. The preview remains contained inside each cell and fades toward the lower edge without changing the grid geometry.
+
+## Focused interaction evidence
+
+- A real pointer state exposed the bottom-left `编辑日程` action inside a non-selected cell without moving, scaling or lifting the card.
+- Clicking the selected cell preview opened the same `编辑日程` modal used by the hover action.
+- The modal rendered the existing Madora core Markdown editor, the relative `Daily/2026/08/2026-08-09.md` path, explicit Save and `打开日程详情` actions, and a restrained backdrop.
+- The right inspector exposes one accessible `从详情预览编辑 2026-08-09 日程` action over the rendered Markdown region while preserving the existing export and full-detail actions.
+
+## Required fidelity surfaces
+
+- Typography: the month grid, document preview and editor continue to inherit Madora's established UI and Markdown typography; no Craft font or new font asset was introduced.
+- Spacing and layout: date badges remain upper-left, preview text uses the existing cell padding, the hover action stays at the lower-left edge and the inspector width remains unchanged.
+- Color and elevation: selected, hover, border, muted text, modal overlay and shadows use existing semantic tokens. The hover treatment changes only opacity and background color; there is no transform animation.
+- Assets: existing Lucide icons and the core editor are reused. No placeholder image, custom SVG or CSS illustration was added.
+- Copy: `编辑日程`, `保存`, `打开日程详情` and the relative Daily path describe the actual interaction and persistence model.
+- Accessibility: date selection, preview editing, hover/focus editing, inspector editing, dialog title/description, close, save and full-detail actions are all exposed in the rebuilt Tauri accessibility tree.
+
+## Reliability verification
+
+- Focused tests cover existing-document save, first save for an empty date, native frontmatter preservation, save-before-open-detail, unsaved-close protection and save-failure draft retention.
+- Full Vitest, TypeScript, ESLint and both Next.js and unsigned Tauri debug builds completed successfully. Existing unrelated ESLint warnings remain unchanged.
+- Computer Use does not expose the WebKit console, so runtime verification used the rebuilt Tauri accessibility tree, real workspace data and captured desktop states rather than claiming a console inspection.
+
+## Findings
+
+- No actionable P0, P1 or P2 visual or interaction mismatch remains.
+- Expected difference: the source redline annotates a single synthetic cell, while the implementation shows actual indexed Daily content across several dates. This validates the same intended fade and edit behavior with real data.
+
+final result: passed
+
+---
+
+# Daily calendar density and dialog-header refinement QA
+
+- Month source visual truth: `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-fbd214fb-1205-4880-954d-2d16afbb2c07.png`
+- Dialog source visual truth: `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-0ba70940-b2ba-42f5-a614-50c0e1184032.png`
+- Month implementation: `/Users/refinex/.codex/visualizations/2026/08/08/019fe089-732a-7841-b79d-c1b6309f6c4e/daily-calendar-quick-edit-2026-08-09/daily-month-refined.png`
+- Dialog implementation: `/Users/refinex/.codex/visualizations/2026/08/08/019fe089-732a-7841-b79d-c1b6309f6c4e/daily-calendar-quick-edit-2026-08-09/daily-quick-editor-refined.png`
+- State: rebuilt unsigned Tauri debug bundle, light theme, `1460 × 768`, real `refinex-vault` Daily content, August 9 selected
+
+## Comparison evidence
+
+- The supplied month reference and rebuilt implementation were inspected together. Completion ratios are absent from every populated cell, leaving only the content preview that helps identify the day.
+- Preview content now begins with a 2 px top margin and an explicit top-aligned flex layout, removing the excess blank band without moving the date badge or changing cell geometry.
+- The supplied dialog reference and rebuilt implementation were inspected together. The visible header now contains only `编辑日程` and the close control; date, weekday, relative path and decorative leading icon were removed.
+- The editor, footer actions and Daily Markdown persistence path remain unchanged. The accessibility-only description is retained for assistive technology and is not visible in the captured interface.
+
+## Verification and findings
+
+- Focused Vitest covers the missing progress text, compact preview alignment and absence of visible date/path metadata in the dialog.
+- TypeScript, focused ESLint, Next.js production export and the unsigned Tauri debug app build completed successfully.
+- The rebuilt app was checked through Computer Use with real workspace data; no actionable P0, P1 or P2 visual or interaction mismatch remains.
+- Computer Use does not expose the WebKit console, so runtime evidence is limited to the rebuilt accessibility tree and captured desktop states.
+
+final result: passed
+
 # Daily calendar rendered-preview refinement QA
 
 ## Comparison target
