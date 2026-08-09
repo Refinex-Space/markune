@@ -24,6 +24,10 @@ type DirectoryPageVariant =
 
 const DIRECTORY_PREVIEW_BATCH_SIZE = 24;
 const DIRECTORY_PREVIEW_READ_CONCURRENCY = 4;
+const DOCUMENT_PREVIEW_MASK_STYLE: React.CSSProperties = {
+  WebkitMaskImage: 'linear-gradient(to bottom, #000 68%, transparent 100%)',
+  maskImage: 'linear-gradient(to bottom, #000 68%, transparent 100%)',
+};
 
 interface DocumentPreview {
   createdAt: number | string | null;
@@ -339,6 +343,7 @@ function DirectoryCard({
         'group relative flex flex-col items-center justify-center gap-3 overflow-hidden rounded-2xl bg-muted/30 p-6 text-center transition-all duration-200',
         workspaceOverview && 'min-h-44',
         'hover:-translate-y-0.5 hover:bg-muted/50 hover:shadow-sm',
+        'dark:border dark:border-muted-foreground/25 dark:bg-muted/15 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.025),0_1px_2px_rgba(0,0,0,0.2)] dark:hover:border-muted-foreground/45 dark:hover:bg-muted/30 dark:hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_10px_24px_-18px_rgba(0,0,0,0.9)]',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
       )}
       title={directory.name}
@@ -424,6 +429,7 @@ function DocumentCard({
       className={cn(
         'group relative flex aspect-[3/4] max-h-[280px] min-h-[240px] min-w-0 flex-col overflow-hidden rounded-2xl border border-border/50 bg-background text-left shadow-sm transition-all duration-300',
         'hover:-translate-y-1 hover:border-border/80 hover:shadow-md',
+        'dark:border-muted-foreground/25 dark:bg-card/55 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.025),0_2px_8px_-6px_rgba(0,0,0,0.8)] dark:hover:border-muted-foreground/45 dark:hover:bg-card/75 dark:hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_14px_30px_-20px_rgba(0,0,0,0.95)]',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
       )}
       title={title}
@@ -436,10 +442,12 @@ function DocumentCard({
         </h3>
         
         <div className="relative flex-1 overflow-hidden">
-          <div className="text-xs leading-relaxed text-muted-foreground/80 whitespace-pre-wrap break-words">
+          <div
+            className="h-full text-xs leading-relaxed text-muted-foreground/80 whitespace-pre-wrap break-words"
+            style={DOCUMENT_PREVIEW_MASK_STYLE}
+          >
             {articlePreview}
           </div>
-          <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-background to-transparent" />
         </div>
       </div>
     </button>
