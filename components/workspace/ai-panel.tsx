@@ -686,6 +686,8 @@ export function AiPanel({
     Record<string, CodexThreadTokenUsage>
   >({});
   const compactingThreadIdRef = React.useRef<string | null>(null);
+  const preferNewChatRef = React.useRef(false);
+  const autoResumeInFlightRef = React.useRef(false);
   const goalDraftModeRef = React.useRef(false);
   const threadGoalsRef = React.useRef<Record<string, CodexThreadGoal>>({});
   const dynamicToolRequestsRef = React.useRef(new Set<string>());
@@ -1671,6 +1673,8 @@ export function AiPanel({
       setThreads([]);
       setActiveThread(null);
       activeThreadIdRef.current = null;
+      preferNewChatRef.current = false;
+      autoResumeInFlightRef.current = false;
       setConversation(createEmptyConversation());
       setSelectedMentions([]);
       void releaseCodexContextAttachments(
@@ -1982,7 +1986,7 @@ export function AiPanel({
     workspaceRootPath,
   ]);
 
-  const startNewChat = React.useCallback(() => {
+  const resetActiveConversation = React.useCallback(() => {
     void releaseCodexContextAttachments(
       selectedAttachmentsRef.current.map(
         (attachment) => attachment.attachmentId,
@@ -2006,8 +2010,15 @@ export function AiPanel({
     permissionSettingsRef.current = DEFAULT_PERMISSION_SETTINGS;
     setPermissionSettings(DEFAULT_PERMISSION_SETTINGS);
     resetToDefaultMode();
-    setView('chat');
   }, [resetToDefaultMode]);
+
+  const startNewChat = React.useCallback(() => {
+    // Explicit "新任务" should stay empty until the user opens history again.
+    // author: refinex
+    preferNewChatRef.current = true;
+    resetActiveConversation();
+    setView('chat');
+  }, [resetActiveConversation]);
 
   const startNewDiagram = React.useCallback(() => {
     startNewChat();
@@ -2056,6 +2067,7 @@ export function AiPanel({
     setComposerValue('');
     goalDraftModeRef.current = false;
     setGoalDraftMode(false);
+    preferNewChatRef.current = false;
     setRuntimeError(null);
     compactingThreadIdRef.current = null;
     setCompactingThreadId(null);
@@ -2094,6 +2106,29 @@ export function AiPanel({
     }
   }, [goalFeatureAvailable, resetToDefaultMode, updateThreadGoal, workspaceRootPath]);
 
+  React.useEffect(() => {
+    if (threadListStatus !== 'ready') {
+      return;
+    }
+    if (preferNewChatRef.current || activeThreadIdRef.current) {
+      return;
+    }
+    if (autoResumeInFlightRef.current) {
+      return;
+    }
+    const latestThread = threads[0];
+    if (!latestThread) {
+      return;
+    }
+
+    // Resume the most recently updated workspace thread on panel/workspace boot.
+    // author: refinex
+    autoResumeInFlightRef.current = true;
+    void openThread(latestThread).finally(() => {
+      autoResumeInFlightRef.current = false;
+    });
+  }, [openThread, threadListStatus, threads]);
+
   const removeThread = React.useCallback(
     async (thread: CodexThread, action: 'archive' | 'delete') => {
       if (
@@ -2113,10 +2148,12 @@ export function AiPanel({
         current.filter((candidate) => candidate.id !== thread.id),
       );
       if (activeThread?.id === thread.id) {
-        startNewChat();
+        preferNewChatRef.current = false;
+        resetActiveConversation();
+        setView('chat');
       }
     },
-    [activeThread?.id, confirmAction, startNewChat],
+    [activeThread?.id, confirmAction, resetActiveConversation],
   );
 
   const sendMessage = React.useCallback(
@@ -4744,11 +4781,7 @@ const aiMarkdownComponents: Components = {
   li: ({ children }) => <li className="my-0.5 pl-0.5">{children}</li>,
   ol: ({ children }) => <ol className="my-2 ml-5 list-decimal space-y-0.5">{children}</ol>,
   p: ({ children }) => <p className="my-2 first:mt-0 last:mb-0">{children}</p>,
-  pre: ({ children }) => (
-    <pre className="my-3 overflow-x-auto rounded-lg border border-border/70 bg-muted/45 p-3 font-mono text-[11px] leading-5 [&>code]:bg-transparent [&>code]:p-0">
-      {children}
-    </pre>
-  ),
+  pre: ({ children }) => <AiCodeBlock>{children}</AiCodeBlock>,
   table: ({ children }) => (
     <div className="my-3 overflow-x-auto rounded-lg border border-border/70">
       <table className="w-full border-collapse text-left text-xs">{children}</table>
@@ -4758,6 +4791,85 @@ const aiMarkdownComponents: Components = {
   th: ({ children }) => <th className="bg-muted/45 px-2 py-1.5 font-medium">{children}</th>,
   ul: ({ children }) => <ul className="my-2 ml-5 list-disc space-y-0.5">{children}</ul>,
 };
+
+function AiCodeBlock({ children }: { children?: React.ReactNode }) {
+  const [copied, setCopied] = React.useState(false);
+  const resetTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const text = React.useMemo(
+    () => extractMarkdownTextContent(children).replace(/\n$/, ''),
+    [children],
+  );
+
+  React.useEffect(
+    () => () => {
+      if (resetTimerRef.current) {
+        clearTimeout(resetTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  return (
+    <div className="group/code relative my-3">
+      <pre className="overflow-x-auto rounded-lg border border-border/70 bg-muted/45 p-3 font-mono text-[11px] leading-5 [&>code]:bg-transparent [&>code]:p-0">
+        {children}
+      </pre>
+      {text ? (
+        <TooltipProvider delayDuration={250}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                aria-label={copied ? '已复制代码' : '复制代码'}
+                className={cn(
+                  'absolute right-2 top-2 inline-flex size-7 items-center justify-center rounded-md border border-border/70 bg-background/90 text-muted-foreground shadow-sm backdrop-blur-sm transition-[opacity,color,background-color] hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+                  copied
+                    ? 'opacity-100 text-foreground'
+                    : 'opacity-0 group-hover/code:opacity-100 group-focus-within/code:opacity-100',
+                )}
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(text).then(() => {
+                    setCopied(true);
+                    if (resetTimerRef.current) {
+                      clearTimeout(resetTimerRef.current);
+                    }
+                    resetTimerRef.current = setTimeout(() => {
+                      setCopied(false);
+                      resetTimerRef.current = null;
+                    }, 1_200);
+                  });
+                }}
+              >
+                {copied ? <Check size={13} /> : <Copy size={13} />}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="left" sideOffset={6}>
+              {copied ? '已复制' : '复制'}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      ) : null}
+    </div>
+  );
+}
+
+function extractMarkdownTextContent(node: React.ReactNode): string {
+  if (node == null || typeof node === 'boolean') {
+    return '';
+  }
+  if (typeof node === 'string' || typeof node === 'number') {
+    return String(node);
+  }
+  if (Array.isArray(node)) {
+    return node.map(extractMarkdownTextContent).join('');
+  }
+  if (React.isValidElement<{ children?: React.ReactNode }>(node)) {
+    return extractMarkdownTextContent(node.props.children);
+  }
+  return '';
+}
 
 export function AiMessageContent({ markdown }: { markdown: string }) {
   return (
@@ -4803,9 +4915,6 @@ export function ProcessingTrace({
   ) => void;
   onOpenDocument: (documentPath: string) => void;
 }) {
-  const [open, setOpen] = React.useState(
-    !trace.historical || trace.status !== 'completed',
-  );
   const elapsedMs = useTraceElapsedMs(trace);
   const active = trace.status === 'inProgress';
   const activityIds = new Set(
@@ -4818,31 +4927,77 @@ export function ProcessingTrace({
   const orphanApprovals = trace.approvals.filter(
     (approval) => !approval.itemId || !activityIds.has(approval.itemId),
   );
+  const hasDetails =
+    trace.segments.length > 0 || orphanApprovals.length > 0;
+  const [open, setOpen] = React.useState(
+    () =>
+      hasDetails &&
+      (!trace.historical || trace.status !== 'completed'),
+  );
+  const statusLabel = getTraceStatusLabel(trace, active);
+
+  // Keep disclosure open when the first real details arrive mid-turn, without
+  // forcing an empty expandable body while still waiting on Codex.
+  // author: refinex
+  React.useEffect(() => {
+    if (
+      hasDetails &&
+      active &&
+      (!trace.historical || trace.status !== 'completed')
+    ) {
+      setOpen(true);
+    }
+  }, [active, hasDetails, trace.historical, trace.status]);
+
+  if (!hasDetails) {
+    return (
+      <div
+        className="mt-4 flex items-center gap-2 py-1 text-[13px] text-muted-foreground"
+        role={active ? 'status' : undefined}
+      >
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          {traceStatusIcon(trace.status)}
+        </span>
+        <span className="font-medium text-foreground/80">{statusLabel}</span>
+        {elapsedMs !== null ? (
+          <span className="tabular-nums text-muted-foreground/80">
+            {formatDuration(elapsedMs)}
+          </span>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <Collapsible.Root
-      className="mt-5 border-t border-border/60 pt-3"
+      className="mt-4"
       open={open}
       onOpenChange={setOpen}
     >
       <Collapsible.Trigger asChild>
         <button
-          aria-label={`${active ? '正在处理' : '已处理'}，${open ? '收起' : '展开'}处理过程`}
-          className="group flex w-full items-center gap-2 rounded-md py-1 text-left text-[13px] font-medium outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/30"
+          aria-label={`${statusLabel}，${open ? '收起' : '展开'}处理过程`}
+          className={cn(
+            'group flex w-full items-center gap-2 rounded-md py-1 text-left text-[13px] font-medium outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/30',
+            active &&
+              'sticky top-0 z-[1] -mx-1 bg-background/95 px-1 backdrop-blur-sm supports-[backdrop-filter]:bg-background/80',
+          )}
           type="button"
         >
           <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
             {traceStatusIcon(trace.status)}
           </span>
-          <span>{active ? '正在处理' : '已处理'}</span>
+          <span className="min-w-0 truncate text-foreground/80">
+            {statusLabel}
+          </span>
           {elapsedMs !== null ? (
-            <span className="font-normal tabular-nums text-muted-foreground">
+            <span className="shrink-0 font-normal tabular-nums text-muted-foreground">
               {formatDuration(elapsedMs)}
             </span>
           ) : null}
           <ChevronDown
             className={cn(
-              'ml-0.5 size-3.5 text-muted-foreground transition-transform duration-150',
+              'ml-0.5 size-3.5 shrink-0 text-muted-foreground transition-transform duration-150',
               !open && '-rotate-90',
             )}
           />
@@ -4850,19 +5005,7 @@ export function ProcessingTrace({
       </Collapsible.Trigger>
 
       <Collapsible.Content>
-        <div className="mt-3 space-y-3">
-          {active && trace.segments.length === 0 ? (
-            <div
-              className="flex items-center gap-2 text-[13px] text-muted-foreground"
-              role="status"
-            >
-              <LoaderCircle
-                aria-hidden="true"
-                className="size-3.5 animate-spin"
-              />
-              正在处理，等待 Codex 响应
-            </div>
-          ) : null}
+        <div className="mt-2 space-y-3 border-l border-border/50 py-0.5 pl-4 ml-1.5">
           {trace.segments.map((segment) =>
             segment.type === 'commentary' ? (
               <div
@@ -4893,6 +5036,36 @@ export function ProcessingTrace({
       </Collapsible.Content>
     </Collapsible.Root>
   );
+}
+
+export function getTraceStatusLabel(trace: AiTraceBlock, active: boolean) {
+  if (!active) {
+    if (trace.status === 'failed') return '处理失败';
+    if (trace.status === 'interrupted') return '已中断';
+    if (trace.status === 'declined') return '已拒绝';
+    if (trace.status === 'waitingApproval') return '等待审批';
+    return '已处理';
+  }
+
+  for (let index = trace.segments.length - 1; index >= 0; index -= 1) {
+    const segment = trace.segments[index];
+    if (segment?.type === 'group' && segment.status === 'inProgress') {
+      return segment.summary;
+    }
+  }
+
+  for (let index = trace.segments.length - 1; index >= 0; index -= 1) {
+    const segment = trace.segments[index];
+    if (segment?.type === 'group') {
+      return segment.summary;
+    }
+  }
+
+  if (trace.segments.some((segment) => segment.type === 'commentary')) {
+    return '正在处理';
+  }
+
+  return '正在思考';
 }
 
 function useTraceElapsedMs(trace: AiTraceBlock) {

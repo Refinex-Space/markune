@@ -65,6 +65,7 @@ import { DocumentTabBar } from './document-tab-bar';
 import { DrawingSidebar } from './drawing-sidebar';
 import { DrawingWorkspacePage } from './drawing-workspace-page';
 import { resolveDocumentExportMarkdown } from './document-export-core';
+import { waitForDocumentPathLoaded } from './document-open-ready';
 import {
   closeAllDocumentTabs,
   closeDocumentTab,
@@ -493,6 +494,16 @@ export function WorkspaceLayout({
   const clearCurrentDocument = workspace.clearCurrentDocument;
   const showWorkspaceSidebar = workspace.setSidebarCollapsed;
   const currentDocumentPathRef = React.useRef(currentDocumentPath);
+  const documentLoadStateRef = React.useRef(workspace.documentLoadState);
+  const documentOpenInFlightRef = React.useRef<{
+    path: string;
+    promise: Promise<boolean>;
+  } | null>(null);
+  const prepareCurrentDocumentForAiRef = React.useRef(
+    workspace.prepareCurrentDocumentForAi,
+  );
+  const updateMarkdownRef = React.useRef(workspace.updateMarkdown);
+  const editorSessionsRef = React.useRef(editorSessions);
   const documentEditorLayoutRef = React.useRef(documentEditorLayout);
   const syncExternalMarkdownDocumentRef = React.useRef(
     workspace.syncExternalMarkdownDocument,
@@ -502,6 +513,14 @@ export function WorkspaceLayout({
   const activeMarkdownEditorRef = React.useRef<MarkdownEditorHandle | null>(
     null,
   );
+  // Keep readiness refs aligned during render so AI send can await open without
+  // waiting for an effect tick after tab switches or system-page returns.
+  // author: refinex
+  currentDocumentPathRef.current = currentDocumentPath;
+  documentLoadStateRef.current = workspace.documentLoadState;
+  prepareCurrentDocumentForAiRef.current = workspace.prepareCurrentDocumentForAi;
+  updateMarkdownRef.current = workspace.updateMarkdown;
+  editorSessionsRef.current = editorSessions;
   const [activeEditorSourceMode, setActiveEditorSourceMode] =
     React.useState(false);
   const [askAiHandler, setAskAiHandler] =
@@ -519,13 +538,11 @@ export function WorkspaceLayout({
   );
 
   React.useEffect(() => {
-    currentDocumentPathRef.current = currentDocumentPath;
     documentEditorLayoutRef.current = documentEditorLayout;
     syncExternalMarkdownDocumentRef.current =
       workspace.syncExternalMarkdownDocument;
     workspaceRootPathRef.current = workspaceRootPath;
   }, [
-    currentDocumentPath,
     documentEditorLayout,
     workspace.syncExternalMarkdownDocument,
     workspaceRootPath,
@@ -2061,10 +2078,86 @@ export function WorkspaceLayout({
     return () => window.clearTimeout(timer);
   }, [clearPendingDocumentOpen, workspaceRootPath]);
 
+  const runOpenDocument = React.useCallback(
+    async (node: WorkspaceNode): Promise<boolean> => {
+      if (node.kind !== 'document') {
+        return false;
+      }
+
+      if (currentDocumentPathRef.current === node.absolutePath) {
+        if (documentLoadStateRef.current === 'loaded') {
+          return true;
+        }
+
+        const inFlightForCurrent = documentOpenInFlightRef.current;
+        if (inFlightForCurrent?.path === node.absolutePath) {
+          return inFlightForCurrent.promise;
+        }
+
+        if (
+          documentLoadStateRef.current === 'loading' ||
+          documentLoadStateRef.current === 'idle'
+        ) {
+          return waitForDocumentPathLoaded(
+            currentDocumentPathRef,
+            documentLoadStateRef,
+            node.absolutePath,
+          );
+        }
+
+        return false;
+      }
+
+      const inFlight = documentOpenInFlightRef.current;
+      if (inFlight?.path === node.absolutePath) {
+        return inFlight.promise;
+      }
+
+      const promise = (async () => {
+        rememberRecentDocument(node);
+        const draft = await workspace.openDocument(node);
+
+        if (draft) {
+          cacheEditorSession(node.absolutePath, draft);
+          currentDocumentPathRef.current = node.absolutePath;
+          documentLoadStateRef.current = 'loaded';
+          return true;
+        }
+
+        if (currentDocumentPathRef.current === node.absolutePath) {
+          documentLoadStateRef.current = 'error';
+        }
+        return false;
+      })();
+
+      documentOpenInFlightRef.current = {
+        path: node.absolutePath,
+        promise,
+      };
+
+      try {
+        return await promise;
+      } finally {
+        if (documentOpenInFlightRef.current?.promise === promise) {
+          documentOpenInFlightRef.current = null;
+        }
+      }
+    },
+    [cacheEditorSession, rememberRecentDocument, workspace],
+  );
+
   const openDocumentByPath = React.useCallback(
-    async (documentPath: string) => {
-      if (documentPath === currentDocumentPath) {
-        return;
+    async (documentPath: string): Promise<boolean> => {
+      if (
+        currentDocumentPathRef.current === documentPath &&
+        documentLoadStateRef.current === 'loaded'
+      ) {
+        return true;
+      }
+
+      const inFlight = documentOpenInFlightRef.current;
+      if (inFlight?.path === documentPath) {
+        return inFlight.promise;
       }
 
       const node = findWorkspaceDocumentByPath(
@@ -2073,24 +2166,26 @@ export function WorkspaceLayout({
       );
 
       if (!node) {
-        return;
+        return false;
       }
 
-      rememberRecentDocument(node);
-      const draft = await workspace.openDocument(node);
-
-      if (draft) {
-        cacheEditorSession(node.absolutePath, draft);
-      }
+      return runOpenDocument(node);
     },
-    [cacheEditorSession, currentDocumentPath, rememberRecentDocument, workspace],
+    [runOpenDocument, workspace.snapshot?.nodes],
   );
 
   const scheduleDocumentOpen = React.useCallback(
     (documentPath: string) => {
       clearPendingDocumentOpen();
 
-      if (documentPath === currentDocumentPath) {
+      if (
+        currentDocumentPathRef.current === documentPath &&
+        documentLoadStateRef.current === 'loaded'
+      ) {
+        return;
+      }
+
+      if (documentOpenInFlightRef.current?.path === documentPath) {
         return;
       }
 
@@ -2099,7 +2194,7 @@ export function WorkspaceLayout({
         void openDocumentByPath(documentPath);
       }, 0);
     },
-    [clearPendingDocumentOpen, currentDocumentPath, openDocumentByPath],
+    [clearPendingDocumentOpen, openDocumentByPath],
   );
 
   const openDocumentNode = React.useCallback(
@@ -2115,20 +2210,9 @@ export function WorkspaceLayout({
       setSystemPage(null);
       clearPendingDocumentOpen();
       setDocumentEditorLayout((current) => openDocumentTab(current, node));
-      rememberRecentDocument(node);
-      const draft = await workspace.openDocument(node);
-
-      if (draft) {
-        cacheEditorSession(node.absolutePath, draft);
-      }
+      await runOpenDocument(node);
     },
-    [
-      cacheEditorSession,
-      clearPendingDocumentOpen,
-      flushActiveMarkdownEditor,
-      rememberRecentDocument,
-      workspace,
-    ],
+    [clearPendingDocumentOpen, flushActiveMarkdownEditor, runOpenDocument],
   );
 
   const handleOpenNodeInFileManager = React.useCallback(
@@ -2865,13 +2949,32 @@ export function WorkspaceLayout({
       expectedDrawingId: string | null,
     ) => {
       if (expectedDocumentPath) {
-        if (currentDocumentPathRef.current !== expectedDocumentPath) {
+        // Tab path can lead the loaded workspace document (scheduled open, or
+        // returning from a system page that cleared currentDocument). Flush the
+        // on-screen editor first, wait for the real document load, then restore
+        // any session markdown that predates the disk reload before saving.
+        // author: refinex
+        clearPendingDocumentOpen();
+        if (!(await flushActiveMarkdownEditor('ai-send'))) return false;
+        const sessionMarkdown =
+          editorSessionsRef.current[expectedDocumentPath]?.markdown ?? null;
+
+        const opened = await openDocumentByPath(expectedDocumentPath);
+        if (
+          !opened ||
+          currentDocumentPathRef.current !== expectedDocumentPath ||
+          documentLoadStateRef.current !== 'loaded'
+        ) {
           throw new Error(
             '当前标签页尚未完成加载，无法安全发送给 Codex。请稍后重试。',
           );
         }
-        if (!(await flushActiveMarkdownEditor('ai-send'))) return false;
-        if (!(await workspace.prepareCurrentDocumentForAi())) return false;
+
+        if (sessionMarkdown !== null) {
+          updateMarkdownRef.current(sessionMarkdown);
+        }
+
+        if (!(await prepareCurrentDocumentForAiRef.current())) return false;
       }
 
       if (expectedDrawingId) {
@@ -2887,7 +2990,13 @@ export function WorkspaceLayout({
       }
       return true;
     },
-    [drawings, flushActiveMarkdownEditor, systemPage, workspace],
+    [
+      clearPendingDocumentOpen,
+      drawings,
+      flushActiveMarkdownEditor,
+      openDocumentByPath,
+      systemPage,
+    ],
   );
 
   const handleResolveAiDocumentConflict = React.useCallback(
@@ -3198,7 +3307,10 @@ export function WorkspaceLayout({
             sessionCache={settingsSessionCache}
             windowsChromeInset={isTauriRuntime && isWindowsRuntime}
             workspaceRootPath={workspace.snapshot?.rootPath ?? null}
-            onBack={() => setSystemPage(null)}
+            onBack={() => {
+              setSystemPage(null);
+              openActiveDocumentForLayout(documentEditorLayout);
+            }}
             onSettingsSaved={(settings) => {
               if (!settings.appearance.showGitPanelEntry) {
                 setLeftPanelMode('workspace');
@@ -3279,6 +3391,7 @@ export function WorkspaceLayout({
                 onOpenNotes={() => {
                   setLeftPanelMode('workspace');
                   setSystemPage(null);
+                  openActiveDocumentForLayout(documentEditorLayout);
                 }}
                 onOpenCodex={handleOpenCodexPage}
                 onOpenInbox={handleOpenInboxPage}
@@ -3772,8 +3885,15 @@ export function WorkspaceLayout({
                   ) : null
                 }
                 aiWorkspacePreviewWidth={aiWorkspacePreviewWidth}
-                currentDocument={activePanelDocument}
-                currentDocumentPath={activePanelDocumentPath}
+                // Codex fullscreen is workspace-scoped exploration; leftover
+                // editor tabs must not become a required active document.
+                // author: refinex
+                currentDocument={
+                  systemPage === 'codex' ? null : activePanelDocument
+                }
+                currentDocumentPath={
+                  systemPage === 'codex' ? null : activePanelDocumentPath
+                }
                 documentPanelData={documentPanelData}
                 documents={
                   workspace.snapshot
@@ -3782,9 +3902,9 @@ export function WorkspaceLayout({
                 }
                 drawings={aiDrawingReferences}
                 documentReadOnly={
-                  activePanelDocument
-                    ? getDocumentReadOnly(activePanelDocument.absolutePath)
-                    : false
+                  systemPage === 'codex' || !activePanelDocument
+                    ? false
+                    : getDocumentReadOnly(activePanelDocument.absolutePath)
                 }
                 mode={effectiveRightPanelMode}
                 width={rightPanelWidth}
@@ -3800,12 +3920,12 @@ export function WorkspaceLayout({
                 onAskAiHandlerChange={handleAskAiHandlerChange}
                 onWorkspaceChanged={handleAiWorkspaceChanged}
                 onToggleDocumentReadOnly={
-                  activePanelDocument
-                    ? () =>
+                  systemPage === 'codex' || !activePanelDocument
+                    ? undefined
+                    : () =>
                         handleToggleDocumentReadOnly(
                           activePanelDocument.absolutePath,
                         )
-                    : undefined
                 }
               />
             </div>

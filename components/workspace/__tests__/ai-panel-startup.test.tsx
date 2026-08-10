@@ -263,7 +263,7 @@ describe('AI panel startup lifecycle', () => {
       ).toBe(true),
     );
     expect(screen.getByRole('status').textContent).toContain(
-      '等待 Codex 响应',
+      '正在思考',
     );
   });
 
@@ -611,6 +611,213 @@ describe('AI panel startup lifecycle', () => {
     expect(screen.getByRole('button', { name: '整理知识结构' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '查找内容问题' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'AI 画图' })).toBeTruthy();
+  });
+
+  it('启动后自动恢复最近更新的历史会话', async () => {
+    bridge.request.mockImplementation(
+      (method: string, params?: Record<string, unknown>) => {
+        if (method === 'thread/list') {
+          return Promise.resolve({
+            data: [
+              {
+                id: 'thread-latest',
+                name: '最近任务',
+                preview: '继续上次',
+                createdAt: 2,
+                updatedAt: 20,
+                cwd: '/workspace',
+                status: 'idle',
+                turns: [],
+              },
+              {
+                id: 'thread-older',
+                name: '更早任务',
+                preview: '旧内容',
+                createdAt: 1,
+                updatedAt: 10,
+                cwd: '/workspace',
+                status: 'idle',
+                turns: [],
+              },
+            ],
+            nextCursor: null,
+          });
+        }
+        if (method === 'thread/read') {
+          return Promise.resolve({
+            thread: {
+              id: params?.threadId,
+              name: '最近任务',
+              preview: '继续上次',
+              createdAt: 2,
+              updatedAt: 20,
+              cwd: '/workspace',
+              status: 'idle',
+              turns: [
+                {
+                  id: 'turn-history',
+                  status: 'completed',
+                  items: [
+                    {
+                      id: 'msg-history',
+                      type: 'agentMessage',
+                      phase: 'final_answer',
+                      text: '这是最近一次对话内容',
+                    },
+                  ],
+                },
+              ],
+            },
+          });
+        }
+        if (method === 'thread/resume') {
+          return Promise.resolve({
+            activePermissionProfile: { extends: null, id: ':workspace' },
+            approvalPolicy: 'on-request',
+            approvalsReviewer: 'user',
+            model: 'gpt-5.4',
+            reasoningEffort: 'medium',
+            thread: {
+              id: params?.threadId,
+              name: '最近任务',
+              preview: '继续上次',
+              createdAt: 2,
+              updatedAt: 20,
+              cwd: '/workspace',
+              status: 'idle',
+              turns: [],
+            },
+          });
+        }
+        if (method === 'thread/goal/get') {
+          return Promise.resolve({ goal: null });
+        }
+        return Promise.resolve(defaultResponse(method));
+      },
+    );
+
+    renderPanel();
+
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith(
+        'thread/read',
+        expect.objectContaining({ threadId: 'thread-latest' }),
+      ),
+    );
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith('thread/resume', {
+        threadId: 'thread-latest',
+      }),
+    );
+    expect(
+      await screen.findByText('这是最近一次对话内容'),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole('heading', { name: '今天想在工作区里做什么？' }),
+    ).toBeNull();
+    expect(
+      bridge.request.mock.calls.filter(
+        ([method, params]) =>
+          method === 'thread/read' &&
+          (params as { threadId?: string } | undefined)?.threadId ===
+            'thread-older',
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('点击新任务后保持空会话，不会再次自动恢复历史', async () => {
+    const user = userEvent.setup();
+    bridge.request.mockImplementation(
+      (method: string, params?: Record<string, unknown>) => {
+        if (method === 'thread/list') {
+          return Promise.resolve({
+            data: [
+              {
+                id: 'thread-latest',
+                name: '最近任务',
+                preview: '继续上次',
+                createdAt: 2,
+                updatedAt: 20,
+                cwd: '/workspace',
+                status: 'idle',
+                turns: [],
+              },
+            ],
+            nextCursor: null,
+          });
+        }
+        if (method === 'thread/read') {
+          return Promise.resolve({
+            thread: {
+              id: params?.threadId,
+              name: '最近任务',
+              preview: '继续上次',
+              createdAt: 2,
+              updatedAt: 20,
+              cwd: '/workspace',
+              status: 'idle',
+              turns: [
+                {
+                  id: 'turn-history',
+                  status: 'completed',
+                  items: [
+                    {
+                      id: 'msg-history',
+                      type: 'agentMessage',
+                      phase: 'final_answer',
+                      text: '这是最近一次对话内容',
+                    },
+                  ],
+                },
+              ],
+            },
+          });
+        }
+        if (method === 'thread/resume') {
+          return Promise.resolve({
+            activePermissionProfile: { extends: null, id: ':workspace' },
+            approvalPolicy: 'on-request',
+            approvalsReviewer: 'user',
+            model: 'gpt-5.4',
+            reasoningEffort: 'medium',
+            thread: {
+              id: params?.threadId,
+              name: '最近任务',
+              preview: '继续上次',
+              createdAt: 2,
+              updatedAt: 20,
+              cwd: '/workspace',
+              status: 'idle',
+              turns: [],
+            },
+          });
+        }
+        if (method === 'thread/goal/get') {
+          return Promise.resolve({ goal: null });
+        }
+        return Promise.resolve(defaultResponse(method));
+      },
+    );
+
+    renderPanel();
+    expect(
+      await screen.findByText('这是最近一次对话内容'),
+    ).toBeTruthy();
+
+    const readCallsBeforeNewChat = bridge.request.mock.calls.filter(
+      ([method]) => method === 'thread/read',
+    ).length;
+    await user.click(screen.getByRole('button', { name: '新任务' }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: '今天想在工作区里做什么？' }),
+      ).toBeTruthy(),
+    );
+    expect(screen.queryByText('这是最近一次对话内容')).toBeNull();
+    expect(
+      bridge.request.mock.calls.filter(([method]) => method === 'thread/read'),
+    ).toHaveLength(readCallsBeforeNewChat);
   });
 
   it('新会话使用活动文档物理路径生成任务入口并可直接发送', async () => {
