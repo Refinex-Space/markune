@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-24
+updated: 2026-08-10
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -158,6 +158,23 @@ test ! -d .madora/ai-sessions
 桌面端权限验收必须使用真实 App Server turn，至少覆盖：默认请求审批同时显示允许与“拒绝并停止”；`decline` 后 agent 可继续，`cancel` 后 turn 中断；替我审批出现自动审查进度与风险结论；只读模式拒绝文件修改；完全访问切换先显示风险确认；自定义 `config.toml` profile 可选且 requirements 禁止的 profile 保持禁用。运行中 turn 或待审批请求存在时不得切换模式，重启并恢复线程后入口必须显示 App Server 返回的实际 profile 与 reviewer。
 
 升级固定 Codex sidecar 时，重新执行 `app-server generate-json-schema --experimental`，核对 `permissionProfile/list`、`thread/settings/update`、`item/permissions/requestApproval`、命令审批候选和 `item/autoApprovalReview/*`，再运行 Rust 与前端契约测试。不得只凭现有 UI 继续兼容未知协议。
+
+## Codex Custom Provider Acceptance
+
+桌面设置 → Codex 分区验收自定义 Responses 端点：
+
+1. 填写合法 `https://…` Base URL、Model 与 API Key，保存后确认 App Server 重启；状态显示认证模式为“自定义 API”，Base URL 可见，Key 不再回显。
+2. 在 AI 面板发送消息，确认可走自定义端点；重启 Madora 后仍可用（keyring + config 持久化）。
+3. 切换回“使用 ChatGPT 路径”，确认 `model_provider` 不再指向 `madora_custom`，且需 ChatGPT 登录时可正常 OAuth。
+4. 错误 Base URL、空 Model、无 Key 必须被拒绝；纯 Chat Completions 端点即使保存成功，对话也会因 wire API 不兼容失败——产品文案已说明此限制。
+5. 确认 `settings.json`、React 会话状态与日志中没有明文 API Key；`CODEX_HOME/config.toml` 仅出现受控的 `[model_providers.madora_custom]`。
+
+聚焦自动化：
+
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml codex_provider:: --lib
+pnpm test:run -- components/workspace/__tests__/codex-app-server.test.ts components/workspace/__tests__/workspace-settings-page.test.tsx components/workspace/__tests__/ai-panel-codex-settings-cta.test.tsx
+```
 
 ## Codex Startup Acceptance
 

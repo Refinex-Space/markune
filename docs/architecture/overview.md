@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-08-09
+updated: 2026-08-10
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -86,7 +86,7 @@ Word 与 PDF 默认使用固定版本 sidecar：Pandoc 3.10.1 负责 Markdown AS
 
 ## Codex AI Boundary
 
-AI 面板是工作区级客户端，不在浏览器渲染器中运行 Node.js SDK，也不持有 OpenAI API key。Tauri 启动固定版本的 `codex app-server --listen stdio://`，账户登录、线程历史、模型目录、MCP、联网搜索、工具调用和文件变更由 App Server 提供。前端仅能调用 `src-tauri/src/codex.rs` 中的 allowlist 方法，并把消息、计划、命令、文件修改与 MCP 事件按协议到达顺序写入统一会话流；助手消息使用禁用原始 HTML 的 GFM 渲染。
+AI 面板是工作区级客户端，不在浏览器渲染器中运行 Node.js SDK，也不持有供应商 API key。Tauri 启动固定版本的 `codex app-server --listen stdio://`，账户登录、线程历史、模型目录、MCP、联网搜索、工具调用和文件变更由 App Server 提供。前端仅能调用 `src-tauri/src/codex.rs` 与受控的 `codex_provider.rs` 命令；通用 `config/read|write` 仍不在 allowlist。自定义 Responses 兼容端点由宿主写入 `CODEX_HOME/config.toml` 的固定 provider `madora_custom`，API Key 只进入 OS keyring，并在 sidecar 启动时注入进程环境变量 `MADORA_CODEX_PROVIDER_API_KEY`；渲染器、`settings.json`、localStorage 与日志不得保存明文 Key。ChatGPT OAuth 与自定义模式互斥，切换后需重启 App Server。会话消息、计划、命令、文件修改与 MCP 事件按协议到达顺序写入统一会话流；助手消息使用禁用原始 HTML 的 GFM 渲染。
 
 Markweave 0.5.2 的 AI 预编辑由两条互补路径组成。可编辑的活动 Live 文档通过 `askAi` 启用编辑器内置入口，覆盖普通文本以及单元格、行、列、多单元格选区和整表；AI 面板通过活动 `MarkdownEditorHandle` 取得 `MarkweaveAiEditController`，仅对普通文本选区发起宿主驱动预编辑。Source、View、只读文档、Plan/AI 预览和隐藏缓存编辑器不发布可用 controller。两条路径都由 Markweave 持有临时差异、冲突检测、接受、舍弃、停止和一次 Undo；接受结果沿既有 `onUpdate`、500 ms 惰性 flush 与 Markdown 保存链路提交，不调用全量 `setContent`。
 

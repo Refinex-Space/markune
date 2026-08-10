@@ -1,6 +1,7 @@
 mod app_update;
 mod assets;
 mod codex;
+mod codex_provider;
 mod document_converter;
 mod drawings;
 mod export;
@@ -123,6 +124,11 @@ pub fn run() {
             codex::codex_runtime_probe,
             codex::codex_runtime_start,
             codex::codex_runtime_stop,
+            codex_provider::codex_connection_status,
+            codex_provider::codex_custom_provider_get,
+            codex_provider::codex_custom_provider_set,
+            codex_provider::codex_custom_provider_clear,
+            codex_provider::codex_auth_mode_set,
             codex::codex_app_server_request,
             codex::codex_app_server_respond,
             codex::codex_app_server_respond_user_input,

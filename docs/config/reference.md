@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-08-09
+updated: 2026-08-10
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -41,6 +41,7 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 - `MADORA_DOCUMENT_EXPORT_ENGINE=legacy`：运行时诊断/紧急回滚开关，使 PDF 与 Word 使用原兼容引擎；默认值和其他值都优先使用专业引擎。
 - `CODEX_HOME`：可选的共享 Codex 用户状态目录。未设置时 Madora 使用 `~/.codex`；显式值必须是工作区之外的既有绝对目录。Madora 会把解析后的值显式传给 App Server sidecar，以共享 ChatGPT/Codex CLI 的认证、配置、技能、MCP 与线程历史。
 - `CODEX_SQLITE_HOME`：不控制 Madora 启动的 sidecar。Madora 会从子进程环境移除此变量，并以 `-c sqlite_home="<CODEX_HOME>"` 固定 SQLite 投影目录，防止相对路径按工作区 `cwd` 解析或项目配置把运行时状态写入知识库。
+- `MADORA_CODEX_PROVIDER_API_KEY`：仅由桌面宿主在启用 `madora_custom` provider 时注入到 Codex sidecar 进程环境；对应 `CODEX_HOME/config.toml` 中 `[model_providers.madora_custom].env_key`。用户不应手动配置该变量，明文 Key 只存放在 OS keyring。
 - `MADORA_UPDATER_PUBLIC_KEY`：只在发布构建时提供 Tauri CLI 生成的 `.key.pub` 文件原始单行 Base64 内容，由 `release:prepare` 校验解码后的 minisign 结构并写入 `.tauri-build/tauri.release.generated.json`。脚本兼容完整两行 minisign 输入并自动规范化为 Base64；普通开发和 Web 构建不需要该变量。
 - `MADORA_OSS_REGION`：GitHub Actions Variable，固定为 `cn-shanghai`。
 - `MADORA_OSS_ENDPOINT`：GitHub Actions Variable，固定为 `https://oss-cn-shanghai.aliyuncs.com`。
@@ -61,6 +62,7 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 - opener 插件关闭了自动接管 `target="_blank"` 链接的全局点击脚本；桌面外链必须显式调用 `openUrl`，避免覆盖编辑器自身的链接交互规则。
 - `bundle.externalBin` 包含 `binaries/codex`、`binaries/pandoc` 和 `binaries/typst`。`desktop:dev` 会在 Tauri 文件监听启动前运行幂等 staging，避免写入 `src-tauri` 时触发重复启动；桌面构建仍在 `beforeBuildCommand` 中 staging。生成的目标平台二进制位于 `src-tauri/binaries/*-{target-triple}` 且被 Git 忽略。
 - Codex 运行时优先使用应用随附 sidecar；开发诊断时才依次检查 `MADORA_CODEX_BIN`、PATH 和 macOS ChatGPT App 内置 Codex。
+- 自定义 Responses 端点使用固定 provider ID `madora_custom`：设置页通过 `codex_custom_provider_*` / `codex_auth_mode_set` 写入受控 `config.toml` 键与 keyring，保存后重启 App Server；不开放任意 config 键。
 - 专业 Word/PDF 模板和第三方通知位于 `src-tauri/resources/document-export`。PDF 启用前必须由 Typst 字体清单确认平台存在受支持的中文字体；否则只降级 PDF，不影响专业 Word。兼容 PDF 注册内部 `madora-export://` 协议，但不扩大 `capabilities/default.json` 或 `assetProtocol.scope`。
 - 多格式导入不新增文件协议或 capability。源文件访问只通过 `src-tauri/src/import.rs` 的限时授权与 Raw IPC；`assetProtocol.scope` 保持不变。
 - 画板不新增文件协议或 capability。图稿场景、预览和组件库只通过 `src-tauri/src/drawings.rs` 的受限 Raw IPC 传输；缩略图以可撤销 Blob URL 展示，`assetProtocol.scope` 保持不变。

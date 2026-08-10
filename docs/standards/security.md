@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-08-09
+updated: 2026-08-10
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -37,7 +37,9 @@ referenced_by: AGENTS.md#knowledge-map
 - 内联预编辑只能主动发送当前目标。不得附加整篇文档、活动/提及文档、图稿、文件附件、mention、Plugin、Skill、Goal、Plan 或普通 AI 会话历史；渲染器不得保存供应商 API key，也不得复制 playground 的 OpenRouter route。
 - 每次内联请求使用独立 `ephemeral` 线程、`:read-only` profile、`on-request` user reviewer、禁用 Web Search 和空 Environment。`ephemeral` 只保证线程不写入 Codex 历史，不是密码学隔离；只读 profile 仍保留既有工作区读取边界，因此任何命令、文件、MCP、动态工具、联网、审批和用户追问事件都必须失败关闭并中断 turn。Rust 不得为 `ephemeral: true` 的线程注入 Madora Drawing 动态工具。
 - 普通 AI 面板和内联 runner 可以并行，但事件必须按显式 thread/turn ownership 隔离。面板不得消费 ephemeral 或其他非当前可见线程事件；runner 只消费自身 `final_answer` 增量。Abort、冲突、标签/工作区切换和运行时退出必须中断 turn；`thread/delete` 失败不得回退到持久线程或输出原始诊断。
-- Codex App Server 必须由 Tauri 在本地通过 stdio 启动；不得监听 TCP，也不得把 API key、登录 Token 或认证响应传入 React state、local storage 或日志。
+- Codex App Server 必须由 Tauri 在本地通过 stdio 启动；不得监听 TCP，也不得把 API key、登录 Token 或认证响应传入 React state、local storage、应用设置或日志。
+- 自定义 provider 密钥只能写入 OS keyring（服务名 `madora.codex.custom-provider`），并由 Rust 在 sidecar spawn 时注入 `MADORA_CODEX_PROVIDER_API_KEY`；不得把该环境变量写入用户 shell profile、共享日志或诊断导出。受控 TOML patch 只允许顶层 `model` / `model_provider` 与 `[model_providers.madora_custom]`（`wire_api = "responses"`、`env_key` 固定），禁止开放通用 `config/*` 写入。
+- 设置页 Codex 状态只允许通过受控命令读取 `CODEX_HOME/config.toml` 与 `auth.json` 的非敏感摘要（是否已登录、auth_mode、可选 email）；不得返回 access/refresh/id token 或 API key。设置页刷新不得为探测状态启动 App Server，也不得依赖可能挂起的 `account/read` RPC。
 - 新线程默认使用 Codex 命名权限配置 `:workspace`、`on-request` 审批策略和 `user` reviewer，并把已 canonicalize 的当前工作区作为唯一 runtime workspace root。`turn/start` 不得携带权限覆盖；恢复线程不得隐式重置权限，后续切换只能走 `thread/settings/update`。
 - 权限模式必须保持 profile 与 reviewer 分层：自动审查只可使用 `:workspace + on-request + auto_review`，不得扩大文件或网络边界；完全访问必须经过显式风险确认并固定为 `:danger-full-access + never + user`；只读模式使用 `:read-only + on-request + user`。运行中的 turn 或待审批请求存在时禁止切换。
 - Codex collaboration mode 与权限模式必须保持分离。Plan 只能使用 `collaborationMode/list` 返回的内置预设、当前模型、`medium` 推理强度和显式空 `developer_instructions`；渲染器不得提交自定义开发者指令、未知模式或非法强度。Plan 依赖指令禁止实施，并不提供强制只读安全边界；不得因此绕过现有 permission profile、审批或审计。

@@ -215,6 +215,7 @@ interface AiPanelProps {
   onAskAiHandlerChange?: (handler: MarkweaveAskAiHandler | null) => void;
   onOpenDocument: (documentPath: string) => void;
   onOpenPlanPreview: (plan: AiProposedPlan, threadId: string) => void;
+  onOpenCodexSettings?: () => void;
   onWorkspaceChanged: (
     event: AiWorkspaceChangeEvent,
   ) => void | Promise<void>;
@@ -556,6 +557,7 @@ export function AiPanel({
   onAskAiHandlerChange = () => undefined,
   onOpenDocument,
   onOpenPlanPreview,
+  onOpenCodexSettings,
   onWorkspaceChanged,
   presentation = 'panel',
 }: AiPanelProps) {
@@ -2877,6 +2879,7 @@ export function AiPanel({
               runtimeStatus={runtimeStatus}
               signingIn={signingIn}
               onApprove={approve}
+              onOpenCodexSettings={onOpenCodexSettings}
               onOpenDocument={openMention}
               onOpenPlanPreview={(plan) =>
                 onOpenPlanPreview(
@@ -3234,6 +3237,7 @@ export function PanelContent({
   runtimeStatus,
   signingIn,
   onApprove,
+  onOpenCodexSettings,
   onOpenDocument,
   onOpenPlanPreview,
   onPrompt,
@@ -3252,6 +3256,7 @@ export function PanelContent({
     approval: AiApprovalRequest,
     choiceId: string,
   ) => void;
+  onOpenCodexSettings?: () => void;
   onOpenDocument: (documentPath: string) => void;
   onOpenPlanPreview: (plan: AiProposedPlan) => void;
   onPrompt: (prompt: string) => void;
@@ -3273,6 +3278,16 @@ export function PanelContent({
     return (
       <EmptyPanel icon={<Circle size={18} />} title="无法连接 Codex">
         <p>{runtimeError || 'Codex 运行时不可用。'}</p>
+        {onOpenCodexSettings ? (
+          <button
+            className="mt-3 inline-flex h-8 items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50"
+            data-testid="open-codex-settings-from-error"
+            type="button"
+            onClick={onOpenCodexSettings}
+          >
+            打开 Codex 设置
+          </button>
+        ) : null}
       </EmptyPanel>
     );
   }
@@ -3281,14 +3296,26 @@ export function PanelContent({
     return (
       <EmptyPanel icon={<Sparkles size={20} />} title="连接你的 ChatGPT 账户">
         <p>登录由 Codex App Server 管理，Madora 不接触或保存账户 Token。</p>
-        <button
-          className="mt-3 inline-flex h-8 items-center justify-center rounded-md bg-foreground px-3 text-xs font-medium text-background disabled:opacity-50"
-          disabled={signingIn}
-          type="button"
-          onClick={onSignIn}
-        >
-          {signingIn ? '正在打开登录…' : '使用 ChatGPT 登录'}
-        </button>
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+          <button
+            className="inline-flex h-8 items-center justify-center rounded-md bg-foreground px-3 text-xs font-medium text-background disabled:opacity-50"
+            disabled={signingIn}
+            type="button"
+            onClick={onSignIn}
+          >
+            {signingIn ? '正在打开登录…' : '使用 ChatGPT 登录'}
+          </button>
+          {onOpenCodexSettings ? (
+            <button
+              className="inline-flex h-8 items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-muted"
+              data-testid="open-codex-settings-from-auth"
+              type="button"
+              onClick={onOpenCodexSettings}
+            >
+              配置自定义 API
+            </button>
+          ) : null}
+        </div>
       </EmptyPanel>
     );
   }

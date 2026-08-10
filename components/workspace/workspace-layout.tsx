@@ -3917,6 +3917,7 @@ export function WorkspaceLayout({
                 onAiWorkspacePreviewResize={setAiWorkspacePreviewWidth}
                 onOpenDocument={handleOpenAiDocument}
                 onOpenPlanPreview={handleOpenPlanPreview}
+                onOpenCodexSettings={() => openSettingsPage('codex')}
                 onAskAiHandlerChange={handleAskAiHandlerChange}
                 onWorkspaceChanged={handleAiWorkspaceChanged}
                 onToggleDocumentReadOnly={

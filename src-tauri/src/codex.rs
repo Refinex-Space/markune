@@ -22,7 +22,7 @@ use std::os::windows::process::CommandExt;
 
 const INITIALIZE_REQUEST_ID: u64 = 0;
 const CODEX_EVENT_NAME: &str = "codex:event";
-const CODEX_STORAGE_MODE: &str = "sharedCodexHome";
+pub(crate) const CODEX_STORAGE_MODE: &str = "sharedCodexHome";
 const MAX_DOCUMENT_REFERENCES: usize = 32;
 const MAX_DRAWING_REFERENCES: usize = 32;
 const MAX_CONTEXT_ATTACHMENTS: usize = 20;
@@ -50,6 +50,18 @@ const MADORA_DRAWING_CONTEXT_POLICY: &str = "Madora 为当前 turn 提供图稿�
 pub struct CodexState {
     session: Mutex<Option<CodexSession>>,
     context_attachments: Mutex<HashMap<String, CodexContextAttachmentGrant>>,
+}
+
+impl CodexState {
+    pub(crate) fn is_session_running(&self) -> bool {
+        let Ok(mut guard) = self.session.lock() else {
+            return false;
+        };
+        match guard.as_mut() {
+            Some(session) => session.child.try_wait().ok().flatten().is_none(),
+            None => false,
+        }
+    }
 }
 
 impl Drop for CodexState {
@@ -145,13 +157,13 @@ pub struct CodexDynamicToolResponse {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexRuntimeInfo {
-    available: bool,
-    running: bool,
-    binary_source: Option<String>,
-    version: Option<String>,
-    storage_mode: String,
-    storage_root: Option<String>,
-    message: Option<String>,
+    pub(crate) available: bool,
+    pub(crate) running: bool,
+    pub(crate) binary_source: Option<String>,
+    pub(crate) version: Option<String>,
+    pub(crate) storage_mode: String,
+    pub(crate) storage_root: Option<String>,
+    pub(crate) message: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -162,14 +174,14 @@ pub struct CodexPluginIconData {
 }
 
 #[derive(Debug, Clone)]
-struct CodexStorageLayout {
-    root: PathBuf,
+pub(crate) struct CodexStorageLayout {
+    pub(crate) root: PathBuf,
 }
 
-struct CodexBinary {
-    path: PathBuf,
-    source: String,
-    version: String,
+pub(crate) struct CodexBinary {
+    pub(crate) path: PathBuf,
+    pub(crate) source: String,
+    pub(crate) version: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -472,14 +484,21 @@ pub fn codex_runtime_start(
 
     let binary = resolve_codex_binary(&app)?;
     let app_server_args = codex_app_server_args(&storage.root)?;
-    let mut child = codex_command(&binary.path)
+    let provider_api_key = crate::codex_provider::load_sidecar_api_key(&storage.root)?;
+    let mut command = codex_command(&binary.path);
+    command
         .args(app_server_args)
         .env("CODEX_HOME", &storage.root)
         .env_remove("CODEX_SQLITE_HOME")
+        .env_remove(crate::codex_provider::CUSTOM_PROVIDER_ENV_KEY)
         .current_dir(&root)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    if let Some(api_key) = provider_api_key {
+        command.env(crate::codex_provider::CUSTOM_PROVIDER_ENV_KEY, api_key);
+    }
+    let mut child = command
         .spawn()
         .map_err(|error| format!("启动 Codex App Server 失败: {error}"))?;
     let stdin = child
@@ -3286,7 +3305,10 @@ fn runtime_info_for_session(session: &CodexSession) -> CodexRuntimeInfo {
     }
 }
 
-fn unavailable_runtime_info(message: String, storage_root: Option<&Path>) -> CodexRuntimeInfo {
+pub(crate) fn unavailable_runtime_info(
+    message: String,
+    storage_root: Option<&Path>,
+) -> CodexRuntimeInfo {
     CodexRuntimeInfo {
         available: false,
         running: false,
@@ -3298,7 +3320,7 @@ fn unavailable_runtime_info(message: String, storage_root: Option<&Path>) -> Cod
     }
 }
 
-fn resolve_codex_storage(
+pub(crate) fn resolve_codex_storage(
     app: &AppHandle,
     workspace_root: Option<&Path>,
 ) -> Result<CodexStorageLayout, String> {
@@ -3383,7 +3405,7 @@ fn display_path(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-fn resolve_codex_binary(app: &AppHandle) -> Result<CodexBinary, String> {
+pub(crate) fn resolve_codex_binary(app: &AppHandle) -> Result<CodexBinary, String> {
     if let Some(configured) = env::var_os("MADORA_CODEX_BIN") {
         let path = PathBuf::from(configured);
         return probe_binary(path, "configured")

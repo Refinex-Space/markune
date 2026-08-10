@@ -27,6 +27,54 @@ const workspaceApiState = vi.hoisted(() => ({
   setAppWindowOpacity: vi.fn(() => Promise.resolve()),
 }));
 
+const codexApiState = vi.hoisted(() => ({
+  clearCodexCustomProvider: vi.fn(),
+  getCodexConnectionStatus: vi.fn(() =>
+    Promise.resolve({
+      accountEmail: 'user@example.com',
+      accountType: 'chatgpt',
+      authMode: 'chatgpt',
+      baseUrl: null,
+      customConfigured: false,
+      error: null,
+      hasApiKey: false,
+      model: 'gpt-5',
+      running: true,
+      runtime: {
+        available: true,
+        binarySource: 'bundled',
+        message: null,
+        running: true,
+        storageMode: 'sharedCodexHome' as const,
+        storageRoot: '/Users/example/.codex',
+        version: 'codex-cli 0.144.4',
+      },
+      signedIn: true,
+    }),
+  ),
+  getCodexCustomProvider: vi.fn(() =>
+    Promise.resolve({
+      baseUrl: null,
+      enabled: false,
+      envKey: 'MADORA_CODEX_PROVIDER_API_KEY',
+      hasApiKey: false,
+      model: 'gpt-5',
+      providerId: 'madora_custom',
+      wireApi: 'responses',
+    }),
+  ),
+  request: vi.fn(() =>
+    Promise.resolve({
+      account: { type: 'chatgpt', email: 'user@example.com', planType: 'plus' },
+      requiresOpenaiAuth: true,
+    }),
+  ),
+  setCodexAuthMode: vi.fn(),
+  setCodexCustomProvider: vi.fn(),
+  startCodexRuntime: vi.fn(() => Promise.resolve()),
+  stopCodexRuntime: vi.fn(() => Promise.resolve()),
+}));
+
 vi.mock('next-themes', () => ({
   useTheme: () => ({ setTheme: themeState.setTheme, theme: 'light' }),
 }));
@@ -38,6 +86,26 @@ vi.mock('../workspace-api', async (importOriginal) => ({
   openUrlInDefaultBrowser: workspaceApiState.openUrlInDefaultBrowser,
   saveAppSettings: workspaceApiState.saveAppSettings,
   setAppWindowOpacity: workspaceApiState.setAppWindowOpacity,
+}));
+
+vi.mock('../codex-app-server', () => ({
+  clearCodexCustomProvider: (...args: unknown[]) =>
+    codexApiState.clearCodexCustomProvider(...args),
+  codexAppServerClient: {
+    request: (...args: unknown[]) => codexApiState.request(...args),
+  },
+  getCodexConnectionStatus: (...args: unknown[]) =>
+    codexApiState.getCodexConnectionStatus(...args),
+  getCodexCustomProvider: (...args: unknown[]) =>
+    codexApiState.getCodexCustomProvider(...args),
+  setCodexAuthMode: (...args: unknown[]) =>
+    codexApiState.setCodexAuthMode(...args),
+  setCodexCustomProvider: (...args: unknown[]) =>
+    codexApiState.setCodexCustomProvider(...args),
+  startCodexRuntime: (...args: unknown[]) =>
+    codexApiState.startCodexRuntime(...args),
+  stopCodexRuntime: (...args: unknown[]) =>
+    codexApiState.stopCodexRuntime(...args),
 }));
 
 const initialSettings: AppSettings = {
@@ -122,6 +190,14 @@ describe('WorkspaceSettingsPage', () => {
     workspaceApiState.openUrlInDefaultBrowser.mockClear();
     workspaceApiState.saveAppSettings.mockClear();
     workspaceApiState.setAppWindowOpacity.mockClear();
+    codexApiState.clearCodexCustomProvider.mockReset();
+    codexApiState.getCodexConnectionStatus.mockClear();
+    codexApiState.getCodexCustomProvider.mockClear();
+    codexApiState.request.mockClear();
+    codexApiState.setCodexAuthMode.mockReset();
+    codexApiState.setCodexCustomProvider.mockReset();
+    codexApiState.startCodexRuntime.mockClear();
+    codexApiState.stopCodexRuntime.mockClear();
   });
 
   it('restores the full-width non-AI settings shell and appearance previews', () => {
@@ -140,6 +216,7 @@ describe('WorkspaceSettingsPage', () => {
       'max-w-[1120px]',
     );
     expect(screen.getByRole('button', { name: '外观' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Codex' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '存储' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Git Sync' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '版本' })).toBeTruthy();
@@ -566,6 +643,77 @@ describe('WorkspaceSettingsPage', () => {
     expect(screen.queryByRole('button', { name: '存储' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Git Sync' })).toBeTruthy();
     expect(screen.getByTestId('git-sync-settings-shell')).toBeTruthy();
+  });
+
+  it('renders Codex settings and saves custom provider without writing key into app settings', async () => {
+    const user = userEvent.setup();
+    workspaceApiState.isTauriRuntime.mockReturnValue(true);
+    codexApiState.setCodexCustomProvider.mockResolvedValue({
+      baseUrl: 'https://api.openai.com/v1',
+      enabled: true,
+      envKey: 'MADORA_CODEX_PROVIDER_API_KEY',
+      hasApiKey: true,
+      model: 'gpt-5',
+      providerId: 'madora_custom',
+      wireApi: 'responses',
+    });
+
+    render(
+      <WorkspaceSettingsPage
+        appUpdate={appUpdateController}
+        initialSectionId="codex"
+        initialSettings={initialSettings}
+        sessionCache={createWorkspaceSettingsSessionCache()}
+        workspaceRootPath="D:/notes"
+        onBack={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByTestId('codex-settings-shell')).toBeTruthy();
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('codex-auth-mode-badge').textContent?.includes(
+          'ChatGPT',
+        ),
+      ).toBe(true);
+      expect(
+        screen.getByTestId('codex-runtime-badge').textContent?.includes(
+          '运行中',
+        ),
+      ).toBe(true);
+      expect(
+        screen.getByTestId('codex-account-summary').textContent?.includes(
+          'user@example.com',
+        ),
+      ).toBe(true);
+    });
+    expect(screen.queryByRole('button', { name: '登录' })).toBeNull();
+    expect(codexApiState.request).not.toHaveBeenCalled();
+    expect(codexApiState.startCodexRuntime).not.toHaveBeenCalled();
+
+    await user.click(screen.getByTestId('codex-mode-tab-custom'));
+    expect(screen.getByTestId('codex-custom-provider-form')).toBeTruthy();
+
+    await user.clear(screen.getByPlaceholderText('https://api.openai.com/v1'));
+    await user.type(
+      screen.getByPlaceholderText('https://api.openai.com/v1'),
+      'https://api.openai.com/v1',
+    );
+    await user.clear(screen.getByPlaceholderText('gpt-5'));
+    await user.type(screen.getByPlaceholderText('gpt-5'), 'gpt-5');
+    await user.type(screen.getByPlaceholderText('sk-...'), 'sk-secret-test');
+    await user.click(screen.getByRole('button', { name: '保存并启用' }));
+
+    await waitFor(() => {
+      expect(codexApiState.setCodexCustomProvider).toHaveBeenCalledWith({
+        apiKey: 'sk-secret-test',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-5',
+      });
+    });
+    expect(codexApiState.stopCodexRuntime).toHaveBeenCalled();
+    expect(codexApiState.startCodexRuntime).toHaveBeenCalledWith('D:/notes');
+    expect(workspaceApiState.saveAppSettings).not.toHaveBeenCalled();
   });
 
   it('opens the remote repository explicitly in the desktop default browser', async () => {
