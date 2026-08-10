@@ -2125,10 +2125,15 @@ export function AiPanel({
 
     // Resume the most recently updated workspace thread on panel/workspace boot.
     // author: refinex
-    autoResumeInFlightRef.current = true;
-    void openThread(latestThread).finally(() => {
-      autoResumeInFlightRef.current = false;
-    });
+    const timer = window.setTimeout(() => {
+      autoResumeInFlightRef.current = true;
+      void openThread(latestThread).finally(() => {
+        autoResumeInFlightRef.current = false;
+      });
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+    };
   }, [openThread, threadListStatus, threads]);
 
   const removeThread = React.useCallback(
@@ -4966,15 +4971,14 @@ export function ProcessingTrace({
   // Keep disclosure open when the first real details arrive mid-turn, without
   // forcing an empty expandable body while still waiting on Codex.
   // author: refinex
-  React.useEffect(() => {
-    if (
-      hasDetails &&
-      active &&
-      (!trace.historical || trace.status !== 'completed')
-    ) {
-      setOpen(true);
-    }
-  }, [active, hasDetails, trace.historical, trace.status]);
+  if (
+    hasDetails &&
+    active &&
+    (!trace.historical || trace.status !== 'completed') &&
+    !open
+  ) {
+    setOpen(true);
+  }
 
   if (!hasDetails) {
     return (

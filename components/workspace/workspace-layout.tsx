@@ -513,14 +513,22 @@ export function WorkspaceLayout({
   const activeMarkdownEditorRef = React.useRef<MarkdownEditorHandle | null>(
     null,
   );
-  // Keep readiness refs aligned during render so AI send can await open without
-  // waiting for an effect tick after tab switches or system-page returns.
+  // Keep readiness refs aligned before paint so AI send can await open without
+  // waiting for a passive effect tick after tab switches or system-page returns.
   // author: refinex
-  currentDocumentPathRef.current = currentDocumentPath;
-  documentLoadStateRef.current = workspace.documentLoadState;
-  prepareCurrentDocumentForAiRef.current = workspace.prepareCurrentDocumentForAi;
-  updateMarkdownRef.current = workspace.updateMarkdown;
-  editorSessionsRef.current = editorSessions;
+  React.useLayoutEffect(() => {
+    currentDocumentPathRef.current = currentDocumentPath;
+    documentLoadStateRef.current = workspace.documentLoadState;
+    prepareCurrentDocumentForAiRef.current = workspace.prepareCurrentDocumentForAi;
+    updateMarkdownRef.current = workspace.updateMarkdown;
+    editorSessionsRef.current = editorSessions;
+  }, [
+    currentDocumentPath,
+    editorSessions,
+    workspace.documentLoadState,
+    workspace.prepareCurrentDocumentForAi,
+    workspace.updateMarkdown,
+  ]);
   const [activeEditorSourceMode, setActiveEditorSourceMode] =
     React.useState(false);
   const [askAiHandler, setAskAiHandler] =

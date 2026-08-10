@@ -240,10 +240,12 @@ export function WorkspaceSettingsPage({
   const cacheEntry = getSettingsCacheEntry(sessionCache, workspaceRootPath);
   const [activeSection, setActiveSection] =
     React.useState<SettingsSectionId>(initialSectionId);
-
-  React.useEffect(() => {
+  const [sectionSourceId, setSectionSourceId] =
+    React.useState<SettingsSectionId>(initialSectionId);
+  if (initialSectionId !== sectionSourceId) {
+    setSectionSourceId(initialSectionId);
     setActiveSection(initialSectionId);
-  }, [initialSectionId]);
+  }
   const [searchQuery, setSearchQuery] = React.useState('');
   const [settings, setSettings] = React.useState(
     () => withDefaultAppSettings(cacheEntry.settings ?? initialSettings),
@@ -1067,7 +1069,16 @@ function CodexSection({
   }, [desktop]);
 
   React.useEffect(() => {
-    void refresh();
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (!cancelled) {
+        void refresh();
+      }
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [refresh]);
 
   const restartRuntime = React.useCallback(async () => {
