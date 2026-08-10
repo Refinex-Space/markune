@@ -358,6 +358,15 @@ describe('WorkspaceSidebar update entry', () => {
 
     expect(overviewEntry.getAttribute('aria-current')).toBe('page');
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.getByTestId('pinned-sidebar-section').className).toContain(
+      'mt-1',
+    );
+    expect(overviewEntry.closest('div')?.className ?? '').not.toContain(
+      'focus-within:ring-2',
+    );
+    expect(folderOverview.closest('div')?.className ?? '').not.toContain(
+      'focus-within:ring-2',
+    );
     expect(screen.getByTestId('pinned-sidebar-count').textContent).toBe('2');
     expect(screen.getByTestId('pinned-sidebar-count').className).toContain(
       'group-hover:opacity-0',

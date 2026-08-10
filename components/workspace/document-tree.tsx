@@ -425,7 +425,10 @@ export function DocumentTree({
       <div className="flex flex-col">
         <div
           className={cn(
-            'group mx-2 flex h-8 items-center justify-between rounded-md px-2 text-[13px] font-medium transition-colors focus-within:ring-2 focus-within:ring-ring/40',
+            // Avoid focus-within rings here: Windows keeps button focus after
+            // click, and the outer ring overlaps neighboring sidebar rows.
+            // author: refinex
+            'group mx-2 flex h-8 items-center justify-between rounded-md px-2 text-[13px] font-medium transition-colors',
             workspaceOverviewActive
               ? 'bg-sidebar-accent text-sidebar-accent-foreground'
               : 'text-sidebar-foreground/50 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground/80',
@@ -434,7 +437,7 @@ export function DocumentTree({
           <button
             aria-current={workspaceOverviewActive ? 'page' : undefined}
             aria-label="打开工作区文件夹总览"
-            className="flex h-full min-w-0 flex-1 items-center text-left outline-none"
+            className="flex h-full min-w-0 flex-1 items-center rounded-md text-left outline-none focus-visible:outline-none"
             disabled={!onOpenWorkspaceOverview}
             type="button"
             onClick={onOpenWorkspaceOverview}

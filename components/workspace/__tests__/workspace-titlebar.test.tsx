@@ -162,6 +162,8 @@ describe('Workspace titlebar', () => {
     ).toBeLessThan(workspaceSidebarSource.indexOf('<DocumentTree'));
     expect(pinnedSidebarSectionSource).toContain('aria-expanded={expanded}');
     expect(pinnedSidebarSectionSource).not.toContain('<Popover');
+    // Windows keeps click focus; outer focus rings overlap the system nav.
+    expect(pinnedSidebarSectionSource).not.toContain('focus-within:ring-2');
   });
 
   it('does not reset the macOS traffic light position when the document title changes', () => {
