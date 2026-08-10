@@ -167,6 +167,10 @@ import {
   type SettingsSectionId,
 } from './workspace-settings-page';
 import { createWorkspaceSettingsSessionCache } from './workspace-settings-cache';
+import {
+  subscribeToNativeSettingsOpen,
+  subscribeToNativeUpdateCheck,
+} from './workspace-native-menu';
 import { createTerminalOutputStore } from './terminal-output-store';
 import { WorkspaceResizeHandle } from './workspace-resize-handle';
 import { WorkspaceSidebar } from './workspace-sidebar';
@@ -821,6 +825,7 @@ export function WorkspaceLayout({
   const appUpdate = useAppUpdate({
     onBeforeInstall: prepareForAppUpdateInstall,
   });
+  const checkAppUpdate = appUpdate.check;
   const openDrawingFromLibrary = drawings.openDrawing;
   const handleAiDrawingCreated = React.useCallback(
     async (drawing: { meta: { id: string } }) => {
@@ -925,6 +930,54 @@ export function WorkspaceLayout({
     },
     [],
   );
+  const handleNativeUpdateCheck = React.useCallback(() => {
+    openSettingsPage('version');
+    void checkAppUpdate();
+  }, [checkAppUpdate, openSettingsPage]);
+
+  React.useEffect(() => {
+    if (!isTauriRuntime) {
+      return;
+    }
+
+    let disposed = false;
+    let unsubscribe: (() => void) | null = null;
+
+    void import('@tauri-apps/api/event')
+      .then(({ listen }) => {
+        if (disposed) {
+          return;
+        }
+
+        const unsubscribeSettings = subscribeToNativeSettingsOpen(
+          listen,
+          openSettingsPage,
+          (error) => {
+            console.error('注册原生设置菜单事件失败', error);
+          },
+        );
+        const unsubscribeUpdateCheck = subscribeToNativeUpdateCheck(
+          listen,
+          handleNativeUpdateCheck,
+          (error) => {
+            console.error('注册原生更新菜单事件失败', error);
+          },
+        );
+        unsubscribe = () => {
+          unsubscribeSettings();
+          unsubscribeUpdateCheck();
+        };
+      })
+      .catch((error) => {
+        console.error('注册原生设置菜单事件失败', error);
+      });
+
+    return () => {
+      disposed = true;
+      unsubscribe?.();
+    };
+  }, [handleNativeUpdateCheck, isTauriRuntime, openSettingsPage]);
+
   const shouldRenderTerminalPanel = terminalOpen || terminalTabs.length > 0;
 
   React.useEffect(() => observeWorkspaceLongTasks(), []);

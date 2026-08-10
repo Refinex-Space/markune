@@ -18,12 +18,79 @@ mod workspace;
 
 use tauri::Manager;
 
+#[cfg(target_os = "macos")]
+use tauri::{
+    menu::{Menu, MenuItem, PredefinedMenuItem},
+    Emitter,
+};
+
+#[cfg(target_os = "macos")]
+const OPEN_SETTINGS_MENU_ITEM_ID: &str = "madora-open-settings";
+#[cfg(target_os = "macos")]
+const OPEN_SETTINGS_EVENT: &str = "madora-open-settings";
+#[cfg(target_os = "macos")]
+const CHECK_UPDATE_MENU_ITEM_ID: &str = "madora-check-update";
+#[cfg(target_os = "macos")]
+const CHECK_UPDATE_EVENT: &str = "madora-check-update";
+
+#[cfg(target_os = "macos")]
+fn build_macos_application_menu<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> tauri::Result<Menu<R>> {
+    let menu = Menu::default(app)?;
+    let app_menu = menu
+        .items()?
+        .into_iter()
+        .filter_map(|item| item.as_submenu().cloned())
+        .find(|submenu| {
+            submenu
+                .text()
+                .is_ok_and(|text| text == app.package_info().name)
+        })
+        .ok_or_else(|| tauri::Error::from(std::io::Error::other("缺少 macOS 应用菜单")))?;
+
+    let open_settings = MenuItem::with_id(
+        app,
+        OPEN_SETTINGS_MENU_ITEM_ID,
+        "设置…",
+        true,
+        Some("CmdOrCtrl+,"),
+    )?;
+    let check_update = MenuItem::with_id(
+        app,
+        CHECK_UPDATE_MENU_ITEM_ID,
+        "检查更新…",
+        true,
+        None::<&str>,
+    )?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    app_menu.insert_items(&[&open_settings, &check_update, &separator], 2)?;
+
+    Ok(menu)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let export_state = export::ExportState::default();
     let export_protocol_state = export_state.clone();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .menu(build_macos_application_menu)
+        .on_menu_event(|app, event| {
+            if event.id() == OPEN_SETTINGS_MENU_ITEM_ID {
+                if let Err(error) = app.emit(OPEN_SETTINGS_EVENT, ()) {
+                    log::error!("无法打开设置页面: {error}");
+                }
+            } else if event.id() == CHECK_UPDATE_MENU_ITEM_ID {
+                if let Err(error) = app.emit(CHECK_UPDATE_EVENT, ()) {
+                    log::error!("无法检查更新: {error}");
+                }
+            }
+        });
+
+    builder
         .manage(app_update::AppUpdateState::default())
         .manage(terminal::TerminalState::default())
         .manage(codex::CodexState::default())
