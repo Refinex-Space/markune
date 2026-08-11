@@ -120,6 +120,7 @@ interface DocumentTreeProps {
     newName: string,
   ) => Promise<WorkspaceNode | null | void> | WorkspaceNode | null | void;
   onRefresh?: () => Promise<unknown> | void;
+  onRefreshNode?: (node: WorkspaceNode) => Promise<unknown> | void;
   onSelectDocument: (node: WorkspaceNode) => void;
   onTogglePinned?: (node: WorkspaceNode) => void;
   onUpdateNodeAppearance?: (
@@ -157,6 +158,7 @@ export function DocumentTree({
   onSelectDirectory,
   onRenameNode,
   onRefresh,
+  onRefreshNode,
   onSelectDocument,
   onTogglePinned,
   onUpdateNodeAppearance,
@@ -184,7 +186,10 @@ export function DocumentTree({
   const draggedNodeRef = React.useRef<WorkspaceNode | null>(null);
   const iconPickerOpenFrameRef = React.useRef<number | null>(null);
   const treeRootRef = React.useRef<HTMLDivElement>(null);
-  const visibleNodes = filterWorkspaceNodes(nodes, searchQuery);
+  const visibleNodes = React.useMemo(
+    () => filterWorkspaceNodes(nodes, searchQuery),
+    [nodes, searchQuery],
+  );
   const directoryDocumentCounts = React.useMemo(
     () => countDirectoryDocuments(nodes),
     [nodes],
@@ -510,7 +515,7 @@ export function DocumentTree({
                 onExpandedChange={setExpanded}
                 onMoveNode={onMoveNode}
                 onPendingRenameConsumed={onPendingRenameConsumed}
-                onRefresh={onRefresh}
+                onRefreshNode={onRefreshNode}
                 onResetIcon={
                   onUpdateNodeAppearance ? resetNodeAppearance : undefined
                 }
@@ -640,7 +645,7 @@ function TreeNode({
   onExpandedChange,
   onMoveNode,
   onPendingRenameConsumed,
-  onRefresh,
+  onRefreshNode,
   onResetIcon,
   onSelectDirectory,
   onRenameRequest,
@@ -938,7 +943,7 @@ function TreeNode({
             onOpenInFileManager={onOpenInFileManager}
             onOpenInPreferredEditor={onOpenInPreferredEditor}
             preferredEditorLabel={preferredEditorLabel}
-            onRefresh={onRefresh}
+            onRefreshNode={onRefreshNode}
             onResetIcon={onResetIcon}
             onRenameRequest={onRenameRequest}
             onTogglePinned={onTogglePinned}
@@ -985,7 +990,7 @@ function TreeNode({
               onExpandedChange={onExpandedChange}
               onMoveNode={onMoveNode}
               onPendingRenameConsumed={onPendingRenameConsumed}
-              onRefresh={onRefresh}
+              onRefreshNode={onRefreshNode}
               onResetIcon={onResetIcon}
               onRenameRequest={onRenameRequest}
               onRenameSubmit={onRenameSubmit}
@@ -1039,7 +1044,7 @@ interface TreeNodeProps {
   onExpandedChange: React.Dispatch<React.SetStateAction<Set<string>>>;
   onMoveNode?: (request: WorkspaceMoveRequest) => Promise<void> | void;
   onPendingRenameConsumed?: () => void;
-  onRefresh?: () => Promise<unknown> | void;
+  onRefreshNode?: (node: WorkspaceNode) => Promise<unknown> | void;
   onResetIcon?: (node: WorkspaceNode) => Promise<void> | void;
   onSelectDirectory?: (node: WorkspaceNode) => Promise<void> | void;
   onRenameRequest: (node: WorkspaceNode) => void;
@@ -1287,7 +1292,7 @@ interface NodeActionProps {
   onOpenInFileManager?: (node: WorkspaceNode) => Promise<void> | void;
   onOpenInPreferredEditor?: (node: WorkspaceNode) => Promise<void> | void;
   preferredEditorLabel?: string;
-  onRefresh?: () => Promise<unknown> | void;
+  onRefreshNode?: (node: WorkspaceNode) => Promise<unknown> | void;
   onResetIcon?: (node: WorkspaceNode) => Promise<void> | void;
   onRenameRequest: (node: WorkspaceNode) => void;
   onTogglePinned?: (node: WorkspaceNode) => void;
@@ -1463,7 +1468,7 @@ function NodeContextActions({
   onOpenInFileManager,
   onOpenInPreferredEditor,
   preferredEditorLabel,
-  onRefresh,
+  onRefreshNode,
   onResetIcon,
   onRenameRequest,
   onTogglePinned,
@@ -1471,8 +1476,8 @@ function NodeContextActions({
   if (node.kind === 'directory') {
     return (
       <>
-        {onRefresh ? (
-          <ContextMenuItem onSelect={() => void onRefresh()}>
+        {onRefreshNode ? (
+          <ContextMenuItem onSelect={() => void onRefreshNode(node)}>
             <RefreshCw />
             刷新
           </ContextMenuItem>
@@ -1565,8 +1570,8 @@ function NodeContextActions({
 
   return (
     <>
-      {onRefresh ? (
-        <ContextMenuItem onSelect={() => void onRefresh()}>
+      {onRefreshNode ? (
+        <ContextMenuItem onSelect={() => void onRefreshNode(node)}>
           <RefreshCw />
           刷新
         </ContextMenuItem>

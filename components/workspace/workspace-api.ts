@@ -246,6 +246,18 @@ export async function loadWorkspaceTree(rootPath: string) {
   return invoke<WorkspaceSnapshot>('load_workspace_tree', { rootPath });
 }
 
+export async function refreshWorkspaceNode(
+  rootPath: string,
+  nodePath: string,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<WorkspaceNode | null>('refresh_workspace_node', {
+    rootPath,
+    nodePath,
+  });
+}
+
 export async function loadWorkspaceGraph(rootPath: string) {
   const { invoke } = await import('@tauri-apps/api/core');
 

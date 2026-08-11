@@ -13,6 +13,7 @@ import {
   loadWorkspaceTree,
   moveWorkspaceNode,
   recordWorkspaceHistory,
+  refreshWorkspaceNode as refreshWorkspaceNodeApi,
   removeWorkspaceHistory,
   readMarkdownDocument,
   renameWorkspaceNode,
@@ -62,6 +63,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   const [snapshot, setSnapshot] = React.useState<WorkspaceSnapshot | null>(
     initialSnapshot ?? null,
   );
+  const snapshotRef = React.useRef<WorkspaceSnapshot | null>(snapshot);
   const [currentDocument, setCurrentDocument] =
     React.useState<WorkspaceNode | null>(null);
   const [currentDirectoryPath, setCurrentDirectoryPath] = React.useState<
@@ -134,6 +136,10 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     documentContentRef.current = documentContent;
   }, [documentContent]);
 
+  React.useEffect(() => {
+    snapshotRef.current = snapshot;
+  }, [snapshot]);
+
   const clearPendingSave = React.useCallback(() => {
     if (pendingSaveTimerRef.current) {
       clearTimeout(pendingSaveTimerRef.current);
@@ -177,6 +183,77 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     setSnapshot(nextSnapshot);
     return nextSnapshot;
   }, [snapshot]);
+
+  // Incrementally refresh only the workspace directories affected by a set of
+  // changed entry paths (used by CRUD/AI auto-refresh). Falls back to a full
+  // rescan when a top-level entry changes, since the tree root itself has no
+  // single node to rebuild. Never reads document contents. author: liyao
+  const refreshWorkspaceNodes = React.useCallback(
+    async (entryPaths: string[]) => {
+      const base = snapshotRef.current;
+
+      if (!base) {
+        return null;
+      }
+
+      const rootPath = base.rootPath;
+      const targets = new Set<string>();
+
+      for (const entryPath of entryPaths) {
+        const target = resolveExistingDirectoryTarget(base, entryPath, rootPath);
+
+        if (target === null) {
+          return refreshWorkspaceTree();
+        }
+
+        targets.add(target);
+      }
+
+      const mergeTargets = dropNestedPaths([...targets]);
+
+      if (mergeTargets.length === 0) {
+        return base;
+      }
+
+      const results = await Promise.all(
+        mergeTargets.map(async (path) => {
+          try {
+            const node = await refreshWorkspaceNodeApi(rootPath, path);
+            return { path, node, ok: true as const };
+          } catch {
+            return { path, node: null, ok: false as const };
+          }
+        }),
+      );
+
+      const latest = snapshotRef.current;
+
+      if (!latest || latest.rootPath !== rootPath) {
+        return latest;
+      }
+
+      let nextNodes = latest.nodes;
+
+      for (const result of results) {
+        if (!result.ok) {
+          continue;
+        }
+
+        nextNodes = result.node
+          ? replaceWorkspaceNodeInList(nextNodes, result.path, result.node)
+          : removeWorkspaceNodeFromList(nextNodes, result.path);
+      }
+
+      if (nextNodes === latest.nodes) {
+        return latest;
+      }
+
+      const nextSnapshot = { ...latest, nodes: nextNodes };
+      setSnapshot(nextSnapshot);
+      return nextSnapshot;
+    },
+    [refreshWorkspaceTree],
+  );
 
   const loadWorkspace = React.useCallback(
     async (
@@ -482,6 +559,61 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     [clearPendingSave, currentDocument, draftDocument, saveState],
   );
 
+  // Manual node-scoped refresh (right-click a directory or document). Rebuilds
+  // just that subtree/node and, for the currently open document, re-aligns its
+  // on-screen content with disk through the conflict-safe external sync path.
+  // author: liyao
+  const refreshWorkspaceNode = React.useCallback(
+    async (node: WorkspaceNode) => {
+      const base = snapshotRef.current;
+
+      if (!base) {
+        return null;
+      }
+
+      const rootPath = base.rootPath;
+      const targetPath = node.absolutePath;
+      const refreshed = await refreshWorkspaceNodeApi(rootPath, targetPath);
+      const latest = snapshotRef.current;
+
+      if (latest && latest.rootPath === rootPath) {
+        const nextNodes = refreshed
+          ? replaceWorkspaceNodeInList(latest.nodes, targetPath, refreshed)
+          : removeWorkspaceNodeFromList(latest.nodes, targetPath);
+
+        if (nextNodes !== latest.nodes) {
+          setSnapshot({ ...latest, nodes: nextNodes });
+        }
+      }
+
+      if (
+        node.kind === 'document' &&
+        currentDocument?.absolutePath === targetPath
+      ) {
+        if (!refreshed) {
+          resetDocumentState();
+        } else {
+          try {
+            const freshContent = await readMarkdownDocument(
+              rootPath,
+              targetPath,
+            );
+            syncExternalMarkdownDocument(freshContent);
+          } catch {
+            // Leave the in-memory document untouched when the reload fails.
+          }
+        }
+      }
+
+      return refreshed;
+    },
+    [
+      currentDocument?.absolutePath,
+      resetDocumentState,
+      syncExternalMarkdownDocument,
+    ],
+  );
+
   const resolveExternalDocumentConflict = React.useCallback(
     async (resolution: 'external' | 'local') => {
       const conflict = externalDocumentConflict;
@@ -587,7 +719,22 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         node.absolutePath,
         newName,
       );
-      await refreshWorkspaceTree();
+
+      // Incremental update: swap the renamed subtree in place. Rename keeps the
+      // node's timestamps (and drops any manual rank, matching a full rescan),
+      // so ordering stays consistent without a whole-tree reload. author: liyao
+      const baseSnapshot = snapshotRef.current;
+      if (baseSnapshot) {
+        const nextNodes = replaceWorkspaceNodeInList(
+          baseSnapshot.nodes,
+          node.absolutePath,
+          renamed,
+        );
+
+        if (nextNodes !== baseSnapshot.nodes) {
+          setSnapshot({ ...baseSnapshot, nodes: nextNodes });
+        }
+      }
 
       if (currentDocument?.absolutePath === node.absolutePath) {
         if (renamed.kind === 'document') {
@@ -646,7 +793,6 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       currentDocument?.absolutePath,
       currentDirectoryPath,
       draftDocument,
-      refreshWorkspaceTree,
       resetDocumentState,
       saveCurrentDocumentNow,
       saveState,
@@ -803,6 +949,11 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   );
   const currentDocumentPath = currentDocument?.absolutePath ?? null;
 
+  const searchResults = React.useMemo(
+    () => (snapshot ? searchWorkspace(snapshot.nodes, searchQuery) : []),
+    [snapshot, searchQuery],
+  );
+
   const deleteNode = React.useCallback(
     async (node: WorkspaceNode) => {
       if (!snapshot) {
@@ -810,7 +961,18 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       }
 
       await deleteWorkspaceNode(snapshot.rootPath, node.absolutePath);
-      await refreshWorkspaceTree();
+
+      const baseSnapshot = snapshotRef.current;
+      if (baseSnapshot) {
+        const nextNodes = removeWorkspaceNodeFromList(
+          baseSnapshot.nodes,
+          node.absolutePath,
+        );
+
+        if (nextNodes !== baseSnapshot.nodes) {
+          setSnapshot({ ...baseSnapshot, nodes: nextNodes });
+        }
+      }
 
       if (
         currentDocumentPath === node.absolutePath ||
@@ -833,7 +995,6 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     [
       currentDocumentPath,
       currentDirectoryPath,
-      refreshWorkspaceTree,
       resetDocumentState,
       snapshot,
     ],
@@ -1106,6 +1267,8 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     openWorkspace,
     pendingRenameNodePath,
     prepareCurrentDocumentForAi,
+    refreshWorkspaceNode,
+    refreshWorkspaceNodes,
     refreshWorkspaceTree,
     resolveExternalDocumentConflict,
     retryCurrentDocument,
@@ -1115,7 +1278,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     saveError,
     saveState,
     searchQuery,
-    searchResults: snapshot ? searchWorkspace(snapshot.nodes, searchQuery) : [],
+    searchResults,
     setCurrentDocument,
     setRightPanelMode,
     setSearchQuery,
@@ -1252,6 +1415,123 @@ function findNodeByAbsolutePath(
   }
 
   return null;
+}
+
+function findDirectoryNodeByAbsolutePath(
+  nodes: WorkspaceNode[],
+  absolutePath: string,
+): WorkspaceNode | null {
+  const node = findNodeByAbsolutePath(nodes, absolutePath);
+
+  return node?.kind === 'directory' ? node : null;
+}
+
+function stripTrailingSeparators(path: string) {
+  return path.replace(/[/\\]+$/, '');
+}
+
+// Walk up from an entry's parent directory to the nearest ancestor that already
+// exists in the tree, so a rebuilt subtree has a valid merge point even when the
+// change introduced brand-new intermediate directories. Returns `null` when the
+// affected directory is the workspace root (caller must do a full rescan).
+// author: liyao
+function resolveExistingDirectoryTarget(
+  snapshot: WorkspaceSnapshot,
+  entryPath: string,
+  rootPath: string,
+): string | null {
+  const normalizedRoot = stripTrailingSeparators(rootPath);
+  let directory = getParentPath(entryPath);
+  let guard = 0;
+
+  while (
+    directory &&
+    stripTrailingSeparators(directory) !== normalizedRoot &&
+    guard < 512
+  ) {
+    if (findDirectoryNodeByAbsolutePath(snapshot.nodes, directory)) {
+      return directory;
+    }
+
+    const parent = getParentPath(directory);
+
+    if (parent === directory) {
+      break;
+    }
+
+    directory = parent;
+    guard += 1;
+  }
+
+  return null;
+}
+
+function dropNestedPaths(paths: string[]): string[] {
+  return paths.filter(
+    (path) =>
+      !paths.some((other) => other !== path && isDescendantPath(path, other)),
+  );
+}
+
+function replaceWorkspaceNodeInList(
+  nodes: WorkspaceNode[],
+  targetPath: string,
+  replacement: WorkspaceNode,
+): WorkspaceNode[] {
+  let changed = false;
+
+  const nextNodes = nodes.map((node) => {
+    if (node.absolutePath === targetPath) {
+      changed = true;
+      return replacement;
+    }
+
+    if (node.children && node.children.length > 0) {
+      const nextChildren = replaceWorkspaceNodeInList(
+        node.children,
+        targetPath,
+        replacement,
+      );
+
+      if (nextChildren !== node.children) {
+        changed = true;
+        return { ...node, children: nextChildren };
+      }
+    }
+
+    return node;
+  });
+
+  return changed ? nextNodes : nodes;
+}
+
+function removeWorkspaceNodeFromList(
+  nodes: WorkspaceNode[],
+  targetPath: string,
+): WorkspaceNode[] {
+  let changed = false;
+  const nextNodes: WorkspaceNode[] = [];
+
+  for (const node of nodes) {
+    if (node.absolutePath === targetPath) {
+      changed = true;
+      continue;
+    }
+
+    if (node.children && node.children.length > 0) {
+      const nextChildren = removeWorkspaceNodeFromList(node.children, targetPath);
+
+      if (nextChildren !== node.children) {
+        changed = true;
+        nextNodes.push({ ...node, children: nextChildren });
+        continue;
+      }
+    }
+
+    nextNodes.push(node);
+  }
+
+  return changed ? nextNodes : nodes;
 }
 
 function insertWorkspaceNode(

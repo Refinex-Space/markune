@@ -338,7 +338,7 @@ export function WorkspaceLayout({
     resolve: resolveConfirmation,
   } = useConfirmationDialog();
   const workspace = useWorkspace(initialSnapshot);
-  const refreshWorkspaceTree = workspace.refreshWorkspaceTree;
+  const refreshWorkspaceNodes = workspace.refreshWorkspaceNodes;
   const [leftSidebarWidth, setLeftSidebarWidth] = useStoredPanelWidth(
     WORKSPACE_PANEL_WIDTH_STORAGE_KEYS.left,
     LEFT_PANEL_WIDTH.defaultValue,
@@ -2882,7 +2882,22 @@ export function WorkspaceLayout({
         return next;
       });
 
-      const nextSnapshot = await refreshWorkspaceTree();
+      // Only refresh the directories Codex actually touched (source + move
+      // destination) instead of rescanning the whole tree; the hook falls back
+      // to a full rescan when a top-level entry changed. author: liyao
+      const changedEntryPaths = new Set<string>();
+      for (const change of changes) {
+        if (change.absolutePath) {
+          changedEntryPaths.add(change.absolutePath);
+        }
+        if (change.movePath) {
+          changedEntryPaths.add(
+            resolveWorkspaceEntryAbsolutePath(refreshRootPath, change.movePath),
+          );
+        }
+      }
+
+      const nextSnapshot = await refreshWorkspaceNodes([...changedEntryPaths]);
       if (!nextSnapshot || workspaceRootPathRef.current !== refreshRootPath) return;
       const latestLayout = documentEditorLayoutRef.current;
       const unavailablePaths = new Set(removedPaths);
@@ -2905,7 +2920,7 @@ export function WorkspaceLayout({
     },
     [
       applyDocumentEditorLayout,
-      refreshWorkspaceTree,
+      refreshWorkspaceNodes,
       workspaceRootPath,
     ],
   );
@@ -3412,6 +3427,9 @@ export function WorkspaceLayout({
                 onOpenViews={handleOpenViewsPage}
                 onRefreshWorkspaceTree={() =>
                   workspace.refreshWorkspaceTree().catch(() => null)
+                }
+                onRefreshWorkspaceNode={(node) =>
+                  workspace.refreshWorkspaceNode(node).catch(() => null)
                 }
                 onOpenInFileManager={handleOpenNodeInFileManager}
                 onOpenSettings={openSettingsPage}
@@ -4882,6 +4900,33 @@ async function readWorkspaceSearchDocuments(
   }
 
   return [...results.filter(Boolean), ...drawingDocuments];
+}
+
+// Resolve a Codex-reported entry path (which may be workspace-relative) to an
+// absolute path anchored at the workspace root, matching the separator style of
+// the root so incremental refresh can locate its parent directory. author: liyao
+function resolveWorkspaceEntryAbsolutePath(
+  rootPath: string,
+  entryPath: string,
+): string {
+  const trimmed = entryPath.trim();
+
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  const isWindowsAbsolute = /^[a-zA-Z]:[\\/]/.test(trimmed);
+  const isPosixAbsolute = trimmed.startsWith('/');
+
+  if (isWindowsAbsolute || isPosixAbsolute) {
+    return trimmed;
+  }
+
+  const separator = rootPath.includes('\\') ? '\\' : '/';
+  const normalizedRoot = rootPath.replace(/[/\\]+$/, '');
+  const normalizedEntry = trimmed.replace(/^[/\\]+/, '');
+
+  return `${normalizedRoot}${separator}${normalizedEntry}`;
 }
 
 function findWorkspaceDocumentByPath(

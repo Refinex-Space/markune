@@ -236,6 +236,7 @@ pub fn run() {
             workspace::open_daily_note,
             workspace::list_daily_notes_for_month,
             workspace::load_workspace_tree,
+            workspace::refresh_workspace_node,
             workspace::create_workspace_root,
             workspace::read_markdown_document,
             workspace::save_markdown_document,

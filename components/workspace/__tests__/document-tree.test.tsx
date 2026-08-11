@@ -214,9 +214,10 @@ describe('DocumentTree', () => {
     expect(onCreateDirectory).toHaveBeenCalledWith('');
   });
 
-  it('refreshes the workspace from directory, document, and blank-area menus', async () => {
+  it('refreshes the whole workspace from the blank-area menu only', async () => {
     const user = userEvent.setup();
     const onRefresh = vi.fn();
+    const onRefreshNode = vi.fn();
 
     render(
       <DocumentTree
@@ -228,6 +229,37 @@ describe('DocumentTree', () => {
         onDeleteNode={vi.fn()}
         onImportMarkdown={vi.fn()}
         onRefresh={onRefresh}
+        onRefreshNode={onRefreshNode}
+        onRenameNode={vi.fn()}
+        onSelectDocument={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(
+      screen.getByTestId('workspace-tree-root-creation-area'),
+    );
+    await user.click(screen.getByRole('menuitem', { name: '刷新' }));
+
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    expect(onRefreshNode).not.toHaveBeenCalled();
+  });
+
+  it('refreshes only the targeted directory or document from node menus', async () => {
+    const user = userEvent.setup();
+    const onRefresh = vi.fn();
+    const onRefreshNode = vi.fn();
+
+    render(
+      <DocumentTree
+        currentDocumentPath={null}
+        nodes={nodes}
+        searchQuery=""
+        onCreateDirectory={vi.fn()}
+        onCreateDocument={vi.fn()}
+        onDeleteNode={vi.fn()}
+        onImportMarkdown={vi.fn()}
+        onRefresh={onRefresh}
+        onRefreshNode={onRefreshNode}
         onRenameNode={vi.fn()}
         onSelectDocument={vi.fn()}
       />,
@@ -236,15 +268,19 @@ describe('DocumentTree', () => {
     fireEvent.contextMenu(screen.getByTestId('tree-row-guides'));
     await user.click(screen.getByRole('menuitem', { name: '刷新' }));
 
+    expect(onRefreshNode).toHaveBeenCalledTimes(1);
+    expect(onRefreshNode).toHaveBeenLastCalledWith(
+      expect.objectContaining({ absolutePath: '/repo/Guides' }),
+    );
+
     fireEvent.contextMenu(screen.getByTestId('tree-row-readme'));
     await user.click(screen.getByRole('menuitem', { name: '刷新' }));
 
-    fireEvent.contextMenu(
-      screen.getByTestId('workspace-tree-root-creation-area'),
+    expect(onRefreshNode).toHaveBeenCalledTimes(2);
+    expect(onRefreshNode).toHaveBeenLastCalledWith(
+      expect.objectContaining({ absolutePath: '/repo/README.md' }),
     );
-    await user.click(screen.getByRole('menuitem', { name: '刷新' }));
-
-    expect(onRefresh).toHaveBeenCalledTimes(3);
+    expect(onRefresh).not.toHaveBeenCalled();
   });
 
   it('uses folder state icons for directories and no icons for documents', async () => {

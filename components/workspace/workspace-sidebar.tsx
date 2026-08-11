@@ -58,6 +58,7 @@ interface WorkspaceSidebarProps {
   onOpenWorkspaceOverview?: () => void;
   onOpenViews?: () => void;
   onRefreshWorkspaceTree?: () => Promise<unknown> | void;
+  onRefreshWorkspaceNode?: (node: WorkspaceNode) => Promise<unknown> | void;
   onOpenSettings?: (sectionId?: 'appearance' | 'version') => void;
   onRemoveWorkspace?: (rootPath: string) => void;
   onRenameNode?: (
@@ -120,6 +121,7 @@ export function WorkspaceSidebar({
   onOpenWorkspaceOverview,
   onOpenViews,
   onRefreshWorkspaceTree,
+  onRefreshWorkspaceNode,
   onOpenSettings,
   onRemoveWorkspace,
   onRenameNode,
@@ -289,6 +291,7 @@ export function WorkspaceSidebar({
                 onOpenWorkspaceOverview={onOpenWorkspaceOverview}
                 onPendingRenameConsumed={workspace.clearPendingRenameNode}
                 onRefresh={onRefreshWorkspaceTree}
+                onRefreshNode={onRefreshWorkspaceNode}
                 preferredEditorLabel={preferredEditorLabel}
                 revealNodePath={revealNodePath}
                 revealNodeRequestId={revealNodeRequestId}

@@ -615,6 +615,98 @@ fn load_workspace_tree_sync(root_path: String) -> Result<WorkspaceSnapshot, Stri
     result
 }
 
+/// Incrementally rebuild a single workspace node (a directory subtree or a
+/// Markdown document) instead of rescanning the whole tree. Returns `None` when
+/// the node no longer exists on disk so the caller can drop it from the tree.
+/// author: liyao
+#[tauri::command]
+pub async fn refresh_workspace_node(
+    root_path: String,
+    node_path: String,
+) -> Result<Option<WorkspaceNode>, String> {
+    tauri::async_runtime::spawn_blocking(move || refresh_workspace_node_sync(root_path, node_path))
+        .await
+        .map_err(|_| "工作区节点刷新任务失败".to_string())?
+}
+
+fn refresh_workspace_node_sync(
+    root_path: String,
+    node_path: String,
+) -> Result<Option<WorkspaceNode>, String> {
+    let root = canonical_workspace_root(&root_path)?;
+
+    let Some(target) = resolve_existing_workspace_node_path(&root, &node_path)? else {
+        return Ok(None);
+    };
+
+    let metadata =
+        ensure_workspace_metadata(&root).map_err(|error| format!("初始化工作区失败：{error}"))?;
+    let sort_order = read_sort_order(&metadata);
+    let file_name = target
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .to_string();
+
+    if target.is_dir() {
+        let children = read_children(&root, &target, &sort_order, &metadata.node_state)
+            .map_err(|error| format!("读取目录失败：{error}"))?;
+        let node = build_directory_node(&root, &target, file_name, children, &metadata.node_state)
+            .map_err(|error| format!("读取目录节点失败：{error}"))?;
+
+        return Ok(Some(node));
+    }
+
+    if is_markdown_document_file(&target) {
+        let node = build_document_node(&root, &target, file_name, &metadata.node_state)
+            .map_err(|error| format!("读取文档节点失败：{error}"))?;
+
+        return Ok(Some(node));
+    }
+
+    Ok(None)
+}
+
+/// Resolve an absolute-or-relative node path to a canonical path inside the
+/// workspace root. Returns `None` when the path no longer exists (deleted
+/// externally) so the caller can remove the node. Rejects paths escaping the
+/// root or pointing at workspace-private metadata.
+/// author: liyao
+fn resolve_existing_workspace_node_path(
+    root: &Path,
+    node_path: &str,
+) -> Result<Option<PathBuf>, String> {
+    let trimmed = node_path.trim();
+
+    if trimmed.is_empty() {
+        return Err("节点路径不能为空".to_string());
+    }
+
+    let candidate = {
+        let raw = Path::new(trimmed);
+        if raw.is_absolute() {
+            raw.to_path_buf()
+        } else {
+            root.join(raw)
+        }
+    };
+
+    let target = match candidate.canonicalize() {
+        Ok(path) => path,
+        Err(_) => return Ok(None),
+    };
+
+    if !target.starts_with(root) {
+        return Err("无法访问工作区外的节点".to_string());
+    }
+
+    if is_workspace_private_path(root, &target) {
+        return Err("不能操作工作区元数据".to_string());
+    }
+
+    Ok(Some(target))
+}
+
 #[tauri::command]
 pub async fn read_markdown_document(
     root_path: String,
@@ -4031,6 +4123,70 @@ mod tests {
         assert_eq!(relative_paths.len(), 4);
         assert_eq!(relative_paths[2], "未命名目录");
         assert_eq!(relative_paths[3], "未命名文档.md");
+    }
+
+    #[test]
+    fn refresh_workspace_node_rebuilds_directory_subtree() {
+        let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
+        let root = temp_dir.path().to_string_lossy().to_string();
+        fs::create_dir(temp_dir.path().join("guides")).expect("创建目录失败");
+        fs::write(temp_dir.path().join("guides/a.md"), "# A\n").expect("写入文档失败");
+
+        // Add a new child on disk after the initial scan.
+        fs::write(temp_dir.path().join("guides/b.md"), "# B\n").expect("写入文档失败");
+
+        let dir_path = temp_dir.path().join("guides").to_string_lossy().to_string();
+        let node = refresh_workspace_node_sync(root, dir_path)
+            .expect("刷新目录节点失败")
+            .expect("目录节点应存在");
+
+        assert_eq!(node.kind, WorkspaceNodeKind::Directory);
+        let children = node.children.expect("目录应包含子节点");
+        assert_eq!(children.len(), 2);
+        assert!(children.iter().any(|child| child.name == "b.md"));
+    }
+
+    #[test]
+    fn refresh_workspace_node_reflects_document_title_change() {
+        let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
+        let root = temp_dir.path().to_string_lossy().to_string();
+        let doc_path = temp_dir.path().join("note.md");
+        fs::write(&doc_path, "# 旧标题\n").expect("写入文档失败");
+        fs::write(&doc_path, "# 新标题\n").expect("更新文档失败");
+
+        let node = refresh_workspace_node_sync(root, doc_path.to_string_lossy().to_string())
+            .expect("刷新文档节点失败")
+            .expect("文档节点应存在");
+
+        assert_eq!(node.kind, WorkspaceNodeKind::Document);
+        assert_eq!(node.title.as_deref(), Some("新标题"));
+    }
+
+    #[test]
+    fn refresh_workspace_node_returns_none_for_missing_path() {
+        let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
+        let root = temp_dir.path().to_string_lossy().to_string();
+        let missing = temp_dir.path().join("ghost.md").to_string_lossy().to_string();
+
+        let node = refresh_workspace_node_sync(root, missing).expect("刷新缺失节点应成功");
+
+        assert!(node.is_none());
+    }
+
+    #[test]
+    fn refresh_workspace_node_rejects_path_outside_root() {
+        let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
+        let outside = tempfile::tempdir().expect("创建外部目录失败");
+        let outside_doc = outside.path().join("secret.md");
+        fs::write(&outside_doc, "# secret\n").expect("写入外部文档失败");
+
+        let error = refresh_workspace_node_sync(
+            temp_dir.path().to_string_lossy().to_string(),
+            outside_doc.to_string_lossy().to_string(),
+        )
+        .expect_err("工作区外路径应失败");
+
+        assert!(error.contains("工作区外"));
     }
 
     #[test]
