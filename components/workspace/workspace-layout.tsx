@@ -3779,6 +3779,7 @@ export function WorkspaceLayout({
                         hasWorkspace={false}
                         isWorkspaceEmpty={false}
                         workspaceOpenError={workspace.error?.message ?? null}
+                        workspaceRootPath=""
                         onCreateDirectory={() => undefined}
                         onCreateDocument={() => undefined}
                         onImportMarkdown={() => undefined}
@@ -3839,6 +3840,7 @@ export function WorkspaceLayout({
                         hasWorkspace={workspace.snapshot !== null}
                         isWorkspaceEmpty={isWorkspaceEmpty}
                         workspaceOpenError={workspace.error?.message ?? null}
+                        workspaceRootPath={workspace.snapshot?.rootPath ?? ''}
                         onCreateDirectory={() => void workspace.createDirectory('')}
                         onCreateDocument={() => void handleCreateDocument('')}
                         onImportMarkdown={() =>

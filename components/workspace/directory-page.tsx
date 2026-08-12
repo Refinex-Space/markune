@@ -8,11 +8,14 @@ import {
   Search,
 } from 'lucide-react';
 
-import { parseMarkdownMetadata } from '@/components/editor/markdown-frontmatter';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
-import { readMarkdownDocument } from './workspace-api';
+import {
+  DocumentPreviewCard,
+  useDocumentPreviews,
+  type DocumentPreview,
+} from './document-preview';
 import { WorkspaceTreeFolderIcon } from './workspace-tree-folder-icon';
 import type { WorkspaceNode } from './workspace-types';
 
@@ -21,20 +24,6 @@ type DirectoryPageVariant =
   | 'directory'
   | 'pinned-overview'
   | 'workspace-overview';
-
-const DIRECTORY_PREVIEW_BATCH_SIZE = 24;
-const DIRECTORY_PREVIEW_READ_CONCURRENCY = 4;
-const DOCUMENT_PREVIEW_MASK_STYLE: React.CSSProperties = {
-  WebkitMaskImage: 'linear-gradient(to bottom, #000 68%, transparent 100%)',
-  maskImage: 'linear-gradient(to bottom, #000 68%, transparent 100%)',
-};
-
-interface DocumentPreview {
-  createdAt: number | string | null;
-  modifiedAt: number | null;
-  text: string;
-  updatedAt: number | string | null;
-}
 
 interface DirectoryPageProps {
   directory: WorkspaceNode;
@@ -53,9 +42,6 @@ export function DirectoryPage({
 }: DirectoryPageProps) {
   const [query, setQuery] = React.useState('');
   const [viewMode, setViewMode] = React.useState<DirectoryViewMode>('grid');
-  const [previews, setPreviews] = React.useState<
-    Record<string, DocumentPreview>
-  >({});
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const isPinnedOverview = variant === 'pinned-overview';
   const isWorkspaceOverview = variant === 'workspace-overview';
@@ -79,6 +65,7 @@ export function DirectoryPage({
         : directDocuments,
     [directDocuments, normalizedQuery, recursiveDocuments],
   );
+  const previews = useDocumentPreviews(previewDocuments, workspaceRootPath);
   const visibleDocuments = normalizedQuery
     ? recursiveDocuments.filter(({ node }) =>
         isDocumentMatch(
@@ -88,80 +75,6 @@ export function DirectoryPage({
         ),
       )
     : directDocuments.map((node) => ({ depth: 0, node }));
-  React.useEffect(() => {
-    let cancelled = false;
-    const documentsToLoad = previewDocuments
-      .filter((node) => previews[node.absolutePath] === undefined)
-      .slice(0, DIRECTORY_PREVIEW_BATCH_SIZE);
-
-    if (documentsToLoad.length === 0) {
-      return;
-    }
-
-    async function loadPreviews() {
-      const loadedEntries: Array<readonly [string, DocumentPreview]> = [];
-      let cursor = 0;
-
-      async function readNextPreview() {
-        while (cursor < documentsToLoad.length) {
-          const node = documentsToLoad[cursor];
-          cursor += 1;
-
-          try {
-            const content = await readMarkdownDocument(
-              workspaceRootPath,
-              node.absolutePath,
-            );
-            const parsed = parseMarkdownMetadata(content.content, node.name);
-
-            loadedEntries.push([
-              node.absolutePath,
-              await createDocumentPreview(parsed.body, {
-                createdAt: parsed.metadata.createdAt ?? content.modifiedAt,
-                modifiedAt: content.modifiedAt,
-                updatedAt: parsed.metadata.updatedAt ?? content.modifiedAt,
-              }),
-            ]);
-          } catch {
-            loadedEntries.push([
-              node.absolutePath,
-              {
-                createdAt: null,
-                modifiedAt: null,
-                text: '',
-                updatedAt: null,
-              },
-            ]);
-          }
-        }
-      }
-
-      await Promise.all(
-        Array.from(
-          {
-            length: Math.min(
-              DIRECTORY_PREVIEW_READ_CONCURRENCY,
-              documentsToLoad.length,
-            ),
-          },
-          () => readNextPreview(),
-        ),
-      );
-
-      if (!cancelled) {
-        setPreviews((current) => ({
-          ...current,
-          ...Object.fromEntries(loadedEntries),
-        }));
-      }
-    }
-
-    void loadPreviews();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [previewDocuments, previews, workspaceRootPath]);
 
   return (
     <div className="directory-page-scrollarea h-full overflow-auto bg-muted/10">
@@ -424,33 +337,11 @@ function DocumentCard({
   }
 
   return (
-    <button
-      aria-label={`打开文档 ${title}`}
-      className={cn(
-        'group relative flex aspect-[3/4] max-h-[280px] min-h-[240px] min-w-0 flex-col overflow-hidden rounded-2xl border border-border/50 bg-background text-left shadow-sm transition-all duration-300',
-        'hover:-translate-y-1 hover:border-border/80 hover:shadow-md',
-        'dark:border-muted-foreground/25 dark:bg-card/55 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.025),0_2px_8px_-6px_rgba(0,0,0,0.8)] dark:hover:border-muted-foreground/45 dark:hover:bg-card/75 dark:hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_14px_30px_-20px_rgba(0,0,0,0.95)]',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-      )}
+    <DocumentPreviewCard
       title={title}
-      type="button"
-      onClick={() => onOpenDocument(document)}
-    >
-      <div className="flex flex-1 flex-col p-6">
-        <h3 className="mb-4 line-clamp-2 text-base font-bold tracking-tight text-foreground">
-          {title}
-        </h3>
-        
-        <div className="relative flex-1 overflow-hidden">
-          <div
-            className="h-full text-xs leading-relaxed text-muted-foreground/80 whitespace-pre-wrap break-words"
-            style={DOCUMENT_PREVIEW_MASK_STYLE}
-          >
-            {articlePreview}
-          </div>
-        </div>
-      </div>
-    </button>
+      preview={preview}
+      onOpen={() => onOpenDocument(document)}
+    />
   );
 }
 
@@ -583,38 +474,6 @@ function getRelativeLabel(directory: WorkspaceNode, document: WorkspaceNode) {
   return document.relativePath.startsWith(prefix)
     ? document.relativePath.slice(prefix.length)
     : document.relativePath;
-}
-
-async function createDocumentPreview(
-  body: string,
-  meta: Pick<DocumentPreview, 'createdAt' | 'modifiedAt' | 'updatedAt'>,
-): Promise<DocumentPreview> {
-  return {
-    ...meta,
-    text: trimPreviewText(extractPlainText(body)),
-  };
-}
-
-function extractPlainText(markdown: string): string {
-  return markdown
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/~~~[\s\S]*?~~~/g, ' ')
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/^#{1,6}\s+/gm, '')
-    .replace(/[*_`~>]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function trimPreviewText(text: string) {
-  const normalized = text.replace(/\s+/gu, ' ').trim();
-
-  if (normalized.length <= 180) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, 180)}...`;
 }
 
 function formatDocumentDate(value: number | string | null) {

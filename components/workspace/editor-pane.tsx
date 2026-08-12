@@ -1,3 +1,4 @@
+import * as React from 'react';
 import type { ReactNode } from 'react';
 import Image from 'next/image';
 import {
@@ -5,12 +6,16 @@ import {
   FilePlus2,
   FolderOpen,
   FolderPlus,
-  FileText,
   RefreshCw,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 
+import {
+  DocumentPreviewCard,
+  useDocumentPreviews,
+  type DocumentPreviewTarget,
+} from './document-preview';
 import type {
   DocumentLoadState,
   WorkspaceNode,
@@ -32,6 +37,7 @@ interface EditorPaneProps {
   hasWorkspace: boolean;
   isWorkspaceEmpty: boolean;
   workspaceOpenError?: string | null;
+  workspaceRootPath: string;
   onCreateDirectory: () => void;
   onCreateDocument: () => void;
   onImportMarkdown: () => void;
@@ -51,6 +57,7 @@ export function EditorPane({
   hasWorkspace,
   isWorkspaceEmpty,
   workspaceOpenError = null,
+  workspaceRootPath,
   onCreateDirectory,
   onCreateDocument,
   onImportMarkdown,
@@ -121,12 +128,16 @@ export function EditorPane({
               </div>
             </div>
           </div>
+        ) : hasWorkspace && recentDocuments.length > 0 ? (
+          <RecentDocumentsBoard
+            documents={recentDocuments}
+            workspaceRootPath={workspaceRootPath}
+            onOpenDocument={onOpenRecentDocument}
+          />
         ) : (
           <DocumentEmptyState
             hasWorkspace={hasWorkspace}
-            recentDocuments={recentDocuments}
             workspaceOpenError={workspaceOpenError}
-            onOpenRecentDocument={onOpenRecentDocument}
             onOpenWorkspace={onOpenWorkspace}
           />
         )}
@@ -137,15 +148,11 @@ export function EditorPane({
 
 function DocumentEmptyState({
   hasWorkspace,
-  recentDocuments,
   workspaceOpenError,
-  onOpenRecentDocument,
   onOpenWorkspace,
 }: {
   hasWorkspace: boolean;
-  recentDocuments: RecentWorkspaceDocument[];
   workspaceOpenError?: string | null;
-  onOpenRecentDocument: (absolutePath: string) => void;
   onOpenWorkspace: () => void;
 }) {
   return (
@@ -184,58 +191,81 @@ function DocumentEmptyState({
             {workspaceOpenError}
           </p>
         ) : null}
-        {hasWorkspace ? (
-          <RecentDocumentsList
-            documents={recentDocuments}
-            onOpenDocument={onOpenRecentDocument}
-          />
-        ) : (
+        {!hasWorkspace ? (
           <Button className="mt-5" type="button" onClick={onOpenWorkspace}>
             <FolderOpen size={16} />
             选择文件夹
           </Button>
-        )}
+        ) : null}
       </div>
     </div>
   );
 }
 
-function RecentDocumentsList({
+/**
+ * Home surface for a workspace with recent activity: the same article-card grid
+ * used by the directory view, so continuing recent work feels identical to
+ * browsing a folder. Card excerpts stream in off the main thread. author: liyao
+ */
+function RecentDocumentsBoard({
   documents,
+  workspaceRootPath,
   onOpenDocument,
 }: {
   documents: RecentWorkspaceDocument[];
+  workspaceRootPath: string;
   onOpenDocument: (absolutePath: string) => void;
 }) {
-  if (documents.length === 0) {
-    return null;
-  }
+  const previewTargets = React.useMemo<DocumentPreviewTarget[]>(
+    () =>
+      documents.map((document) => ({
+        absolutePath: document.absolutePath,
+        name: document.title,
+      })),
+    [documents],
+  );
+  const previews = useDocumentPreviews(previewTargets, workspaceRootPath);
 
   return (
     <div
-      className="mt-8 w-full max-w-sm text-left"
-      data-testid="workspace-recent-documents-list"
+      className="min-h-full bg-muted/10"
+      data-testid="workspace-recent-documents-board"
     >
-      <p className="mb-2 px-2 text-xs text-muted-foreground">最近文档</p>
-      <div className="space-y-1">
-        {documents.map((document) => (
-          <button
-            key={document.absolutePath}
-            className="group flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/55 hover:text-foreground"
-            type="button"
-            onClick={() => onOpenDocument(document.absolutePath)}
-          >
-            <FileText
-              aria-hidden="true"
-              className="size-4 shrink-0 text-muted-foreground/75 transition-colors group-hover:text-foreground/75"
-              strokeWidth={1.75}
+      <div className="mx-auto w-full max-w-5xl px-8 py-12 md:px-12 md:py-16">
+        <header className="mb-8 flex items-center gap-2.5">
+          <Image
+            alt=""
+            className="size-7 shrink-0 opacity-90 dark:hidden"
+            height={28}
+            src="/brand/madora-logo-dark.svg"
+            width={28}
+          />
+          <Image
+            alt=""
+            className="hidden size-7 shrink-0 opacity-90 dark:block"
+            height={28}
+            src="/brand/madora-logo-light.svg"
+            width={28}
+          />
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            最近文档
+          </h1>
+        </header>
+
+        <p className="mb-4 text-sm text-muted-foreground">
+          从上次离开的地方继续。
+        </p>
+
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-6">
+          {documents.map((document) => (
+            <DocumentPreviewCard
+              key={document.absolutePath}
+              title={document.title}
+              preview={previews[document.absolutePath]}
+              onOpen={() => onOpenDocument(document.absolutePath)}
             />
-            <span className="min-w-0 flex-1 truncate">{document.title}</span>
-            <span className="max-w-[42%] truncate text-xs text-muted-foreground/75">
-              {document.relativePath}
-            </span>
-          </button>
-        ))}
+          ))}
+        </div>
       </div>
     </div>
   );
