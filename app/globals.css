@@ -635,6 +635,50 @@
     line-height: 1.75;
   }
 
+  /* Internal document cards are projected as block widgets after the source
+     paragraph; keep the source line collapsed in the workspace shell. */
+  .workspace-editor-shell .markweave-editor-frame p[data-internal-link-card='true'] {
+    height: 0 !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    overflow: hidden !important;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .workspace-editor-shell .markweave-internal-link-card {
+    display: flow-root;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    margin-top: 1.05em !important;
+    margin-bottom: 1.05em !important;
+  }
+
+  /* Adjacent document cards: one gap matching link-card vertical rhythm
+     (link cards use margin 1.05em; adjacent margins collapse to 1.05em). */
+  .workspace-editor-shell
+    .markweave-internal-link-card:has(
+      + p[data-internal-link-card='true'] + .markweave-internal-link-card
+    ) {
+    margin-bottom: 0 !important;
+  }
+
+  .workspace-editor-shell
+    .markweave-internal-link-card
+    + p[data-internal-link-card='true'] {
+    padding-bottom: 1.05em !important;
+  }
+
+  .workspace-editor-shell
+    .markweave-internal-link-card
+    + p[data-internal-link-card='true']
+    + .markweave-internal-link-card {
+    margin-top: 0 !important;
+  }
+
   .workspace-editor-shell.workspace-editor-page-standard .markweave-editor-surface {
     width: 100%;
     max-width: 48rem;

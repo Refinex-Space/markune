@@ -25,6 +25,8 @@ import {
   type MarkdownEditorFlushReason,
   type MarkdownEditorHandle,
 } from '@/components/editor/markdown-editor';
+import { WorkspaceDocumentIndexProvider } from '@/components/editor/workspace-document-index';
+import { OPEN_WORKSPACE_DOCUMENT_EVENT } from '@/components/editor/workspace-document-link';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -2304,6 +2306,44 @@ export function WorkspaceLayout({
     [clearPendingDocumentOpen, flushActiveMarkdownEditor, runOpenDocument],
   );
 
+  React.useEffect(() => {
+    const handleOpenDocument = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ relativePath?: string }>
+      ).detail;
+      const relativePath = detail?.relativePath;
+      if (!relativePath) return;
+
+      const node = findWorkspaceDocumentByRelativePath(
+        workspace.snapshot?.nodes ?? [],
+        relativePath,
+      );
+      if (!node) return;
+
+      setLeftPanelMode('workspace');
+      showWorkspaceSidebar(false);
+      setTreeRevealRequest({
+        absolutePath: node.absolutePath,
+        requestId: Date.now(),
+      });
+      void openDocumentNode(node);
+    };
+
+    window.addEventListener(
+      OPEN_WORKSPACE_DOCUMENT_EVENT,
+      handleOpenDocument,
+    );
+    return () =>
+      window.removeEventListener(
+        OPEN_WORKSPACE_DOCUMENT_EVENT,
+        handleOpenDocument,
+      );
+  }, [
+    openDocumentNode,
+    showWorkspaceSidebar,
+    workspace.snapshot?.nodes,
+  ]);
+
   const handleOpenNodeInFileManager = React.useCallback(
     (node: WorkspaceNode) => {
       void Promise.resolve(openPathInFileManager(node.absolutePath)).catch(
@@ -3369,6 +3409,7 @@ export function WorkspaceLayout({
     workspace.setSidebarCollapsed(!workspace.isSidebarCollapsed);
   }, [workspace]);
   return (
+    <WorkspaceDocumentIndexProvider nodes={workspace.snapshot?.nodes ?? []}>
     <main
       className="relative flex h-screen w-full overflow-hidden bg-sidebar text-foreground antialiased"
       data-chrome="workspace"
@@ -4073,6 +4114,7 @@ export function WorkspaceLayout({
         onResolve={resolveConfirmation}
       />
     </main>
+    </WorkspaceDocumentIndexProvider>
   );
 }
 
@@ -4761,6 +4803,7 @@ const DocumentEditorInstance = React.memo(function DocumentEditorInstance({
         aiEnabled={aiEnabled && !readOnly}
         askAiHandler={askAiHandler}
         documentKey={`${documentPath}:${editorSession.documentVersion}:${pageWidthMode}:${readOnly ? 'view' : 'live'}`}
+        documentPath={documentPath}
         markdown={editorSession.markdown}
         pageWidthMode={pageWidthMode}
         readOnly={readOnly}
@@ -5063,6 +5106,38 @@ function findWorkspaceDocumentByPath(
   }
 
   return null;
+}
+
+// Matches an in-editor link target (already resolved to a workspace-root-relative
+// POSIX path) against the document tree. Falls back to appending a Markdown
+// extension for extensionless [[wiki]] targets, then to a case-insensitive
+// match for case-insensitive file systems. author: liyao
+function findWorkspaceDocumentByRelativePath(
+  nodes: WorkspaceNode[],
+  relativePath: string,
+): WorkspaceNode | null {
+  const documents = flattenWorkspaceNodes(nodes).filter(
+    (node) => node.kind === 'document',
+  );
+  const hasExtension = /\.[^./]+$/.test(relativePath);
+  const candidates = hasExtension
+    ? [relativePath]
+    : [relativePath, `${relativePath}.md`, `${relativePath}.mdx`];
+
+  for (const candidate of candidates) {
+    const exact = documents.find((node) => node.relativePath === candidate);
+
+    if (exact) {
+      return exact;
+    }
+  }
+
+  const lowerCandidates = candidates.map((candidate) => candidate.toLowerCase());
+  const insensitive = documents.find((node) =>
+    lowerCandidates.includes(node.relativePath.toLowerCase()),
+  );
+
+  return insensitive ?? null;
 }
 
 function flattenWorkspaceNodes(nodes: WorkspaceNode[]): WorkspaceNode[] {

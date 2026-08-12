@@ -10,6 +10,10 @@ import {
   type MarkweaveEditorUpdatePayload,
   type MarkweaveSearchController,
 } from '@markweave/react';
+import type {
+  MarkweaveInternalLinkCardConfig,
+  MarkweaveReferenceSuggestionConfig,
+} from 'markweave';
 import { useTheme } from 'next-themes';
 
 import {
@@ -28,7 +32,21 @@ import {
 } from '@/components/editor/markdown-frontmatter';
 import { resolveMarkweaveLinkCard } from '@/components/editor/markweave-link-card-resolver';
 import type { MarkdownSourceEditorHandle } from '@/components/editor/markdown-source-editor';
+import {
+  buildWorkspaceDocumentHref,
+  OPEN_WORKSPACE_DOCUMENT_EVENT,
+  parseInternalDocumentHref,
+  resolveWorkspaceDocumentTarget,
+  toWorkspaceRootRelativePath,
+} from '@/components/editor/workspace-document-link';
+import { useWorkspaceDocumentIndex } from '@/components/editor/workspace-document-index';
+import { extractDocumentPreviewText } from '@/components/editor/workspace-document-preview';
+import {
+  createWorkspaceReferenceRenderer,
+  type WorkspaceReferenceItem,
+} from '@/components/editor/workspace-reference-suggestion';
 import { useWorkspaceAssetUploader } from '@/components/editor/use-workspace-asset-uploader';
+import { readMarkdownDocument } from '@/components/workspace/workspace-api';
 import type { PageWidthMode } from '@/components/workspace/workspace-types';
 import {
   incrementWorkspacePerformanceCounter,
@@ -56,6 +74,7 @@ interface MarkdownEditorProps {
   aiEnabled?: boolean;
   askAiHandler?: MarkweaveAskAiHandler | null;
   documentKey?: string;
+  documentPath?: string | null;
   markdown: string;
   pageWidthMode?: PageWidthMode;
   onSaveRequested?: () => void;
@@ -96,6 +115,7 @@ export const MarkdownEditor = React.forwardRef<
   aiEnabled = false,
   askAiHandler = null,
   documentKey,
+  documentPath = null,
   markdown,
   pageWidthMode = 'wide',
   onSaveRequested,
@@ -190,6 +210,122 @@ export const MarkdownEditor = React.forwardRef<
     workspaceRootPath ?? null,
     projectedEditorBody,
   );
+
+  const workspaceDocumentIndex = useWorkspaceDocumentIndex();
+  const currentDocumentRelativePath = React.useMemo(
+    () =>
+      documentPath && workspaceRootPath
+        ? toWorkspaceRootRelativePath(documentPath, workspaceRootPath)
+        : null,
+    [documentPath, workspaceRootPath],
+  );
+
+  const referenceSuggestion =
+    React.useMemo<MarkweaveReferenceSuggestionConfig | null>(() => {
+      if (readOnly || !workspaceDocumentIndex || !workspaceRootPath) {
+        return null;
+      }
+
+      return {
+        items: ({ query }) =>
+          workspaceDocumentIndex
+            .search(query)
+            .filter((document) => document.absolutePath !== documentPath)
+            .map<WorkspaceReferenceItem>((document) => ({
+              href: buildWorkspaceDocumentHref({
+                fromDocumentRelativePath: currentDocumentRelativePath,
+                targetRelativePath: document.relativePath,
+              }),
+              label: document.title,
+              title: document.title,
+              subtitle: relativePathParent(document.relativePath),
+            }))
+            .filter((item) => item.href.length > 0),
+        render: () => createWorkspaceReferenceRenderer(),
+      };
+    }, [
+      currentDocumentRelativePath,
+      documentPath,
+      readOnly,
+      workspaceDocumentIndex,
+      workspaceRootPath,
+    ]);
+
+  const internalLinkCard =
+    React.useMemo<MarkweaveInternalLinkCardConfig | null>(() => {
+      if (!workspaceDocumentIndex || !documentPath || !workspaceRootPath) {
+        return null;
+      }
+
+      return {
+        isInternalLink: (href) => {
+          const parsed = parseInternalDocumentHref(href);
+          if (!parsed) {
+            return false;
+          }
+
+          if (/\.mdx?$/i.test(parsed.target)) {
+            return true;
+          }
+
+          const target = resolveWorkspaceDocumentTarget({
+            href,
+            documentAbsolutePath: documentPath,
+            workspaceRootPath,
+          });
+
+          return target
+            ? workspaceDocumentIndex.resolveByRelativePath(
+                target.relativePath,
+              ) !== null
+            : false;
+        },
+        resolve: async ({ href, signal }) => {
+          const target = resolveWorkspaceDocumentTarget({
+            href,
+            documentAbsolutePath: documentPath,
+            workspaceRootPath,
+          });
+
+          if (!target) {
+            return { exists: false };
+          }
+
+          const document = workspaceDocumentIndex.resolveByRelativePath(
+            target.relativePath,
+          );
+
+          if (!document) {
+            return {
+              subtitle: target.relativePath,
+              exists: false,
+            };
+          }
+
+          let description: string | undefined;
+          try {
+            const content = await readMarkdownDocument(
+              workspaceRootPath,
+              document.absolutePath,
+            );
+            if (signal.aborted) {
+              return null;
+            }
+            description =
+              extractDocumentPreviewText(content.content) || undefined;
+          } catch {
+            description = undefined;
+          }
+
+          return {
+            title: document.title,
+            description,
+            subtitle: document.relativePath,
+            exists: true,
+          };
+        },
+      };
+    }, [documentPath, workspaceDocumentIndex, workspaceRootPath]);
 
   React.useEffect(() => {
     if (pendingFlushTimerRef.current) {
@@ -554,15 +690,53 @@ export const MarkdownEditor = React.forwardRef<
         const drawingImage = target.closest<HTMLImageElement>(
           'img[title^="madora-drawing://"]',
         );
-        const href =
-          link?.getAttribute('href') || drawingImage?.getAttribute('title') || '';
+        const linkHref = link?.getAttribute('href') ?? '';
+        const href = linkHref || drawingImage?.getAttribute('title') || '';
         const drawingId = parseDrawingMarkdownUrl(href);
-        if (!drawingId) return;
+        if (drawingId) {
+          event.preventDefault();
+          event.stopPropagation();
+          window.dispatchEvent(
+            new CustomEvent('madora:open-drawing', {
+              detail: { drawingId },
+            }),
+          );
+          return;
+        }
+
+        // Open workspace document links as tabs.
+        // - Document reference cards: always open in Madora (never the browser).
+        // - Inline []() links: Ctrl/Cmd-click in live mode; plain click in view.
+        // author: liyao
+        const internalCard = target.closest<HTMLElement>(
+          '[data-markweave-internal-link-card="true"], .markweave-internal-link-card',
+        );
+        const cardHref = internalCard?.getAttribute('href') ?? '';
+        const effectiveHref = cardHref || linkHref;
+        if (!effectiveHref) return;
+
+        const primaryModifier = event.metaKey || event.ctrlKey;
+        if (!internalCard && !readOnly && !primaryModifier) return;
+
+        const documentTarget = resolveWorkspaceDocumentTarget({
+          href: effectiveHref,
+          documentAbsolutePath: documentPath,
+          workspaceRootPath,
+        });
+        if (!documentTarget) {
+          if (internalCard) {
+            // Still block browser navigation for unresolved document cards.
+            event.preventDefault();
+            event.stopPropagation();
+          }
+          return;
+        }
+
         event.preventDefault();
         event.stopPropagation();
         window.dispatchEvent(
-          new CustomEvent('madora:open-drawing', {
-            detail: { drawingId },
+          new CustomEvent(OPEN_WORKSPACE_DOCUMENT_EVENT, {
+            detail: documentTarget,
           }),
         );
       }}
@@ -674,6 +848,8 @@ export const MarkdownEditor = React.forwardRef<
             onTocChange={handleTocChange}
             onUpdate={handleEditorUpdate}
             linkCardResolver={resolveMarkweaveLinkCard}
+            referenceSuggestion={referenceSuggestion}
+            internalLinkCard={internalLinkCard}
             theme={
               themeOverride ?? (resolvedTheme === 'dark' ? 'dark' : 'light')
             }
@@ -731,6 +907,12 @@ export const MarkdownEditor = React.forwardRef<
     </div>
   );
 });
+
+function relativePathParent(relativePath: string): string {
+  const index = relativePath.lastIndexOf('/');
+
+  return index === -1 ? '' : relativePath.slice(0, index);
+}
 
 function normalizeFindSeed(selection: string) {
   const normalized = selection.replace(/\s+/g, ' ').trim();
