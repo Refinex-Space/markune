@@ -59,6 +59,11 @@ pub struct GitRemoteInfo {
 pub struct GitSyncResult {
     pub last_synced_at: String,
     pub status: GitStatus,
+    /// Repository-relative paths that the pull (merge of the fetched upstream)
+    /// brought into the working tree. Empty when the sync only pushed local
+    /// commits or nothing changed. Lets the UI reload just those documents and
+    /// tree nodes instead of a full rescan. author: liyao
+    pub changed_paths: Vec<String>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -474,7 +479,12 @@ fn git_sync_now_sync(
         status = git_status_sync(root.to_string_lossy().to_string())?;
     }
 
+    let mut changed_paths = Vec::new();
+
     if let Some(upstream) = status.upstream.as_deref() {
+        // Capture HEAD before the merge so the pulled changes can be isolated
+        // from the local commit we may have just created. author: liyao
+        let before_merge_head = read_head_commit(&root);
         let mut merge_args = vec!["merge", "--no-edit"];
         match conflict_resolution.as_str() {
             "local" => merge_args.extend(["-X", "ours"]),
@@ -487,6 +497,13 @@ fn git_sync_now_sync(
             let _ = run_git(&root, &["merge", "--abort"]);
 
             return Err(GIT_SYNC_CONFLICT_MESSAGE.to_string());
+        }
+
+        let after_merge_head = read_head_commit(&root);
+        if let (Some(before), Some(after)) = (&before_merge_head, &after_merge_head) {
+            if before != after {
+                changed_paths = diff_changed_paths(&root, before, after);
+            }
         }
 
         status = git_status_sync(root.to_string_lossy().to_string())?;
@@ -506,7 +523,29 @@ fn git_sync_now_sync(
         last_synced_at: DateTime::<Utc>::from(SystemTime::now())
             .to_rfc3339_opts(SecondsFormat::Millis, true),
         status: git_status_sync(root.to_string_lossy().to_string())?,
+        changed_paths,
     })
+}
+
+fn read_head_commit(root: &Path) -> Option<String> {
+    run_git(root, &["rev-parse", "HEAD"])
+        .ok()
+        .map(|output| output.stdout.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn diff_changed_paths(root: &Path, before: &str, after: &str) -> Vec<String> {
+    let range = format!("{before}..{after}");
+    let Ok(output) = run_git(root, &["diff", "--name-only", "-z", range.as_str()]) else {
+        return Vec::new();
+    };
+
+    output
+        .stdout
+        .split('\0')
+        .filter(|entry| !entry.is_empty())
+        .map(ToString::to_string)
+        .collect()
 }
 
 fn git_revert_file_sync(root_path: String, path: String) -> Result<GitStatus, String> {
@@ -1343,6 +1382,10 @@ mod tests {
 
         assert!(synced.last_synced_at.ends_with('Z'));
         assert!(synced.status.changes.is_empty());
+        assert!(
+            synced.changed_paths.is_empty(),
+            "first push without remote history pulls nothing"
+        );
         let log = run_git(root.path(), &["log", "-1", "--pretty=%s"]).expect("last subject");
         assert_eq!(log.stdout.trim(), "Updated from Madora");
         run_git(root.path(), &["ls-remote", "--exit-code", "origin", branch])
@@ -1391,6 +1434,16 @@ mod tests {
         .expect("sync now");
 
         assert!(synced.status.changes.is_empty());
+        assert!(
+            synced.changed_paths.contains(&"remote.md".to_string()),
+            "pulled remote file is reported for targeted UI reload, got {:?}",
+            synced.changed_paths
+        );
+        assert!(
+            !synced.changed_paths.contains(&"local.md".to_string()),
+            "locally committed file must not be reported as pulled, got {:?}",
+            synced.changed_paths
+        );
         assert_eq!(
             fs::read_to_string(root.path().join("local.md")).unwrap(),
             "local\n"

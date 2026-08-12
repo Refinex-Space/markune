@@ -3,6 +3,7 @@
 import * as React from 'react';
 import type { MarkweaveAskAiHandler } from '@markweave/react';
 import { useTheme } from 'next-themes';
+import { toast } from 'sonner';
 import {
   Airplay,
   AlertTriangle,
@@ -96,6 +97,7 @@ import type {
   AiWorkspaceChangeEvent,
 } from './ai-panel-state';
 import { useWorkspace } from './use-workspace';
+import { useGitAutoSync } from './use-git-auto-sync';
 import { useAiDrawingTools } from './use-ai-drawing-tools';
 import { drawingReferenceFromDescriptor } from './ai-drawing-inspector';
 import { useDrawingController } from './use-drawing-controller';
@@ -320,6 +322,20 @@ const DEFAULT_WORKSPACE_GIT_SYNC_SETTINGS: WorkspaceGitSyncSettings = {
   intervalMinutes: 10,
   lastSyncedAt: null,
 };
+
+interface GitAutoSyncPlan {
+  enabled: boolean;
+  intervalMs: number;
+}
+
+const DISABLED_GIT_AUTO_SYNC_PLAN: GitAutoSyncPlan = {
+  enabled: false,
+  intervalMs: 0,
+};
+
+// Substring of the backend GIT_SYNC_CONFLICT_MESSAGE, used to surface a
+// conflicting merge prominently instead of burying it in the Git panel error.
+const GIT_SYNC_CONFLICT_HINT = '远端和本地同时修改';
 
 function toRecentDocument(node: WorkspaceNode): RecentWorkspaceDocument {
   return {
@@ -923,6 +939,9 @@ export function WorkspaceLayout({
     () => new Set(),
   );
   const [gitError, setGitError] = React.useState<string | null>(null);
+  const [gitAutoSyncPlan, setGitAutoSyncPlan] = React.useState<GitAutoSyncPlan>(
+    DISABLED_GIT_AUTO_SYNC_PLAN,
+  );
   const [gitLoading, setGitLoading] = React.useState(false);
   const [gitLogBranches, setGitLogBranches] = React.useState<GitBranchItem[]>(
     [],
@@ -1790,79 +1809,141 @@ export function WorkspaceLayout({
     }
   }, [workspaceRootPath]);
 
+  // Load the auto-sync cadence for the current workspace. Kept separate from
+  // the scheduler so the timers depend only on stable primitives (see
+  // useGitAutoSync) instead of re-arming on every render. author: liyao
   React.useEffect(() => {
-    if (!isTauriRuntime || !workspaceRootPath) {
-      return;
-    }
+    let cancelled = false;
 
-    let disposed = false;
-    let timeoutId: number | null = null;
-
-    async function scheduleNextGitSync() {
-      try {
-        const metadata = await ensureWorkspace(workspaceRootPath!);
-        const settings = withDefaultWorkspaceGitSyncSettings(metadata.gitSync);
-
-        if (!settings.enabled || disposed) {
-          return;
+    void (async () => {
+      if (!isTauriRuntime || !workspaceRootPath) {
+        if (!cancelled) {
+          setGitAutoSyncPlan(DISABLED_GIT_AUTO_SYNC_PLAN);
         }
-
-        const remoteInfo = await gitRemoteInfo(workspaceRootPath!).catch(
-          () => null,
-        );
-
-        if (!remoteInfo?.remoteUrl || disposed) {
-          return;
-        }
-
-        timeoutId = window.setTimeout(() => {
-          void runScheduledGitSync(settings);
-        }, settings.intervalMinutes * 60_000);
-      } catch (error) {
-        setGitError(formatUnknownError(error));
-      }
-    }
-
-    async function runScheduledGitSync(settings: WorkspaceGitSyncSettings) {
-      if (disposed || !workspaceRootPath) {
         return;
       }
 
       try {
-        await saveCurrentDocumentNow();
-        const result = await gitSyncNow(
-          workspaceRootPath,
-          settings.conflictResolution,
+        const metadata = await ensureWorkspace(workspaceRootPath);
+        const settings = withDefaultWorkspaceGitSyncSettings(metadata.gitSync);
+
+        if (cancelled) {
+          return;
+        }
+
+        if (!settings.enabled) {
+          setGitAutoSyncPlan(DISABLED_GIT_AUTO_SYNC_PLAN);
+          return;
+        }
+
+        const remoteInfo = await gitRemoteInfo(workspaceRootPath).catch(
+          () => null,
         );
-        await saveWorkspaceGitSyncSettings(workspaceRootPath, {
-          ...settings,
-          lastSyncedAt: result.lastSyncedAt,
+
+        if (cancelled) {
+          return;
+        }
+
+        setGitAutoSyncPlan({
+          enabled: Boolean(remoteInfo?.remoteUrl),
+          intervalMs: Math.max(1, settings.intervalMinutes) * 60_000,
         });
-        setGitStatusState(result.status);
-        setGitError(null);
       } catch (error) {
-        setGitError(formatUnknownError(error));
-      } finally {
-        if (!disposed) {
-          void scheduleNextGitSync();
+        if (!cancelled) {
+          setGitAutoSyncPlan(DISABLED_GIT_AUTO_SYNC_PLAN);
+          setGitError(formatUnknownError(error));
         }
       }
-    }
-
-    void scheduleNextGitSync();
+    })();
 
     return () => {
-      disposed = true;
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId);
-      }
+      cancelled = true;
     };
-  }, [
-    isTauriRuntime,
-    saveCurrentDocumentNow,
-    settingsVersion,
-    workspaceRootPath,
-  ]);
+  }, [isTauriRuntime, settingsVersion, workspaceRootPath]);
+
+  // Reflect files pulled by a sync back into the UI: incrementally refresh the
+  // affected tree nodes and reload the open document through the conflict-safe
+  // path. Without this the editor keeps stale in-memory content and the next
+  // autosave would overwrite the just-pulled remote changes. author: liyao
+  const reconcileGitPulledChanges = React.useCallback(
+    async (rootPath: string, changedPaths: string[]) => {
+      if (changedPaths.length === 0) {
+        return;
+      }
+
+      const changedAbsolutePaths = changedPaths.map((path) =>
+        resolveWorkspaceEntryAbsolutePath(rootPath, path),
+      );
+      await workspace.refreshWorkspaceNodes(changedAbsolutePaths);
+
+      const openDocumentPath = getActiveDocumentPath(documentEditorLayout);
+
+      if (!openDocumentPath) {
+        return;
+      }
+
+      const openRelativePath = toRepoRelativePosixPath(
+        rootPath,
+        openDocumentPath,
+      );
+
+      if (!openRelativePath || !changedPaths.includes(openRelativePath)) {
+        return;
+      }
+
+      const openNode = findWorkspaceDocumentByPath(
+        workspace.snapshot?.nodes ?? [],
+        openDocumentPath,
+      );
+
+      if (openNode) {
+        await workspace.refreshWorkspaceNode(openNode);
+      }
+    },
+    [documentEditorLayout, workspace],
+  );
+
+  const runGitSync = React.useCallback(async () => {
+    if (!workspaceRootPath) {
+      return;
+    }
+
+    try {
+      await saveCurrentDocumentNow();
+      const metadata = await ensureWorkspace(workspaceRootPath);
+      const settings = withDefaultWorkspaceGitSyncSettings(metadata.gitSync);
+      const result = await gitSyncNow(
+        workspaceRootPath,
+        settings.conflictResolution,
+      );
+      await saveWorkspaceGitSyncSettings(workspaceRootPath, {
+        ...settings,
+        lastSyncedAt: result.lastSyncedAt,
+      });
+      setGitStatusState(result.status);
+      setGitError(null);
+      await reconcileGitPulledChanges(
+        workspaceRootPath,
+        result.changedPaths ?? [],
+      );
+    } catch (error) {
+      const message = formatUnknownError(error);
+      setGitError(message);
+
+      if (message.includes(GIT_SYNC_CONFLICT_HINT)) {
+        toast.error('Git 同步冲突', {
+          description: '远端与本地修改了同一文件，请在 Git 面板处理后重试。',
+        });
+      }
+    }
+  }, [reconcileGitPulledChanges, saveCurrentDocumentNow, workspaceRootPath]);
+
+  useGitAutoSync({
+    activationKey: workspaceRootPath,
+    enabled: gitAutoSyncPlan.enabled,
+    intervalMs: gitAutoSyncPlan.intervalMs,
+    runSync: runGitSync,
+  });
 
   const createTerminalTab = React.useCallback(async () => {
     if (
@@ -4927,6 +5008,31 @@ function resolveWorkspaceEntryAbsolutePath(
   const normalizedEntry = trimmed.replace(/^[/\\]+/, '');
 
   return `${normalizedRoot}${separator}${normalizedEntry}`;
+}
+
+// Convert an absolute workspace path to a git repo-relative, forward-slash path
+// so it can be matched against the changed-path list returned by a sync (git
+// always reports POSIX-style relative paths). Returns null when the path is not
+// inside the root. Case-insensitive root match tolerates Windows drive letters.
+// author: liyao
+function toRepoRelativePosixPath(
+  rootPath: string,
+  absolutePath: string,
+): string | null {
+  const normalizedRoot = rootPath.replace(/\\/g, '/').replace(/\/+$/, '');
+  const normalizedAbsolute = absolutePath.replace(/\\/g, '/');
+  const prefix = `${normalizedRoot}/`;
+  const caseInsensitive = rootPath.includes('\\');
+  const comparableAbsolute = caseInsensitive
+    ? normalizedAbsolute.toLowerCase()
+    : normalizedAbsolute;
+  const comparablePrefix = caseInsensitive ? prefix.toLowerCase() : prefix;
+
+  if (!comparableAbsolute.startsWith(comparablePrefix)) {
+    return null;
+  }
+
+  return normalizedAbsolute.slice(prefix.length);
 }
 
 function findWorkspaceDocumentByPath(
