@@ -4094,7 +4094,7 @@ function SidebarChromeToggle({
               onClick={onToggle}
             >
               <span
-                className="inline-flex size-7 items-center justify-center rounded-md transition-colors group-hover:bg-accent group-hover:text-foreground"
+                className="inline-flex size-6 items-center justify-center rounded-md transition-colors group-hover:bg-accent group-hover:text-foreground"
                 data-chrome-hover-surface
               >
                 {collapsed ? <SidebarCollapsedIcon /> : <SidebarExpandedIcon />}
@@ -4110,66 +4110,46 @@ function SidebarChromeToggle({
   );
 }
 
-function SidebarExpandedIcon() {
+// Both toggle states share the same viewBox, CSS box, and glyph metrics so the
+// icon does not appear to grow/shrink when the sidebar collapses. Only the
+// rail position changes (left when expanded, right when collapsed). author: liyao
+function SidebarToggleIcon({ rail }: { rail: 'left' | 'right' }) {
   return (
     <svg
       aria-hidden="true"
-      className="h-8 w-[35px] shrink-0"
+      className="size-4 shrink-0"
       fill="none"
-      viewBox="0 0 70 64"
+      viewBox="0 0 24 24"
       xmlns="http://www.w3.org/2000/svg"
     >
       <rect
-        height="22"
-        rx="5"
+        height="14"
+        rx="2"
         stroke="currentColor"
         strokeLinecap="round"
         strokeLinejoin="round"
-        strokeWidth="2"
-        width="24"
-        x="20"
-        y="21"
+        strokeWidth="1.75"
+        width="16"
+        x="4"
+        y="5"
       />
       <path
-        d="M26 27V37"
+        d={rail === 'left' ? 'M8 8V16' : 'M16 8V16'}
         stroke="currentColor"
         strokeLinecap="round"
         strokeLinejoin="round"
-        strokeWidth="2"
+        strokeWidth="1.75"
       />
     </svg>
   );
 }
 
+function SidebarExpandedIcon() {
+  return <SidebarToggleIcon rail="left" />;
+}
+
 function SidebarCollapsedIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="h-[25px] w-[34px] shrink-0"
-      fill="none"
-      viewBox="0 0 68 50"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <rect
-        height="26"
-        rx="5"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="2"
-        width="28"
-        x="24"
-        y="11"
-      />
-      <path
-        d="M45 18V30"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="2"
-      />
-    </svg>
-  );
+  return <SidebarToggleIcon rail="right" />;
 }
 
 function subscribeToStaticRuntimeSnapshot() {
