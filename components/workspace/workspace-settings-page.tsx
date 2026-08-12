@@ -20,6 +20,7 @@ import {
   RefreshCw,
   Search,
   Server,
+  Sparkles,
   Sun,
   X,
 } from 'lucide-react';
@@ -60,6 +61,18 @@ import {
   saveWorkspaceGitSyncSettings,
   setAppWindowOpacity,
 } from './workspace-api';
+import {
+  clearCodexCustomProvider,
+  codexAppServerClient,
+  getCodexConnectionStatus,
+  getCodexCustomProvider,
+  setCodexAuthMode,
+  setCodexCustomProvider,
+  startCodexRuntime,
+  stopCodexRuntime,
+  type CodexConnectionStatus,
+  type CodexCustomProviderInfo,
+} from './codex-app-server';
 import type { AppUpdateController } from './use-app-update';
 import type {
   WorkspaceSettingsCacheEntry,
@@ -87,6 +100,7 @@ import type {
 export type SettingsSectionId =
   | 'appearance'
   | 'calendar'
+  | 'codex'
   | 'storage'
   | 'git-sync'
   | 'version';
@@ -173,6 +187,22 @@ const SETTINGS_SECTIONS: Array<{
     ],
   },
   {
+    id: 'codex',
+    icon: Sparkles,
+    label: 'Codex',
+    searchTerms: [
+      'codex',
+      'ai',
+      'chatgpt',
+      'api',
+      'key',
+      'base url',
+      '模型',
+      '自定义',
+      'responses',
+    ],
+  },
+  {
     id: 'storage',
     icon: Database,
     label: '存储',
@@ -210,6 +240,12 @@ export function WorkspaceSettingsPage({
   const cacheEntry = getSettingsCacheEntry(sessionCache, workspaceRootPath);
   const [activeSection, setActiveSection] =
     React.useState<SettingsSectionId>(initialSectionId);
+  const [sectionSourceId, setSectionSourceId] =
+    React.useState<SettingsSectionId>(initialSectionId);
+  if (initialSectionId !== sectionSourceId) {
+    setSectionSourceId(initialSectionId);
+    setActiveSection(initialSectionId);
+  }
   const [searchQuery, setSearchQuery] = React.useState('');
   const [settings, setSettings] = React.useState(
     () => withDefaultAppSettings(cacheEntry.settings ?? initialSettings),
@@ -639,6 +675,9 @@ export function WorkspaceSettingsPage({
                   }
                 />
               ) : null}
+              {effectiveSection === 'codex' ? (
+                <CodexSection workspaceRootPath={workspaceRootPath} />
+              ) : null}
               {effectiveSection === 'storage' ? (
                 <StorageSection
                   assetDirectory={assetDirectory}
@@ -967,6 +1006,489 @@ function WindowOpacitySetting({
         </div>
       </div>
     </section>
+  );
+}
+
+function CodexSection({
+  workspaceRootPath,
+}: {
+  workspaceRootPath: string | null;
+}) {
+  const desktop = isTauriRuntime();
+  const [status, setStatus] = React.useState<CodexConnectionStatus | null>(null);
+  const [provider, setProvider] = React.useState<CodexCustomProviderInfo | null>(
+    null,
+  );
+  const [editorMode, setEditorMode] = React.useState<'chatgpt' | 'custom'>(
+    'chatgpt',
+  );
+  const [baseUrl, setBaseUrl] = React.useState('');
+  const [model, setModel] = React.useState('');
+  const [apiKey, setApiKey] = React.useState('');
+  const [loading, setLoading] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+  const [clearing, setClearing] = React.useState(false);
+  const [switchingMode, setSwitchingMode] = React.useState<
+    'chatgpt' | 'custom' | null
+  >(null);
+  const [signingIn, setSigningIn] = React.useState(false);
+  const [message, setMessage] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const refreshGenerationRef = React.useRef(0);
+
+  const refresh = React.useCallback(async () => {
+    if (!desktop) return;
+    const generation = ++refreshGenerationRef.current;
+    setLoading(true);
+    setError(null);
+    try {
+      // Disk + session snapshot only. Never start App Server or account/read here:
+      // that RPC hangs if the AI panel event listener is not attached.
+      const [nextStatus, nextProvider] = await Promise.all([
+        getCodexConnectionStatus(),
+        getCodexCustomProvider(),
+      ]);
+      if (generation !== refreshGenerationRef.current) return;
+
+      React.startTransition(() => {
+        setStatus(nextStatus);
+        setProvider(nextProvider);
+        setEditorMode(nextStatus.authMode === 'custom' ? 'custom' : 'chatgpt');
+        setBaseUrl(nextProvider.baseUrl ?? '');
+        setModel(nextProvider.model ?? '');
+        setApiKey('');
+      });
+    } catch (reason) {
+      if (generation !== refreshGenerationRef.current) return;
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      if (generation === refreshGenerationRef.current) {
+        setLoading(false);
+      }
+    }
+  }, [desktop]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (!cancelled) {
+        void refresh();
+      }
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [refresh]);
+
+  const restartRuntime = React.useCallback(async () => {
+    if (!workspaceRootPath) return;
+    await stopCodexRuntime().catch(() => undefined);
+    await startCodexRuntime(workspaceRootPath);
+  }, [workspaceRootPath]);
+
+  const saveCustomProvider = async () => {
+    if (!desktop) return;
+    setSaving(true);
+    setMessage(null);
+    setError(null);
+    try {
+      await setCodexCustomProvider({
+        baseUrl,
+        model,
+        apiKey: apiKey.trim() ? apiKey : undefined,
+      });
+      setApiKey('');
+      await restartRuntime();
+      await refresh();
+      setMessage('已启用自定义 API');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const clearCustomProvider = async () => {
+    if (!desktop) return;
+    setClearing(true);
+    setMessage(null);
+    setError(null);
+    try {
+      await clearCodexCustomProvider();
+      setBaseUrl('');
+      setModel('');
+      setApiKey('');
+      await restartRuntime();
+      await refresh();
+      setMessage('已清除自定义配置');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  const switchMode = async (mode: 'chatgpt' | 'custom') => {
+    if (!desktop) return;
+    setSwitchingMode(mode);
+    setMessage(null);
+    setError(null);
+    try {
+      await setCodexAuthMode(mode);
+      await restartRuntime();
+      await refresh();
+      setMessage(mode === 'custom' ? '已切换到自定义 API' : '已切换到 ChatGPT');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setSwitchingMode(null);
+    }
+  };
+
+  const signInChatGpt = async () => {
+    if (!desktop || !workspaceRootPath) return;
+    setSigningIn(true);
+    setMessage(null);
+    setError(null);
+    try {
+      // Login intentionally starts runtime; status refresh does not.
+      if (!status?.running) {
+        await startCodexRuntime(workspaceRootPath);
+      }
+      const response = await codexAppServerClient.request<{
+        authUrl?: string | null;
+        verificationUrl?: string | null;
+      }>('account/login/start', {
+        type: 'chatgpt',
+        codexStreamlinedLogin: true,
+        useHostedLoginSuccessPage: true,
+      });
+      const authUrl = response.authUrl ?? response.verificationUrl;
+      if (authUrl) {
+        await openUrlInDefaultBrowser(authUrl);
+      }
+      setMessage('已打开登录页，完成后点刷新');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setSigningIn(false);
+    }
+  };
+
+  const activeMode: 'chatgpt' | 'custom' =
+    status?.authMode === 'custom' ? 'custom' : 'chatgpt';
+  const runtimeTone = !desktop
+    ? 'muted'
+    : status == null
+      ? 'muted'
+      : !status.runtime.available
+        ? 'danger'
+        : status.running
+          ? 'success'
+          : 'ready';
+  const runtimeLabel = !desktop
+    ? '仅桌面可用'
+    : status == null
+      ? '读取中'
+      : !status.runtime.available
+        ? '不可用'
+        : status.running
+          ? '运行中'
+          : '就绪';
+  const chatgptSignedIn =
+    status?.signedIn === true && status.accountType !== 'apiKey';
+  const accountLabel = chatgptSignedIn
+    ? status?.accountEmail || '已登录'
+    : status?.accountType === 'apiKey' && status.signedIn
+      ? 'API Key 账户'
+      : '未登录';
+  const customHost = status?.baseUrl
+    ? status.baseUrl.replace(/^https?:\/\//, '')
+    : null;
+
+  return (
+    <div className="space-y-5 pb-8" data-testid="codex-settings-shell">
+      <SettingsSectionHeader description="运行时与认证" title="Codex" />
+
+      {!desktop ? (
+        <p className="text-sm text-muted-foreground">仅桌面端可配置 Codex。</p>
+      ) : null}
+
+      <section
+        className="rounded-xl border border-border/70 bg-muted/20 p-4"
+        data-testid="codex-status"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium',
+                  runtimeTone === 'success' &&
+                    'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
+                  runtimeTone === 'ready' &&
+                    'bg-sky-500/10 text-sky-700 dark:text-sky-400',
+                  runtimeTone === 'danger' &&
+                    'bg-destructive/10 text-destructive',
+                  runtimeTone === 'muted' &&
+                    'bg-muted text-muted-foreground',
+                )}
+                data-testid="codex-runtime-badge"
+              >
+                <span
+                  className={cn(
+                    'size-1.5 rounded-full',
+                    runtimeTone === 'success' && 'bg-emerald-500',
+                    runtimeTone === 'ready' && 'bg-sky-500',
+                    runtimeTone === 'danger' && 'bg-destructive',
+                    runtimeTone === 'muted' && 'bg-muted-foreground',
+                  )}
+                />
+                {runtimeLabel}
+              </span>
+              <span
+                className={cn(
+                  'inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium',
+                  activeMode === 'custom'
+                    ? 'bg-foreground text-background'
+                    : 'bg-background text-foreground ring-1 ring-border',
+                )}
+                data-testid="codex-auth-mode-badge"
+              >
+                {activeMode === 'custom' ? '自定义 API' : 'ChatGPT'}
+              </span>
+            </div>
+
+            <div className="space-y-1 text-sm">
+              {activeMode === 'chatgpt' ? (
+                <p data-testid="codex-account-summary">
+                  <span className="text-muted-foreground">账户 </span>
+                  <span className="font-medium">{accountLabel}</span>
+                </p>
+              ) : (
+                <p data-testid="codex-custom-summary">
+                  <span className="text-muted-foreground">端点 </span>
+                  <span className="break-all font-medium">
+                    {customHost || '未配置'}
+                  </span>
+                  {provider?.hasApiKey ? (
+                    <span className="text-muted-foreground"> · 密钥已保存</span>
+                  ) : null}
+                </p>
+              )}
+              <p>
+                <span className="text-muted-foreground">模型 </span>
+                <span className="font-medium">
+                  {status?.model || '未设置'}
+                </span>
+              </p>
+            </div>
+          </div>
+
+          <Button
+            disabled={!desktop || loading}
+            size="icon"
+            type="button"
+            variant="ghost"
+            aria-label="刷新"
+            onClick={() => void refresh()}
+          >
+            {loading ? (
+              <Loader2 className="animate-spin" size={14} />
+            ) : (
+              <RefreshCw size={14} />
+            )}
+          </Button>
+        </div>
+
+        {status?.error || status?.runtime.message ? (
+          <p className="mt-3 text-xs text-destructive">
+            {status.error || status.runtime.message}
+          </p>
+        ) : null}
+      </section>
+
+      <div
+        className="grid grid-cols-2 gap-1 rounded-lg bg-muted/40 p-1"
+        data-testid="codex-mode-tabs"
+        role="tablist"
+        aria-label="认证方式"
+      >
+        {(
+          [
+            { id: 'chatgpt', label: 'ChatGPT' },
+            { id: 'custom', label: '自定义 API' },
+          ] as const
+        ).map((tab) => {
+          const selected = editorMode === tab.id;
+          const active = activeMode === tab.id;
+          return (
+            <button
+              key={tab.id}
+              aria-selected={selected}
+              className={cn(
+                'relative rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                selected
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+              data-testid={`codex-mode-tab-${tab.id}`}
+              role="tab"
+              type="button"
+              onClick={() => setEditorMode(tab.id)}
+            >
+              {tab.label}
+              {active ? (
+                <span className="absolute right-2 top-2 size-1.5 rounded-full bg-emerald-500" />
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+
+      {editorMode === 'chatgpt' ? (
+        <section className="rounded-xl bg-muted/30 p-4" data-testid="codex-chatgpt-panel">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="text-sm font-medium">ChatGPT 账户</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {chatgptSignedIn
+                  ? status?.accountEmail || '本机已登录'
+                  : '登录后无需填写 API Key'}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {!chatgptSignedIn ? (
+                <Button
+                  disabled={!desktop || signingIn || !workspaceRootPath}
+                  size="sm"
+                  type="button"
+                  onClick={() => void signInChatGpt()}
+                >
+                  {signingIn ? (
+                    <Loader2 className="animate-spin" size={14} />
+                  ) : null}
+                  登录
+                </Button>
+              ) : null}
+              {activeMode !== 'chatgpt' ? (
+                <Button
+                  disabled={!desktop || switchingMode !== null}
+                  size="sm"
+                  type="button"
+                  variant={chatgptSignedIn ? 'default' : 'outline'}
+                  onClick={() => void switchMode('chatgpt')}
+                >
+                  {switchingMode === 'chatgpt' ? (
+                    <Loader2 className="animate-spin" size={14} />
+                  ) : null}
+                  启用此方式
+                </Button>
+              ) : (
+                <span className="inline-flex h-8 items-center rounded-md px-2 text-xs text-muted-foreground">
+                  当前使用中
+                </span>
+              )}
+            </div>
+          </div>
+        </section>
+      ) : (
+        <section
+          className="space-y-4 rounded-xl bg-muted/30 p-4"
+          data-testid="codex-custom-provider-form"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-medium">自定义 API</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                需 OpenAI Responses 兼容；纯 Chat Completions 不可用
+              </p>
+            </div>
+            {activeMode === 'custom' ? (
+              <span className="inline-flex h-8 items-center rounded-md px-2 text-xs text-muted-foreground">
+                当前使用中
+              </span>
+            ) : null}
+          </div>
+
+          <div className="grid gap-3">
+            <label className="grid gap-1.5 text-sm">
+              <span className="text-xs text-muted-foreground">Base URL</span>
+              <Input
+                disabled={!desktop || saving}
+                placeholder="https://api.openai.com/v1"
+                value={baseUrl}
+                onChange={(event) => setBaseUrl(event.currentTarget.value)}
+              />
+            </label>
+            <label className="grid gap-1.5 text-sm">
+              <span className="text-xs text-muted-foreground">Model</span>
+              <Input
+                disabled={!desktop || saving}
+                placeholder="gpt-5"
+                value={model}
+                onChange={(event) => setModel(event.currentTarget.value)}
+              />
+            </label>
+            <label className="grid gap-1.5 text-sm">
+              <span className="text-xs text-muted-foreground">
+                API Key{provider?.hasApiKey ? ' · 已保存' : ''}
+              </span>
+              <Input
+                autoComplete="off"
+                disabled={!desktop || saving}
+                placeholder={provider?.hasApiKey ? '••••••••' : 'sk-...'}
+                type="password"
+                value={apiKey}
+                onChange={(event) => setApiKey(event.currentTarget.value)}
+              />
+            </label>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              disabled={!desktop || saving || !baseUrl.trim() || !model.trim()}
+              size="sm"
+              type="button"
+              onClick={() => void saveCustomProvider()}
+            >
+              {saving ? <Loader2 className="animate-spin" size={14} /> : null}
+              保存并启用
+            </Button>
+            {activeMode !== 'custom' && provider?.hasApiKey && provider.baseUrl ? (
+              <Button
+                disabled={!desktop || switchingMode !== null}
+                size="sm"
+                type="button"
+                variant="outline"
+                onClick={() => void switchMode('custom')}
+              >
+                {switchingMode === 'custom' ? (
+                  <Loader2 className="animate-spin" size={14} />
+                ) : null}
+                启用此方式
+              </Button>
+            ) : null}
+            <Button
+              disabled={!desktop || clearing || !provider?.baseUrl}
+              size="sm"
+              type="button"
+              variant="ghost"
+              onClick={() => void clearCustomProvider()}
+            >
+              {clearing ? <Loader2 className="animate-spin" size={14} /> : null}
+              清除
+            </Button>
+          </div>
+        </section>
+      )}
+
+      {message ? (
+        <p className="text-xs text-emerald-600 dark:text-emerald-400">{message}</p>
+      ) : null}
+      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+    </div>
   );
 }
 

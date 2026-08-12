@@ -81,6 +81,7 @@ interface RightSidePanelProps {
   onAskAiHandlerChange?: (handler: MarkweaveAskAiHandler | null) => void;
   onOpenDocument: (documentPath: string) => void;
   onOpenPlanPreview: (plan: AiProposedPlan, threadId: string) => void;
+  onOpenCodexSettings?: () => void;
   onWorkspaceChanged: (
     event: AiWorkspaceChangeEvent,
   ) => void | Promise<void>;
@@ -116,6 +117,7 @@ export function RightSidePanel({
   onAskAiHandlerChange = () => undefined,
   onOpenDocument,
   onOpenPlanPreview,
+  onOpenCodexSettings,
   onWorkspaceChanged,
   onToggleDocumentReadOnly,
 }: RightSidePanelProps) {
@@ -158,6 +160,7 @@ export function RightSidePanel({
               onAskAiHandlerChange={onAskAiHandlerChange}
               onBeforeTurnStart={onBeforeTurnStart}
               onDrawingToolCall={onDrawingToolCall}
+              onOpenCodexSettings={onOpenCodexSettings}
               onOpenDocument={onOpenDocument}
               onOpenPlanPreview={onOpenPlanPreview}
               onWorkspaceChanged={onWorkspaceChanged}

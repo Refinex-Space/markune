@@ -1,6 +1,7 @@
 mod app_update;
 mod assets;
 mod codex;
+mod codex_provider;
 mod document_converter;
 mod drawings;
 mod export;
@@ -18,12 +19,79 @@ mod workspace;
 
 use tauri::Manager;
 
+#[cfg(target_os = "macos")]
+use tauri::{
+    menu::{Menu, MenuItem, PredefinedMenuItem},
+    Emitter,
+};
+
+#[cfg(target_os = "macos")]
+const OPEN_SETTINGS_MENU_ITEM_ID: &str = "madora-open-settings";
+#[cfg(target_os = "macos")]
+const OPEN_SETTINGS_EVENT: &str = "madora-open-settings";
+#[cfg(target_os = "macos")]
+const CHECK_UPDATE_MENU_ITEM_ID: &str = "madora-check-update";
+#[cfg(target_os = "macos")]
+const CHECK_UPDATE_EVENT: &str = "madora-check-update";
+
+#[cfg(target_os = "macos")]
+fn build_macos_application_menu<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> tauri::Result<Menu<R>> {
+    let menu = Menu::default(app)?;
+    let app_menu = menu
+        .items()?
+        .into_iter()
+        .filter_map(|item| item.as_submenu().cloned())
+        .find(|submenu| {
+            submenu
+                .text()
+                .is_ok_and(|text| text == app.package_info().name)
+        })
+        .ok_or_else(|| tauri::Error::from(std::io::Error::other("缺少 macOS 应用菜单")))?;
+
+    let open_settings = MenuItem::with_id(
+        app,
+        OPEN_SETTINGS_MENU_ITEM_ID,
+        "设置…",
+        true,
+        Some("CmdOrCtrl+,"),
+    )?;
+    let check_update = MenuItem::with_id(
+        app,
+        CHECK_UPDATE_MENU_ITEM_ID,
+        "检查更新…",
+        true,
+        None::<&str>,
+    )?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    app_menu.insert_items(&[&open_settings, &check_update, &separator], 2)?;
+
+    Ok(menu)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let export_state = export::ExportState::default();
     let export_protocol_state = export_state.clone();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .menu(build_macos_application_menu)
+        .on_menu_event(|app, event| {
+            if event.id() == OPEN_SETTINGS_MENU_ITEM_ID {
+                if let Err(error) = app.emit(OPEN_SETTINGS_EVENT, ()) {
+                    log::error!("无法打开设置页面: {error}");
+                }
+            } else if event.id() == CHECK_UPDATE_MENU_ITEM_ID {
+                if let Err(error) = app.emit(CHECK_UPDATE_EVENT, ()) {
+                    log::error!("无法检查更新: {error}");
+                }
+            }
+        });
+
+    builder
         .manage(app_update::AppUpdateState::default())
         .manage(terminal::TerminalState::default())
         .manage(codex::CodexState::default())
@@ -56,6 +124,11 @@ pub fn run() {
             codex::codex_runtime_probe,
             codex::codex_runtime_start,
             codex::codex_runtime_stop,
+            codex_provider::codex_connection_status,
+            codex_provider::codex_custom_provider_get,
+            codex_provider::codex_custom_provider_set,
+            codex_provider::codex_custom_provider_clear,
+            codex_provider::codex_auth_mode_set,
             codex::codex_app_server_request,
             codex::codex_app_server_respond,
             codex::codex_app_server_respond_user_input,
@@ -163,6 +236,7 @@ pub fn run() {
             workspace::open_daily_note,
             workspace::list_daily_notes_for_month,
             workspace::load_workspace_tree,
+            workspace::refresh_workspace_node,
             workspace::create_workspace_root,
             workspace::read_markdown_document,
             workspace::save_markdown_document,

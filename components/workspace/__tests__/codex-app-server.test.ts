@@ -3,10 +3,14 @@ import { invoke } from '@tauri-apps/api/core';
 
 import {
   CodexAppServerClient,
+  clearCodexCustomProvider,
+  getCodexCustomProvider,
   listenCodexEventsUntilDisposed,
   probeCodexRuntime,
   respondToCodexDynamicTool,
   respondToCodexUserInput,
+  setCodexAuthMode,
+  setCodexCustomProvider,
   startCodexRuntime,
   threadGoalUpdateFromMessage,
   threadTokenUsageUpdateFromMessage,
@@ -175,6 +179,44 @@ describe('CodexAppServerClient', () => {
     expect(invoke).toHaveBeenCalledWith('codex_runtime_start', {
       rootPath: '/workspace',
     });
+  });
+
+  it('通过受控命令读写自定义 provider，且不回传明文 key', async () => {
+    const provider = {
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-5',
+      hasApiKey: true,
+      enabled: true,
+      envKey: 'MADORA_CODEX_PROVIDER_API_KEY',
+      providerId: 'madora_custom',
+      wireApi: 'responses',
+    };
+    vi.mocked(invoke).mockResolvedValue(provider);
+
+    await expect(
+      setCodexCustomProvider({
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-5',
+        apiKey: 'sk-test',
+      }),
+    ).resolves.toEqual(provider);
+    expect(invoke).toHaveBeenCalledWith('codex_custom_provider_set', {
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-5',
+      apiKey: 'sk-test',
+    });
+    expect(JSON.stringify(provider)).not.toContain('sk-test');
+
+    await expect(getCodexCustomProvider()).resolves.toEqual(provider);
+    expect(invoke).toHaveBeenCalledWith('codex_custom_provider_get');
+
+    await expect(setCodexAuthMode('chatgpt')).resolves.toEqual(provider);
+    expect(invoke).toHaveBeenCalledWith('codex_auth_mode_set', {
+      mode: 'chatgpt',
+    });
+
+    await expect(clearCodexCustomProvider()).resolves.toEqual(provider);
+    expect(invoke).toHaveBeenCalledWith('codex_custom_provider_clear');
   });
 
   it('将响应分发给订阅者', () => {

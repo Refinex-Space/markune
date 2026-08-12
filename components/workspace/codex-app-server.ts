@@ -589,6 +589,63 @@ export async function stopCodexRuntime() {
   return invoke<void>('codex_runtime_stop');
 }
 
+export interface CodexCustomProviderInfo {
+  baseUrl: string | null;
+  model: string | null;
+  hasApiKey: boolean;
+  enabled: boolean;
+  envKey: string;
+  providerId: string;
+  wireApi: string;
+}
+
+export interface CodexConnectionStatus {
+  runtime: CodexRuntimeInfo;
+  authMode: 'chatgpt' | 'custom' | string;
+  customConfigured: boolean;
+  hasApiKey: boolean;
+  model: string | null;
+  baseUrl: string | null;
+  running: boolean;
+  signedIn: boolean;
+  accountType: 'chatgpt' | 'apiKey' | string | null;
+  accountEmail: string | null;
+  error: string | null;
+}
+
+export async function getCodexConnectionStatus() {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<CodexConnectionStatus>('codex_connection_status');
+}
+
+export async function getCodexCustomProvider() {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<CodexCustomProviderInfo>('codex_custom_provider_get');
+}
+
+export async function setCodexCustomProvider(input: {
+  baseUrl: string;
+  model: string;
+  apiKey?: string;
+}) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<CodexCustomProviderInfo>('codex_custom_provider_set', {
+    baseUrl: input.baseUrl,
+    model: input.model,
+    apiKey: input.apiKey,
+  });
+}
+
+export async function clearCodexCustomProvider() {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<CodexCustomProviderInfo>('codex_custom_provider_clear');
+}
+
+export async function setCodexAuthMode(mode: 'chatgpt' | 'custom') {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<CodexCustomProviderInfo>('codex_auth_mode_set', { mode });
+}
+
 export async function readCodexPluginIcon(path: string) {
   const { invoke } = await import('@tauri-apps/api/core');
   return invoke<CodexPluginIconData>('read_codex_plugin_icon', { path });

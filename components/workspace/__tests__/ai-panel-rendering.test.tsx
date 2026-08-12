@@ -96,7 +96,7 @@ function change(
 }
 
 describe('AI message rendering', () => {
-  it('无活动明细时仍显示等待 Codex 响应', () => {
+  it('无活动明细时只显示单行正在思考状态，不重复等待文案', () => {
     render(
       <ProcessingTrace
         trace={{
@@ -115,9 +115,27 @@ describe('AI message rendering', () => {
       />,
     );
 
-    expect(screen.getByRole('status').textContent).toContain(
-      '等待 Codex 响应',
+    const status = screen.getByRole('status');
+    expect(status.textContent).toContain('正在思考');
+    expect(status.textContent).not.toContain('等待 Codex 响应');
+    expect(
+      screen.queryByRole('button', { name: /处理过程/ }),
+    ).toBeNull();
+  });
+
+  it('运行中有工具活动时标题跟随最近活动摘要', () => {
+    render(
+      <ProcessingTrace
+        trace={createTrace({ historical: false, status: 'inProgress' })}
+        onApprove={vi.fn()}
+        onOpenDocument={vi.fn()}
+      />,
     );
+
+    expect(
+      screen.getByRole('button', { name: '读取了文件，收起处理过程' }),
+    ).toBeTruthy();
+    expect(screen.queryByText('等待 Codex 响应')).toBeNull();
   });
 
   it('错误卡片区分自动重试和最终失败，并允许复制技术详情', async () => {
@@ -668,6 +686,38 @@ describe('AI message rendering', () => {
     ).toBe('https://openai.com');
     expect(screen.queryByRole('img')).toBeNull();
     expect(screen.getByText('图片：远程图片')).toBeTruthy();
+  });
+
+  it('代码块悬浮显示复制按钮，点击后短暂变为已复制', async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+
+    render(
+      <AiMessageContent
+        markdown={'```\n.attachments\n.git\nsrc\n```'}
+      />,
+    );
+
+    const copy = screen.getByRole('button', { name: '复制代码' });
+    expect(copy.className).toContain('opacity-0');
+    expect(copy.className).toContain('group-hover/code:opacity-100');
+
+    await user.click(copy);
+    expect(writeText).toHaveBeenCalledWith('.attachments\n.git\nsrc');
+    expect(
+      await screen.findByRole('button', { name: '已复制代码' }),
+    ).toBeTruthy();
+
+    await waitFor(
+      () => {
+        expect(screen.getByRole('button', { name: '复制代码' })).toBeTruthy();
+      },
+      { timeout: 2_000 },
+    );
   });
 
   it('两种展示模式的标题栏均隐藏分割线', () => {
@@ -1885,7 +1935,7 @@ describe('AI message rendering', () => {
     );
 
     expect(
-      screen.getByRole('button', { name: '正在处理，收起处理过程' }),
+      screen.getByRole('button', { name: '读取了文件，收起处理过程' }),
     ).toBeTruthy();
     const commentary = screen.getByText('我先读取文件。');
     const group = screen.getByRole('button', {

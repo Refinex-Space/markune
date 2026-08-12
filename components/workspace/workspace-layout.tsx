@@ -3,6 +3,7 @@
 import * as React from 'react';
 import type { MarkweaveAskAiHandler } from '@markweave/react';
 import { useTheme } from 'next-themes';
+import { toast } from 'sonner';
 import {
   Airplay,
   AlertTriangle,
@@ -65,6 +66,7 @@ import { DocumentTabBar } from './document-tab-bar';
 import { DrawingSidebar } from './drawing-sidebar';
 import { DrawingWorkspacePage } from './drawing-workspace-page';
 import { resolveDocumentExportMarkdown } from './document-export-core';
+import { waitForDocumentPathLoaded } from './document-open-ready';
 import {
   closeAllDocumentTabs,
   closeDocumentTab,
@@ -95,6 +97,7 @@ import type {
   AiWorkspaceChangeEvent,
 } from './ai-panel-state';
 import { useWorkspace } from './use-workspace';
+import { useGitAutoSync } from './use-git-auto-sync';
 import { useAiDrawingTools } from './use-ai-drawing-tools';
 import { drawingReferenceFromDescriptor } from './ai-drawing-inspector';
 import { useDrawingController } from './use-drawing-controller';
@@ -167,6 +170,10 @@ import {
   type SettingsSectionId,
 } from './workspace-settings-page';
 import { createWorkspaceSettingsSessionCache } from './workspace-settings-cache';
+import {
+  subscribeToNativeSettingsOpen,
+  subscribeToNativeUpdateCheck,
+} from './workspace-native-menu';
 import { createTerminalOutputStore } from './terminal-output-store';
 import { WorkspaceResizeHandle } from './workspace-resize-handle';
 import { WorkspaceSidebar } from './workspace-sidebar';
@@ -316,6 +323,20 @@ const DEFAULT_WORKSPACE_GIT_SYNC_SETTINGS: WorkspaceGitSyncSettings = {
   lastSyncedAt: null,
 };
 
+interface GitAutoSyncPlan {
+  enabled: boolean;
+  intervalMs: number;
+}
+
+const DISABLED_GIT_AUTO_SYNC_PLAN: GitAutoSyncPlan = {
+  enabled: false,
+  intervalMs: 0,
+};
+
+// Substring of the backend GIT_SYNC_CONFLICT_MESSAGE, used to surface a
+// conflicting merge prominently instead of burying it in the Git panel error.
+const GIT_SYNC_CONFLICT_HINT = '远端和本地同时修改';
+
 function toRecentDocument(node: WorkspaceNode): RecentWorkspaceDocument {
   return {
     absolutePath: node.absolutePath,
@@ -333,7 +354,7 @@ export function WorkspaceLayout({
     resolve: resolveConfirmation,
   } = useConfirmationDialog();
   const workspace = useWorkspace(initialSnapshot);
-  const refreshWorkspaceTree = workspace.refreshWorkspaceTree;
+  const refreshWorkspaceNodes = workspace.refreshWorkspaceNodes;
   const [leftSidebarWidth, setLeftSidebarWidth] = useStoredPanelWidth(
     WORKSPACE_PANEL_WIDTH_STORAGE_KEYS.left,
     LEFT_PANEL_WIDTH.defaultValue,
@@ -489,6 +510,16 @@ export function WorkspaceLayout({
   const clearCurrentDocument = workspace.clearCurrentDocument;
   const showWorkspaceSidebar = workspace.setSidebarCollapsed;
   const currentDocumentPathRef = React.useRef(currentDocumentPath);
+  const documentLoadStateRef = React.useRef(workspace.documentLoadState);
+  const documentOpenInFlightRef = React.useRef<{
+    path: string;
+    promise: Promise<boolean>;
+  } | null>(null);
+  const prepareCurrentDocumentForAiRef = React.useRef(
+    workspace.prepareCurrentDocumentForAi,
+  );
+  const updateMarkdownRef = React.useRef(workspace.updateMarkdown);
+  const editorSessionsRef = React.useRef(editorSessions);
   const documentEditorLayoutRef = React.useRef(documentEditorLayout);
   const syncExternalMarkdownDocumentRef = React.useRef(
     workspace.syncExternalMarkdownDocument,
@@ -498,6 +529,22 @@ export function WorkspaceLayout({
   const activeMarkdownEditorRef = React.useRef<MarkdownEditorHandle | null>(
     null,
   );
+  // Keep readiness refs aligned before paint so AI send can await open without
+  // waiting for a passive effect tick after tab switches or system-page returns.
+  // author: refinex
+  React.useLayoutEffect(() => {
+    currentDocumentPathRef.current = currentDocumentPath;
+    documentLoadStateRef.current = workspace.documentLoadState;
+    prepareCurrentDocumentForAiRef.current = workspace.prepareCurrentDocumentForAi;
+    updateMarkdownRef.current = workspace.updateMarkdown;
+    editorSessionsRef.current = editorSessions;
+  }, [
+    currentDocumentPath,
+    editorSessions,
+    workspace.documentLoadState,
+    workspace.prepareCurrentDocumentForAi,
+    workspace.updateMarkdown,
+  ]);
   const [activeEditorSourceMode, setActiveEditorSourceMode] =
     React.useState(false);
   const [askAiHandler, setAskAiHandler] =
@@ -515,13 +562,11 @@ export function WorkspaceLayout({
   );
 
   React.useEffect(() => {
-    currentDocumentPathRef.current = currentDocumentPath;
     documentEditorLayoutRef.current = documentEditorLayout;
     syncExternalMarkdownDocumentRef.current =
       workspace.syncExternalMarkdownDocument;
     workspaceRootPathRef.current = workspaceRootPath;
   }, [
-    currentDocumentPath,
     documentEditorLayout,
     workspace.syncExternalMarkdownDocument,
     workspaceRootPath,
@@ -821,6 +866,7 @@ export function WorkspaceLayout({
   const appUpdate = useAppUpdate({
     onBeforeInstall: prepareForAppUpdateInstall,
   });
+  const checkAppUpdate = appUpdate.check;
   const openDrawingFromLibrary = drawings.openDrawing;
   const handleAiDrawingCreated = React.useCallback(
     async (drawing: { meta: { id: string } }) => {
@@ -893,6 +939,9 @@ export function WorkspaceLayout({
     () => new Set(),
   );
   const [gitError, setGitError] = React.useState<string | null>(null);
+  const [gitAutoSyncPlan, setGitAutoSyncPlan] = React.useState<GitAutoSyncPlan>(
+    DISABLED_GIT_AUTO_SYNC_PLAN,
+  );
   const [gitLoading, setGitLoading] = React.useState(false);
   const [gitLogBranches, setGitLogBranches] = React.useState<GitBranchItem[]>(
     [],
@@ -925,6 +974,54 @@ export function WorkspaceLayout({
     },
     [],
   );
+  const handleNativeUpdateCheck = React.useCallback(() => {
+    openSettingsPage('version');
+    void checkAppUpdate();
+  }, [checkAppUpdate, openSettingsPage]);
+
+  React.useEffect(() => {
+    if (!isTauriRuntime) {
+      return;
+    }
+
+    let disposed = false;
+    let unsubscribe: (() => void) | null = null;
+
+    void import('@tauri-apps/api/event')
+      .then(({ listen }) => {
+        if (disposed) {
+          return;
+        }
+
+        const unsubscribeSettings = subscribeToNativeSettingsOpen(
+          listen,
+          openSettingsPage,
+          (error) => {
+            console.error('注册原生设置菜单事件失败', error);
+          },
+        );
+        const unsubscribeUpdateCheck = subscribeToNativeUpdateCheck(
+          listen,
+          handleNativeUpdateCheck,
+          (error) => {
+            console.error('注册原生更新菜单事件失败', error);
+          },
+        );
+        unsubscribe = () => {
+          unsubscribeSettings();
+          unsubscribeUpdateCheck();
+        };
+      })
+      .catch((error) => {
+        console.error('注册原生设置菜单事件失败', error);
+      });
+
+    return () => {
+      disposed = true;
+      unsubscribe?.();
+    };
+  }, [handleNativeUpdateCheck, isTauriRuntime, openSettingsPage]);
+
   const shouldRenderTerminalPanel = terminalOpen || terminalTabs.length > 0;
 
   React.useEffect(() => observeWorkspaceLongTasks(), []);
@@ -1712,79 +1809,141 @@ export function WorkspaceLayout({
     }
   }, [workspaceRootPath]);
 
+  // Load the auto-sync cadence for the current workspace. Kept separate from
+  // the scheduler so the timers depend only on stable primitives (see
+  // useGitAutoSync) instead of re-arming on every render. author: liyao
   React.useEffect(() => {
-    if (!isTauriRuntime || !workspaceRootPath) {
-      return;
-    }
+    let cancelled = false;
 
-    let disposed = false;
-    let timeoutId: number | null = null;
-
-    async function scheduleNextGitSync() {
-      try {
-        const metadata = await ensureWorkspace(workspaceRootPath!);
-        const settings = withDefaultWorkspaceGitSyncSettings(metadata.gitSync);
-
-        if (!settings.enabled || disposed) {
-          return;
+    void (async () => {
+      if (!isTauriRuntime || !workspaceRootPath) {
+        if (!cancelled) {
+          setGitAutoSyncPlan(DISABLED_GIT_AUTO_SYNC_PLAN);
         }
-
-        const remoteInfo = await gitRemoteInfo(workspaceRootPath!).catch(
-          () => null,
-        );
-
-        if (!remoteInfo?.remoteUrl || disposed) {
-          return;
-        }
-
-        timeoutId = window.setTimeout(() => {
-          void runScheduledGitSync(settings);
-        }, settings.intervalMinutes * 60_000);
-      } catch (error) {
-        setGitError(formatUnknownError(error));
-      }
-    }
-
-    async function runScheduledGitSync(settings: WorkspaceGitSyncSettings) {
-      if (disposed || !workspaceRootPath) {
         return;
       }
 
       try {
-        await saveCurrentDocumentNow();
-        const result = await gitSyncNow(
-          workspaceRootPath,
-          settings.conflictResolution,
+        const metadata = await ensureWorkspace(workspaceRootPath);
+        const settings = withDefaultWorkspaceGitSyncSettings(metadata.gitSync);
+
+        if (cancelled) {
+          return;
+        }
+
+        if (!settings.enabled) {
+          setGitAutoSyncPlan(DISABLED_GIT_AUTO_SYNC_PLAN);
+          return;
+        }
+
+        const remoteInfo = await gitRemoteInfo(workspaceRootPath).catch(
+          () => null,
         );
-        await saveWorkspaceGitSyncSettings(workspaceRootPath, {
-          ...settings,
-          lastSyncedAt: result.lastSyncedAt,
+
+        if (cancelled) {
+          return;
+        }
+
+        setGitAutoSyncPlan({
+          enabled: Boolean(remoteInfo?.remoteUrl),
+          intervalMs: Math.max(1, settings.intervalMinutes) * 60_000,
         });
-        setGitStatusState(result.status);
-        setGitError(null);
       } catch (error) {
-        setGitError(formatUnknownError(error));
-      } finally {
-        if (!disposed) {
-          void scheduleNextGitSync();
+        if (!cancelled) {
+          setGitAutoSyncPlan(DISABLED_GIT_AUTO_SYNC_PLAN);
+          setGitError(formatUnknownError(error));
         }
       }
-    }
-
-    void scheduleNextGitSync();
+    })();
 
     return () => {
-      disposed = true;
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId);
-      }
+      cancelled = true;
     };
-  }, [
-    isTauriRuntime,
-    saveCurrentDocumentNow,
-    settingsVersion,
-    workspaceRootPath,
-  ]);
+  }, [isTauriRuntime, settingsVersion, workspaceRootPath]);
+
+  // Reflect files pulled by a sync back into the UI: incrementally refresh the
+  // affected tree nodes and reload the open document through the conflict-safe
+  // path. Without this the editor keeps stale in-memory content and the next
+  // autosave would overwrite the just-pulled remote changes. author: liyao
+  const reconcileGitPulledChanges = React.useCallback(
+    async (rootPath: string, changedPaths: string[]) => {
+      if (changedPaths.length === 0) {
+        return;
+      }
+
+      const changedAbsolutePaths = changedPaths.map((path) =>
+        resolveWorkspaceEntryAbsolutePath(rootPath, path),
+      );
+      await workspace.refreshWorkspaceNodes(changedAbsolutePaths);
+
+      const openDocumentPath = getActiveDocumentPath(documentEditorLayout);
+
+      if (!openDocumentPath) {
+        return;
+      }
+
+      const openRelativePath = toRepoRelativePosixPath(
+        rootPath,
+        openDocumentPath,
+      );
+
+      if (!openRelativePath || !changedPaths.includes(openRelativePath)) {
+        return;
+      }
+
+      const openNode = findWorkspaceDocumentByPath(
+        workspace.snapshot?.nodes ?? [],
+        openDocumentPath,
+      );
+
+      if (openNode) {
+        await workspace.refreshWorkspaceNode(openNode);
+      }
+    },
+    [documentEditorLayout, workspace],
+  );
+
+  const runGitSync = React.useCallback(async () => {
+    if (!workspaceRootPath) {
+      return;
+    }
+
+    try {
+      await saveCurrentDocumentNow();
+      const metadata = await ensureWorkspace(workspaceRootPath);
+      const settings = withDefaultWorkspaceGitSyncSettings(metadata.gitSync);
+      const result = await gitSyncNow(
+        workspaceRootPath,
+        settings.conflictResolution,
+      );
+      await saveWorkspaceGitSyncSettings(workspaceRootPath, {
+        ...settings,
+        lastSyncedAt: result.lastSyncedAt,
+      });
+      setGitStatusState(result.status);
+      setGitError(null);
+      await reconcileGitPulledChanges(
+        workspaceRootPath,
+        result.changedPaths ?? [],
+      );
+    } catch (error) {
+      const message = formatUnknownError(error);
+      setGitError(message);
+
+      if (message.includes(GIT_SYNC_CONFLICT_HINT)) {
+        toast.error('Git 同步冲突', {
+          description: '远端与本地修改了同一文件，请在 Git 面板处理后重试。',
+        });
+      }
+    }
+  }, [reconcileGitPulledChanges, saveCurrentDocumentNow, workspaceRootPath]);
+
+  useGitAutoSync({
+    activationKey: workspaceRootPath,
+    enabled: gitAutoSyncPlan.enabled,
+    intervalMs: gitAutoSyncPlan.intervalMs,
+    runSync: runGitSync,
+  });
 
   const createTerminalTab = React.useCallback(async () => {
     if (
@@ -2008,10 +2167,86 @@ export function WorkspaceLayout({
     return () => window.clearTimeout(timer);
   }, [clearPendingDocumentOpen, workspaceRootPath]);
 
+  const runOpenDocument = React.useCallback(
+    async (node: WorkspaceNode): Promise<boolean> => {
+      if (node.kind !== 'document') {
+        return false;
+      }
+
+      if (currentDocumentPathRef.current === node.absolutePath) {
+        if (documentLoadStateRef.current === 'loaded') {
+          return true;
+        }
+
+        const inFlightForCurrent = documentOpenInFlightRef.current;
+        if (inFlightForCurrent?.path === node.absolutePath) {
+          return inFlightForCurrent.promise;
+        }
+
+        if (
+          documentLoadStateRef.current === 'loading' ||
+          documentLoadStateRef.current === 'idle'
+        ) {
+          return waitForDocumentPathLoaded(
+            currentDocumentPathRef,
+            documentLoadStateRef,
+            node.absolutePath,
+          );
+        }
+
+        return false;
+      }
+
+      const inFlight = documentOpenInFlightRef.current;
+      if (inFlight?.path === node.absolutePath) {
+        return inFlight.promise;
+      }
+
+      const promise = (async () => {
+        rememberRecentDocument(node);
+        const draft = await workspace.openDocument(node);
+
+        if (draft) {
+          cacheEditorSession(node.absolutePath, draft);
+          currentDocumentPathRef.current = node.absolutePath;
+          documentLoadStateRef.current = 'loaded';
+          return true;
+        }
+
+        if (currentDocumentPathRef.current === node.absolutePath) {
+          documentLoadStateRef.current = 'error';
+        }
+        return false;
+      })();
+
+      documentOpenInFlightRef.current = {
+        path: node.absolutePath,
+        promise,
+      };
+
+      try {
+        return await promise;
+      } finally {
+        if (documentOpenInFlightRef.current?.promise === promise) {
+          documentOpenInFlightRef.current = null;
+        }
+      }
+    },
+    [cacheEditorSession, rememberRecentDocument, workspace],
+  );
+
   const openDocumentByPath = React.useCallback(
-    async (documentPath: string) => {
-      if (documentPath === currentDocumentPath) {
-        return;
+    async (documentPath: string): Promise<boolean> => {
+      if (
+        currentDocumentPathRef.current === documentPath &&
+        documentLoadStateRef.current === 'loaded'
+      ) {
+        return true;
+      }
+
+      const inFlight = documentOpenInFlightRef.current;
+      if (inFlight?.path === documentPath) {
+        return inFlight.promise;
       }
 
       const node = findWorkspaceDocumentByPath(
@@ -2020,24 +2255,26 @@ export function WorkspaceLayout({
       );
 
       if (!node) {
-        return;
+        return false;
       }
 
-      rememberRecentDocument(node);
-      const draft = await workspace.openDocument(node);
-
-      if (draft) {
-        cacheEditorSession(node.absolutePath, draft);
-      }
+      return runOpenDocument(node);
     },
-    [cacheEditorSession, currentDocumentPath, rememberRecentDocument, workspace],
+    [runOpenDocument, workspace.snapshot?.nodes],
   );
 
   const scheduleDocumentOpen = React.useCallback(
     (documentPath: string) => {
       clearPendingDocumentOpen();
 
-      if (documentPath === currentDocumentPath) {
+      if (
+        currentDocumentPathRef.current === documentPath &&
+        documentLoadStateRef.current === 'loaded'
+      ) {
+        return;
+      }
+
+      if (documentOpenInFlightRef.current?.path === documentPath) {
         return;
       }
 
@@ -2046,7 +2283,7 @@ export function WorkspaceLayout({
         void openDocumentByPath(documentPath);
       }, 0);
     },
-    [clearPendingDocumentOpen, currentDocumentPath, openDocumentByPath],
+    [clearPendingDocumentOpen, openDocumentByPath],
   );
 
   const openDocumentNode = React.useCallback(
@@ -2062,20 +2299,9 @@ export function WorkspaceLayout({
       setSystemPage(null);
       clearPendingDocumentOpen();
       setDocumentEditorLayout((current) => openDocumentTab(current, node));
-      rememberRecentDocument(node);
-      const draft = await workspace.openDocument(node);
-
-      if (draft) {
-        cacheEditorSession(node.absolutePath, draft);
-      }
+      await runOpenDocument(node);
     },
-    [
-      cacheEditorSession,
-      clearPendingDocumentOpen,
-      flushActiveMarkdownEditor,
-      rememberRecentDocument,
-      workspace,
-    ],
+    [clearPendingDocumentOpen, flushActiveMarkdownEditor, runOpenDocument],
   );
 
   const handleOpenNodeInFileManager = React.useCallback(
@@ -2737,7 +2963,22 @@ export function WorkspaceLayout({
         return next;
       });
 
-      const nextSnapshot = await refreshWorkspaceTree();
+      // Only refresh the directories Codex actually touched (source + move
+      // destination) instead of rescanning the whole tree; the hook falls back
+      // to a full rescan when a top-level entry changed. author: liyao
+      const changedEntryPaths = new Set<string>();
+      for (const change of changes) {
+        if (change.absolutePath) {
+          changedEntryPaths.add(change.absolutePath);
+        }
+        if (change.movePath) {
+          changedEntryPaths.add(
+            resolveWorkspaceEntryAbsolutePath(refreshRootPath, change.movePath),
+          );
+        }
+      }
+
+      const nextSnapshot = await refreshWorkspaceNodes([...changedEntryPaths]);
       if (!nextSnapshot || workspaceRootPathRef.current !== refreshRootPath) return;
       const latestLayout = documentEditorLayoutRef.current;
       const unavailablePaths = new Set(removedPaths);
@@ -2760,7 +3001,7 @@ export function WorkspaceLayout({
     },
     [
       applyDocumentEditorLayout,
-      refreshWorkspaceTree,
+      refreshWorkspaceNodes,
       workspaceRootPath,
     ],
   );
@@ -2812,13 +3053,32 @@ export function WorkspaceLayout({
       expectedDrawingId: string | null,
     ) => {
       if (expectedDocumentPath) {
-        if (currentDocumentPathRef.current !== expectedDocumentPath) {
+        // Tab path can lead the loaded workspace document (scheduled open, or
+        // returning from a system page that cleared currentDocument). Flush the
+        // on-screen editor first, wait for the real document load, then restore
+        // any session markdown that predates the disk reload before saving.
+        // author: refinex
+        clearPendingDocumentOpen();
+        if (!(await flushActiveMarkdownEditor('ai-send'))) return false;
+        const sessionMarkdown =
+          editorSessionsRef.current[expectedDocumentPath]?.markdown ?? null;
+
+        const opened = await openDocumentByPath(expectedDocumentPath);
+        if (
+          !opened ||
+          currentDocumentPathRef.current !== expectedDocumentPath ||
+          documentLoadStateRef.current !== 'loaded'
+        ) {
           throw new Error(
             '当前标签页尚未完成加载，无法安全发送给 Codex。请稍后重试。',
           );
         }
-        if (!(await flushActiveMarkdownEditor('ai-send'))) return false;
-        if (!(await workspace.prepareCurrentDocumentForAi())) return false;
+
+        if (sessionMarkdown !== null) {
+          updateMarkdownRef.current(sessionMarkdown);
+        }
+
+        if (!(await prepareCurrentDocumentForAiRef.current())) return false;
       }
 
       if (expectedDrawingId) {
@@ -2834,7 +3094,13 @@ export function WorkspaceLayout({
       }
       return true;
     },
-    [drawings, flushActiveMarkdownEditor, systemPage, workspace],
+    [
+      clearPendingDocumentOpen,
+      drawings,
+      flushActiveMarkdownEditor,
+      openDocumentByPath,
+      systemPage,
+    ],
   );
 
   const handleResolveAiDocumentConflict = React.useCallback(
@@ -3145,7 +3411,10 @@ export function WorkspaceLayout({
             sessionCache={settingsSessionCache}
             windowsChromeInset={isTauriRuntime && isWindowsRuntime}
             workspaceRootPath={workspace.snapshot?.rootPath ?? null}
-            onBack={() => setSystemPage(null)}
+            onBack={() => {
+              setSystemPage(null);
+              openActiveDocumentForLayout(documentEditorLayout);
+            }}
             onSettingsSaved={(settings) => {
               if (!settings.appearance.showGitPanelEntry) {
                 setLeftPanelMode('workspace');
@@ -3226,6 +3495,7 @@ export function WorkspaceLayout({
                 onOpenNotes={() => {
                   setLeftPanelMode('workspace');
                   setSystemPage(null);
+                  openActiveDocumentForLayout(documentEditorLayout);
                 }}
                 onOpenCodex={handleOpenCodexPage}
                 onOpenInbox={handleOpenInboxPage}
@@ -3238,6 +3508,9 @@ export function WorkspaceLayout({
                 onOpenViews={handleOpenViewsPage}
                 onRefreshWorkspaceTree={() =>
                   workspace.refreshWorkspaceTree().catch(() => null)
+                }
+                onRefreshWorkspaceNode={(node) =>
+                  workspace.refreshWorkspaceNode(node).catch(() => null)
                 }
                 onOpenInFileManager={handleOpenNodeInFileManager}
                 onOpenSettings={openSettingsPage}
@@ -3719,8 +3992,15 @@ export function WorkspaceLayout({
                   ) : null
                 }
                 aiWorkspacePreviewWidth={aiWorkspacePreviewWidth}
-                currentDocument={activePanelDocument}
-                currentDocumentPath={activePanelDocumentPath}
+                // Codex fullscreen is workspace-scoped exploration; leftover
+                // editor tabs must not become a required active document.
+                // author: refinex
+                currentDocument={
+                  systemPage === 'codex' ? null : activePanelDocument
+                }
+                currentDocumentPath={
+                  systemPage === 'codex' ? null : activePanelDocumentPath
+                }
                 documentPanelData={documentPanelData}
                 documents={
                   workspace.snapshot
@@ -3729,9 +4009,9 @@ export function WorkspaceLayout({
                 }
                 drawings={aiDrawingReferences}
                 documentReadOnly={
-                  activePanelDocument
-                    ? getDocumentReadOnly(activePanelDocument.absolutePath)
-                    : false
+                  systemPage === 'codex' || !activePanelDocument
+                    ? false
+                    : getDocumentReadOnly(activePanelDocument.absolutePath)
                 }
                 mode={effectiveRightPanelMode}
                 width={rightPanelWidth}
@@ -3744,15 +4024,16 @@ export function WorkspaceLayout({
                 onAiWorkspacePreviewResize={setAiWorkspacePreviewWidth}
                 onOpenDocument={handleOpenAiDocument}
                 onOpenPlanPreview={handleOpenPlanPreview}
+                onOpenCodexSettings={() => openSettingsPage('codex')}
                 onAskAiHandlerChange={handleAskAiHandlerChange}
                 onWorkspaceChanged={handleAiWorkspaceChanged}
                 onToggleDocumentReadOnly={
-                  activePanelDocument
-                    ? () =>
+                  systemPage === 'codex' || !activePanelDocument
+                    ? undefined
+                    : () =>
                         handleToggleDocumentReadOnly(
                           activePanelDocument.absolutePath,
                         )
-                    : undefined
                 }
               />
             </div>
@@ -4700,6 +4981,58 @@ async function readWorkspaceSearchDocuments(
   }
 
   return [...results.filter(Boolean), ...drawingDocuments];
+}
+
+// Resolve a Codex-reported entry path (which may be workspace-relative) to an
+// absolute path anchored at the workspace root, matching the separator style of
+// the root so incremental refresh can locate its parent directory. author: liyao
+function resolveWorkspaceEntryAbsolutePath(
+  rootPath: string,
+  entryPath: string,
+): string {
+  const trimmed = entryPath.trim();
+
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  const isWindowsAbsolute = /^[a-zA-Z]:[\\/]/.test(trimmed);
+  const isPosixAbsolute = trimmed.startsWith('/');
+
+  if (isWindowsAbsolute || isPosixAbsolute) {
+    return trimmed;
+  }
+
+  const separator = rootPath.includes('\\') ? '\\' : '/';
+  const normalizedRoot = rootPath.replace(/[/\\]+$/, '');
+  const normalizedEntry = trimmed.replace(/^[/\\]+/, '');
+
+  return `${normalizedRoot}${separator}${normalizedEntry}`;
+}
+
+// Convert an absolute workspace path to a git repo-relative, forward-slash path
+// so it can be matched against the changed-path list returned by a sync (git
+// always reports POSIX-style relative paths). Returns null when the path is not
+// inside the root. Case-insensitive root match tolerates Windows drive letters.
+// author: liyao
+function toRepoRelativePosixPath(
+  rootPath: string,
+  absolutePath: string,
+): string | null {
+  const normalizedRoot = rootPath.replace(/\\/g, '/').replace(/\/+$/, '');
+  const normalizedAbsolute = absolutePath.replace(/\\/g, '/');
+  const prefix = `${normalizedRoot}/`;
+  const caseInsensitive = rootPath.includes('\\');
+  const comparableAbsolute = caseInsensitive
+    ? normalizedAbsolute.toLowerCase()
+    : normalizedAbsolute;
+  const comparablePrefix = caseInsensitive ? prefix.toLowerCase() : prefix;
+
+  if (!comparableAbsolute.startsWith(comparablePrefix)) {
+    return null;
+  }
+
+  return normalizedAbsolute.slice(prefix.length);
 }
 
 function findWorkspaceDocumentByPath(

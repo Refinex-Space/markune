@@ -588,6 +588,7 @@ export interface GitRemoteInfo {
 export interface GitSyncResult {
   lastSyncedAt: string;
   status: GitStatus;
+  changedPaths: string[];
 }
 
 export interface GitChange {
