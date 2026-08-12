@@ -2869,6 +2869,32 @@ export function WorkspaceLayout({
     [currentDocumentPath, rememberRecentDocumentByPath, workspace],
   );
 
+  // Warm (background) editor instances stay mounted, so anything passed down to
+  // them must keep a stable identity or every tab switch / keystroke re-renders
+  // all of them. These event-callback wrappers give the change/save handlers a
+  // permanent identity while always invoking the freshest logic. author: liyao
+  const handleEditorMarkdownChangeRef = React.useRef(handleEditorMarkdownChange);
+  const saveCurrentDocumentNowRef = React.useRef(saveCurrentDocumentNow);
+  React.useEffect(() => {
+    handleEditorMarkdownChangeRef.current = handleEditorMarkdownChange;
+    saveCurrentDocumentNowRef.current = saveCurrentDocumentNow;
+  }, [handleEditorMarkdownChange, saveCurrentDocumentNow]);
+  const stableEditorMarkdownChange = React.useCallback<
+    typeof handleEditorMarkdownChange
+  >(
+    (documentPath, markdown, origin, reason) =>
+      handleEditorMarkdownChangeRef.current(
+        documentPath,
+        markdown,
+        origin,
+        reason,
+      ),
+    [],
+  );
+  const stableEditorSaveRequested = React.useCallback(() => {
+    void saveCurrentDocumentNowRef.current();
+  }, []);
+
   const applyDocumentEditorLayout = React.useCallback(
     async (nextLayout: DocumentEditorLayout) => {
       if (!(await flushActiveMarkdownEditor('document-switch'))) {
@@ -3809,11 +3835,9 @@ export function WorkspaceLayout({
                         workspaceRootPath={workspace.snapshot?.rootPath ?? null}
                         getDocumentReadOnly={getDocumentReadOnly}
                         onActiveSourceModeChange={setActiveEditorSourceMode}
-                        onMarkdownChange={handleEditorMarkdownChange}
+                        onMarkdownChange={stableEditorMarkdownChange}
                         onRetryDocument={workspace.retryCurrentDocument}
-                        onSaveRequested={() =>
-                          void saveCurrentDocumentNow()
-                        }
+                        onSaveRequested={stableEditorSaveRequested}
                         onSelectTab={handleSelectDocumentTab}
                       />
                     ) : (
@@ -4693,7 +4717,7 @@ function renderDocumentEditorContent({
   return null;
 }
 
-function DocumentEditorInstance({
+const DocumentEditorInstance = React.memo(function DocumentEditorInstance({
   activeEditorRef,
   aiEnabled,
   askAiHandler,
@@ -4748,7 +4772,7 @@ function DocumentEditorInstance({
       />
     </div>
   );
-}
+});
 
 function WorkspaceHorizontalResizeHandle({
   'aria-label': ariaLabel,
