@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
 use std::io;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "macos")]
 use std::process::Command;
@@ -599,7 +600,8 @@ fn load_workspace_tree_sync(root_path: String) -> Result<WorkspaceSnapshot, Stri
     let timer = start_performance_timer();
     let result = (|| {
         let root = canonical_workspace_root(&root_path)?;
-        ensure_workspace_metadata(&root).map_err(|error| format!("初始化工作区失败：{error}"))?;
+        // build_workspace_snapshot already ensures/initializes metadata; avoid a
+        // second read+parse of workspace.json on the open path. author: liyao
         build_workspace_snapshot(&root)
             .map_err(|error| format!("读取工作区失败：{error}（{}）", root.display()))
     })();
@@ -1345,14 +1347,16 @@ fn read_children(
         }
 
         // Broken symlinks / vanished cloud placeholders must not fail the whole tree.
-        // author: refinex
-        let sort_timestamp = match read_sort_timestamp(&path) {
-            Ok(timestamp) => timestamp,
+        // One metadata call serves both the sort timestamp and the dir/file
+        // branch below, avoiding a redundant stat per entry. author: refinex
+        let entry_metadata = match fs::metadata(&path) {
+            Ok(metadata) => metadata,
             Err(error) if is_skippable_tree_entry_error(&error) => continue,
             Err(error) => return Err(error),
         };
+        let sort_timestamp = sort_timestamp_from_metadata(&entry_metadata);
 
-        if path.is_dir() {
+        if entry_metadata.is_dir() {
             let children = match read_children(root, &path, sort_order, node_state) {
                 Ok(children) => children,
                 Err(error) if is_skippable_tree_entry_error(&error) => continue,
@@ -2809,6 +2813,18 @@ fn read_sort_timestamp(path: &Path) -> std::io::Result<u128> {
     Ok(system_time_to_millis(timestamp))
 }
 
+// Derive the sort timestamp from an already-fetched metadata (mirrors
+// read_sort_timestamp) so read_children does not stat each entry twice. Falls
+// back to 0 when the platform exposes neither created nor modified time, which
+// only affects ordering, never correctness. author: liyao
+fn sort_timestamp_from_metadata(metadata: &fs::Metadata) -> u128 {
+    metadata
+        .created()
+        .or_else(|_| metadata.modified())
+        .map(system_time_to_millis)
+        .unwrap_or(0)
+}
+
 fn read_node_timestamps(path: &Path) -> std::io::Result<(u128, u128)> {
     let metadata = fs::metadata(path)?;
     let created = metadata
@@ -2875,9 +2891,8 @@ fn build_document_node(
 ) -> std::io::Result<WorkspaceNode> {
     let relative_path = to_relative_path(root, path);
     let state = node_state.get(&relative_path).cloned().unwrap_or_default();
-    let markdown_metadata = fs::read_to_string(path)
-        .ok()
-        .map(|raw| parse_markdown_node_metadata(&raw));
+    let markdown_metadata =
+        read_markdown_node_head(path).map(|raw| parse_markdown_node_metadata(&raw));
     let (created_at, updated_at) = markdown_metadata
         .as_ref()
         .and_then(
@@ -2913,6 +2928,22 @@ fn to_relative_path(root: &Path, path: &Path) -> String {
         .unwrap_or(path)
         .to_string_lossy()
         .replace('\\', "/")
+}
+
+// The tree only needs a document's title and frontmatter timestamps, both of
+// which live at the top of the file. Reading only the head avoids pulling whole
+// (potentially large) notes into memory for every node during a workspace scan,
+// which is the dominant cost of opening/restoring a workspace. author: liyao
+const MARKDOWN_NODE_HEAD_BYTES: u64 = 16 * 1024;
+
+fn read_markdown_node_head(path: &Path) -> Option<String> {
+    let file = fs::File::open(path).ok()?;
+    let mut buffer = Vec::new();
+    file.take(MARKDOWN_NODE_HEAD_BYTES)
+        .read_to_end(&mut buffer)
+        .ok()?;
+
+    Some(String::from_utf8_lossy(&buffer).into_owned())
 }
 
 fn parse_markdown_node_metadata(raw: &str) -> MarkdownNodeMetadata {
@@ -3772,6 +3803,35 @@ mod tests {
             details.to_log_details(),
             "bytes=128 oldAssetReadMs=1.2 writeMs=2.3 assetCleanupMs=3.4 dailyNoteIndexMs=4.5"
         );
+    }
+
+    #[test]
+    fn build_document_node_reads_only_the_head_of_large_documents() {
+        let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
+        let mut content =
+            String::from("---\ntitle: 大文档标题\ncreatedAt: 2026-06-01T00:00:00.000Z\n---\n\n# 正文标题\n\n");
+        // Body far larger than the bounded head read; must not affect title/meta.
+        content.push_str(&"内容内容内容内容内容\n".repeat(20_000));
+        fs::write(temp_dir.path().join("big.md"), &content).expect("写入大文档失败");
+        assert!(content.len() as u64 > MARKDOWN_NODE_HEAD_BYTES * 4);
+
+        let snapshot = build_workspace_snapshot(temp_dir.path()).expect("读取工作区失败");
+
+        assert_eq!(snapshot.nodes.len(), 1);
+        assert_eq!(snapshot.nodes[0].title.as_deref(), Some("大文档标题"));
+        assert!(snapshot.nodes[0].created_at > 0);
+    }
+
+    #[test]
+    fn read_markdown_node_head_truncates_to_the_cap() {
+        let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
+        let path = temp_dir.path().join("head.md");
+        fs::write(&path, "A".repeat((MARKDOWN_NODE_HEAD_BYTES as usize) * 3))
+            .expect("写入文档失败");
+
+        let head = read_markdown_node_head(&path).expect("应读取到文档头部");
+
+        assert_eq!(head.len() as u64, MARKDOWN_NODE_HEAD_BYTES);
     }
 
     #[test]

@@ -25,6 +25,8 @@ import {
   type MarkdownEditorFlushReason,
   type MarkdownEditorHandle,
 } from '@/components/editor/markdown-editor';
+import { WorkspaceDocumentIndexProvider } from '@/components/editor/workspace-document-index';
+import { OPEN_WORKSPACE_DOCUMENT_EVENT } from '@/components/editor/workspace-document-link';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -2304,6 +2306,44 @@ export function WorkspaceLayout({
     [clearPendingDocumentOpen, flushActiveMarkdownEditor, runOpenDocument],
   );
 
+  React.useEffect(() => {
+    const handleOpenDocument = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ relativePath?: string }>
+      ).detail;
+      const relativePath = detail?.relativePath;
+      if (!relativePath) return;
+
+      const node = findWorkspaceDocumentByRelativePath(
+        workspace.snapshot?.nodes ?? [],
+        relativePath,
+      );
+      if (!node) return;
+
+      setLeftPanelMode('workspace');
+      showWorkspaceSidebar(false);
+      setTreeRevealRequest({
+        absolutePath: node.absolutePath,
+        requestId: Date.now(),
+      });
+      void openDocumentNode(node);
+    };
+
+    window.addEventListener(
+      OPEN_WORKSPACE_DOCUMENT_EVENT,
+      handleOpenDocument,
+    );
+    return () =>
+      window.removeEventListener(
+        OPEN_WORKSPACE_DOCUMENT_EVENT,
+        handleOpenDocument,
+      );
+  }, [
+    openDocumentNode,
+    showWorkspaceSidebar,
+    workspace.snapshot?.nodes,
+  ]);
+
   const handleOpenNodeInFileManager = React.useCallback(
     (node: WorkspaceNode) => {
       void Promise.resolve(openPathInFileManager(node.absolutePath)).catch(
@@ -3343,6 +3383,7 @@ export function WorkspaceLayout({
     workspace.setSidebarCollapsed(!workspace.isSidebarCollapsed);
   }, [workspace]);
   return (
+    <WorkspaceDocumentIndexProvider nodes={workspace.snapshot?.nodes ?? []}>
     <main
       className="relative flex h-screen w-full overflow-hidden bg-sidebar text-foreground antialiased"
       data-chrome="workspace"
@@ -3779,6 +3820,7 @@ export function WorkspaceLayout({
                         hasWorkspace={false}
                         isWorkspaceEmpty={false}
                         workspaceOpenError={workspace.error?.message ?? null}
+                        workspaceRootPath=""
                         onCreateDirectory={() => undefined}
                         onCreateDocument={() => undefined}
                         onImportMarkdown={() => undefined}
@@ -3839,6 +3881,7 @@ export function WorkspaceLayout({
                         hasWorkspace={workspace.snapshot !== null}
                         isWorkspaceEmpty={isWorkspaceEmpty}
                         workspaceOpenError={workspace.error?.message ?? null}
+                        workspaceRootPath={workspace.snapshot?.rootPath ?? ''}
                         onCreateDirectory={() => void workspace.createDirectory('')}
                         onCreateDocument={() => void handleCreateDocument('')}
                         onImportMarkdown={() =>
@@ -4047,6 +4090,7 @@ export function WorkspaceLayout({
         onResolve={resolveConfirmation}
       />
     </main>
+    </WorkspaceDocumentIndexProvider>
   );
 }
 
@@ -4094,7 +4138,7 @@ function SidebarChromeToggle({
               onClick={onToggle}
             >
               <span
-                className="inline-flex size-7 items-center justify-center rounded-md transition-colors group-hover:bg-accent group-hover:text-foreground"
+                className="inline-flex size-6 items-center justify-center rounded-md transition-colors group-hover:bg-accent group-hover:text-foreground"
                 data-chrome-hover-surface
               >
                 {collapsed ? <SidebarCollapsedIcon /> : <SidebarExpandedIcon />}
@@ -4110,66 +4154,46 @@ function SidebarChromeToggle({
   );
 }
 
-function SidebarExpandedIcon() {
+// Both toggle states share the same viewBox, CSS box, and glyph metrics so the
+// icon does not appear to grow/shrink when the sidebar collapses. Only the
+// rail position changes (left when expanded, right when collapsed). author: liyao
+function SidebarToggleIcon({ rail }: { rail: 'left' | 'right' }) {
   return (
     <svg
       aria-hidden="true"
-      className="h-8 w-[35px] shrink-0"
+      className="size-4 shrink-0"
       fill="none"
-      viewBox="0 0 70 64"
+      viewBox="0 0 24 24"
       xmlns="http://www.w3.org/2000/svg"
     >
       <rect
-        height="22"
-        rx="5"
+        height="14"
+        rx="2"
         stroke="currentColor"
         strokeLinecap="round"
         strokeLinejoin="round"
-        strokeWidth="2"
-        width="24"
-        x="20"
-        y="21"
+        strokeWidth="1.75"
+        width="16"
+        x="4"
+        y="5"
       />
       <path
-        d="M26 27V37"
+        d={rail === 'left' ? 'M8 8V16' : 'M16 8V16'}
         stroke="currentColor"
         strokeLinecap="round"
         strokeLinejoin="round"
-        strokeWidth="2"
+        strokeWidth="1.75"
       />
     </svg>
   );
 }
 
+function SidebarExpandedIcon() {
+  return <SidebarToggleIcon rail="left" />;
+}
+
 function SidebarCollapsedIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="h-[25px] w-[34px] shrink-0"
-      fill="none"
-      viewBox="0 0 68 50"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <rect
-        height="26"
-        rx="5"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="2"
-        width="28"
-        x="24"
-        y="11"
-      />
-      <path
-        d="M45 18V30"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="2"
-      />
-    </svg>
-  );
+  return <SidebarToggleIcon rail="right" />;
 }
 
 function subscribeToStaticRuntimeSnapshot() {
@@ -4755,6 +4779,7 @@ function DocumentEditorInstance({
         aiEnabled={aiEnabled && !readOnly}
         askAiHandler={askAiHandler}
         documentKey={`${documentPath}:${editorSession.documentVersion}:${pageWidthMode}:${readOnly ? 'view' : 'live'}`}
+        documentPath={documentPath}
         markdown={editorSession.markdown}
         pageWidthMode={pageWidthMode}
         readOnly={readOnly}
@@ -5057,6 +5082,38 @@ function findWorkspaceDocumentByPath(
   }
 
   return null;
+}
+
+// Matches an in-editor link target (already resolved to a workspace-root-relative
+// POSIX path) against the document tree. Falls back to appending a Markdown
+// extension for extensionless [[wiki]] targets, then to a case-insensitive
+// match for case-insensitive file systems. author: liyao
+function findWorkspaceDocumentByRelativePath(
+  nodes: WorkspaceNode[],
+  relativePath: string,
+): WorkspaceNode | null {
+  const documents = flattenWorkspaceNodes(nodes).filter(
+    (node) => node.kind === 'document',
+  );
+  const hasExtension = /\.[^./]+$/.test(relativePath);
+  const candidates = hasExtension
+    ? [relativePath]
+    : [relativePath, `${relativePath}.md`, `${relativePath}.mdx`];
+
+  for (const candidate of candidates) {
+    const exact = documents.find((node) => node.relativePath === candidate);
+
+    if (exact) {
+      return exact;
+    }
+  }
+
+  const lowerCandidates = candidates.map((candidate) => candidate.toLowerCase());
+  const insensitive = documents.find((node) =>
+    lowerCandidates.includes(node.relativePath.toLowerCase()),
+  );
+
+  return insensitive ?? null;
 }
 
 function flattenWorkspaceNodes(nodes: WorkspaceNode[]): WorkspaceNode[] {

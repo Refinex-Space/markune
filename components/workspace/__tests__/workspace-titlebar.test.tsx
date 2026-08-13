@@ -141,7 +141,7 @@ describe('Workspace titlebar', () => {
       'group inline-flex size-8 items-center justify-center',
     );
     expect(workspaceLayoutSource).toContain(
-      'inline-flex size-7 items-center justify-center rounded-md',
+      'inline-flex size-6 items-center justify-center rounded-md',
     );
   });
 
