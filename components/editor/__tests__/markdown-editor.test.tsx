@@ -371,6 +371,92 @@ describe('MarkdownEditor', () => {
     ).toBe('false');
   });
 
+  it('普通点击段落内工作区文档链接时阻止浏览器导航并交给 Markweave 编辑', () => {
+    render(
+      <MarkdownEditor
+        documentPath="/vault/plans/2026.md"
+        markdown="[技术团队](../技术团队.md)"
+        workspaceRootPath="/vault"
+      />,
+    );
+
+    const link = document.createElement('a');
+    link.href = '../%E6%8A%80%E6%9C%AF%E5%9B%A2%E9%98%9F.md';
+    screen.getByTestId('markweave-editor').append(link);
+    const targetClick = vi.fn();
+    link.addEventListener('click', targetClick);
+    const openDocument = vi.fn();
+    window.addEventListener('madora:open-document', openDocument);
+
+    const dispatched = fireEvent.click(link);
+
+    expect(dispatched).toBe(false);
+    expect(targetClick).toHaveBeenCalledTimes(1);
+    expect(openDocument).not.toHaveBeenCalled();
+    window.removeEventListener('madora:open-document', openDocument);
+  });
+
+  it('Ctrl/Cmd 点击段落内工作区文档链接时由 Madora 打开目标文档', () => {
+    render(
+      <MarkdownEditor
+        documentPath="/vault/plans/2026.md"
+        markdown="[技术团队](../技术团队.md)"
+        workspaceRootPath="/vault"
+      />,
+    );
+
+    const link = document.createElement('a');
+    link.href = '../%E6%8A%80%E6%9C%AF%E5%9B%A2%E9%98%9F.md#实践';
+    screen.getByTestId('markweave-editor').append(link);
+    const targetClick = vi.fn();
+    link.addEventListener('click', targetClick);
+    const openDocument = vi.fn();
+    window.addEventListener('madora:open-document', openDocument);
+
+    const dispatched = fireEvent.click(link, { metaKey: true });
+
+    expect(dispatched).toBe(false);
+    expect(targetClick).not.toHaveBeenCalled();
+    expect(openDocument).toHaveBeenCalledTimes(1);
+    expect((openDocument.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({
+      hash: '实践',
+      relativePath: '技术团队.md',
+    });
+    window.removeEventListener('madora:open-document', openDocument);
+  });
+
+  it('缺少路径上下文时仍阻止 Markdown 文档链接落入浏览器', () => {
+    render(<MarkdownEditor markdown="[缺失文档](missing.md)" />);
+
+    const link = document.createElement('a');
+    link.href = 'missing.md';
+    screen.getByTestId('markweave-editor').append(link);
+
+    expect(fireEvent.click(link)).toBe(false);
+    expect(fireEvent.click(link, { ctrlKey: true })).toBe(false);
+  });
+
+  it('不拦截外部链接和普通附件链接', () => {
+    render(
+      <MarkdownEditor
+        documentPath="/vault/plans/2026.md"
+        markdown="links"
+        workspaceRootPath="/vault"
+      />,
+    );
+
+    const editor = screen.getByTestId('markweave-editor');
+    const externalLink = document.createElement('a');
+    externalLink.href = 'https://www.superdoc.dev/';
+    editor.append(externalLink);
+    const attachmentLink = document.createElement('a');
+    attachmentLink.href = '../assets/guide.pdf';
+    editor.append(attachmentLink);
+
+    expect(fireEvent.click(externalLink)).toBe(true);
+    expect(fireEvent.click(attachmentLink)).toBe(true);
+  });
+
   it('仅在可编辑 Live 文档发布 Ask AI handler 和 controller', () => {
     const askAiHandler = vi.fn();
     const ref = React.createRef<MarkdownEditorHandle>();
