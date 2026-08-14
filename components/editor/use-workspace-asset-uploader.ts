@@ -25,6 +25,10 @@ import {
   incrementWorkspacePerformanceCounter,
   startWorkspacePerformanceMeasure,
 } from '@/components/workspace/workspace-performance';
+import {
+  getDrawingClipboardAssetReference,
+  normalizeDrawingClipboardAssetReferences,
+} from '@/components/editor/drawing-markdown-reference';
 
 export interface WorkspaceAssetUploadBridge {
   editorMarkdown: string;
@@ -309,7 +313,9 @@ export function useWorkspaceAssetUploader(
           ? displayToStorageRef.current.get(request.src)
           : undefined;
       const assetId = getWorkspaceAssetIdFromReference(
-        projectedStorageReference ?? request.src,
+        projectedStorageReference ??
+          getDrawingClipboardAssetReference(request.src) ??
+          request.src,
       );
 
       if (!assetId) {
@@ -354,11 +360,13 @@ export function useWorkspaceAssetUploader(
 
   const toStorageMarkdown = React.useCallback(
     (markdown: string) => {
-      const displayRestored = replaceMappedValues(
-        markdown,
-        cacheRootPathRef.current === rootPath
-          ? displayToStorageRef.current
-          : new Map(),
+      const displayRestored = normalizeDrawingClipboardAssetReferences(
+        replaceMappedValues(
+          markdown,
+          cacheRootPathRef.current === rootPath
+            ? displayToStorageRef.current
+            : new Map(),
+        ),
       );
       const legacyReplacements = new Map<string, string>();
       const cache = rootPath

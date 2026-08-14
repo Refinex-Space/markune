@@ -58,9 +58,9 @@ export function useAiDrawingTools({
       attempts.clear();
     };
     clear();
-    window.addEventListener('madora:codex-runtime-stopped', clear);
+    window.addEventListener('markune:codex-runtime-stopped', clear);
     return () => {
-      window.removeEventListener('madora:codex-runtime-stopped', clear);
+      window.removeEventListener('markune:codex-runtime-stopped', clear);
       clear();
     };
   }, [workspaceRootPath]);
@@ -70,10 +70,10 @@ export function useAiDrawingTools({
       request: CodexDynamicToolRequest,
     ): Promise<CodexDynamicToolResponse> => {
       if (!workspaceRootPath) {
-        return { success: false, text: '请先打开一个 Madora 工作区。' };
+        return { success: false, text: '请先打开一个 Markune 工作区。' };
       }
-      if (request.namespace !== 'madora_drawing') {
-        return { success: false, text: 'Madora 拒绝未知动态工具命名空间。' };
+      if (request.namespace !== 'markune_drawing') {
+        return { success: false, text: 'Markune 拒绝未知动态工具命名空间。' };
       }
       if (request.tool === 'inspect_drawing') {
         const drawingId = request.arguments.drawingId;
@@ -157,7 +157,7 @@ export function useAiDrawingTools({
         }
       }
       if (request.tool !== 'create_from_preview') {
-        return { success: false, text: 'Madora 拒绝未知动态工具。' };
+        return { success: false, text: 'Markune 拒绝未知动态工具。' };
       }
       const previewId = request.arguments.previewId;
       if (typeof previewId !== 'string') {

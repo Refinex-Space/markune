@@ -12,10 +12,11 @@ const sourceSha = '0123456789abcdef0123456789abcdef01234567';
 
 function createAsset(name, id) {
   return {
+    browser_download_url: `https://github.com/Refinex-Space/markune/releases/download/${tag}/${name}`,
     id,
     name,
     size: 128,
-    url: `https://api.github.com/repos/Refinex-Space/madora-site/releases/assets/${id}`,
+    url: `https://api.github.com/repos/Refinex-Space/markune/releases/assets/${id}`,
   };
 }
 
@@ -25,23 +26,23 @@ function createValidSnapshot() {
   );
   const assetByName = new Map(assets.map((asset) => [asset.name, asset]));
   const signatures = {
-    'Madora_aarch64.app.tar.gz.sig': 'arm-signature',
-    'Madora_x64.app.tar.gz.sig': 'intel-signature',
-    'Madora_x64-setup.exe.sig': 'windows-signature',
+    'Markune_aarch64.app.tar.gz.sig': 'arm-signature',
+    'Markune_x64.app.tar.gz.sig': 'intel-signature',
+    'Markune_x64-setup.exe.sig': 'windows-signature',
   };
   const platform = (assetName, signatureName) => ({
     signature: signatures[signatureName],
-    url: assetByName.get(assetName).url,
+    url: assetByName.get(assetName).browser_download_url,
   });
 
   return {
     release: {
-      body: `## Madora ${tag}\n\n本版本包含功能改进、体验优化和问题修复。`,
+      body: `## Markune ${tag}\n\n本版本包含功能改进、体验优化和问题修复。`,
       draft: true,
-      name: 'Madora v0.1.12',
+      name: 'Markune v0.1.12',
       prerelease: false,
       tag_name: tag,
-      target_commitish: 'main',
+      target_commitish: sourceSha,
       assets,
     },
     latestJson: {
@@ -50,28 +51,28 @@ function createValidSnapshot() {
       pub_date: '2026-07-24T00:00:00.000Z',
       platforms: {
         'darwin-aarch64': platform(
-          'Madora_aarch64.app.tar.gz',
-          'Madora_aarch64.app.tar.gz.sig',
+          'Markune_aarch64.app.tar.gz',
+          'Markune_aarch64.app.tar.gz.sig',
         ),
         'darwin-aarch64-app': platform(
-          'Madora_aarch64.app.tar.gz',
-          'Madora_aarch64.app.tar.gz.sig',
+          'Markune_aarch64.app.tar.gz',
+          'Markune_aarch64.app.tar.gz.sig',
         ),
         'darwin-x86_64': platform(
-          'Madora_x64.app.tar.gz',
-          'Madora_x64.app.tar.gz.sig',
+          'Markune_x64.app.tar.gz',
+          'Markune_x64.app.tar.gz.sig',
         ),
         'darwin-x86_64-app': platform(
-          'Madora_x64.app.tar.gz',
-          'Madora_x64.app.tar.gz.sig',
+          'Markune_x64.app.tar.gz',
+          'Markune_x64.app.tar.gz.sig',
         ),
         'windows-x86_64': platform(
-          'Madora_x64-setup.exe',
-          'Madora_x64-setup.exe.sig',
+          'Markune_x64-setup.exe',
+          'Markune_x64-setup.exe.sig',
         ),
         'windows-x86_64-nsis': platform(
-          'Madora_x64-setup.exe',
-          'Madora_x64-setup.exe.sig',
+          'Markune_x64-setup.exe',
+          'Markune_x64-setup.exe.sig',
         ),
       },
     },
@@ -113,7 +114,7 @@ test('rejects the macOS updater omissions seen in v0.1.11', () => {
         expectedTag: tag,
       }),
     (error) => {
-      assert.match(error.message, /Madora_aarch64\.app\.tar\.gz/);
+      assert.match(error.message, /Markune_aarch64\.app\.tar\.gz/);
       assert.match(error.message, /darwin-aarch64/);
       assert.match(error.message, /darwin-x86_64/);
       return true;
@@ -163,48 +164,12 @@ test('rejects a published or prerelease release', () => {
   );
 });
 
-test('rejects private source metadata in user-visible release notes', () => {
+test('allows the public Markune release URL in user-visible release notes', () => {
   const snapshot = createValidSnapshot();
   snapshot.release.body = [
-    `Madora ${tag} 安装包与自动更新资源。`,
+    `## Markune ${tag}`,
     '',
-    `构建来源：私有 madora 仓库 commit \`${sourceSha}\`。`,
-    '',
-    '正式发布前必须补充用户可见的更新说明并完成手册中的验收。',
-  ].join('\n');
-
-  assert.throws(
-    () =>
-      validateReleaseSnapshot({
-        ...snapshot,
-        expectedSourceSha: sourceSha,
-        expectedTag: tag,
-      }),
-    /release body must not expose private source metadata/,
-  );
-});
-
-test('rejects private source metadata in latest.json notes', () => {
-  const snapshot = createValidSnapshot();
-  snapshot.latestJson.notes = `构建来源：私有 madora 仓库 commit \`${sourceSha}\`。`;
-
-  assert.throws(
-    () =>
-      validateReleaseSnapshot({
-        ...snapshot,
-        expectedSourceSha: sourceSha,
-        expectedTag: tag,
-      }),
-    /latest\.json notes must not expose private source metadata/,
-  );
-});
-
-test('allows the public madora-site release URL in user-visible release notes', () => {
-  const snapshot = createValidSnapshot();
-  snapshot.release.body = [
-    `## Madora ${tag}`,
-    '',
-    '下载地址：https://github.com/Refinex-Space/madora-site/releases',
+    '下载地址：https://github.com/Refinex-Space/markune/releases',
   ].join('\n');
 
   assert.doesNotThrow(() =>
@@ -233,6 +198,12 @@ test('uses GitHub JSON media type for release metadata and binary media type for
     token: 'test-token',
     fetchImpl: async (url, options) => {
       requestAcceptHeaders.push([url, options.headers.Accept]);
+      if (url.includes('/commits/')) {
+        return new Response(JSON.stringify({ sha: sourceSha }), {
+          headers: { 'Content-Type': 'application/json' },
+          status: 200,
+        });
+      }
       if (url.includes('/releases?per_page=')) {
         return new Response(JSON.stringify([snapshot.release]), {
           headers: { 'Content-Type': 'application/json' },
@@ -245,9 +216,12 @@ test('uses GitHub JSON media type for release metadata and binary media type for
   });
 
   assert.equal(result.version, '0.1.12');
-  assert.equal(requestAcceptHeaders[0][1], 'application/vnd.github+json');
   assert.deepEqual(
-    requestAcceptHeaders.slice(1).map(([, accept]) => accept),
+    requestAcceptHeaders.slice(0, 2).map(([, accept]) => accept),
+    Array(2).fill('application/vnd.github+json'),
+  );
+  assert.deepEqual(
+    requestAcceptHeaders.slice(2).map(([, accept]) => accept),
     Array(4).fill('application/octet-stream'),
   );
 });
@@ -266,6 +240,11 @@ test('never sends the release token to an unexpected asset URL', async () => {
       expectedTag: tag,
       token: 'test-token',
       fetchImpl: async (url) => {
+        if (url.includes('/commits/')) {
+          return new Response(JSON.stringify({ sha: sourceSha }), {
+            status: 200,
+          });
+        }
         if (url.includes('/releases?per_page=')) {
           return new Response(JSON.stringify([snapshot.release]), {
             status: 200,
@@ -280,4 +259,27 @@ test('never sends the release token to an unexpected asset URL', async () => {
     /latest\.json has an unexpected API URL/,
   );
   assert.equal(requestedUnexpectedUrl, false);
+});
+
+test('rejects a release tag that does not resolve to the workflow commit', async () => {
+  let releasesRequested = false;
+
+  await assert.rejects(
+    verifyGitHubDraftRelease({
+      expectedSourceSha: sourceSha,
+      expectedTag: tag,
+      token: 'test-token',
+      fetchImpl: async (url) => {
+        if (url.includes('/releases?per_page=')) {
+          releasesRequested = true;
+        }
+        return new Response(
+          JSON.stringify({ sha: 'ffffffffffffffffffffffffffffffffffffffff' }),
+          { status: 200 },
+        );
+      },
+    }),
+    /does not resolve to the workflow source commit/,
+  );
+  assert.equal(releasesRequested, false);
 });

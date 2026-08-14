@@ -1,6 +1,6 @@
 'use client';
 
-const WORKSPACE_PERFORMANCE_STORAGE_KEY = 'madora:perf-log';
+const WORKSPACE_PERFORMANCE_STORAGE_KEY = 'markune:perf-log';
 
 export interface WorkspacePerformanceMeasure {
   finish: (details?: Record<string, number | string>) => void;
@@ -38,7 +38,7 @@ export function isWorkspacePerformanceLoggingEnabled(
   storageValue = readWorkspacePerformanceStorageValue(),
   search = readWorkspacePerformanceSearch(),
 ) {
-  return storageValue === '1' || new URLSearchParams(search).get('madoraPerf') === '1';
+  return storageValue === '1' || new URLSearchParams(search).get('markunePerf') === '1';
 }
 
 export function startWorkspacePerformanceMeasure(
@@ -58,7 +58,7 @@ export function startWorkspacePerformanceMeasure(
     finish(details) {
       const elapsedMs = Math.round((performance.now() - startedAt) * 10) / 10;
       recordWorkspacePerformanceEntry(label, elapsedMs, details);
-      const message = `[madora:perf] ${label} ${elapsedMs}ms`;
+      const message = `[markune:perf] ${label} ${elapsedMs}ms`;
 
       if (details) {
         console.debug(message, details);
@@ -70,7 +70,7 @@ export function startWorkspacePerformanceMeasure(
       window.requestAnimationFrame(() => {
         const elapsedMs = Math.round((performance.now() - startedAt) * 10) / 10;
         recordWorkspacePerformanceEntry(`${label}.next_frame`, elapsedMs, details);
-        const message = `[madora:perf] ${label}.next_frame ${elapsedMs}ms`;
+        const message = `[markune:perf] ${label}.next_frame ${elapsedMs}ms`;
 
         if (details) {
           console.debug(message, details);
@@ -120,7 +120,7 @@ export function observeWorkspaceLongTasks(
   const observer = new PerformanceObserver((entries) => {
     entries.getEntries().forEach((entry) => {
       console.debug(
-        `[madora:perf] workspace.long_task ${Math.round(entry.duration * 10) / 10}ms`,
+        `[markune:perf] workspace.long_task ${Math.round(entry.duration * 10) / 10}ms`,
       );
       recordWorkspacePerformanceEntry(
         'workspace.long_task',
@@ -155,7 +155,7 @@ function recordWorkspacePerformanceEntry(
   }
 
   if (typeof window !== 'undefined') {
-    Object.defineProperty(window, '__MadoraPerformanceReport', {
+    Object.defineProperty(window, '__MarkunePerformanceReport', {
       configurable: true,
       value: getWorkspacePerformanceReport,
     });

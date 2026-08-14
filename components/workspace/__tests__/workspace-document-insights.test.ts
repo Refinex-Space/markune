@@ -59,28 +59,28 @@ describe('countMarkdownLines', () => {
 });
 
 describe('extractResourceReferencesFromMarkdown', () => {
-  it('提取 madora-asset:// 图片引用', () => {
+  it('提取 markune-asset:// 图片引用', () => {
     const markdown =
-      '![图](madora-asset://abc123)\n![图2](madora-asset://def456)';
+      '![图](markune-asset://abc123)\n![图2](markune-asset://def456)';
     const refs = extractResourceReferencesFromMarkdown(markdown);
     expect(refs).toHaveLength(2);
     expect(refs[0]).toEqual({
       id: 'abc123',
       nodeType: 'image',
       source: 'local',
-      url: 'madora-asset://abc123',
+      url: 'markune-asset://abc123',
     });
     expect(refs[1]).toEqual({
       id: 'def456',
       nodeType: 'image',
       source: 'local',
-      url: 'madora-asset://def456',
+      url: 'markune-asset://def456',
     });
   });
 
-  it('提取 .madora/assets/files 相对路径图片引用', () => {
+  it('提取 .markune/assets/files 相对路径图片引用', () => {
     const markdown =
-      '![图](.madora/assets/files/ab/hash-a.png)\n![图2](.madora/assets/files/cd/hash-b.webp)';
+      '![图](.markune/assets/files/ab/hash-a.png)\n![图2](.markune/assets/files/cd/hash-b.webp)';
     const refs = extractResourceReferencesFromMarkdown(markdown);
 
     expect(refs).toEqual([
@@ -88,13 +88,13 @@ describe('extractResourceReferencesFromMarkdown', () => {
         id: 'hash-a',
         nodeType: 'image',
         source: 'local',
-        url: '.madora/assets/files/ab/hash-a.png',
+        url: '.markune/assets/files/ab/hash-a.png',
       },
       {
         id: 'hash-b',
         nodeType: 'image',
         source: 'local',
-        url: '.madora/assets/files/cd/hash-b.webp',
+        url: '.markune/assets/files/cd/hash-b.webp',
       },
     ]);
   });
@@ -106,7 +106,7 @@ describe('extractResourceReferencesFromMarkdown', () => {
   });
 
   it('去重相同 id', () => {
-    const markdown = '![图](madora-asset://abc)\n[](madora-asset://abc)';
+    const markdown = '![图](markune-asset://abc)\n[](markune-asset://abc)';
     const refs = extractResourceReferencesFromMarkdown(markdown);
     expect(refs).toHaveLength(1);
   });
@@ -121,7 +121,7 @@ describe('extractResourceReferencesFromMarkdown', () => {
 
   it('识别图片 vs 文件链接的 nodeType', () => {
     const markdown =
-      '![图](madora-asset://img1)\n[文件](.madora/assets/files/aa/file1.pdf)';
+      '![图](markune-asset://img1)\n[文件](.markune/assets/files/aa/file1.pdf)';
     const refs = extractResourceReferencesFromMarkdown(markdown);
     expect(refs.find((r) => r.id === 'img1')?.nodeType).toBe('image');
     expect(refs.find((r) => r.id === 'file1')?.nodeType).toBe('file');
@@ -129,7 +129,7 @@ describe('extractResourceReferencesFromMarkdown', () => {
 
   it('提取 HTML 本地媒体引用', () => {
     const refs = extractResourceReferencesFromMarkdown(
-      '<video src=".madora/assets/files/ab/video1.mp4"></video>',
+      '<video src=".markune/assets/files/ab/video1.mp4"></video>',
     );
 
     expect(refs).toEqual([
@@ -137,14 +137,14 @@ describe('extractResourceReferencesFromMarkdown', () => {
         id: 'video1',
         nodeType: 'video',
         source: 'local',
-        url: '.madora/assets/files/ab/video1.mp4',
+        url: '.markune/assets/files/ab/video1.mp4',
       },
     ]);
   });
 
   it('保留引用出现顺序', () => {
     const markdown =
-      '[b](madora-asset://second)\n![a](madora-asset://first)';
+      '[b](markune-asset://second)\n![a](markune-asset://first)';
     const refs = extractResourceReferencesFromMarkdown(markdown);
     expect(refs.map((r) => r.id)).toEqual(['second', 'first']);
   });

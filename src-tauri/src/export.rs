@@ -21,7 +21,7 @@ use crate::document_converter::{self, DocumentExportRuntimeInfo, ProfessionalExp
 
 const GRANT_TTL: Duration = Duration::from_secs(15 * 60);
 const PDF_TIMEOUT: Duration = Duration::from_secs(30);
-const EXPORT_STEM_PLACEHOLDER: &str = "__MADORA_EXPORT_STEM__";
+const EXPORT_STEM_PLACEHOLDER: &str = "__MARKUNE_EXPORT_STEM__";
 const MAX_FILE_BYTES: usize = 200 * 1024 * 1024;
 const MAX_BUNDLE_BYTES: usize = 500 * 1024 * 1024;
 const MAX_PROFESSIONAL_MARKDOWN_BYTES: usize = 20 * 1024 * 1024;
@@ -685,7 +685,7 @@ fn choose_available_stem(
 }
 
 fn create_staging_directory(directory: &Path) -> Result<PathBuf, String> {
-    let staging = directory.join(format!(".madora-export-{}", Uuid::new_v4().simple()));
+    let staging = directory.join(format!(".markune-export-{}", Uuid::new_v4().simple()));
     fs::create_dir(&staging).map_err(|error| format!("无法创建导出临时目录：{error}"))?;
     Ok(staging)
 }
@@ -803,14 +803,14 @@ fn add_pdf_nonce(mut html: String, nonce: &str) -> String {
 }
 
 async fn print_html_to_pdf(app: &AppHandle, token: &str, output: &Path) -> Result<(), String> {
-    let label = format!("madora-export-{token}");
-    let url = Url::parse(&format!("madora-export://localhost/{token}/document"))
+    let label = format!("markune-export-{token}");
+    let url = Url::parse(&format!("markune-export://localhost/{token}/document"))
         .map_err(|error| format!("无法创建 PDF 内部页面地址：{error}"))?;
     let (load_tx, load_rx) = std::sync::mpsc::sync_channel::<()>(1);
     let load_tx = Arc::new(Mutex::new(Some(load_tx)));
     let load_signal = load_tx.clone();
     let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::CustomProtocol(url))
-        .title("Madora Export")
+        .title("Markune Export")
         .inner_size(794.0, 1123.0)
         .visible(false)
         .on_page_load(move |_window, payload| {
@@ -1088,7 +1088,7 @@ mod tests {
             BundleFormat::Markdown,
             "文档",
             vec![
-                primary("md", "![图](./__MADORA_EXPORT_STEM__.assets/image.png)"),
+                primary("md", "![图](./__MARKUNE_EXPORT_STEM__.assets/image.png)"),
                 DocumentExportFile {
                     base64_data: BASE64_STANDARD.encode(b"png"),
                     relative_path: "image.png".to_string(),
@@ -1165,7 +1165,7 @@ mod tests {
     #[test]
     fn professional_export_rewrites_only_the_internal_asset_placeholder() {
         let markdown = concat!(
-            "![local](./__MADORA_EXPORT_STEM__.assets/image.png)\n",
+            "![local](./__MARKUNE_EXPORT_STEM__.assets/image.png)\n",
             "![other](./other.assets/image.png)"
         );
         assert_eq!(
@@ -1181,7 +1181,7 @@ mod tests {
             .add_pdf_session("token".to_string(), "<html></html>".to_string())
             .unwrap();
         let request = Request::builder()
-            .uri("madora-export://localhost/token/document")
+            .uri("markune-export://localhost/token/document")
             .body(Vec::new())
             .unwrap();
 

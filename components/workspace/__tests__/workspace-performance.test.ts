@@ -15,7 +15,7 @@ describe('workspace performance diagnostics', () => {
 
   it('can be enabled from storage or query string', () => {
     expect(isWorkspacePerformanceLoggingEnabled('1', '')).toBe(true);
-    expect(isWorkspacePerformanceLoggingEnabled(null, '?madoraPerf=1')).toBe(true);
+    expect(isWorkspacePerformanceLoggingEnabled(null, '?markunePerf=1')).toBe(true);
   });
 
   it('logs elapsed time only when enabled', () => {
@@ -28,7 +28,7 @@ describe('workspace performance diagnostics', () => {
       documents: 2,
     });
     expect(debug).toHaveBeenCalledWith(
-      expect.stringContaining('[madora:perf] workspace.test'),
+      expect.stringContaining('[markune:perf] workspace.test'),
       { documents: 2 },
     );
 

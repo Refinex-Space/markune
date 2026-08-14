@@ -32,9 +32,9 @@ const MAX_DOCUMENT_ASSETS: usize = 1_000;
 const MAX_DOCX_ENTRIES: usize = 10_000;
 const MAX_DOCX_UNCOMPRESSED_BYTES: u64 = 500 * 1024 * 1024;
 const MAX_DOCX_COMPRESSION_RATIO: u64 = 100;
-const IMPORT_ASSET_PREFIX: &str = "madora-import://asset/";
-const ASSET_URL_PREFIX: &str = "madora-asset://";
-const LEGACY_ASSET_PREFIX: &str = ".madora/assets/files/";
+const IMPORT_ASSET_PREFIX: &str = "markune-import://asset/";
+const ASSET_URL_PREFIX: &str = "markune-asset://";
+const LEGACY_ASSET_PREFIX: &str = ".markune/assets/files/";
 
 #[derive(Clone, Default)]
 pub struct ImportState {
@@ -279,7 +279,7 @@ impl ImportState {
         cleanup_orphaned_staging_directories(&root)?;
         let session_id = Uuid::new_v4().to_string();
         let staging_dir = root
-            .join(".madora")
+            .join(".markune")
             .join("import-staging")
             .join(&session_id);
         fs::create_dir_all(&staging_dir)
@@ -393,8 +393,8 @@ pub fn stage_document_import_asset(
     state: State<'_, ImportState>,
     request: Request<'_>,
 ) -> Result<(), String> {
-    let session_id = read_header(&request, "x-madora-import-session")?;
-    let asset_token = read_header(&request, "x-madora-import-asset")?;
+    let session_id = read_header(&request, "x-markune-import-session")?;
+    let asset_token = read_header(&request, "x-markune-import-asset")?;
     let session = state.session(&session_id)?;
     let manifest = session
         .assets
@@ -745,7 +745,7 @@ fn resolve_related_asset(source: &SourceEntry, reference: &str) -> Result<PathBu
     let reference = reference.trim().trim_matches(['<', '>']);
     if let Some(asset_id) = reference.strip_prefix(ASSET_URL_PREFIX) {
         let source_root = find_source_workspace_root(&source.path)
-            .ok_or_else(|| "无法定位来源 Madora 工作区。".to_string())?;
+            .ok_or_else(|| "无法定位来源 Markune 工作区。".to_string())?;
         let resolved = resolve_workspace_asset_impl(
             source_root.to_string_lossy().to_string(),
             asset_id.to_string(),
@@ -767,7 +767,7 @@ fn resolve_related_asset(source: &SourceEntry, reference: &str) -> Result<PathBu
             .canonicalize()
             .map_err(|_| "旧资产文件不存在。".to_string())?;
         let asset_root = source_root
-            .join(".madora")
+            .join(".markune")
             .join("assets")
             .join("files")
             .canonicalize()
@@ -807,7 +807,7 @@ fn resolve_related_asset(source: &SourceEntry, reference: &str) -> Result<PathBu
 fn find_source_workspace_root(source: &Path) -> Option<PathBuf> {
     source.parent()?.ancestors().find_map(|ancestor| {
         ancestor
-            .join(".madora")
+            .join(".markune")
             .join("assets")
             .join("index.json")
             .is_file()
@@ -907,7 +907,7 @@ fn cleanup_expired_sessions(sessions: &mut HashMap<String, CommitSession>) {
 }
 
 fn cleanup_orphaned_staging_directories(root: &Path) -> Result<(), String> {
-    let staging_root = root.join(".madora").join("import-staging");
+    let staging_root = root.join(".markune").join("import-staging");
     if !staging_root.exists() {
         return Ok(());
     }
@@ -958,7 +958,7 @@ mod tests {
     fn rejects_unknown_manifest_placeholder() {
         let error = validate_manifest(&DocumentImportManifest {
             assets: Vec::new(),
-            markdown: "![x](madora-import://asset/missing)".to_string(),
+            markdown: "![x](markune-import://asset/missing)".to_string(),
             title: "测试".to_string(),
         })
         .expect_err("未知占位符必须拒绝");

@@ -46,7 +46,7 @@ pub struct DocumentConverterRuntime {
 }
 
 pub fn runtime_info(app: &AppHandle) -> DocumentExportRuntimeInfo {
-    if env::var("MADORA_DOCUMENT_EXPORT_ENGINE")
+    if env::var("MARKUNE_DOCUMENT_EXPORT_ENGINE")
         .is_ok_and(|value| value.eq_ignore_ascii_case("legacy"))
     {
         return DocumentExportRuntimeInfo {
@@ -87,8 +87,8 @@ pub fn resolve_runtime(app: &AppHandle) -> Result<DocumentConverterRuntime, Stri
             Err(_) => (None, None, None),
         };
     let resource_root = resolve_resource_root(app)?;
-    let typst_template = resource_root.join("madora.typ");
-    let reference_docx_base64 = resource_root.join("madora-reference.docx.base64");
+    let typst_template = resource_root.join("markune.typ");
+    let reference_docx_base64 = resource_root.join("markune-reference.docx.base64");
 
     if !typst_template.is_file() || !reference_docx_base64.is_file() {
         return Err("专业文档导出模板缺失，请重新安装应用。".to_string());
@@ -247,7 +247,7 @@ fn convert_word(
     source: &Path,
     output: &Path,
 ) -> Result<Vec<String>, String> {
-    let reference_docx = staging.join("madora-reference.docx");
+    let reference_docx = staging.join("markune-reference.docx");
     let encoded = fs::read_to_string(&runtime.reference_docx_base64)
         .map_err(|error| format!("无法读取 Word 导出模板：{error}"))?;
     let bytes = BASE64_STANDARD
@@ -260,7 +260,7 @@ fn convert_word(
     command.current_dir(staging).args([
         "--from=json",
         "--to=docx",
-        "--reference-doc=madora-reference.docx",
+        "--reference-doc=markune-reference.docx",
         "--resource-path=.",
         "--wrap=none",
         source
@@ -292,7 +292,7 @@ fn convert_pdf(
         .main_font
         .as_ref()
         .ok_or_else(|| "专业 PDF 运行时缺少可用中文字体。".to_string())?;
-    fs::copy(&runtime.typst_template, staging.join("madora.typ"))
+    fs::copy(&runtime.typst_template, staging.join("markune.typ"))
         .map_err(|error| format!("无法准备 PDF 导出模板：{error}"))?;
     let code_font = platform_code_font();
     let mut pandoc = export_command(&runtime.pandoc);
@@ -301,7 +301,7 @@ fn convert_pdf(
         "--to=typst",
         "--standalone",
         "--resource-path=.",
-        "--variable=template:madora.typ",
+        "--variable=template:markune.typ",
         "--variable=papersize:a4",
         "--variable=page-numbering:1",
         &format!("--variable=mainfont:{main_font}"),
@@ -583,10 +583,10 @@ mod tests {
 
     #[test]
     fn redacts_staging_paths_from_converter_diagnostics() {
-        let staging = Path::new("/private/tmp/madora-export-123");
+        let staging = Path::new("/private/tmp/markune-export-123");
         assert_eq!(
             redact_staging_path(
-                "/private/tmp/madora-export-123/document.typ:4:1 warning",
+                "/private/tmp/markune-export-123/document.typ:4:1 warning",
                 staging,
             ),
             "<staging>/document.typ:4:1 warning"
@@ -674,9 +674,9 @@ mod tests {
             main_font: Some("Songti SC".to_string()),
             pandoc: pandoc.clone(),
             pandoc_version: probe_version(&pandoc).unwrap(),
-            reference_docx_base64: resource_root.join("madora-reference.docx.base64"),
+            reference_docx_base64: resource_root.join("markune-reference.docx.base64"),
             typst: Some(typst.clone()),
-            typst_template: resource_root.join("madora.typ"),
+            typst_template: resource_root.join("markune.typ"),
             typst_version: Some(probe_version(&typst).unwrap()),
         };
         let word = directory.path().join("document.docx");

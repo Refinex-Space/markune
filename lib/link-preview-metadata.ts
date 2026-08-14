@@ -112,7 +112,7 @@ async function fetchPreviewResponse(
     const response = await fetchImpl(currentUrl, {
       headers: {
         accept: 'text/html,application/xhtml+xml',
-        'user-agent': 'MadoraLinkPreview/1.0',
+        'user-agent': 'MarkuneLinkPreview/1.0',
       },
       redirect: 'manual',
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),

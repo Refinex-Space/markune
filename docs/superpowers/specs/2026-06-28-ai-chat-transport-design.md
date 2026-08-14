@@ -3,17 +3,17 @@
 - 日期：2026-06-28
 - 作者：refinex
 - 子项目：B（整体重建路线图第 0 阶段传输层）
-- 上游目标：将 `/Users/refinex/Downloads/1code-main` 聊天面板能力整体重建到 Madora AI 侧边面板
+- 上游目标：将 `/Users/refinex/Downloads/1code-main` 聊天面板能力整体重建到 Markune AI 侧边面板
 - 依赖：A 子项目（`ai-contracts.ts` 的 `UiMessageChunk`、`ai-event-normalizer.ts` 的归一化、`ai-message-store.ts` 的 store）
 - 状态：已通过设计自审，待用户审阅
 
 ## 1. 背景与定位
 
-A 子项目已建立 parts 纵向流契约（`UiMessageChunk`/`AiMessage`）、事件归一化适配器（`AiEventNormalizer`：`AiRuntimeEvent` → `UiMessageChunk`）、消息隔离 store（`createAiMessageStore` + `consumeChunk`）。B 子项目建立**连接 Rust agent 运行时与渲染层的统一传输枢纽**，把 Madora 现有的「event 回调 + invoke 触发」封装为 1code 对齐的流接口。
+A 子项目已建立 parts 纵向流契约（`UiMessageChunk`/`AiMessage`）、事件归一化适配器（`AiEventNormalizer`：`AiRuntimeEvent` → `UiMessageChunk`）、消息隔离 store（`createAiMessageStore` + `consumeChunk`）。B 子项目建立**连接 Rust agent 运行时与渲染层的统一传输枢纽**，把 Markune 现有的「event 回调 + invoke 触发」封装为 1code 对齐的流接口。
 
 ### 现状
 
-Madora 当前在 `ai-panel-content.tsx`（4400 行单体）中：
+Markune 当前在 `ai-panel-content.tsx`（4400 行单体）中：
 - `listenAiEvents(callback)` 订阅 Tauri event → 直接喂给 `reduceAiPanelState`（旧平铺 reducer）
 - `startAiSession` 启动会话、`sendAiPrompt` 发送、`cancelAiTurn` 取消、`respondAiPermission` 应答权限
 - 事件流与 reducer 强耦合，无法被新的 parts 纵向流渲染层（C 子项目）复用
@@ -31,7 +31,7 @@ interface ChatTransport<UIMessage> {
 
 ## 2. 设计目标
 
-- 封装 Madora 的 event/invoke 为统一 `AiChatTransport`，对上层暴露 `sendMessages → ReadableStream<UiMessageChunk>`
+- 封装 Markune 的 event/invoke 为统一 `AiChatTransport`，对上层暴露 `sendMessages → ReadableStream<UiMessageChunk>`
 - 内部用 A 的 `AiEventNormalizer` 归一化 Tauri `AiRuntimeEvent`
 - 实现 chunk 路由：permission/session-init 等特殊语义分流到外部回调，普通 chunk 进流
 - 实现 abort 取消（`cancelAiTurn` + unlisten + close）
@@ -75,7 +75,7 @@ export interface AiChatTransport {
 }
 ```
 
-> **session 模型差异**：1code 每条 message 走流；Madora 是「start session → 多轮 send prompt」。transport 封装为「首次 sendMessages 自动 start session，后续复用 sessionId」，对上层呈现 1code 对齐的 per-turn 流语义。
+> **session 模型差异**：1code 每条 message 走流；Markune 是「start session → 多轮 send prompt」。transport 封装为「首次 sendMessages 自动 start session，后续复用 sessionId」，对上层呈现 1code 对齐的 per-turn 流语义。
 
 ## 4. 流桥接模式（复刻 1code）
 

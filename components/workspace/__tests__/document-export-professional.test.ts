@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { prepareProfessionalDocument } from '../document-export-professional';
 
 describe('prepareProfessionalDocument', () => {
-  it('normalizes Madora-only syntax and replaces rendered Mermaid with a PNG asset', async () => {
+  it('normalizes Markune-only syntax and replaces rendered Mermaid with a PNG asset', async () => {
     const snapshot = document.createElement('section');
     snapshot.innerHTML = `
       <div class="markweave-mermaid-preview">
@@ -39,13 +39,13 @@ describe('prepareProfessionalDocument', () => {
       '[远程架构图](https://example.com/diagram.png)',
     );
     expect(result.markdown).toContain(
-      '![Mermaid 图表 1](./__MADORA_EXPORT_STEM__.assets/madora-diagram-1.png)',
+      '![Mermaid 图表 1](./__MARKUNE_EXPORT_STEM__.assets/markune-diagram-1.png)',
     );
     expect(result.markdown).not.toContain('```mermaid');
     expect(result.files).toEqual([
       {
         base64Data: 'AQID',
-        relativePath: 'madora-diagram-1.png',
+        relativePath: 'markune-diagram-1.png',
         role: 'asset',
       },
     ]);
@@ -122,7 +122,7 @@ describe('prepareProfessionalDocument', () => {
 
     expect(result.markdown).toContain('```mermaid\nfirst\n```');
     expect(result.markdown).toContain(
-      '![Mermaid 图表 2](./__MADORA_EXPORT_STEM__.assets/madora-diagram-2.png)',
+      '![Mermaid 图表 2](./__MARKUNE_EXPORT_STEM__.assets/markune-diagram-2.png)',
     );
     expect(result.warnings).toContain(
       '第 1 个 Mermaid 图表没有可用预览，已保留源代码。',

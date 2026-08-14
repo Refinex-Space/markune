@@ -17,7 +17,7 @@ export interface WorkspaceReferenceItem extends MarkweaveReferenceItem {
 
 const SUGGESTION_WIDTH = '20rem';
 const CONTAINER_CLASS =
-  'madora-doc-suggestion z-50 flex max-h-72 w-80 max-w-[min(20rem,calc(100vw-2rem))] min-w-0 flex-col overflow-x-hidden overflow-y-auto rounded-md border bg-popover p-1 text-sm text-popover-foreground shadow-md';
+  'markune-doc-suggestion z-50 flex max-h-72 w-80 max-w-[min(20rem,calc(100vw-2rem))] min-w-0 flex-col overflow-x-hidden overflow-y-auto rounded-md border bg-popover p-1 text-sm text-popover-foreground shadow-md';
 const ROW_BASE_CLASS =
   'flex w-full min-w-0 cursor-pointer items-center gap-2 overflow-hidden rounded-sm px-2 py-1.5 text-left outline-none';
 const ROW_ACTIVE_CLASS = 'bg-accent text-accent-foreground';

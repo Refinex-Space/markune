@@ -371,16 +371,16 @@ function AlbumRow({
             draggable={!editing}
             onDragOver={(event) => event.preventDefault()}
             onDragStart={(event) => {
-              event.dataTransfer.setData('application/x-madora-album', album.path);
+              event.dataTransfer.setData('application/x-markune-album', album.path);
             }}
             onDrop={(event) => {
               event.preventDefault();
               const drawingId = event.dataTransfer.getData(
-                'application/x-madora-drawing',
+                'application/x-markune-drawing',
               );
               if (drawingId) void controller.move(drawingId, album.path);
               const sourceAlbum = event.dataTransfer.getData(
-                'application/x-madora-album',
+                'application/x-markune-album',
               );
               if (sourceAlbum && sourceAlbum !== album.path) {
                 void controller.moveAlbum(sourceAlbum, album.path);
@@ -520,7 +520,7 @@ function DrawingLeaf({
           draggable
           onDragStart={(event) =>
             event.dataTransfer.setData(
-              'application/x-madora-drawing',
+              'application/x-markune-drawing',
               drawing.id,
             )
           }

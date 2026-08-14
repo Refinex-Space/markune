@@ -652,7 +652,7 @@ function graphSettingsKey(rootPath: string) {
     hash ^= rootPath.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
-  return `madora:graph:${(hash >>> 0).toString(36)}:settings:v1`;
+  return `markune:graph:${(hash >>> 0).toString(36)}:settings:v1`;
 }
 
 function readPersistedGraphSettings(rootPath: string) {

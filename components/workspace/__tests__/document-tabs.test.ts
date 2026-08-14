@@ -150,12 +150,12 @@ describe('document tabs model', () => {
     let layout = openDocumentTab(createInitialEditorLayout(), doc('a'));
     layout = openPlanPreviewTab(layout, {
       id: 'plan-1',
-      text: '# Madora 计划\n\n第一版',
+      text: '# Markune 计划\n\n第一版',
       threadId: 'thread-1',
     });
     layout = openPlanPreviewTab(layout, {
       id: 'plan-1',
-      text: '# Madora 计划\n\n更新后的完整正文',
+      text: '# Markune 计划\n\n更新后的完整正文',
       threadId: 'thread-1',
     });
 
@@ -164,8 +164,8 @@ describe('document tabs model', () => {
     expect(layout.tabs[1]).toMatchObject({
       id: 'plan:thread-1:plan-1',
       kind: 'plan',
-      markdown: '# Madora 计划\n\n更新后的完整正文',
-      title: 'Madora 计划',
+      markdown: '# Markune 计划\n\n更新后的完整正文',
+      title: 'Markune 计划',
     });
 
     const closed = closeDocumentTab(layout, 'plan:thread-1:plan-1');

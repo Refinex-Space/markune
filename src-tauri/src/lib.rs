@@ -1,5 +1,6 @@
 mod app_update;
 mod assets;
+mod brand_migration;
 mod codex;
 mod codex_provider;
 mod document_converter;
@@ -26,13 +27,13 @@ use tauri::{
 };
 
 #[cfg(target_os = "macos")]
-const OPEN_SETTINGS_MENU_ITEM_ID: &str = "madora-open-settings";
+const OPEN_SETTINGS_MENU_ITEM_ID: &str = "markune-open-settings";
 #[cfg(target_os = "macos")]
-const OPEN_SETTINGS_EVENT: &str = "madora-open-settings";
+const OPEN_SETTINGS_EVENT: &str = "markune-open-settings";
 #[cfg(target_os = "macos")]
-const CHECK_UPDATE_MENU_ITEM_ID: &str = "madora-check-update";
+const CHECK_UPDATE_MENU_ITEM_ID: &str = "markune-check-update";
 #[cfg(target_os = "macos")]
-const CHECK_UPDATE_EVENT: &str = "madora-check-update";
+const CHECK_UPDATE_EVENT: &str = "markune-check-update";
 
 #[cfg(target_os = "macos")]
 fn build_macos_application_menu<R: tauri::Runtime>(
@@ -98,7 +99,7 @@ pub fn run() {
         .manage(drawings::DrawingState::default())
         .manage(export_state)
         .manage(import::ImportState::default())
-        .register_uri_scheme_protocol("madora-export", move |_context, request| {
+        .register_uri_scheme_protocol("markune-export", move |_context, request| {
             export_protocol_state.protocol_response(&request)
         })
         .plugin(tauri_plugin_dialog::init())
@@ -121,6 +122,8 @@ pub fn run() {
             assets::read_workspace_asset_data,
             assets::select_tree_icon_asset,
             assets::discard_unreferenced_tree_icon_asset,
+            brand_migration::inspect_workspace_brand,
+            brand_migration::migrate_legacy_workspace_brand,
             codex::codex_runtime_probe,
             codex::codex_runtime_start,
             codex::codex_runtime_stop,

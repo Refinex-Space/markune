@@ -525,7 +525,7 @@ fn append_inbox_capture_to_daily_sync(
     }
     let opened = workspace::open_daily_note(root_path.to_string(), date.to_string())?;
     let previous_content = opened.content.content.clone();
-    let marker = format!("<!-- madora-capture:{} -->", stored.capture.id);
+    let marker = format!("<!-- markune-capture:{} -->", stored.capture.id);
     if linked_to_expected_daily && previous_content.contains(&marker) {
         return Ok(InboxDailyAppendResult {
             capture: stored.capture,
@@ -836,7 +836,7 @@ fn canonical_workspace_root(root_path: &str) -> Result<PathBuf, String> {
 }
 
 fn ensure_inbox_dir(root: &Path) -> Result<PathBuf, String> {
-    let private_dir = root.join(".madora");
+    let private_dir = root.join(".markune");
     if private_dir.exists() {
         let canonical_private = private_dir
             .canonicalize()
@@ -1158,9 +1158,9 @@ mod tests {
             &root,
             "# 一个想法\n\n继续补充".to_string(),
             vec![
-                "#Madora".to_string(),
+                "#Markune".to_string(),
                 "AI Panel".to_string(),
-                "madora".to_string(),
+                "markune".to_string(),
             ],
             InboxCaptureSource::QuickCapture,
         )
@@ -1170,10 +1170,10 @@ mod tests {
         assert_inbox_modified_at_is_tauri_compatible(created.modified_at);
         let serialized = serde_json::to_value(&created).expect("serialize capture");
         assert_eq!(serialized["modifiedAt"].as_u64(), Some(created.modified_at));
-        assert_eq!(created.tags, vec!["madora", "ai-panel"]);
+        assert_eq!(created.tags, vec!["markune", "ai-panel"]);
         assert!(temp
             .path()
-            .join(format!(".madora/inbox/{}.md", created.id))
+            .join(format!(".markune/inbox/{}.md", created.id))
             .is_file());
 
         let listed = list_inbox_captures_sync(&root, InboxCaptureListView::Active, None)
@@ -1195,7 +1195,9 @@ mod tests {
             InboxCaptureSource::Inbox,
         )
         .expect("create capture");
-        let path = temp.path().join(format!(".madora/inbox/{}.md", created.id));
+        let path = temp
+            .path()
+            .join(format!(".markune/inbox/{}.md", created.id));
         let raw = fs::read_to_string(&path).expect("capture raw");
         fs::write(
             &path,
@@ -1283,7 +1285,7 @@ mod tests {
             fs::read_to_string(temp.path().join("Daily/2026/07/2026-07-18.md")).expect("daily raw");
         assert_eq!(
             daily
-                .matches(&format!("madora-capture:{}", appended.id))
+                .matches(&format!("markune-capture:{}", appended.id))
                 .count(),
             1
         );
@@ -1303,7 +1305,7 @@ mod tests {
             .expect("retried daily raw");
         assert_eq!(
             retried_daily
-                .matches(&format!("madora-capture:{}", appended.id))
+                .matches(&format!("markune-capture:{}", appended.id))
                 .count(),
             1
         );
@@ -1322,7 +1324,7 @@ mod tests {
     fn recovers_missing_fields_and_searches_across_resolved_states() {
         let temp = tempfile::tempdir().expect("temp dir");
         let root = temp.path().to_string_lossy().to_string();
-        let inbox = temp.path().join(".madora/inbox");
+        let inbox = temp.path().join(".markune/inbox");
         fs::create_dir_all(&inbox).expect("inbox dir");
         fs::write(
             inbox.join("cap_20260718_143205_123_a1b2c3d4.md"),
@@ -1381,7 +1383,7 @@ mod tests {
     #[test]
     fn rejects_capture_path_traversal_and_private_promote_targets() {
         assert!(validate_capture_id("../outside").is_err());
-        assert!(validate_promote_target(".madora/inbox").is_err());
+        assert!(validate_promote_target(".markune/inbox").is_err());
         assert!(validate_promote_target("Daily/2026/07").is_err());
         assert!(validate_promote_target("notes").is_ok());
     }
@@ -1393,7 +1395,7 @@ mod tests {
 
         let workspace = tempfile::tempdir().expect("workspace temp dir");
         let outside = tempfile::tempdir().expect("outside temp dir");
-        symlink(outside.path(), workspace.path().join(".madora"))
+        symlink(outside.path(), workspace.path().join(".markune"))
             .expect("private directory symlink");
 
         let error = ensure_inbox_dir(workspace.path()).expect_err("symlink escape must fail");

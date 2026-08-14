@@ -49,7 +49,7 @@ describe('Daily notes workspace shell', () => {
     expect(layout).toContain('rootPath={workspace.snapshot.rootPath}');
     expect(layout).toContain('inspectorWidth={dailyNotesInspectorWidth}');
     expect(layout).toContain(
-      "dailyNotesInspector: 'madora:workspace:daily-notes-inspector-width:v2'",
+      "dailyNotesInspector: 'markune:workspace:daily-notes-inspector-width:v2'",
     );
     expect(layout).toContain('if (storedValue === null)');
     expect(layout).toContain('onInspectorResize={setDailyNotesInspectorWidth}');

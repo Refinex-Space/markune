@@ -9,7 +9,9 @@ const api = vi.hoisted(() => ({
   ensureWorkspace: vi.fn(async () => ({ recentDocumentPaths: [] })),
   getRecentWorkspacePath: vi.fn(() => null as string | null),
   getWorkspaceHistory: vi.fn(() => []),
+  inspectWorkspaceBrand: vi.fn(async () => ({ state: 'current' })),
   loadWorkspaceTree: vi.fn(),
+  migrateLegacyWorkspaceBrand: vi.fn(),
   moveWorkspaceNode: vi.fn(),
   readMarkdownDocument: vi.fn(),
   recordWorkspaceHistory: vi.fn((snapshot: { rootPath: string; rootName: string }) => [
@@ -50,6 +52,7 @@ describe('useWorkspace open workspace', () => {
     api.getRecentWorkspacePath.mockReturnValue(null);
     api.getWorkspaceHistory.mockReturnValue([]);
     api.ensureWorkspace.mockResolvedValue({ recentDocumentPaths: [] });
+    api.inspectWorkspaceBrand.mockResolvedValue({ state: 'current' });
   });
 
   it('does not let a stale auto-restore failure clear a newer successful open', async () => {
@@ -190,5 +193,77 @@ describe('useWorkspace open workspace', () => {
     expect(result.current.isLoading).toBe(false);
     expect(result.current.error?.message).toBe('工作区路径不存在');
     expect(api.removeWorkspaceHistory).not.toHaveBeenCalled();
+  });
+
+  it('blocks a legacy workspace until the user confirms safe migration', async () => {
+    api.inspectWorkspaceBrand.mockResolvedValue({ state: 'legacy' });
+    api.selectWorkspaceRoot.mockResolvedValue('/workspace/legacy');
+
+    const { result } = renderHook(() => useWorkspace(null));
+
+    await act(async () => {
+      await result.current.openWorkspace();
+    });
+
+    expect(result.current.pendingBrandMigration).toEqual({
+      rootPath: '/workspace/legacy',
+      state: 'legacy',
+    });
+    expect(result.current.snapshot).toBeNull();
+    expect(api.loadWorkspaceTree).not.toHaveBeenCalled();
+  });
+
+  it('migrates a confirmed legacy workspace and opens it without reinspection', async () => {
+    api.inspectWorkspaceBrand.mockResolvedValue({ state: 'legacy' });
+    api.selectWorkspaceRoot.mockResolvedValue('/workspace/legacy');
+    api.migrateLegacyWorkspaceBrand.mockResolvedValue({
+      appSettingsMigrated: true,
+      backupPath: '.markune/migrations/brand-rename/test',
+      codexProviderMigrated: false,
+      credentialMigrated: false,
+      migratedFiles: 2,
+      warnings: [],
+    });
+    api.loadWorkspaceTree.mockResolvedValue(snapshotFor('/workspace/legacy'));
+
+    const { result } = renderHook(() => useWorkspace(null));
+    await act(async () => {
+      await result.current.openWorkspace();
+    });
+    await act(async () => {
+      await result.current.migratePendingBrandWorkspace();
+    });
+
+    expect(api.migrateLegacyWorkspaceBrand).toHaveBeenCalledWith(
+      '/workspace/legacy',
+    );
+    expect(api.inspectWorkspaceBrand).toHaveBeenCalledTimes(1);
+    expect(result.current.snapshot?.rootPath).toBe('/workspace/legacy');
+    expect(result.current.pendingBrandMigration).toBeNull();
+    expect(result.current.brandMigrationReport?.migratedFiles).toBe(2);
+  });
+
+  it('keeps the current workspace open when migration of another workspace is cancelled', async () => {
+    api.inspectWorkspaceBrand.mockResolvedValue({ state: 'legacy' });
+    api.selectWorkspaceRoot.mockResolvedValue('/workspace/legacy');
+
+    const { result } = renderHook(() =>
+      useWorkspace(snapshotFor('/workspace/current')),
+    );
+    await act(async () => {
+      await result.current.openWorkspace();
+    });
+
+    expect(result.current.snapshot?.rootPath).toBe('/workspace/current');
+    expect(result.current.pendingBrandMigration?.rootPath).toBe(
+      '/workspace/legacy',
+    );
+
+    act(() => {
+      result.current.cancelBrandMigration();
+    });
+
+    expect(result.current.snapshot?.rootPath).toBe('/workspace/current');
+    expect(result.current.pendingBrandMigration).toBeNull();
   });
 });

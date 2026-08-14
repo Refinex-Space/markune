@@ -17,7 +17,7 @@ const GIT_LONG_COMMAND_TIMEOUT: Duration = Duration::from_secs(180);
 const GIT_PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(25);
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
-const GIT_SYNC_COMMIT_MESSAGE: &str = "Updated from Madora";
+const GIT_SYNC_COMMIT_MESSAGE: &str = "Updated from Markune";
 const GIT_SYNC_CONFLICT_MESSAGE: &str = "远端和本地同时修改了同一文件，请在 Git 面板处理后重试。";
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -1157,7 +1157,7 @@ mod tests {
         let started_at = Instant::now();
         let error = run_git_with_timeout(
             root.path(),
-            &["-c", "alias.madora-wait=!sleep 5", "madora-wait"],
+            &["-c", "alias.markune-wait=!sleep 5", "markune-wait"],
             Duration::from_millis(150),
         )
         .unwrap_err();
@@ -1169,7 +1169,7 @@ mod tests {
     #[test]
     fn probes_non_repository_workspace() {
         let root = tempdir().expect("temp root");
-        fs::create_dir_all(root.path().join(".madora")).expect("metadata dir");
+        fs::create_dir_all(root.path().join(".markune")).expect("metadata dir");
 
         let probe = git_probe(root.path().to_string_lossy().to_string()).unwrap();
 
@@ -1316,16 +1316,16 @@ mod tests {
             Some("https://github.com/Refinex-Space/refinex-vault")
         );
         assert_eq!(
-            remote_url_to_web_url("https://gitlab.com/refinex/madora.git").as_deref(),
-            Some("https://gitlab.com/refinex/madora")
+            remote_url_to_web_url("https://gitlab.com/refinex/markune.git").as_deref(),
+            Some("https://gitlab.com/refinex/markune")
         );
     }
 
     #[test]
     fn redacts_credentials_from_https_remote_url() {
         assert_eq!(
-            sanitize_remote_url("https://token@example.com/refinex/madora.git"),
-            "https://example.com/refinex/madora.git"
+            sanitize_remote_url("https://token@example.com/refinex/markune.git"),
+            "https://example.com/refinex/markune.git"
         );
     }
 
@@ -1387,7 +1387,7 @@ mod tests {
             "first push without remote history pulls nothing"
         );
         let log = run_git(root.path(), &["log", "-1", "--pretty=%s"]).expect("last subject");
-        assert_eq!(log.stdout.trim(), "Updated from Madora");
+        assert_eq!(log.stdout.trim(), "Updated from Markune");
         run_git(root.path(), &["ls-remote", "--exit-code", "origin", branch])
             .expect("remote branch exists");
     }

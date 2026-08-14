@@ -10,9 +10,9 @@ use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_dialog::DialogExt;
 
 const ASSET_SCHEMA_VERSION: u32 = 1;
-const ASSET_URL_PREFIX: &str = "madora-asset://";
-const ASSET_RELATIVE_PREFIX: &str = ".madora/assets/files/";
-const WORKSPACE_PRIVATE_DIR: &str = ".madora";
+const ASSET_URL_PREFIX: &str = "markune-asset://";
+const ASSET_RELATIVE_PREFIX: &str = ".markune/assets/files/";
+const WORKSPACE_PRIVATE_DIR: &str = ".markune";
 const MAX_LOCAL_ASSET_BYTES: usize = 100 * 1024 * 1024;
 const MAX_ASSET_RESOLUTION_BATCH: usize = 2_048;
 const MAX_TREE_ICON_BYTES: u64 = 2 * 1024 * 1024;
@@ -856,7 +856,7 @@ fn collect_markdown_documents(dir: &Path, paths: &mut Vec<PathBuf>) -> io::Resul
             .and_then(|value| value.to_str())
             .unwrap_or("");
 
-        if file_name == ".madora" {
+        if file_name == ".markune" {
             let inbox = path.join("inbox");
             if inbox.is_dir() {
                 collect_markdown_documents(&inbox, paths)?;
@@ -1028,7 +1028,7 @@ mod tests {
     }
 
     #[test]
-    fn uploads_asset_under_madora_assets_and_writes_index() {
+    fn uploads_asset_under_markune_assets_and_writes_index() {
         let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
 
         let uploaded = upload_workspace_asset_impl(
@@ -1044,11 +1044,11 @@ mod tests {
         assert_eq!(uploaded.name, "cover.png");
         assert_eq!(uploaded.media_type, "image/png");
         assert_eq!(uploaded.size, 9);
-        assert!(uploaded.url.starts_with("madora-asset://"));
+        assert!(uploaded.url.starts_with("markune-asset://"));
         assert_eq!(
             uploaded.relative_path,
             format!(
-                ".madora/assets/files/{}/{}.png",
+                ".markune/assets/files/{}/{}.png",
                 &uploaded.id[0..2],
                 uploaded.id
             )
@@ -1056,7 +1056,7 @@ mod tests {
         assert!(!uploaded.relative_path.contains('\\'));
         assert!(Path::new(&uploaded.absolute_path).is_file());
         assert!(Path::new(&uploaded.absolute_path).ends_with(Path::new(&uploaded.relative_path)));
-        assert!(temp_dir.path().join(".madora/assets/index.json").is_file());
+        assert!(temp_dir.path().join(".markune/assets/index.json").is_file());
     }
 
     #[test]
@@ -1216,7 +1216,7 @@ mod tests {
 
         assert_eq!(error, "资产不存在");
         assert!(root.join(".refinex/assets/index.json").is_file());
-        assert!(!root.join(".madora/assets/index.json").is_file());
+        assert!(!root.join(".markune/assets/index.json").is_file());
     }
 
     #[test]
@@ -1263,10 +1263,10 @@ mod tests {
     #[test]
     fn extracts_asset_ids_from_plate_json_value() {
         let value = serde_json::json!([
-            { "type": "img", "url": "madora-asset://asset-a", "children": [{ "text": "" }] },
+            { "type": "img", "url": "markune-asset://asset-a", "children": [{ "text": "" }] },
             { "type": "video", "url": "https://example.com/a.mp4", "children": [{ "text": "" }] },
-            { "type": "img", "url": ".madora/assets/files/ab/asset-c.png", "children": [{ "text": "" }] },
-            { "type": "file", "url": "madora-asset://asset-b", "children": [{ "text": "" }] },
+            { "type": "img", "url": ".markune/assets/files/ab/asset-c.png", "children": [{ "text": "" }] },
+            { "type": "file", "url": "markune-asset://asset-b", "children": [{ "text": "" }] },
             { "type": "file", "url": "refinex-asset://legacy", "children": [{ "text": "" }] }
         ]);
 
@@ -1285,11 +1285,11 @@ mod tests {
         let markdown = r#"
 ![cover](refinex-asset://asset-a)
 
-<refinex-file src="madora-asset://asset-b" />
+<refinex-file src="markune-asset://asset-b" />
 
-<video src=".madora/assets/files/ab/asset-c.mp4"></video>
+<video src=".markune/assets/files/ab/asset-c.mp4"></video>
 
-![new](.madora/assets/files/de/asset-d.png)
+![new](.markune/assets/files/de/asset-d.png)
 
 ![remote](https://example.com/image.png)
 "#;
@@ -1308,21 +1308,21 @@ mod tests {
     fn includes_inbox_markdown_but_skips_other_private_markdown() {
         let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
         let root = temp_dir.path();
-        fs::write(root.join("note.md"), "![note](madora-asset://note-asset)")
+        fs::write(root.join("note.md"), "![note](markune-asset://note-asset)")
             .expect("写入普通笔记失败");
-        fs::create_dir_all(root.join(".madora/inbox")).expect("创建 Inbox 失败");
+        fs::create_dir_all(root.join(".markune/inbox")).expect("创建 Inbox 失败");
         fs::write(
-            root.join(".madora/inbox/cap_20260718_143205_123_a1b2c3d4.md"),
-            "![capture](madora-asset://capture-asset)",
+            root.join(".markune/inbox/cap_20260718_143205_123_a1b2c3d4.md"),
+            "![capture](markune-asset://capture-asset)",
         )
         .expect("写入 Capture 失败");
         fs::write(
-            root.join(".madora/private.md"),
-            "![private](madora-asset://private-asset)",
+            root.join(".markune/private.md"),
+            "![private](markune-asset://private-asset)",
         )
         .expect("写入私有 Markdown 失败");
         fs::write(
-            root.join(".madora/workspace.json"),
+            root.join(".markune/workspace.json"),
             r#"{
               "nodeState": {
                 "Guides": {

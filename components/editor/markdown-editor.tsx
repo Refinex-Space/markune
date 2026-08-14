@@ -21,6 +21,7 @@ import {
   type DocumentFindRequest,
 } from '@/components/editor/document-find-bar';
 import {
+  createDrawingMarkdownReferenceHtml,
   normalizeDrawingMarkdownReferences,
   parseDrawingMarkdownUrl,
   projectDrawingMarkdownReferencesForEditor,
@@ -394,8 +395,10 @@ export const MarkdownEditor = React.forwardRef<
         const markdown =
           sourceMarkdown ??
           serializeBody(
-            restoreDrawingMarkdownReferencesFromEditor(
-              toStorageMarkdown(payload!.markdown),
+            normalizeDrawingMarkdownReferences(
+              restoreDrawingMarkdownReferencesFromEditor(
+                toStorageMarkdown(payload!.markdown),
+              ),
             ),
           );
         const origin = sourceMarkdown === null ? undefined : 'source';
@@ -475,6 +478,36 @@ export const MarkdownEditor = React.forwardRef<
       }, LIVE_DRAFT_IDLE_MS);
     },
     [flushDraft, onMarkdownChange, readOnly],
+  );
+
+  const handlePasteCapture = React.useCallback(
+    (event: React.ClipboardEvent<HTMLDivElement>) => {
+      if (readOnly || event.clipboardData.getData('text/html').trim()) {
+        return;
+      }
+
+      let drawingHtml: string;
+      try {
+        drawingHtml = createDrawingMarkdownReferenceHtml(
+          event.clipboardData.getData('text/plain'),
+        );
+      } catch {
+        return;
+      }
+
+      const clipboardData = event.clipboardData;
+      const getData = clipboardData.getData.bind(clipboardData);
+      try {
+        Object.defineProperty(clipboardData, 'getData', {
+          configurable: true,
+          value: (type: string) =>
+            type === 'text/html' ? drawingHtml : getData(type),
+        });
+      } catch {
+        // The editor can still persist the canonical plain-text fallback.
+      }
+    },
+    [readOnly],
   );
 
   const handleSourceUpdate = React.useCallback(
@@ -687,6 +720,7 @@ export const MarkdownEditor = React.forwardRef<
       data-editor-mode={sourceMode ? 'source' : readOnly ? 'view' : 'live'}
       data-page-width-mode={pageWidthMode}
       data-testid="markdown-editor-root"
+      onPasteCapture={handlePasteCapture}
       ref={editorRootRef}
       tabIndex={-1}
       onClickCapture={(event) => {
@@ -694,7 +728,7 @@ export const MarkdownEditor = React.forwardRef<
         if (!(target instanceof Element)) return;
         const link = target.closest<HTMLAnchorElement>('a[href]');
         const drawingImage = target.closest<HTMLImageElement>(
-          'img[title^="madora-drawing://"]',
+          'img[title^="markune-drawing://"]',
         );
         const linkHref = link?.getAttribute('href') ?? '';
         const href = linkHref || drawingImage?.getAttribute('title') || '';
@@ -703,7 +737,7 @@ export const MarkdownEditor = React.forwardRef<
           event.preventDefault();
           event.stopPropagation();
           window.dispatchEvent(
-            new CustomEvent('madora:open-drawing', {
+            new CustomEvent('markune:open-drawing', {
               detail: { drawingId },
             }),
           );
@@ -711,7 +745,7 @@ export const MarkdownEditor = React.forwardRef<
         }
 
         // Open workspace document links as tabs.
-        // - Document reference cards: always open in Madora (never the browser).
+        // - Document reference cards: always open in Markune (never the browser).
         // - Inline []() links: Ctrl/Cmd-click in live mode; plain click in view.
         // author: liyao
         const internalCard = target.closest<HTMLElement>(
@@ -835,7 +869,7 @@ export const MarkdownEditor = React.forwardRef<
             ariaLabel="Markdown 正文"
             askAi={askAiConfig}
             canvasColor="var(--background)"
-            className="madora-markweave-editor"
+            className="markune-markweave-editor"
             defaultContent={editorMarkdown}
             defaultContentFormat="markdown"
             editable={!readOnly}

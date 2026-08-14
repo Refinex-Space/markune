@@ -66,7 +66,7 @@ describe('Word document import', () => {
     expect(prepared.markdown).toContain('- 第一项');
     expect(prepared.markdown).toContain('| 字段 |');
     expect(prepared.markdown).toContain('| 内容 |');
-    expect(prepared.markdown).toContain('madora-import://asset/');
+    expect(prepared.markdown).toContain('markune-import://asset/');
     expect(prepared.assets).toEqual([
       expect.objectContaining({ kind: 'inline', mediaType: 'image/png' }),
     ]);

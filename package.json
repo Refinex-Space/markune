@@ -1,7 +1,15 @@
 {
-  "name": "madora",
+  "name": "markune",
   "version": "0.2.1",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/Refinex-Space/markune.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Refinex-Space/markune/issues"
+  },
+  "homepage": "https://github.com/Refinex-Space/markune#readme",
   "scripts": {
     "desktop:build": "tauri build",
     "desktop:dev": "pnpm codex:stage && pnpm document-export:stage && tauri dev",
@@ -14,7 +22,6 @@
     "excalidraw:stage": "node scripts/stage-excalidraw-runtime.mjs",
     "runtime:stage": "pnpm import:stage && pnpm excalidraw:stage",
     "release:prepare": "node scripts/prepare-release-updater-config.mjs",
-    "release:promote": "node scripts/promote-release-distribution.mjs",
     "start": "next start",
     "lint": "eslint",
     "harness:check": "python3 ops/harness/check-harness.py",

@@ -3,14 +3,14 @@
 - 日期：2026-06-28
 - 作者：refinex
 - 子项目：A（整体重建路线图的第 0 阶段地基）
-- 上游目标：将 `/Users/refinex/Downloads/1code-main` 的聊天面板能力整体重建到 Madora AI 侧边面板
+- 上游目标：将 `/Users/refinex/Downloads/1code-main` 的聊天面板能力整体重建到 Markune AI 侧边面板
 - 状态：已通过设计自审，待用户审阅
 
 ## 1. 背景与定位
 
-Madora 的 AI 面板经审计已实现 1code 写作相关能力的约 90%，但底层数据契约与 1code 存在**根本性哲学对立**：
+Markune 的 AI 面板经审计已实现 1code 写作相关能力的约 90%，但底层数据契约与 1code 存在**根本性哲学对立**：
 
-| 维度 | Madora 现状 | 1code |
+| 维度 | Markune 现状 | 1code |
 |---|---|---|
 | 消息组织 | 平铺四数组：`messages[]` + `thinking[]` + `tools[]` + `permissions[]`，靠 `parentToolCallId` 重排 | parts 纵向流：每条消息含 `parts[]`，文本/工具/思考按发生顺序内联 |
 | 事件协议 | 十余种 top-level 事件（messageDelta/thinkingDelta/toolStarted...） | 统一 `UIMessageChunk` 联合体 |
@@ -50,7 +50,7 @@ A 子项目只产契约 + store + 测试，**不接 UI**；UI 切换留给 C 子
 
 ### 4.1 统一 chunk 契约（传输层 ↔ store 的协议）
 
-一比一复刻 1code `UIMessageChunk`，并保留 Madora 特有的结构化权限语义：
+一比一复刻 1code `UIMessageChunk`，并保留 Markune 特有的结构化权限语义：
 
 ```ts
 export type UiMessageChunk =
@@ -83,7 +83,7 @@ export type UiMessageChunk =
       plugins: McpPluginInfo[];
       skills: string[];
     }
-  // 权限请求（Madora 特有；1code 用 ask-user-question，我们保留显式 allow/deny 语义）
+  // 权限请求（Markune 特有；1code 用 ask-user-question，我们保留显式 allow/deny 语义）
   | {
       type: 'permission-request';
       requestId: string;
@@ -95,7 +95,7 @@ export type UiMessageChunk =
     };
 ```
 
-> `permission-request` 是 Madora 特有 chunk。1code 用 `ask-user-question` 表达交互，但 Madora 的 agent 运行时（Codex/Claude CLI）有更结构化的权限确认 allow/deny + updatedInput + updatedPermissions，保留显式语义更安全。其余 chunk 一比一对齐 1code。
+> `permission-request` 是 Markune 特有 chunk。1code 用 `ask-user-question` 表达交互，但 Markune 的 agent 运行时（Codex/Claude CLI）有更结构化的权限确认 allow/deny + updatedInput + updatedPermissions，保留显式语义更安全。其余 chunk 一比一对齐 1code。
 
 ### 4.2 Message / MessagePart 模型
 
@@ -225,7 +225,7 @@ export class AiEventNormalizer {
 
 ### 6.1 存储格式 v2
 
-保留 JSON 文件（`{workspace}/.madora/ai-sessions/{id}.json`），内部结构从平铺四数组迁移为 parts 纵向流：
+保留 JSON 文件（`{workspace}/.markune/ai-sessions/{id}.json`），内部结构从平铺四数组迁移为 parts 纵向流：
 
 ```ts
 export interface AiConversationRecord {

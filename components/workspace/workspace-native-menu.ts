@@ -1,5 +1,5 @@
-export const OPEN_SETTINGS_EVENT = 'madora-open-settings';
-export const CHECK_UPDATE_EVENT = 'madora-check-update';
+export const OPEN_SETTINGS_EVENT = 'markune-open-settings';
+export const CHECK_UPDATE_EVENT = 'markune-check-update';
 
 type NativeEventListener = (
   event: string,

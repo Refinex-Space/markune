@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 建立 Madora AI 面板的统一传输层，把「event 回调 + invoke 触发」封装为 1code 对齐的 `sendMessages → ReadableStream<UiMessageChunk>` 流，接入 A 的归一化与路由 + abort 取消。
+**Goal:** 建立 Markune AI 面板的统一传输层，把「event 回调 + invoke 触发」封装为 1code 对齐的 `sendMessages → ReadableStream<UiMessageChunk>` 流，接入 A 的归一化与路由 + abort 取消。
 
 **Architecture:** 新增 `ai-chat-transport.ts`（接口 + `createAiChatTransport` 工厂）。transport 是纯编排层：在 `new ReadableStream({ start })` 内 `listenAiEvents` → `AiEventNormalizer.normalize` → chunk 路由（permission/session-init 分流回调，普通 enqueue，finish-step 关流）→ `sendAiPrompt`；abort 路径调 `cancelAiTurn` + unlisten + close。复用 A 子项目的 `AiEventNormalizer`/`UiMessageChunk`，复用既有 `startAiSession`/`sendAiPrompt`/`cancelAiTurn`/`respondAiPermission`/`listenAiEvents`，Rust 零改动。
 
@@ -21,7 +21,7 @@ components/workspace/ai-panel/
    └─ ai-chat-transport.test.ts  【新增】流桥接 + 路由 + abort + session 复用（mock listenAiEvents/invoke）
 ```
 
-单一职责：把 Madora 的 event/invoke 模型适配为流契约。所有依赖通过参数注入（`startAiSession`/`sendAiPrompt`/...），便于测试 mock。
+单一职责：把 Markune 的 event/invoke 模型适配为流契约。所有依赖通过参数注入（`startAiSession`/`sendAiPrompt`/...），便于测试 mock。
 
 ---
 
@@ -270,7 +270,7 @@ Create `components/workspace/ai-panel/ai-chat-transport.ts`:
 
 ```ts
 // @author refinex
-// 统一传输层 AiChatTransport：把 Madora 的「event 回调 + invoke 触发」封装为
+// 统一传输层 AiChatTransport：把 Markune 的「event 回调 + invoke 触发」封装为
 // 1code 对齐的 sendMessages → ReadableStream<UiMessageChunk> 流。
 // 纯编排层，无 React 依赖。内部用 A 的 AiEventNormalizer 归一化 Tauri event，
 // 实现 chunk 路由（permission/session-init 分流回调，普通进流，finish-step 关流）+ abort 取消。

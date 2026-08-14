@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全漏洞
+    url: https://github.com/Refinex-Space/markune/blob/main/SECURITY.md
+    about: 先阅读安全策略；不要在公开 Issue 中披露漏洞细节。

@@ -375,7 +375,7 @@ fn collect_documents(
 fn should_skip_entry(name: &str) -> bool {
     matches!(
         name,
-        ".madora" | ".git" | "node_modules" | "target" | "dist" | "build"
+        ".markune" | ".git" | "node_modules" | "target" | "dist" | "build"
     )
 }
 
@@ -761,13 +761,13 @@ mod tests {
     fn parses_multiline_tags_and_ignores_private_directories() {
         let directory = tempdir().expect("创建临时目录失败");
         let root = directory.path();
-        fs::create_dir_all(root.join(".madora")).expect("创建私有目录失败");
+        fs::create_dir_all(root.join(".markune")).expect("创建私有目录失败");
         fs::write(
             root.join("note.md"),
             "---\ntags:\n  - Knowledge Base\n  - '中文'\nowner: refinex\n---\n# Note",
         )
         .expect("写入笔记失败");
-        fs::write(root.join(".madora/private.md"), "# Private").expect("写入私有笔记失败");
+        fs::write(root.join(".markune/private.md"), "# Private").expect("写入私有笔记失败");
 
         let graph = load_workspace_graph_sync(root.to_str().unwrap()).expect("构建图谱失败");
 

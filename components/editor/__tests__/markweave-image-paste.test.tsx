@@ -115,12 +115,12 @@ describe('Markweave image integration', () => {
     clearWorkspaceAssetResolverCache();
   });
 
-  it('把剪贴板图片交给 Madora 提供的上传处理器并展示返回地址', async () => {
+  it('把剪贴板图片交给 Markune 提供的上传处理器并展示返回地址', async () => {
     const file = new File([new Uint8Array([1, 2, 3])], 'screenshot.png', {
       type: 'image/png',
     });
     const onUpload = vi.fn<MarkweaveSlashCommandUploadHandler>(async () => ({
-      src: 'asset://workspace/.madora/assets/files/ab/hash.png',
+      src: 'asset://workspace/.markune/assets/files/ab/hash.png',
       name: 'screenshot.png',
       mimeType: 'image/png',
       size: 3,
@@ -155,7 +155,7 @@ describe('Markweave image integration', () => {
     });
     await waitFor(() => {
       expect(surface.querySelector('img')?.getAttribute('src')).toBe(
-        'asset://workspace/.madora/assets/files/ab/hash.png',
+        'asset://workspace/.markune/assets/files/ab/hash.png',
       );
     });
   });
@@ -164,22 +164,22 @@ describe('Markweave image integration', () => {
     const existingAssetId = 'a'.repeat(64);
     const uploadedAssetId = 'b'.repeat(64);
     const existingMarkdown =
-      `![旧图](madora-asset://${existingAssetId})\n\n继续编辑`;
+      `![旧图](markune-asset://${existingAssetId})\n\n继续编辑`;
     vi.mocked(resolveWorkspaceAsset).mockResolvedValue({
-      absolutePath: `/ws/.madora/assets/files/aa/${existingAssetId}.png`,
+      absolutePath: `/ws/.markune/assets/files/aa/${existingAssetId}.png`,
       id: existingAssetId,
       mediaType: 'image/png',
       name: 'existing.png',
       size: 10,
     });
     vi.mocked(uploadWorkspaceAsset).mockResolvedValue({
-      absolutePath: `/ws/.madora/assets/files/bb/${uploadedAssetId}.png`,
+      absolutePath: `/ws/.markune/assets/files/bb/${uploadedAssetId}.png`,
       id: uploadedAssetId,
       mediaType: 'image/png',
       name: 'clipboard.png',
-      relativePath: `.madora/assets/files/bb/${uploadedAssetId}.png`,
+      relativePath: `.markune/assets/files/bb/${uploadedAssetId}.png`,
       size: 3,
-      url: `madora-asset://${uploadedAssetId}`,
+      url: `markune-asset://${uploadedAssetId}`,
     });
     let editor: MarkweaveEditorUpdatePayload['editor'] | null = null;
 
@@ -216,16 +216,16 @@ describe('Markweave image integration', () => {
     });
     expect(
       screen.getByTestId('workspace-asset-storage').textContent,
-    ).toContain(`madora-asset://${uploadedAssetId}`);
+    ).toContain(`markune-asset://${uploadedAssetId}`);
   });
 
   it('含本地图片的有序列表连续回车只新增一项并正常退出', async () => {
     const assetId = 'c'.repeat(64);
     const markdown =
-      `![图](madora-asset://${assetId})\n\n` +
+      `![图](markune-asset://${assetId})\n\n` +
       '1. 一\n2. 二\n3. 三\n4. 四\n5. 五\n6. 六\n7. 七';
     vi.mocked(resolveWorkspaceAsset).mockResolvedValue({
-      absolutePath: `/ws/.madora/assets/files/cc/${assetId}.png`,
+      absolutePath: `/ws/.markune/assets/files/cc/${assetId}.png`,
       id: assetId,
       mediaType: 'image/png',
       name: 'list.png',
@@ -307,7 +307,7 @@ describe('Markweave image integration', () => {
         files: [],
         getData: (type: string) =>
           type === 'text/html'
-            ? '<img alt="bad" src="madora-asset://short-id">'
+            ? '<img alt="bad" src="markune-asset://short-id">'
             : '',
       },
     });
@@ -317,13 +317,13 @@ describe('Markweave image integration', () => {
 
   it('文档移动到其他层级并重新挂载后仍按资产协议解析图片', async () => {
     vi.mocked(resolveWorkspaceAsset).mockResolvedValue({
-      absolutePath: '/ws/.madora/assets/files/ab/hash.png',
+      absolutePath: '/ws/.markune/assets/files/ab/hash.png',
       id: 'hash',
       mediaType: 'image/png',
       name: 'cover.png',
       size: 5,
     });
-    const markdown = '![封面](madora-asset://hash)';
+    const markdown = '![封面](markune-asset://hash)';
 
     const firstMount = render(
       <WorkspaceAssetEditor documentKey="guide.md" markdown={markdown} />,
@@ -335,7 +335,7 @@ describe('Markweave image integration', () => {
           .getByTestId('markweave-editor-surface')
           .querySelector('img')
           ?.getAttribute('src'),
-      ).toBe('asset:///ws/.madora/assets/files/ab/hash.png');
+      ).toBe('asset:///ws/.markune/assets/files/ab/hash.png');
     });
 
     firstMount.unmount();
@@ -353,7 +353,7 @@ describe('Markweave image integration', () => {
           .getByTestId('markweave-editor-surface')
           .querySelector('img')
           ?.getAttribute('src'),
-      ).toBe('asset:///ws/.madora/assets/files/ab/hash.png');
+      ).toBe('asset:///ws/.markune/assets/files/ab/hash.png');
     });
     expect(resolveWorkspaceAsset).toHaveBeenCalledTimes(1);
     expect(resolveWorkspaceAsset).toHaveBeenLastCalledWith('/ws/root', 'hash');
@@ -363,16 +363,16 @@ describe('Markweave image integration', () => {
     const assetId = 'd0f45cd65e487641a2bed39aaf81f718b7bc6969ac49520911230b69fe219156';
     const drawingId = '98a5fa9b-ef6d-4218-adc6-e29a5f17929c';
     const markdown =
-      `[![测试1](madora-asset://${assetId})](madora-drawing://${drawingId})`;
+      `[![测试1](markune-asset://${assetId})](markune-drawing://${drawingId})`;
     vi.mocked(resolveWorkspaceAsset).mockResolvedValue({
-      absolutePath: `/ws/.madora/assets/files/d0/${assetId}.png`,
+      absolutePath: `/ws/.markune/assets/files/d0/${assetId}.png`,
       id: assetId,
       mediaType: 'image/png',
       name: '测试1.png',
       size: 8899,
     });
     const onOpenDrawing = vi.fn();
-    window.addEventListener('madora:open-drawing', onOpenDrawing);
+    window.addEventListener('markune:open-drawing', onOpenDrawing);
 
     render(<DrawingReferenceEditor markdown="" />);
     const surface = screen.getByTestId('markweave-editor-surface');
@@ -395,7 +395,7 @@ describe('Markweave image integration', () => {
     });
     await waitFor(() => {
       expect(surface.querySelector('img')?.getAttribute('src')).toBe(
-        `asset:///ws/.madora/assets/files/d0/${assetId}.png`,
+        `asset:///ws/.markune/assets/files/d0/${assetId}.png`,
       );
     });
 
@@ -404,16 +404,16 @@ describe('Markweave image integration', () => {
     expect((onOpenDrawing.mock.calls[0][0] as CustomEvent).detail).toEqual({
       drawingId,
     });
-    window.removeEventListener('madora:open-drawing', onOpenDrawing);
+    window.removeEventListener('markune:open-drawing', onOpenDrawing);
   });
 
   it('富剪贴板不可用时仍能从纯文本图稿引用恢复快照', async () => {
     const assetId = 'd0f45cd65e487641a2bed39aaf81f718b7bc6969ac49520911230b69fe219156';
     const drawingId = '98a5fa9b-ef6d-4218-adc6-e29a5f17929c';
     const markdown =
-      `[![测试1](madora-asset://${assetId})](madora-drawing://${drawingId})`;
+      `[![测试1](markune-asset://${assetId})](markune-drawing://${drawingId})`;
     vi.mocked(resolveWorkspaceAsset).mockResolvedValue({
-      absolutePath: `/ws/.madora/assets/files/d0/${assetId}.png`,
+      absolutePath: `/ws/.markune/assets/files/d0/${assetId}.png`,
       id: assetId,
       mediaType: 'image/png',
       name: '测试1.png',
@@ -436,7 +436,7 @@ describe('Markweave image integration', () => {
       ).toBe(markdown);
     });
     expect(surface.querySelector('img')?.getAttribute('src')).toBe(
-      `asset:///ws/.madora/assets/files/d0/${assetId}.png`,
+      `asset:///ws/.markune/assets/files/d0/${assetId}.png`,
     );
   });
 });

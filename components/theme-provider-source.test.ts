@@ -94,19 +94,19 @@ describe('theme provider source contract', () => {
     expect(workspaceLayoutSource).not.toContain('await appWindow.destroy()');
   });
 
-  it('keeps web and desktop app icons sourced from the Madora asset set', () => {
+  it('keeps web and desktop app icons sourced from the Markune asset set', () => {
     const tauriConfig = JSON.parse(readFileSync(tauriConfigPath, 'utf8'));
     const faviconPath = join(process.cwd(), 'app/favicon.ico');
     const tauriIcoPath = join(process.cwd(), 'src-tauri/icons/icon.ico');
-    const madoraLogoPath = join(
+    const markuneLogoPath = join(
       process.cwd(),
-      'public/brand/madora-logo-dark-app.svg.svg',
+      'public/brand/markune-logo-dark-app.svg.svg',
     );
 
-    const madoraLogoSource = readFileSync(madoraLogoPath, 'utf8');
-    expect(madoraLogoSource).toContain('macOS-style white rounded-square app icon');
-    expect(madoraLogoSource).toContain('id="tileFill"');
-    expect(madoraLogoSource).toContain('id="markFill"');
+    const markuneLogoSource = readFileSync(markuneLogoPath, 'utf8');
+    expect(markuneLogoSource).toContain('macOS-style white rounded-square app icon');
+    expect(markuneLogoSource).toContain('id="tileFill"');
+    expect(markuneLogoSource).toContain('id="markFill"');
     expect(Buffer.compare(readFileSync(faviconPath), readFileSync(tauriIcoPath))).toBe(
       0,
     );

@@ -3,32 +3,16 @@ import { fileURLToPath } from 'node:url';
 
 import {
   BUILD_RELEASE_ASSET_NAMES,
+  DISTRIBUTION_OWNER,
+  DISTRIBUTION_REPO,
   UPDATER_TARGETS,
 } from './release-distribution.mjs';
 
-const DISTRIBUTION_OWNER = 'Refinex-Space';
-const DISTRIBUTION_REPO = 'madora-site';
 const GITHUB_API_ROOT = 'https://api.github.com';
 const REQUEST_TIMEOUT_MS = 30_000;
 
 export const EXPECTED_RELEASE_ASSET_NAMES = BUILD_RELEASE_ASSET_NAMES;
 const REQUIRED_UPDATER_PLATFORMS = UPDATER_TARGETS;
-
-const PRIVATE_RELEASE_BODY_PATTERNS = Object.freeze([
-  /Refinex-Space\/madora(?=$|[\s`/#?])/i,
-  /私有\s*`?madora`?\s*仓库/i,
-  /构建来源\s*[:：]/,
-  /正式发布前必须/,
-  /(?:commit|提交)[^\n]{0,80}\b[0-9a-f]{7,64}\b/i,
-]);
-
-function containsPrivateSourceMetadata(value, expectedSourceSha) {
-  return (
-    typeof value === 'string' &&
-    (value.includes(expectedSourceSha) ||
-      PRIVATE_RELEASE_BODY_PATTERNS.some((pattern) => pattern.test(value)))
-  );
-}
 
 const scriptPath = fileURLToPath(import.meta.url);
 
@@ -57,9 +41,9 @@ export function validateReleaseSnapshot({
       `release tag mismatch: expected ${expectedTag}, received ${String(release.tag_name)}`,
     );
   }
-  if (release.name !== `Madora ${expectedTag}`) {
+  if (release.name !== `Markune ${expectedTag}`) {
     errors.push(
-      `release name mismatch: expected Madora ${expectedTag}, received ${String(release.name)}`,
+      `release name mismatch: expected Markune ${expectedTag}, received ${String(release.name)}`,
     );
   }
   if (release.draft !== true) {
@@ -68,16 +52,9 @@ export function validateReleaseSnapshot({
   if (release.prerelease !== false) {
     errors.push('release must not be a prerelease');
   }
-  if (release.target_commitish !== 'main') {
-    errors.push(
-      `release target must be madora-site main, received ${String(release.target_commitish)}`,
-    );
-  }
   const releaseBody = typeof release.body === 'string' ? release.body : '';
   if (releaseBody.trim().length === 0) {
     errors.push('release body must contain user-visible release notes');
-  } else if (containsPrivateSourceMetadata(releaseBody, expectedSourceSha)) {
-    errors.push('release body must not expose private source metadata');
   }
 
   const assets = Array.isArray(release.assets) ? release.assets : [];
@@ -135,8 +112,6 @@ export function validateReleaseSnapshot({
       typeof latestJson.notes === 'string' ? latestJson.notes : '';
     if (latestNotes.trim().length === 0) {
       errors.push('latest.json notes must contain user-visible release notes');
-    } else if (containsPrivateSourceMetadata(latestNotes, expectedSourceSha)) {
-      errors.push('latest.json notes must not expose private source metadata');
     }
 
     const platforms =
@@ -157,7 +132,10 @@ export function validateReleaseSnapshot({
       }
 
       const updaterAsset = assetsByName.get(expected.assetName);
-      if (!updaterAsset || platform.url !== updaterAsset.url) {
+      if (
+        !updaterAsset ||
+        platform.url !== updaterAsset.browser_download_url
+      ) {
         errors.push(
           `${platformName} URL does not reference ${expected.assetName} in this release`,
         );
@@ -212,6 +190,16 @@ export async function verifyGitHubDraftRelease({
     throw new Error('GITHUB_TOKEN is required to inspect the draft release');
   }
 
+  const taggedCommit = await requestJson(
+    `${GITHUB_API_ROOT}/repos/${DISTRIBUTION_OWNER}/${DISTRIBUTION_REPO}/commits/${encodeURIComponent(expectedTag)}`,
+    { fetchImpl, token },
+  );
+  if (taggedCommit?.sha !== expectedSourceSha) {
+    throw new Error(
+      `Release tag ${expectedTag} does not resolve to the workflow source commit`,
+    );
+  }
+
   const releases = await requestJson(
     `${GITHUB_API_ROOT}/repos/${DISTRIBUTION_OWNER}/${DISTRIBUTION_REPO}/releases?per_page=100`,
     { fetchImpl, token },
@@ -222,7 +210,7 @@ export async function verifyGitHubDraftRelease({
 
   const release = releases.find((candidate) => candidate?.tag_name === expectedTag);
   if (!release) {
-    throw new Error(`Draft release ${expectedTag} was not found in madora-site`);
+    throw new Error(`Draft release ${expectedTag} was not found in markune`);
   }
 
   const assetsByName = new Map(
@@ -232,9 +220,9 @@ export async function verifyGitHubDraftRelease({
   );
   const textAssetNames = [
     'latest.json',
-    'Madora_aarch64.app.tar.gz.sig',
-    'Madora_x64.app.tar.gz.sig',
-    'Madora_x64-setup.exe.sig',
+    'Markune_aarch64.app.tar.gz.sig',
+    'Markune_x64.app.tar.gz.sig',
+    'Markune_x64-setup.exe.sig',
   ];
   const textAssets = await Promise.all(
     textAssetNames.map(async (name) => {
@@ -296,7 +284,7 @@ async function requestText(
     headers: {
       Accept: accept,
       Authorization: `Bearer ${token}`,
-      'User-Agent': 'madora-release-verifier',
+      'User-Agent': 'markune-release-verifier',
       'X-GitHub-Api-Version': '2022-11-28',
     },
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -340,7 +328,7 @@ async function runCli() {
         token,
       });
       process.stdout.write(
-        `Verified Madora v${result.version} draft: ${result.assetCount} assets and ${result.platformCount} updater targets.\n`,
+        `Verified Markune v${result.version} draft: ${result.assetCount} assets and ${result.platformCount} updater targets.\n`,
       );
       return;
     } catch (error) {

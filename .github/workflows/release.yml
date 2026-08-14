@@ -1,4 +1,4 @@
-name: Release Madora desktop
+name: Release Markune desktop
 
 on:
   push:
@@ -8,15 +8,12 @@ on:
       - 'v*'
     paths:
       - '.github/workflows/release.yml'
-      - '.github/workflows/promote-release.yml'
+      - '.github/workflows/publish-release.yml'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
       - 'scripts/prepare-release-updater-config.mjs'
       - 'scripts/prepare-release-updater-config.test.mjs'
-      - 'scripts/print-oidc-claims.mjs'
-      - 'scripts/print-oidc-claims.test.mjs'
-      - 'scripts/promote-release-distribution.mjs'
       - 'scripts/release-distribution.mjs'
       - 'scripts/release-distribution.test.mjs'
       - 'scripts/verify-release-assets.mjs'
@@ -54,9 +51,8 @@ jobs:
       - name: Verify release configuration
         run: pnpm release:prepare
         env:
-          MADORA_OSS_PUBLIC_BASE_URL: ${{ vars.MADORA_OSS_PUBLIC_BASE_URL }}
-          MADORA_UPDATER_PUBLIC_KEY: ${{ vars.MADORA_UPDATER_PUBLIC_KEY }}
-      - run: node --test scripts/prepare-release-updater-config.test.mjs scripts/release-distribution.test.mjs scripts/print-oidc-claims.test.mjs scripts/verify-release-assets.test.mjs
+          MARKUNE_UPDATER_PUBLIC_KEY: ${{ vars.MARKUNE_UPDATER_PUBLIC_KEY }}
+      - run: node --test scripts/prepare-release-updater-config.test.mjs scripts/release-distribution.test.mjs scripts/verify-release-assets.test.mjs
       - run: pnpm exec vitest run components/workspace/__tests__/use-app-update.test.tsx components/workspace/__tests__/workspace-sidebar-update.test.tsx components/workspace/__tests__/workspace-settings-page.test.tsx
       - run: pnpm exec tsc --noEmit
       - run: pnpm lint
@@ -65,6 +61,8 @@ jobs:
     name: Build ${{ matrix.label }}
     if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     needs: verify
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -93,32 +91,28 @@ jobs:
       - name: Prepare signed updater configuration
         run: pnpm release:prepare
         env:
-          MADORA_OSS_PUBLIC_BASE_URL: ${{ vars.MADORA_OSS_PUBLIC_BASE_URL }}
-          MADORA_UPDATER_PUBLIC_KEY: ${{ vars.MADORA_UPDATER_PUBLIC_KEY }}
-      - name: Validate release credentials
+          MARKUNE_UPDATER_PUBLIC_KEY: ${{ vars.MARKUNE_UPDATER_PUBLIC_KEY }}
+      - name: Validate updater signing credentials
         shell: bash
         env:
-          MADORA_RELEASES_TOKEN: ${{ secrets.MADORA_RELEASES_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          test -n "$MADORA_RELEASES_TOKEN" || { echo "::error::MADORA_RELEASES_TOKEN is required"; exit 1; }
           test -n "$TAURI_SIGNING_PRIVATE_KEY" || { echo "::error::TAURI_SIGNING_PRIVATE_KEY is required"; exit 1; }
           test -n "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" || { echo "::error::TAURI_SIGNING_PRIVATE_KEY_PASSWORD is required"; exit 1; }
       - name: Build and upload draft release
         uses: tauri-apps/tauri-action@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.MADORA_RELEASES_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           args: --bundles ${{ matrix.bundles }} --config .tauri-build/tauri.release.generated.json
           generateReleaseNotes: false
-          owner: Refinex-Space
           prerelease: false
-          releaseAssetNamePattern: Madora_[arch][setup][ext]
+          releaseAssetNamePattern: Markune_[arch][setup][ext]
           releaseBody: |
-            ## Madora ${{ github.ref_name }}
+            ## Markune ${{ github.ref_name }}
 
             本版本包含功能改进、体验优化和问题修复。
 
@@ -130,28 +124,11 @@ jobs:
 
             ### 升级提示
 
-            安装前请保存当前工作。Madora 不会静默下载或强制安装更新。
-          releaseCommitish: main
+            安装前请保存当前工作。Markune 不会静默下载或强制安装更新。
+          releaseCommitish: ${{ github.sha }}
           releaseDraft: true
-          releaseName: Madora v__VERSION__
-          repo: madora-site
-          retryAttempts: 1
+          releaseName: Markune v__VERSION__
           tagName: v__VERSION__
           updaterJsonPreferNsis: true
           uploadUpdaterJson: true
           uploadUpdaterSignatures: true
-
-  verify_release:
-    name: Verify draft release assets
-    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
-    needs: publish
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-      - name: Verify complete cross-platform draft release
-        run: node scripts/verify-release-assets.mjs
-        env:
-          GITHUB_TOKEN: ${{ secrets.MADORA_RELEASES_TOKEN }}

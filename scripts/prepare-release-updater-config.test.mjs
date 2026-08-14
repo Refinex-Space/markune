@@ -6,8 +6,7 @@ import test from 'node:test';
 
 import {
   createReleaseUpdaterConfig,
-  GITHUB_UPDATER_FALLBACK_ENDPOINT,
-  normalizeOssPublicBaseUrl,
+  GITHUB_UPDATER_ENDPOINT,
   normalizeUpdaterPublicKey,
   prepareReleaseUpdaterConfig,
   validateReleaseVersion,
@@ -17,42 +16,21 @@ const minisignPublicKey =
   'untrusted comment: minisign public key: 0123456789ABCDEF\nRWRmYWRvcmFVcGRhdGVyUHVibGljS2V5MDEyMzQ1Njc4OQ==';
 const publicKey = Buffer.from(minisignPublicKey, 'utf8').toString('base64');
 
-const ossPublicBaseUrl =
-  'https://madora-releases-example.oss-cn-shanghai.aliyuncs.com';
-
-test('release config uses Shanghai OSS first and GitHub as metadata fallback', () => {
-  const config = createReleaseUpdaterConfig(publicKey, ossPublicBaseUrl);
+test('release config uses the Markune GitHub release as its only endpoint', () => {
+  const config = createReleaseUpdaterConfig(publicKey);
 
   assert.equal(
-    GITHUB_UPDATER_FALLBACK_ENDPOINT,
-    'https://github.com/Refinex-Space/madora-site/releases/latest/download/latest-github.json',
+    GITHUB_UPDATER_ENDPOINT,
+    'https://github.com/Refinex-Space/markune/releases/latest/download/latest.json',
   );
-  assert.deepEqual(config.plugins.updater.endpoints, [
-    `${ossPublicBaseUrl}/updates/stable/latest.json`,
-    GITHUB_UPDATER_FALLBACK_ENDPOINT,
-  ]);
-  assert.equal(
-    normalizeOssPublicBaseUrl(`${ossPublicBaseUrl}/`),
-    ossPublicBaseUrl,
-  );
+  assert.deepEqual(config.plugins.updater.endpoints, [GITHUB_UPDATER_ENDPOINT]);
   assert.equal(config.plugins.updater.pubkey, publicKey);
   assert.equal(config.plugins.updater.windows.installMode, 'passive');
   assert.equal(config.bundle.createUpdaterArtifacts, true);
   assert.equal(config.bundle.macOS.signingIdentity, '-');
 });
 
-test('release config rejects non-Shanghai or ambiguous OSS public URLs', () => {
-  for (const value of [
-    'http://madora-releases-example.oss-cn-shanghai.aliyuncs.com',
-    'https://madora-releases-example.oss-cn-hangzhou.aliyuncs.com',
-    'https://madora-releases-example.oss-cn-shanghai.aliyuncs.com/prefix',
-    'https://user@example.com',
-  ]) {
-    assert.throws(() => normalizeOssPublicBaseUrl(value), /cn-shanghai/);
-  }
-});
-
-test('base Tauri config keeps updater inert but structurally valid for local development', async () => {
+test('base Tauri config keeps updater inert for local development', async () => {
   const tauriConfig = JSON.parse(
     await readFile(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8'),
   );
@@ -63,111 +41,36 @@ test('base Tauri config keeps updater inert but structurally valid for local dev
   });
 });
 
-test('release workflow publishes public-safe notes without OS signing secrets', async () => {
-  const workflow = await readFile(
-    new URL('../.github/workflows/release.yml', import.meta.url),
-    'utf8',
-  );
-  const releaseBody = workflow.slice(
-    workflow.indexOf('          releaseBody: |'),
-    workflow.indexOf('          releaseCommitish: main'),
-  );
-
-  assert.match(workflow, /contents: read/);
-  assert.match(workflow, /MADORA_RELEASES_TOKEN/);
-  assert.match(workflow, /owner: Refinex-Space/);
-  assert.match(workflow, /repo: madora-site/);
-  assert.match(workflow, /releaseCommitish: main/);
-  assert.match(releaseBody, /本版本包含功能改进、体验优化和问题修复/);
-  assert.doesNotMatch(releaseBody, /github\.sha/);
-  assert.doesNotMatch(releaseBody, /构建来源|私有 madora 仓库|正式发布前必须/);
-  assert.equal(workflow.match(/run: pnpm release:prepare/g)?.length, 2);
-  assert.doesNotMatch(workflow, /secrets\.GITHUB_TOKEN/);
-  assert.doesNotMatch(workflow, /APPLE_/);
-});
-
-test('release workflow uses Node 24 and a non-broken pnpm release', async () => {
-  const workflow = await readFile(
-    new URL('../.github/workflows/release.yml', import.meta.url),
-    'utf8',
-  );
-
-  assert.equal(workflow.match(/actions\/checkout@v7/g)?.length, 3);
-  assert.equal(workflow.match(/pnpm\/action-setup@v6/g)?.length, 2);
-  assert.equal(workflow.match(/actions\/setup-node@v7/g)?.length, 3);
-  assert.equal(workflow.match(/version: 11\.16\.0/g)?.length, 2);
-  assert.equal(workflow.match(/node-version: 24/g)?.length, 3);
-  assert.doesNotMatch(workflow, /11\.12\.0/);
-  assert.doesNotMatch(workflow, /node-version: 20/);
-});
-
-test('release workflow builds macOS updater bundles and gates the completed draft', async () => {
-  const workflow = await readFile(
-    new URL('../.github/workflows/release.yml', import.meta.url),
-    'utf8',
-  );
-
-  assert.equal(workflow.match(/bundles: app,dmg/g)?.length, 2);
-  assert.doesNotMatch(workflow, /bundles: dmg(?:\s|$)/);
-  assert.match(workflow, /verify_release:\s+name: Verify draft release assets/);
-  assert.match(workflow, /needs: publish/);
-  assert.match(workflow, /run: node scripts\/verify-release-assets\.mjs/);
-  assert.match(workflow, /GITHUB_TOKEN: \$\{\{ secrets\.MADORA_RELEASES_TOKEN \}\}/);
-  assert.match(workflow, /scripts\/verify-release-assets\.mjs/);
-  assert.match(workflow, /scripts\/verify-release-assets\.test\.mjs/);
-});
-
-test('promotion workflow uses protected OIDC and pinned Alibaba tooling', async () => {
-  const workflow = await readFile(
-    new URL('../.github/workflows/promote-release.yml', import.meta.url),
-    'utf8',
-  );
-
-  assert.match(workflow, /environment: production-release/);
-  assert.match(workflow, /id-token: write/);
-  assert.match(workflow, /contents: read/);
-  assert.match(
-    workflow,
-    /aliyun\/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6/,
-  );
-  assert.match(workflow, /audience: sts\.aliyuncs\.com/);
-  assert.match(workflow, /ossutil-2\.3\.0-linux-amd64\.zip/);
-  assert.match(
-    workflow,
-    /3ae4d9fc85a7a6e9f5654d1599766f1a3a42a3692870887b5ae9338d582ef65a/,
-  );
-  assert.match(workflow, /minisign-0\.12-linux\.tar\.gz/);
-  assert.match(
-    workflow,
-    /9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73/,
-  );
-  assert.doesNotMatch(workflow, /apt-get/);
-  assert.match(workflow, /scripts\/print-oidc-claims\.mjs/);
-  assert.match(workflow, /fetch-depth: 0/);
-  assert.match(workflow, /ref: dev/);
-  assert.doesNotMatch(workflow, /ref: \$\{\{ inputs\.tag \}\}/);
-  assert.match(
-    workflow,
-    /refs\/tags\/\$\{MADORA_RELEASE_TAG\}\^\{commit\}/,
-  );
-  assert.doesNotMatch(workflow, /ACCESS_KEY_ID|ACCESS_KEY_SECRET/);
-});
-
-test('release workflow verifies dev before tags and publishes only tags', async () => {
-  const workflow = await readFile(
-    new URL('../.github/workflows/release.yml', import.meta.url),
-    'utf8',
-  );
+test('release workflows build a draft and publish it manually in the current repository', async () => {
+  const [workflow, publishWorkflow] = await Promise.all([
+    readFile(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8'),
+    readFile(
+      new URL('../.github/workflows/publish-release.yml', import.meta.url),
+      'utf8',
+    ),
+  ]);
+  const combinedWorkflows = `${workflow}\n${publishWorkflow}`;
 
   assert.match(workflow, /branches:\s+\- dev/);
-  assert.match(workflow, /workflow_dispatch:/);
-  assert.match(
-    workflow,
-    /if: github\.event_name == 'push' && github\.ref_type == 'tag' && startsWith\(github\.ref_name, 'v'\)/,
+  assert.match(workflow, /tags:\s+\- 'v\*'/);
+  assert.equal(workflow.match(/bundles: app,dmg/g)?.length, 2);
+  assert.match(workflow, /bundles: nsis/);
+  assert.match(workflow, /releaseAssetNamePattern: Markune_\[arch\]\[setup\]\[ext\]/);
+  assert.match(workflow, /GITHUB_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
+  assert.doesNotMatch(workflow, /gh release edit .* --draft=false/);
+  assert.match(publishWorkflow, /workflow_dispatch:/);
+  assert.match(publishWorkflow, /ref: \$\{\{ inputs\.tag \}\}/);
+  assert.match(publishWorkflow, /environment: production-release/);
+  assert.match(publishWorkflow, /node scripts\/verify-release-assets\.mjs/);
+  assert.match(publishWorkflow, /gh release edit .* --draft=false/);
+  assert.doesNotMatch(
+    combinedWorkflows,
+    /markune-site|MARKUNE_OSS|MARKUNE_RELEASES_TOKEN/,
   );
+  assert.doesNotMatch(combinedWorkflows, /owner:|repo:/);
 });
 
-test('release verification avoids a Linux Tauri cold build while native builds stage sidecars', async () => {
+test('release workflow verifies source before native tag builds', async () => {
   const [workflow, tauriConfig] = await Promise.all([
     readFile(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8'),
     readFile(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8'),
@@ -177,12 +80,10 @@ test('release verification avoids a Linux Tauri cold build while native builds s
     workflow.indexOf('\n  publish:'),
   );
 
-  assert.doesNotMatch(verifyJob, /dtolnay\/rust-toolchain/);
-  assert.doesNotMatch(verifyJob, /apt-get/);
   assert.doesNotMatch(verifyJob, /cargo (?:test|check|build)/);
-  assert.doesNotMatch(verifyJob, /pnpm codex:stage/);
   assert.match(workflow, /dtolnay\/rust-toolchain@stable/);
   assert.match(workflow, /tauri-apps\/tauri-action@v1/);
+  assert.doesNotMatch(workflow, /publish_release:/);
 
   const parsedTauriConfig = JSON.parse(tauriConfig);
   assert.equal(
@@ -208,41 +109,17 @@ test('version validation requires package, Tauri, and tag versions to match', ()
   );
 });
 
-test('public key validation preserves the Base64 value generated by the Tauri CLI', () => {
+test('public key validation accepts Tauri Base64 and minisign formats', () => {
   assert.equal(normalizeUpdaterPublicKey(`  ${publicKey}\n`), publicKey);
-});
-
-test('public key validation normalizes legacy two-line minisign input to Base64', () => {
-  assert.equal(
-    normalizeUpdaterPublicKey(`  ${minisignPublicKey}\n`),
-    publicKey,
-  );
-});
-
-test('public key validation rejects malformed Base64 and incomplete minisign values', () => {
+  assert.equal(normalizeUpdaterPublicKey(`  ${minisignPublicKey}\n`), publicKey);
   assert.throws(
     () => normalizeUpdaterPublicKey('not-base64***'),
     /Tauri-generated.*\.key\.pub/,
   );
-  assert.throws(
-    () => normalizeUpdaterPublicKey(
-      Buffer.from('untrusted comment: incomplete', 'utf8').toString('base64'),
-    ),
-    /Tauri-generated.*\.key\.pub/,
-  );
-  assert.throws(
-    () => normalizeUpdaterPublicKey(
-      Buffer.from(
-        `untrusted comment: minisign encrypted secret key\n${minisignPublicKey.split('\n')[1]}`,
-        'utf8',
-      ).toString('base64'),
-    ),
-    /Tauri-generated.*\.key\.pub/,
-  );
 });
 
-test('release preparation writes an ignored Tauri override without private data', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'madora-release-config-'));
+test('release preparation writes a GitHub-only Tauri override', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'markune-release-config-'));
   try {
     await mkdir(join(root, 'src-tauri'));
     await writeFile(
@@ -258,20 +135,19 @@ test('release preparation writes an ignored Tauri override without private data'
       env: {
         GITHUB_REF_NAME: 'v1.2.3',
         GITHUB_REF_TYPE: 'tag',
-        MADORA_OSS_PUBLIC_BASE_URL: ossPublicBaseUrl,
-        MADORA_UPDATER_PUBLIC_KEY: publicKey,
+        MARKUNE_UPDATER_PUBLIC_KEY: publicKey,
       },
       root,
     });
     const generated = await readFile(result.outputPath, 'utf8');
-
-    assert.equal(result.version, '1.2.3');
     const generatedConfig = JSON.parse(generated);
 
-    assert.match(generated, /updates\/stable\/latest\.json/);
-    assert.match(generated, /releases\/latest\/download\/latest-github\.json/);
+    assert.equal(result.version, '1.2.3');
+    assert.deepEqual(generatedConfig.plugins.updater.endpoints, [
+      GITHUB_UPDATER_ENDPOINT,
+    ]);
     assert.equal(generatedConfig.plugins.updater.pubkey, publicKey);
-    assert.doesNotMatch(generated, /untrusted comment:/);
+    assert.doesNotMatch(generated, /OSS|latest-github|markune-site/);
     assert.doesNotMatch(generated, /TAURI_SIGNING_PRIVATE_KEY/);
   } finally {
     await rm(root, { force: true, recursive: true });

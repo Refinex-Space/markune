@@ -1,12 +1,12 @@
 import { readWorkspaceAssetData } from './workspace-api';
 
-export const LOCAL_ASSET_URL_PREFIX = 'madora-asset://';
-export const LOCAL_ASSET_RELATIVE_PREFIX = '.madora/assets/files/';
+export const LOCAL_ASSET_URL_PREFIX = 'markune-asset://';
+export const LOCAL_ASSET_RELATIVE_PREFIX = '.markune/assets/files/';
 
 const LOCAL_ASSET_ID_PATTERN = /^[A-Za-z0-9._-]+$/u;
 const LOCAL_ASSET_RELATIVE_PATTERN =
-  /\.madora\/assets\/files\/[^\s"'()<>{}\[\]\\]+/gu;
-const LOCAL_ASSET_URL_PATTERN = /madora-asset:\/\/[A-Za-z0-9._-]+/gu;
+  /\.markune\/assets\/files\/[^\s"'()<>{}\[\]\\]+/gu;
+const LOCAL_ASSET_URL_PATTERN = /markune-asset:\/\/[A-Za-z0-9._-]+/gu;
 
 export async function localAssetUrlToImageDataUrl(
   url: string,

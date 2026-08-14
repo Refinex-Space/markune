@@ -267,9 +267,9 @@ describe('CodexInlineAiRunner', () => {
     });
     expect(start?.params).not.toHaveProperty('dynamicTools');
     const turn = client.calls.find((call) => call.method === 'turn/start');
-    expect(turn?.params).not.toHaveProperty('madoraDocumentReferences');
-    expect(turn?.params).not.toHaveProperty('madoraDrawingReferences');
-    expect(turn?.params).not.toHaveProperty('madoraFileAttachments');
+    expect(turn?.params).not.toHaveProperty('markuneDocumentReferences');
+    expect(turn?.params).not.toHaveProperty('markuneDrawingReferences');
+    expect(turn?.params).not.toHaveProperty('markuneFileAttachments');
     expect(client.calls.at(-1)).toEqual({
       method: 'thread/delete',
       params: { threadId: 'inline-thread' },

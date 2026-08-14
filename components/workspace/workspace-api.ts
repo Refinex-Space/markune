@@ -52,6 +52,8 @@ import type {
   UploadWorkspaceAssetInput,
   WorkspaceAssetData,
   WorkspaceAssetBatchResolution,
+  WorkspaceBrandInspection,
+  WorkspaceBrandMigrationReport,
   WorkspaceExportFormat,
   WorkspaceImportFormat,
   WorkspaceGitSyncSettings,
@@ -68,8 +70,8 @@ import { getParentPath } from './workspace-paths';
 
 import type { UnlistenFn } from '@tauri-apps/api/event';
 
-const RECENT_WORKSPACE_KEY = 'madora:recent-workspace-path';
-const WORKSPACE_HISTORY_KEY = 'madora:workspace-history';
+const RECENT_WORKSPACE_KEY = 'markune:recent-workspace-path';
+const WORKSPACE_HISTORY_KEY = 'markune:workspace-history';
 const MAX_WORKSPACE_HISTORY = 8;
 
 export function isTauriRuntime() {
@@ -89,7 +91,7 @@ export async function getMacosTitlebarMetrics() {
   return invoke<MacosTitlebarMetrics | null>('get_macos_titlebar_metrics');
 }
 
-export async function getMadoraVersion() {
+export async function getMarkuneVersion() {
   if (!isTauriRuntime()) {
     return null;
   }
@@ -244,6 +246,23 @@ export async function loadWorkspaceTree(rootPath: string) {
   const { invoke } = await import('@tauri-apps/api/core');
 
   return invoke<WorkspaceSnapshot>('load_workspace_tree', { rootPath });
+}
+
+export async function inspectWorkspaceBrand(rootPath: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<WorkspaceBrandInspection>('inspect_workspace_brand', {
+    rootPath,
+  });
+}
+
+export async function migrateLegacyWorkspaceBrand(rootPath: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  return invoke<WorkspaceBrandMigrationReport>(
+    'migrate_legacy_workspace_brand',
+    { rootPath },
+  );
 }
 
 export async function refreshWorkspaceNode(
@@ -481,7 +500,7 @@ export async function stageDrawingScene(
   const { invoke } = await import('@tauri-apps/api/core');
 
   return invoke<void>('stage_drawing_scene', bytes, {
-    headers: { 'x-madora-drawing-session': sessionId },
+    headers: { 'x-markune-drawing-session': sessionId },
   });
 }
 
@@ -492,7 +511,7 @@ export async function stageDrawingPreview(
   const { invoke } = await import('@tauri-apps/api/core');
 
   return invoke<void>('stage_drawing_preview', bytes, {
-    headers: { 'x-madora-drawing-session': sessionId },
+    headers: { 'x-markune-drawing-session': sessionId },
   });
 }
 
@@ -685,7 +704,7 @@ export async function writeDrawingLibrary(
   );
 
   return invoke<void>('write_drawing_library', bytes, {
-    headers: { 'x-madora-drawing-session': session.sessionId },
+    headers: { 'x-markune-drawing-session': session.sessionId },
   });
 }
 
@@ -763,7 +782,7 @@ export async function writeDrawingExport(
   const { invoke } = await import('@tauri-apps/api/core');
 
   return invoke<string>('write_drawing_export', bytes, {
-    headers: { 'x-madora-drawing-export': grantId },
+    headers: { 'x-markune-drawing-export': grantId },
   });
 }
 
@@ -782,7 +801,7 @@ export async function createDrawingMarkdownSnapshot(
   return invoke<UploadedWorkspaceAsset>(
     'create_drawing_markdown_snapshot',
     bytes,
-    { headers: { 'x-madora-drawing-session': session.sessionId } },
+    { headers: { 'x-markune-drawing-session': session.sessionId } },
   );
 }
 
@@ -1025,8 +1044,8 @@ export async function stageDocumentImportAsset(
 
   return invoke<void>('stage_document_import_asset', bytes, {
     headers: {
-      'x-madora-import-asset': assetToken,
-      'x-madora-import-session': sessionId,
+      'x-markune-import-asset': assetToken,
+      'x-markune-import-session': sessionId,
     },
   });
 }

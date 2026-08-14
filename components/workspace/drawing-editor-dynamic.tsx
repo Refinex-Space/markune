@@ -29,7 +29,7 @@ export const DrawingEditorDynamic = dynamic<DrawingEditorCanvasProps>(
 
 function ensureExcalidrawStyles() {
   const existing = document.querySelector<HTMLLinkElement>(
-    'link[data-madora-excalidraw-styles="true"]',
+    'link[data-markune-excalidraw-styles="true"]',
   );
   if (existing?.sheet) return Promise.resolve();
   if (existing) {
@@ -42,7 +42,7 @@ function ensureExcalidrawStyles() {
   }
   return new Promise<void>((resolve, reject) => {
     const link = document.createElement('link');
-    link.dataset.madoraExcalidrawStyles = 'true';
+    link.dataset.markuneExcalidrawStyles = 'true';
     link.href = '/excalidraw-runtime/index.css';
     link.rel = 'stylesheet';
     link.addEventListener('load', () => resolve(), { once: true });

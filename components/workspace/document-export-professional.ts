@@ -109,7 +109,7 @@ export async function prepareProfessionalDocument({
 }
 
 function makeUniqueDiagramPath(index: number, usedPaths: Set<string>) {
-  const base = `madora-diagram-${index}`;
+  const base = `markune-diagram-${index}`;
   for (let suffix = 0; suffix < 10_000; suffix += 1) {
     const candidate = `${base}${suffix === 0 ? '' : `-${suffix}`}.png`;
     const normalized = candidate.toLocaleLowerCase();

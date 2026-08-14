@@ -1,17 +1,17 @@
 [package]
-name = "madora"
+name = "markune"
 version = "0.1.0"
-description = "Madora desktop Markdown editor"
+description = "Markune desktop Markdown editor"
 authors = ["refinex"]
-license = ""
-repository = ""
+license = "Apache-2.0"
+repository = "https://github.com/Refinex-Space/markune"
 edition = "2021"
 rust-version = "1.77.2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/the-manifest.html
 
 [lib]
-name = "madora_lib"
+name = "markune_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

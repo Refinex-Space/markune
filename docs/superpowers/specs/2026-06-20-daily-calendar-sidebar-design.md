@@ -13,7 +13,7 @@ status: active
 ## Product Principles
 
 - Daily Note 是普通 Markdown 文档，不是隐藏数据库记录。
-- `.madora` 只保存工作区级索引和状态，不保存正文内容。
+- `.markune` 只保存工作区级索引和状态，不保存正文内容。
 - 复用现有 Markdown 编辑器、tab、自动保存、Git、全局搜索、本地资源协议和页面宽度设置。
 - 日历入口要像工作区的一部分，不做单独的重型应用面板。
 
@@ -77,7 +77,7 @@ dailyDate: 2026-06-20
 
 ### Workspace Metadata
 
-`.madora/workspace.json` 保持 `schemaVersion: 1`，新增可选字段：
+`.markune/workspace.json` 保持 `schemaVersion: 1`，新增可选字段：
 
 ```json
 {
@@ -156,13 +156,13 @@ interface DailyNoteDocument {
 - 校验并限制文件路径在工作区内。
 - 创建 `Daily/YYYY/MM` 目录。
 - 创建不存在的文件。
-- 写入/更新 `.madora/workspace.json.dailyNotes.entries[date]`。
+- 写入/更新 `.markune/workspace.json.dailyNotes.entries[date]`。
 - 返回可直接传给现有 editor/tab 流程的 `WorkspaceNode` 和 Markdown content。
 
 `listDailyNotesForMonth` 必须：
 
 - 校验月份为 `YYYY-MM`。
-- 读取 `.madora/workspace.json` 的索引。
+- 读取 `.markune/workspace.json` 的索引。
 - 扫描 `Daily/YYYY/MM` 下的 Daily Note 文件并修正索引。
 - 返回该月有文件或索引记录的日期状态。
 
@@ -215,4 +215,4 @@ Frontend：
 - 不做提醒、周期任务、重复事件、跨日拖拽。
 - 不做 iCal/系统日历同步。
 - 不把任务抽取成独立数据库。
-- 不隐藏 Daily Note 正文到 `.madora`。
+- 不隐藏 Daily Note 正文到 `.markune`。

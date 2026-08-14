@@ -9,9 +9,9 @@ referenced_by: docs/README.md#historical-superpowers-plans
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Convert the AI-related settings capabilities from `/Users/refinex/Downloads/1code-main` into Madora so the settings panel exposes the same Models, Skills, Custom Agents, MCP Servers, Plugins, and AI Preferences behavior with Madora's Tauri/Next architecture.
+**Goal:** Convert the AI-related settings capabilities from `/Users/refinex/Downloads/1code-main` into Markune so the settings panel exposes the same Models, Skills, Custom Agents, MCP Servers, Plugins, and AI Preferences behavior with Markune's Tauri/Next architecture.
 
-**Architecture:** Keep Madora's Next.js + Tauri boundary. Port 1Code's Electron/tRPC backend behavior into Rust Tauri commands and TypeScript workspace API wrappers; port 1Code's settings layout into focused React components under `components/workspace/ai-settings`. Preserve current AI chat runtime while replacing the settings surface and adding the same persisted AI preferences used by model selection.
+**Architecture:** Keep Markune's Next.js + Tauri boundary. Port 1Code's Electron/tRPC backend behavior into Rust Tauri commands and TypeScript workspace API wrappers; port 1Code's settings layout into focused React components under `components/workspace/ai-settings`. Preserve current AI chat runtime while replacing the settings surface and adding the same persisted AI preferences used by model selection.
 
 **Tech Stack:** Next.js App Router, React, TypeScript, Vitest, Tauri v2, Rust, serde/serde_json, std filesystem/process APIs, existing shadcn-style UI primitives.
 
@@ -37,7 +37,7 @@ referenced_by: docs/README.md#historical-superpowers-plans
   - `/Users/refinex/Downloads/1code-main/src/main/lib/plugins/index.ts`
   - `/Users/refinex/Downloads/1code-main/src/main/lib/trpc/routers/claude-settings.ts`
   - `/Users/refinex/Downloads/1code-main/src/main/lib/claude-config.ts`
-- Madora targets:
+- Markune targets:
   - `components/workspace/workspace-settings-page.tsx`
   - `components/workspace/workspace-settings.ts`
   - `components/workspace/workspace-types.ts`
@@ -70,7 +70,7 @@ referenced_by: docs/README.md#historical-superpowers-plans
 
 ## Security Rules
 
-- Never persist API keys, bearer tokens, OAuth tokens, or credential-like headers in Madora app settings.
+- Never persist API keys, bearer tokens, OAuth tokens, or credential-like headers in Markune app settings.
 - Skill/command/agent write operations may only target `~/.claude/{skills,commands,agents}` or `<workspace>/.claude/{skills,commands,agents}`.
 - Plugin operations may only read plugin manifests and component files under `~/.claude/plugins/marketplaces`.
 - Plugin enable/disable writes only `enabledPlugins` in `~/.claude/settings.json`.
@@ -169,7 +169,7 @@ referenced_by: docs/README.md#historical-superpowers-plans
 - [ ] Add failing tests for read-only plugin item detail and editable user/project item detail.
 - [ ] Add failing tests for create/edit/delete skill and command actions calling `workspace-api` wrappers.
 - [ ] Add failing tests for custom agents grouped by Project/User, model select, prompt edit, and create action.
-- [ ] Implement the tabs from 1Code behavior with Madora UI primitives.
+- [ ] Implement the tabs from 1Code behavior with Markune UI primitives.
 - [ ] Rerun focused tests until green.
 
 ### Task 5: MCP Servers And Plugins UI
@@ -182,7 +182,7 @@ referenced_by: docs/README.md#historical-superpowers-plans
 
 - [ ] Add failing tests for MCP server grouped list, status dots, refresh, add form, delete action, enabled toggle, and tool list detail.
 - [ ] Add failing tests for plugin grouped list, active/disabled toggle, version/source/tags, components, MCP auth/status display, and cross-tab navigation.
-- [ ] Implement MCP and Plugins tabs from 1Code behavior with Madora wrappers.
+- [ ] Implement MCP and Plugins tabs from 1Code behavior with Markune wrappers.
 - [ ] Rerun focused tests until green.
 
 ### Task 6: Right AI Panel Integration

@@ -172,7 +172,7 @@ describe('AI panel event reducer', () => {
     });
     const second = reduceCodexProtocolMessage(first, {
       method: 'item/agentMessage/delta',
-      params: { itemId: 'message-1', delta: '，Madora' },
+      params: { itemId: 'message-1', delta: '，Markune' },
     });
 
     expect(second.entries).toEqual([
@@ -180,7 +180,7 @@ describe('AI panel event reducer', () => {
         type: 'message',
         id: 'message-1',
         role: 'assistant',
-        text: '你好，Madora',
+        text: '你好，Markune',
       },
     ]);
   });
@@ -447,7 +447,7 @@ describe('AI panel event reducer', () => {
       params: {
         turnId: 'turn-plan',
         itemId: 'call-1',
-        madoraUserInput: {
+        markuneUserInput: {
           autoResolutionMs: 60000,
           questions: [{
             id: 'question:0',
@@ -749,7 +749,7 @@ describe('AI panel event reducer', () => {
                   text_elements: [
                     {
                       byteRange: { start: 0, end: 1 },
-                      placeholder: 'madora:attachment:file:notes.txt',
+                      placeholder: 'markune:attachment:file:notes.txt',
                     },
                     {
                       byteRange: {
@@ -1874,7 +1874,7 @@ describe('AI panel event reducer', () => {
             entries: [{ access: 'write', path: { type: 'path', path: '/tmp' } }],
           },
         },
-        madoraApprovalChoices: [
+        markuneApprovalChoices: [
           {
             id: 'permissions:turn',
             kind: 'grantPermissionsForTurn',

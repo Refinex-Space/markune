@@ -1,8 +1,8 @@
-#let madora-ink = rgb("#202124")
-#let madora-muted = rgb("#5f6368")
-#let madora-border = rgb("#d9dde3")
-#let madora-accent = rgb("#155eaa")
-#let madora-surface = rgb("#f6f8fa")
+#let markune-ink = rgb("#202124")
+#let markune-muted = rgb("#5f6368")
+#let markune-border = rgb("#d9dde3")
+#let markune-accent = rgb("#155eaa")
+#let markune-surface = rgb("#f6f8fa")
 
 #let content-to-string(content) = {
   if content.has("text") {
@@ -47,9 +47,9 @@
   ),
   linestretch: 1.35,
   sectionnumbering: none,
-  linkcolor: madora-accent,
-  citecolor: madora-accent,
-  filecolor: madora-accent,
+  linkcolor: markune-accent,
+  citecolor: markune-accent,
+  filecolor: markune-accent,
   pagenumbering: "1",
   doc,
 ) = {
@@ -73,7 +73,7 @@
     spacing: 0.72em,
   )
   set text(
-    fill: madora-ink,
+    fill: markune-ink,
     font: font,
     lang: lang,
     region: region,
@@ -83,7 +83,7 @@
   set table(
     align: left,
     inset: (x: 6pt, y: 5pt),
-    stroke: 0.4pt + madora-border,
+    stroke: 0.4pt + markune-border,
   )
 
   show math.equation: set text(font: mathfont) if mathfont != none
@@ -92,10 +92,10 @@
     above: 0.65em,
     below: 0.8em,
     breakable: true,
-    fill: madora-surface,
+    fill: markune-surface,
     inset: 8pt,
     radius: 3pt,
-    stroke: 0.4pt + madora-border,
+    stroke: 0.4pt + markune-border,
     width: 100%,
   )[#set text(size: 0.88em); #it]
   show heading: set block(above: 1.05em, below: 0.5em, breakable: false)
@@ -120,15 +120,15 @@
         #if subtitle != none { parbreak(); text(size: 1.25em)[#subtitle] }
         #if authors != none and authors != () {
           parbreak()
-          text(fill: madora-muted)[
+          text(fill: markune-muted)[
             #authors.map(author => author.name).join([, ])
           ]
         }
-        #if date != none { parbreak(); text(fill: madora-muted)[#date] }
+        #if date != none { parbreak(); text(fill: markune-muted)[#date] }
       ]
       #if thanks != none { footnote(thanks, numbering: "*") }
       #if abstract != none {
-        block(above: 1em, inset: (x: 1.5em, y: 0.8em), fill: madora-surface)[
+        block(above: 1em, inset: (x: 1.5em, y: 0.8em), fill: markune-surface)[
           #text(weight: "semibold")[#abstract-title] #h(0.8em) #abstract
         ]
       }

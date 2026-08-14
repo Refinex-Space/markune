@@ -36,7 +36,7 @@ describe('document import core', () => {
     expect(prepared.title).toBe('跨平台说明');
     expect(prepared.markdown).not.toContain('\r');
     expect(prepared.markdown).toContain('# 跨平台说明');
-    expect(prepared.markdown).toContain('madora-import://asset/');
+    expect(prepared.markdown).toContain('markune-import://asset/');
     expect(prepared.markdown).toContain('https://example.com/a.png');
     expect(prepared.assets).toEqual([
       expect.objectContaining({
@@ -76,7 +76,7 @@ describe('document import core', () => {
     expect(prepared.markdown).toContain('| A |');
     expect(prepared.markdown).not.toContain('steal()');
     expect(prepared.markdown).not.toContain('javascript:');
-    expect(prepared.markdown).toContain('madora-import://asset/');
+    expect(prepared.markdown).toContain('markune-import://asset/');
     expect(prepared.assets).toEqual([
       expect.objectContaining({ kind: 'inline', mediaType: 'image/png', size: 8 }),
     ]);

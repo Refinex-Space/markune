@@ -25,7 +25,7 @@ vi.mock('../workspace-api', () => api);
 vi.mock('@/components/editor/markdown-editor', () => ({
   MarkdownEditor: () => (
     <section
-      className="madora-markweave-editor"
+      className="markune-markweave-editor"
       data-testid="mock-export-editor"
     >
       <div className="markweave-editor-surface">

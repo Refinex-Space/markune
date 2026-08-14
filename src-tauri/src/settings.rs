@@ -186,7 +186,7 @@ fn default_calendar_week_starts_on() -> String {
     "monday".to_string()
 }
 
-fn settings_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+pub(crate) fn settings_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     let config_dir = app
         .path()
         .app_config_dir()
@@ -194,7 +194,7 @@ fn settings_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(config_dir.join("settings.json"))
 }
 
-fn validate_app_settings(settings: &AppSettings) -> Result<(), String> {
+pub(crate) fn validate_app_settings(settings: &AppSettings) -> Result<(), String> {
     if settings.schema_version != 1 {
         return Err("不支持的设置版本".to_string());
     }

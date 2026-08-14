@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 为 Madora AI 面板建立 1code 对齐的 parts 纵向流数据契约与 atomFamily 消息存储，作为 B–J 子项目的契约地基。
+**Goal:** 为 Markune AI 面板建立 1code 对齐的 parts 纵向流数据契约与 atomFamily 消息存储，作为 B–J 子项目的契约地基。
 
-**Architecture:** 新增 `ai-contracts.ts`（单一真相源契约）+ `ai-event-normalizer.ts`（把现有 Tauri `AiRuntimeEvent` 归一化为 `UiMessageChunk`）+ `ai-message-store.ts`（Jotai atomFamily 按消息隔离）+ `ai-session-store.ts`（v2 读写 + v1→v2 迁移）。**关于存储边界（经 Tauri 安全模型约束修正）**：Tauri v2 的 fs 插件需要显式 scope 授权才能读写工作区目录，而项目 capabilities 只授予 `fs:default`，且项目所有文件 I/O 一律走自定义 Rust invoke 命令（非 fs 插件）。同时 Rust 既有 `AiConversationMessage.content` 是非 Option 字段，v2 结构无法通过既有 `save_ai_conversation` 通路往返。因此 A 子项目**新增一组独立的 Rust v2 命令**（`load/save/list_ai_conversations_v2`，操作独立的 `.madora/ai-sessions/{id}.json` 文件，与既有 v1 命令并存），这是被 Tauri 安全模型与项目惯例共同决定的唯一可行路径，属「新增业务命令」而非「改 Tauri permissions」。旧 reducer/面板完全不受影响（A 不改 reducer，双契约并存互不干扰）。
+**Architecture:** 新增 `ai-contracts.ts`（单一真相源契约）+ `ai-event-normalizer.ts`（把现有 Tauri `AiRuntimeEvent` 归一化为 `UiMessageChunk`）+ `ai-message-store.ts`（Jotai atomFamily 按消息隔离）+ `ai-session-store.ts`（v2 读写 + v1→v2 迁移）。**关于存储边界（经 Tauri 安全模型约束修正）**：Tauri v2 的 fs 插件需要显式 scope 授权才能读写工作区目录，而项目 capabilities 只授予 `fs:default`，且项目所有文件 I/O 一律走自定义 Rust invoke 命令（非 fs 插件）。同时 Rust 既有 `AiConversationMessage.content` 是非 Option 字段，v2 结构无法通过既有 `save_ai_conversation` 通路往返。因此 A 子项目**新增一组独立的 Rust v2 命令**（`load/save/list_ai_conversations_v2`，操作独立的 `.markune/ai-sessions/{id}.json` 文件，与既有 v1 命令并存），这是被 Tauri 安全模型与项目惯例共同决定的唯一可行路径，属「新增业务命令」而非「改 Tauri permissions」。旧 reducer/面板完全不受影响（A 不改 reducer，双契约并存互不干扰）。
 
 **Tech Stack:** TypeScript、React、Jotai（atomFamily）、Vitest、Tauri fs API
 
@@ -145,7 +145,7 @@ Create `components/workspace/ai-panel/ai-contracts.ts`:
 // AI 面板核心数据契约 —— 整个 AI 面板的单一真相源。
 // B-J 子项目（传输层 / 渲染层 / 输入交互 / 对话管理 / 模式扩展）全部消费本文件。
 // 契约与 1code (src/main/lib/claude/types.ts + message-store.ts) 一一对齐，
-// 保留 Madora 特有的结构化权限语义 (permission-request)。
+// 保留 Markune 特有的结构化权限语义 (permission-request)。
 
 /** 全局流状态，驱动 getToolStatus 的中断判定。 */
 export type ChatStatus = 'ready' | 'submitted' | 'streaming' | 'error' | 'stopped';
@@ -186,7 +186,7 @@ export interface PermissionSuggestion {
 
 /**
  * 统一 chunk 契约（传输层 ↔ store 的协议）。
- * 一比一复刻 1code UIMessageChunk，并保留 Madora 特有的 permission-request。
+ * 一比一复刻 1code UIMessageChunk，并保留 Markune 特有的 permission-request。
  * 由 ai-event-normalizer.ts 从 Tauri AiRuntimeEvent 归一化产出。
  */
 export type UiMessageChunk =
@@ -219,7 +219,7 @@ export type UiMessageChunk =
       plugins: McpPluginInfo[];
       skills: string[];
     }
-  // 权限请求（Madora 特有；保留显式 allow/deny 语义）
+  // 权限请求（Markune 特有；保留显式 allow/deny 语义）
   | {
       type: 'permission-request';
       requestId: string;
@@ -747,7 +747,7 @@ git commit -m "feat(ai): 引入 AiRuntimeEvent→UiMessageChunk 归一化适配�
 - Create: `components/workspace/ai-panel/ai-session-store.ts`
 - Test: `components/workspace/ai-panel/__tests__/ai-session-store.test.ts`
 
-先把**纯函数迁移逻辑**与类型定义做出来并测好，Tauri fs I/O 在 Task 4 接入。Rust 零改动：直接通过 Tauri fs API 读写 `.madora/ai-sessions/{id}.json`，v2 作为独立格式。
+先把**纯函数迁移逻辑**与类型定义做出来并测好，Tauri fs I/O 在 Task 4 接入。Rust 零改动：直接通过 Tauri fs API 读写 `.markune/ai-sessions/{id}.json`，v2 作为独立格式。
 
 - [ ] **Step 1: 写迁移与记录构造的失败测试**
 
@@ -908,7 +908,7 @@ Create `components/workspace/ai-panel/ai-session-store.ts`:
 // @author refinex
 // 对话持久化（v2 parts 纵向流）+ v1→v2 迁移。
 // Rust 零改动：绕过 save_ai_conversation 命令，直接通过 Tauri fs API 读写
-// {workspace}/.madora/ai-sessions/{id}.json。Rust 端继续用 v1 格式服务现有 agent 运行时。
+// {workspace}/.markune/ai-sessions/{id}.json。Rust 端继续用 v1 格式服务现有 agent 运行时。
 
 import type { AiMessage, MessagePart, MessageMetadata } from './ai-contracts';
 
