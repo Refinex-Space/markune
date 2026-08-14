@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { AlertTriangle, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -57,54 +57,46 @@ export function WorkspaceBrandMigrationDialog({
     >
       <DialogContent
         aria-describedby="workspace-brand-migration-description"
+        className="sm:max-w-md"
         data-testid="workspace-brand-migration-dialog"
+        overlayClassName="bg-transparent supports-backdrop-filter:backdrop-blur-none"
       >
         <DialogHeader>
           <DialogTitle>
-            {isConflict ? '工作区数据目录存在冲突' : 'Madora 已更名为 Markune'}
+            {isConflict ? '工作区数据目录存在冲突' : '迁移工作区数据'}
           </DialogTitle>
           <DialogDescription id="workspace-brand-migration-description">
-            {isConflict
-              ? '当前工作区同时存在 .madora 和 .markune。为避免覆盖数据，Markune 不会自动合并这两个目录。'
-              : '此工作区仍使用旧版数据格式。迁移会将 .madora 安全转换为 .markune，并更新由应用生成的资源和图稿链接。'}
+            {isConflict ? (
+              '检测到新旧数据目录同时存在，请先确认目录归属。备份后仅保留其中一个目录再重新打开。Markune 不会自动删除、合并或覆盖数据。'
+            ) : (
+              <span aria-label="数据目录从 .madora 迁移为 .markune">
+                此工作区仍使用{' '}
+                <span className="font-mono text-foreground">.madora</span>
+                {' '}格式。迁移为{' '}
+                <span className="font-mono text-foreground">.markune</span>
+                {' '}后即可打开；会创建 SHA-256 备份，失败可自动恢复，且仅更新应用链接。
+              </span>
+            )}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-3 text-sm text-muted-foreground">
-          <p className="break-all rounded-md border bg-muted/40 px-3 py-2 font-mono text-xs">
-            {migration.rootPath}
-          </p>
-          {isConflict ? (
-            <div className="flex gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-destructive">
-              <AlertTriangle className="mt-0.5 shrink-0" size={16} />
-              <p>
-                请先手动备份并确认两个目录的归属，再保留其中一个。Markune
-                不会在无法判断所有权时删除或覆盖数据。
-              </p>
-            </div>
-          ) : (
-            <ul className="list-disc space-y-1 pl-5">
-              <li>迁移前创建带 SHA-256 清单的原文备份。</li>
-              <li>失败时自动恢复旧目录和已修改文档。</li>
-              <li>不会替换用户正文中普通的 Madora 品牌文字。</li>
-              <li>Git 工作区会正常显示目录和链接迁移产生的变更。</li>
-            </ul>
-          )}
-          {error ? (
-            <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-destructive">
-              {error}
-            </p>
-          ) : null}
-        </div>
+        <p
+          className="break-all font-mono text-xs text-muted-foreground"
+          title={migration.rootPath}
+        >
+          {migration.rootPath}
+        </p>
 
-        <DialogFooter>
+        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
+        <DialogFooter className="border-t-0 bg-transparent">
           <Button disabled={isMigrating} variant="outline" onClick={onCancel}>
-            {isConflict ? '关闭' : '暂不迁移'}
+            {isConflict ? '关闭' : '稍后处理'}
           </Button>
           {isConflict ? null : (
             <Button disabled={isMigrating} onClick={() => void handleMigrate()}>
               {isMigrating ? <Loader2 className="animate-spin" size={14} /> : null}
-              {isMigrating ? '正在安全迁移…' : '安全迁移并打开'}
+              {isMigrating ? '正在迁移…' : '迁移并打开'}
             </Button>
           )}
         </DialogFooter>

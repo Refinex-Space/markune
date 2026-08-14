@@ -15,11 +15,14 @@ describe('WorkspaceBrandMigrationDialog', () => {
       />,
     );
 
-    expect(screen.getByText('Madora 已更名为 Markune')).toBeTruthy();
-    expect(screen.getByText(/\.madora 安全转换为 \.markune/)).toBeTruthy();
+    expect(screen.getByText('迁移工作区数据')).toBeTruthy();
+    expect(
+      screen.getByLabelText('数据目录从 .madora 迁移为 .markune'),
+    ).toBeTruthy();
     expect(screen.getByText(/SHA-256/)).toBeTruthy();
+    expect(screen.getByText('/notes/legacy')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: '安全迁移并打开' }));
+    fireEvent.click(screen.getByRole('button', { name: '迁移并打开' }));
 
     await waitFor(() => {
       expect(onMigrate).toHaveBeenCalledTimes(1);
@@ -36,9 +39,10 @@ describe('WorkspaceBrandMigrationDialog', () => {
     );
 
     expect(screen.getByText('工作区数据目录存在冲突')).toBeTruthy();
-    expect(screen.getByText(/不会自动合并/)).toBeTruthy();
+    expect(screen.getByText(/请先确认目录归属/)).toBeTruthy();
+    expect(screen.getByText(/不会自动删除、合并或覆盖数据/)).toBeTruthy();
     expect(
-      screen.queryByRole('button', { name: '安全迁移并打开' }),
+      screen.queryByRole('button', { name: '迁移并打开' }),
     ).toBeNull();
   });
 });
