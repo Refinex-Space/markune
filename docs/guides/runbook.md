@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-08-10
+updated: 2026-08-14
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -46,7 +46,7 @@ pnpm exec tsc --noEmit
 
 使用 Markweave 共享的 250 KB 文本、250 KB 有效媒体、250 KB 缺失媒体和 1 MB 压力夹具；不要提交用户手册原文或真实资产。浏览器前置基准在 Markweave 仓库运行 `pnpm benchmark:large-document`。最终门禁必须在真实 macOS WKWebView 与 Windows WebView2 各执行至少五轮冷/热测试，记录首屏、可编辑、逐键/IME paint、长任务、滚动帧率、序列化、保存、IPC、DOM/轻量 NodeView 和内存，并与同机 Typora 相对比较。
 
-在 Madora URL 加 `?madoraPerf=1` 后，可从开发者控制台调用 `window.__MadoraPerformanceReport()` 导出脱敏 JSON。验证 100 次连续输入期间序列化计数为 0，500 ms idle 后只增加 1；普通输入资产 IPC 为 0，打开含 421 个唯一资源的文档最多增加 1。另需人工覆盖中文 IME、撤销重做、列表回车、跨块/全选复制、搜索替换、TOC 跳转、快速滚动后编辑、Live/Source 往返、导出、AI 发送和应用关闭 flush。任何保存失败都必须阻止切换/发送/退出并保留草稿。
+在 Markune URL 加 `?markunePerf=1` 后，可从开发者控制台调用 `window.__MarkunePerformanceReport()` 导出脱敏 JSON。验证 100 次连续输入期间序列化计数为 0，500 ms idle 后只增加 1；普通输入资产 IPC 为 0，打开含 421 个唯一资源的文档最多增加 1。另需人工覆盖中文 IME、撤销重做、列表回车、跨块/全选复制、搜索替换、TOC 跳转、快速滚动后编辑、Live/Source 往返、导出、AI 发送和应用关闭 flush。任何保存失败都必须阻止切换/发送/退出并保留草稿。
 
 For single-document export changes, run the focused suites first:
 
@@ -60,7 +60,7 @@ cargo test --manifest-path src-tauri/Cargo.toml staged_runtime_generates_real_wo
 Then use a Markdown acceptance document containing Chinese and English text, H1-H6, nested/task lists, quotes, callouts, highlighted code, merged tables, formulas, Mermaid, local/remote images, link cards and enough content for multiple A4 pages. Verify:
 
 - HTML follows the active Markweave theme, uses 64 rem standard width, contains no editor TOC/runtime script/large-document placeholder attributes, and opens with local images and attachment sidecars intact.
-- 专业 PDF 由 Pandoc→Typst 生成多页 A4 可选文本，正文和中文字体完整，图片、公式、代码、表格及 Mermaid 静态图不出现灰色占位；设置 `MADORA_DOCUMENT_EXPORT_ENGINE=legacy` 后兼容 WebView PDF 仍可完成且不阻塞 UI。
+- 专业 PDF 由 Pandoc→Typst 生成多页 A4 可选文本，正文和中文字体完整，图片、公式、代码、表格及 Mermaid 静态图不出现灰色占位；设置 `MARKUNE_DOCUMENT_EXPORT_ENGINE=legacy` 后兼容 WebView PDF 仍可完成且不阻塞 UI。
 - 专业 DOCX 能在 Microsoft Word 打开，保留标题层级、列表、表格、代码、引用、公式和嵌入图片；样式来自固定 `reference.docx`，Mermaid 使用 2× PNG，不要求可编辑。
 - Existing names are never overwritten. Markdown/HTML sidecars use the same suffixed stem; professional PDF/DOCX embed their assets and do not leave a sidecar directory.
 
@@ -97,12 +97,12 @@ pnpm build:desktop:web
 - 连续编辑显示未保存/保存中/已保存；`Cmd/Ctrl+S` 强制提交。外部修改 scene 或 meta 后自动保存进入冲突，只有“加载磁盘版本”或“用当前版本覆盖”能继续。
 - 导入 `.excalidraw` 与 `.excalidrawlib`，导出 JSON/PNG/SVG；导出同名时不得覆盖已有文件。回收站恢复遇到路径冲突时创建唯一名称。
 - 破坏单个 scene 或 meta 后，其余图稿仍能展示；元数据可读且存在 backup 时可进入恢复页加载上一有效场景。损坏预览只降级为占位图，不能阻塞保存。
-- 复制 Markdown 引用后，纯文本必须是 `[![标题](madora-asset://<snapshot-id>)](madora-drawing://<drawing-id>)`，不得包含 `asset://localhost` 或绝对路径；分别用富文本和纯文本剪贴板粘贴到 Live 模式，预览都应显示且点击能打开原图稿。旧版产生的精确 `\[!\[...\]\(...\)\]\(...\)` 转义形式打开后应自动恢复显示，并在下一次编辑保存时规范化。移动/重命名不影响回链，永久删除原图稿后文档快照仍可显示。
+- 复制 Markdown 引用后，纯文本必须是 `[![标题](markune-asset://<snapshot-id>)](markune-drawing://<drawing-id>)`，不得包含 `asset://localhost` 或绝对路径；分别用富文本和纯文本剪贴板粘贴到 Live 模式，预览都应显示且点击能打开原图稿。旧版产生的精确 `\[!\[...\]\(...\)\]\(...\)` 转义形式打开后应自动恢复显示，并在下一次编辑保存时规范化。移动/重命名不影响回链，永久删除原图稿后文档快照仍可显示。
 - 验证 500 幅图稿的图集滚动只按可见区域读取预览，并用包含多张图片的大场景检查 100 MiB 场景边界、保存等待和内存占用。
 
-macOS WKWebView 与 Windows WebView2 都必须分别进行真实桌面验收；当前平台通过不能替代另一平台。损坏恢复时优先复制整个 `.madora/drawings` 作为工作区级备份，再通过 UI 加载 bundle 内的单份有效备份；不要手工编辑 revision 或 SHA 字段。
+macOS WKWebView 与 Windows WebView2 都必须分别进行真实桌面验收；当前平台通过不能替代另一平台。损坏恢复时优先复制整个 `.markune/drawings` 作为工作区级备份，再通过 UI 加载 bundle 内的单份有效备份；不要手工编辑 revision 或 SHA 字段。
 
-真实桌面验收使用一组 Markdown、HTML、DOCX、原生文本 PDF、扫描中文 PDF、扫描英文 PDF、加密 PDF 和损坏文件，覆盖相对图片、Windows 反斜杠、Unicode 文件名、data URI、远程 URL、重复图片与另一 Madora 工作区的资产。确认批量任务可部分成功、取消保留已提交文件、错误报告可查看、目录刷新并展开到首个成功文档；重启后图片仍可显示。
+真实桌面验收使用一组 Markdown、HTML、DOCX、原生文本 PDF、扫描中文 PDF、扫描英文 PDF、加密 PDF 和损坏文件，覆盖相对图片、Windows 反斜杠、Unicode 文件名、data URI、远程 URL、重复图片与另一 Markune 工作区的资产。确认批量任务可部分成功、取消保留已提交文件、错误报告可查看、目录刷新并展开到首个成功文档；重启后图片仍可显示。
 
 跨平台验收必须在真实 Windows 与 macOS 上使用同一夹具互相导入，至少覆盖 Windows 非系统盘和 macOS 外置卷。DOCX/PDF 是语义恢复而非像素级复刻；复杂公式、合并单元格、浮动文本框、矢量图或异常阅读顺序必须保留内容或出现明确警告，不能静默丢失。Windows 检查不能代替 macOS 验收。
 
@@ -128,17 +128,17 @@ pnpm lint
 
 桌面验收至少覆盖以下流程：
 
-- 在工作区按 `Cmd/Ctrl+Shift+I` 或点击“已归档”右侧的 `+`，确认自动切换到 Inbox、展开左侧栏并聚焦右侧主编辑区；空白草稿不会创建文件，输入非空正文后自动保存，重启后 `.madora/inbox` 中的 Capture 仍可读取。
+- 在工作区按 `Cmd/Ctrl+Shift+I` 或点击“已归档”右侧的 `+`，确认自动切换到 Inbox、展开左侧栏并聚焦右侧主编辑区；空白草稿不会创建文件，输入非空正文后自动保存，重启后 `.markune/inbox` 中的 Capture 仍可读取。
 - 确认 Inbox 激活后左侧目录树与 Daily 日历被紧凑 Capture 列表替换；左上角搜索切换为 Inbox 全状态搜索，退出 Inbox 后原文档树搜索词仍保留。
 - 确认主编辑区不显示 Inbox/Capture 标题栏和标签入口，保存状态固定显示在右下角。通过 Capture 右键菜单和行尾 `…` 完成状态、优先级、流转、归档、取消归档、重新打开和二次确认删除；切换状态后条目应立即重新分组，优先级圆点按高红、普通蓝、低灰显示。历史 `snoozedUntil` 尚未到期的 Capture 继续显示在“稍后”，右键可“恢复待处理”；当前 UI 不再提供新增 snooze。侧栏徽标始终统计所有 `open/processing`，包括历史 snoozed Capture。
-- Promote 的保存位置应以限高、内部滚动的目录树展示，支持逐级展开与按完整相对路径搜索，并排除 `Daily` 和隐藏目录。分别提升到根目录和普通子目录，确认唯一命名、创建时间、标签与 H1；Append 两次同一 Capture，Daily 的 `## Inbox` 下只能存在一个 `madora-capture:<id>` 标记。
+- Promote 的保存位置应以限高、内部滚动的目录树展示，支持逐级展开与按完整相对路径搜索，并排除 `Daily` 和隐藏目录。分别提升到根目录和普通子目录，确认唯一命名、创建时间、标签与 H1；Append 两次同一 Capture，Daily 的 `## Inbox` 下只能存在一个 `markune-capture:<id>` 标记。
 - 在 Daily 已打开且有未保存草稿时执行 Append，确认本地草稿不会被静默覆盖，并通过现有外部文档冲突入口显式选择版本。
 - Capture 引用本地资源后保存、删除和提升，确认资源只有在正式笔记、Daily 与其他 Capture 都不再引用时才被清理。
-- 在用户工作区执行 `git status --short -- .madora/inbox`，确认 Git 是否发现 Capture 完全遵循该工作区自身 ignore 规则；Madora 不改写 `.gitignore`。
+- 在用户工作区执行 `git status --short -- .markune/inbox`，确认 Git 是否发现 Capture 完全遵循该工作区自身 ignore 规则；Markune 不改写 `.gitignore`。
 
 ## Codex Session Storage
 
-Madora 默认复用 `~/.codex`。检查当前 Codex 解析出的用户级目录时，使用经过脱敏的 doctor 输出，不要打印认证文件或完整报告：
+Markune 默认复用 `~/.codex`。检查当前 Codex 解析出的用户级目录时，使用经过脱敏的 doctor 输出，不要打印认证文件或完整报告：
 
 ```bash
 codex doctor --json | jq '.checks["config.load"].details | {"CODEX_HOME": .CODEX_HOME, "sqlite home": ."sqlite home"}'
@@ -147,11 +147,11 @@ codex doctor --json | jq '.checks["config.load"].details | {"CODEX_HOME": .CODEX
 验收 AI 存储边界时，在知识库根目录执行：
 
 ```bash
-git ls-files '.madora/ai-sessions/**'
-test ! -d .madora/ai-sessions
+git ls-files '.markune/ai-sessions/**'
+test ! -d .markune/ai-sessions
 ```
 
-两条命令都不应发现旧会话。随后在 Madora 新建会话并重启应用，线程应能通过 App Server 恢复，且知识库中不得重新生成 `.madora/ai-sessions`。不要用 SQLite 或 JSONL 文件存在性替代 `thread/list`、`thread/read` 的功能验证。
+两条命令都不应发现旧会话。随后在 Markune 新建会话并重启应用，线程应能通过 App Server 恢复，且知识库中不得重新生成 `.markune/ai-sessions`。不要用 SQLite 或 JSONL 文件存在性替代 `thread/list`、`thread/read` 的功能验证。
 
 ## Codex Permission Acceptance
 
@@ -164,10 +164,10 @@ test ! -d .madora/ai-sessions
 桌面设置 → Codex 分区验收自定义 Responses 端点：
 
 1. 填写合法 `https://…` Base URL、Model 与 API Key，保存后确认 App Server 重启；状态显示认证模式为“自定义 API”，Base URL 可见，Key 不再回显。
-2. 在 AI 面板发送消息，确认可走自定义端点；重启 Madora 后仍可用（keyring + config 持久化）。
-3. 切换回“使用 ChatGPT 路径”，确认 `model_provider` 不再指向 `madora_custom`，且需 ChatGPT 登录时可正常 OAuth。
+2. 在 AI 面板发送消息，确认可走自定义端点；重启 Markune 后仍可用（keyring + config 持久化）。
+3. 切换回“使用 ChatGPT 路径”，确认 `model_provider` 不再指向 `markune_custom`，且需 ChatGPT 登录时可正常 OAuth。
 4. 错误 Base URL、空 Model、无 Key 必须被拒绝；纯 Chat Completions 端点即使保存成功，对话也会因 wire API 不兼容失败——产品文案已说明此限制。
-5. 确认 `settings.json`、React 会话状态与日志中没有明文 API Key；`CODEX_HOME/config.toml` 仅出现受控的 `[model_providers.madora_custom]`。
+5. 确认 `settings.json`、React 会话状态与日志中没有明文 API Key；`CODEX_HOME/config.toml` 仅出现受控的 `[model_providers.markune_custom]`。
 
 聚焦自动化：
 
@@ -245,12 +245,14 @@ pnpm exec tauri build --no-bundle
 pnpm exec tauri build --bundles dmg --no-sign
 ```
 
-`--no-sign` 只允许用于本地打包诊断，不能发布或用于自动更新验收。正式 Tag 构建必须通过 `pnpm release:prepare` 注入 updater minisign、公钥、公开 `madora-site` endpoint 和 macOS ad-hoc identity，再由发布工作流生成 `.sig` 与 `latest.json`。
+`--no-sign` 只允许用于本地打包诊断，不能发布或用于自动更新验收。正式 Tag 构建必须通过 `pnpm release:prepare` 注入 updater minisign、公钥、当前 `Refinex-Space/markune` GitHub Release endpoint 和 macOS ad-hoc identity，再由发布工作流生成 `.sig` 与 `latest.json`。
+
+品牌迁移验收应复制专用测试工作区，不直接使用唯一生产数据。分别验证仅 `.madora/`、仅 `.markune/`、两个目录并存和旧目录含符号链接四种情况：仅旧目录必须先弹窗再允许迁移；当前目录直接打开；并存和符号链接必须阻断。成功后检查 `.markune/migrations/brand-rename/` 备份与清单，失败演练检查旧目录和原文已经恢复。
 
 ## Rollback
 
 For source changes, prefer `git diff` inspection followed by targeted `git restore <path>` only for files intentionally changed in the current task. Do not revert unrelated user work.
 
-回滚画板功能时，定向恢复本次前端、Rust、脚本、依赖与文档文件，并删除由 staging 生成且已被 Git 忽略的 `public/excalidraw-runtime`。不要删除用户工作区的 `.madora/drawings`；旧图稿 bundle 是可直接交给 Excalidraw 的用户数据，应保留到确认无需恢复后再另行处理。
+回滚画板功能时，定向恢复本次前端、Rust、脚本、依赖与文档文件，并删除由 staging 生成且已被 Git 忽略的 `public/excalidraw-runtime`。不要删除用户工作区的 `.markune/drawings`；旧图稿 bundle 是可直接交给 Excalidraw 的用户数据，应保留到确认无需恢复后再另行处理。
 
-旧 `.madora/ai-sessions` 若尚未提交删除，可在对应知识库仓库中定向 `git restore`。提交删除后旧内容仍存在于 Git 历史；彻底清除需要单独批准历史重写，不能作为常规回滚或清理步骤执行。
+旧 `.markune/ai-sessions` 若尚未提交删除，可在对应知识库仓库中定向 `git restore`。提交删除后旧内容仍存在于 Git 历史；彻底清除需要单独批准历史重写，不能作为常规回滚或清理步骤执行。

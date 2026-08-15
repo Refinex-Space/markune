@@ -1,7 +1,15 @@
 {
-  "name": "madora",
+  "name": "markune",
   "version": "0.2.1",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/Refinex-Space/markune.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Refinex-Space/markune/issues"
+  },
+  "homepage": "https://github.com/Refinex-Space/markune#readme",
   "scripts": {
     "desktop:build": "tauri build",
     "desktop:dev": "pnpm codex:stage && pnpm document-export:stage && tauri dev",
@@ -14,7 +22,6 @@
     "excalidraw:stage": "node scripts/stage-excalidraw-runtime.mjs",
     "runtime:stage": "pnpm import:stage && pnpm excalidraw:stage",
     "release:prepare": "node scripts/prepare-release-updater-config.mjs",
-    "release:promote": "node scripts/promote-release-distribution.mjs",
     "start": "next start",
     "lint": "eslint",
     "harness:check": "python3 ops/harness/check-harness.py",
@@ -27,7 +34,7 @@
     "@codemirror/lang-markdown": "^6.5.1",
     "@excalidraw/excalidraw": "0.18.1",
     "@excalidraw/mermaid-to-excalidraw": "2.2.2",
-    "@markweave/react": "^0.7.9",
+    "@markweave/react": "^0.8.0",
     "@radix-ui/react-dropdown-menu": "2.1.16",
     "@radix-ui/react-popover": "^1.1.15",
     "@radix-ui/react-toolbar": "^1.1.11",
@@ -61,7 +68,7 @@
     "lodash": "^4.18.1",
     "lucide-react": "^1.17.0",
     "mammoth": "1.12.0",
-    "markweave": "^0.7.9",
+    "markweave": "^0.8.0",
     "mermaid": "11.15.0",
     "next": "16.2.6",
     "next-themes": "^0.4.6",

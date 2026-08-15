@@ -11,7 +11,7 @@ import {
 const assetId = 'd0f45cd65e487641a2bed39aaf81f718b7bc6969ac49520911230b69fe219156';
 const drawingId = '98a5fa9b-ef6d-4218-adc6-e29a5f17929c';
 const markdown =
-  `[![测试1](madora-asset://${assetId})](madora-drawing://${drawingId})`;
+  `[![测试1](markune-asset://${assetId})](markune-drawing://${drawingId})`;
 
 describe('drawing markdown reference', () => {
   it('builds a canonical reference from stable IDs instead of a display URL', () => {
@@ -24,23 +24,23 @@ describe('drawing markdown reference', () => {
     const projected = projectDrawingMarkdownReferencesForEditor(markdown);
 
     expect(projected).toBe(
-      `![测试1](madora-asset://${assetId} "madora-drawing://${drawingId}")`,
+      `![测试1](markune-asset://${assetId} "markune-drawing://${drawingId}")`,
     );
     expect(restoreDrawingMarkdownReferencesFromEditor(projected)).toBe(markdown);
   });
 
   it('recovers the exact escaped literal produced by the old live paste path', () => {
     const escaped =
-      `\\[!\\[测试1\\](madora-asset://${assetId})\\](madora-drawing://${drawingId})`;
+      `\\[!\\[测试1\\](markune-asset://${assetId})\\](markune-drawing://${drawingId})`;
 
     expect(projectDrawingMarkdownReferencesForEditor(escaped)).toBe(
-      `![测试1](madora-asset://${assetId} "madora-drawing://${drawingId}")`,
+      `![测试1](markune-asset://${assetId} "markune-drawing://${drawingId}")`,
     );
   });
 
   it('does not turn arbitrary titled images into drawing references', () => {
     const externalImage =
-      `![测试1](https://example.com/image.png "madora-drawing://${drawingId}")`;
+      `![测试1](https://example.com/image.png "markune-drawing://${drawingId}")`;
 
     expect(restoreDrawingMarkdownReferencesFromEditor(externalImage)).toBe(
       externalImage,
@@ -82,8 +82,9 @@ describe('drawing markdown reference', () => {
         createDrawingMarkdownReferenceHtml(markdown),
       );
       expect(await items[0]['text/html'].text()).toContain(
-        `src="madora-asset://${assetId}"`,
+        `src="https://clipboard.markune.invalid/asset/${assetId}"`,
       );
+      expect(await items[0]['text/html'].text()).not.toContain('madora-');
       expect(await items[0]['text/html'].text()).not.toContain(
         'asset://localhost',
       );

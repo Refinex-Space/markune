@@ -371,6 +371,92 @@ describe('MarkdownEditor', () => {
     ).toBe('false');
   });
 
+  it('普通点击段落内工作区文档链接时阻止浏览器导航并交给 Markweave 编辑', () => {
+    render(
+      <MarkdownEditor
+        documentPath="/vault/plans/2026.md"
+        markdown="[技术团队](../技术团队.md)"
+        workspaceRootPath="/vault"
+      />,
+    );
+
+    const link = document.createElement('a');
+    link.href = '../%E6%8A%80%E6%9C%AF%E5%9B%A2%E9%98%9F.md';
+    screen.getByTestId('markweave-editor').append(link);
+    const targetClick = vi.fn();
+    link.addEventListener('click', targetClick);
+    const openDocument = vi.fn();
+    window.addEventListener('markune:open-document', openDocument);
+
+    const dispatched = fireEvent.click(link);
+
+    expect(dispatched).toBe(false);
+    expect(targetClick).toHaveBeenCalledTimes(1);
+    expect(openDocument).not.toHaveBeenCalled();
+    window.removeEventListener('markune:open-document', openDocument);
+  });
+
+  it('Ctrl/Cmd 点击段落内工作区文档链接时由 Markune 打开目标文档', () => {
+    render(
+      <MarkdownEditor
+        documentPath="/vault/plans/2026.md"
+        markdown="[技术团队](../技术团队.md)"
+        workspaceRootPath="/vault"
+      />,
+    );
+
+    const link = document.createElement('a');
+    link.href = '../%E6%8A%80%E6%9C%AF%E5%9B%A2%E9%98%9F.md#实践';
+    screen.getByTestId('markweave-editor').append(link);
+    const targetClick = vi.fn();
+    link.addEventListener('click', targetClick);
+    const openDocument = vi.fn();
+    window.addEventListener('markune:open-document', openDocument);
+
+    const dispatched = fireEvent.click(link, { metaKey: true });
+
+    expect(dispatched).toBe(false);
+    expect(targetClick).not.toHaveBeenCalled();
+    expect(openDocument).toHaveBeenCalledTimes(1);
+    expect((openDocument.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({
+      hash: '实践',
+      relativePath: '技术团队.md',
+    });
+    window.removeEventListener('markune:open-document', openDocument);
+  });
+
+  it('缺少路径上下文时仍阻止 Markdown 文档链接落入浏览器', () => {
+    render(<MarkdownEditor markdown="[缺失文档](missing.md)" />);
+
+    const link = document.createElement('a');
+    link.href = 'missing.md';
+    screen.getByTestId('markweave-editor').append(link);
+
+    expect(fireEvent.click(link)).toBe(false);
+    expect(fireEvent.click(link, { ctrlKey: true })).toBe(false);
+  });
+
+  it('不拦截外部链接和普通附件链接', () => {
+    render(
+      <MarkdownEditor
+        documentPath="/vault/plans/2026.md"
+        markdown="links"
+        workspaceRootPath="/vault"
+      />,
+    );
+
+    const editor = screen.getByTestId('markweave-editor');
+    const externalLink = document.createElement('a');
+    externalLink.href = 'https://www.superdoc.dev/';
+    editor.append(externalLink);
+    const attachmentLink = document.createElement('a');
+    attachmentLink.href = '../assets/guide.pdf';
+    editor.append(attachmentLink);
+
+    expect(fireEvent.click(externalLink)).toBe(true);
+    expect(fireEvent.click(attachmentLink)).toBe(true);
+  });
+
   it('仅在可编辑 Live 文档发布 Ask AI handler 和 controller', () => {
     const askAiHandler = vi.fn();
     const ref = React.createRef<MarkdownEditorHandle>();
@@ -498,8 +584,8 @@ describe('MarkdownEditor', () => {
     const onMarkdownChange = vi.fn();
     toStorageMarkdownMock.mockImplementation((markdown: string) =>
       markdown.replace(
-        'asset://localhost/ws/.madora/assets/files/aa/hash.png',
-        'madora-asset://hash',
+        'asset://localhost/ws/.markune/assets/files/aa/hash.png',
+        'markune-asset://hash',
       ),
     );
 
@@ -510,14 +596,14 @@ describe('MarkdownEditor', () => {
     fireEvent.change(screen.getByLabelText('Markdown 正文'), {
       target: {
         value:
-          '![图](asset://localhost/ws/.madora/assets/files/aa/hash.png)',
+          '![图](asset://localhost/ws/.markune/assets/files/aa/hash.png)',
       },
     });
 
     act(() => vi.advanceTimersByTime(500));
 
     expect(onMarkdownChange).toHaveBeenLastCalledWith(
-      '![图](madora-asset://hash)',
+      '![图](markune-asset://hash)',
       undefined,
       'idle',
     );
@@ -528,9 +614,9 @@ describe('MarkdownEditor', () => {
     const assetId = 'a'.repeat(64);
     const drawingId = '11111111-1111-4111-8111-111111111111';
     const canonical =
-      `[![架构图](madora-asset://${assetId})](madora-drawing://${drawingId})`;
+      `[![架构图](markune-asset://${assetId})](markune-drawing://${drawingId})`;
     const projected =
-      `![架构图](madora-asset://${assetId} "madora-drawing://${drawingId}")`;
+      `![架构图](markune-asset://${assetId} "markune-drawing://${drawingId}")`;
 
     render(
       <MarkdownEditor
@@ -942,9 +1028,9 @@ describe('MarkdownEditor', () => {
     expect(globalsCss).toContain(
       '.workspace-editor-shell.workspace-editor-page-wide .markweave-editor-surface',
     );
-    expect(globalsCss).toContain('--madora-markweave-toc-gutter: 2rem');
+    expect(globalsCss).toContain('--markune-markweave-toc-gutter: 2rem');
     expect(globalsCss).toContain(
-      "--markweave-inner-toc-gutter: var(--madora-markweave-toc-gutter)",
+      "--markweave-inner-toc-gutter: var(--markune-markweave-toc-gutter)",
     );
     expect(globalsCss).toContain(
       ':root:has(.workspace-editor-shell .markweave-editor-frame)',
@@ -994,14 +1080,14 @@ describe('MarkdownEditor', () => {
     expect(scrollToMock).toHaveBeenCalledWith({ top: expect.any(Number) });
   });
 
-  it('只拦截稳定的 madora-drawing 内链并派发打开事件', () => {
+  it('只拦截稳定的 markune-drawing 内链并派发打开事件', () => {
     const onOpenDrawing = vi.fn();
-    window.addEventListener('madora:open-drawing', onOpenDrawing);
+    window.addEventListener('markune:open-drawing', onOpenDrawing);
     render(<MarkdownEditor markdown="# 图稿" />);
     const root = screen.getByTestId('markdown-editor-root');
     const drawingLink = document.createElement('a');
     drawingLink.href =
-      'madora-drawing://11111111-1111-4111-8111-111111111111';
+      'markune-drawing://11111111-1111-4111-8111-111111111111';
     root.append(drawingLink);
 
     fireEvent.click(drawingLink);
@@ -1013,7 +1099,7 @@ describe('MarkdownEditor', () => {
 
     const drawingImage = document.createElement('img');
     drawingImage.title =
-      'madora-drawing://22222222-2222-4222-8222-222222222222';
+      'markune-drawing://22222222-2222-4222-8222-222222222222';
     root.append(drawingImage);
     fireEvent.click(drawingImage);
     expect(onOpenDrawing).toHaveBeenCalledTimes(2);
@@ -1030,11 +1116,11 @@ describe('MarkdownEditor', () => {
 
     const invalidDrawingLink = document.createElement('img');
     invalidDrawingLink.title =
-      'madora-drawing://33333333-3333-0333-8333-333333333333';
+      'markune-drawing://33333333-3333-0333-8333-333333333333';
     root.append(invalidDrawingLink);
     fireEvent.click(invalidDrawingLink);
     expect(onOpenDrawing).toHaveBeenCalledTimes(2);
-    window.removeEventListener('madora:open-drawing', onOpenDrawing);
+    window.removeEventListener('markune:open-drawing', onOpenDrawing);
   });
 
 });

@@ -66,7 +66,7 @@ describe('document export core', () => {
       });
     const prepared = await prepareDocumentAssets(
       '/repo',
-      '![图](madora-asset://a)\n[附件](madora-asset://b)',
+      '![图](markune-asset://a)\n[附件](markune-asset://b)',
       readAsset,
     );
 
@@ -90,11 +90,11 @@ describe('document export core', () => {
   it('keeps missing references recognizable and returns a warning', async () => {
     const prepared = await prepareDocumentAssets(
       '/repo',
-      '![缺失](madora-asset://missing)',
+      '![缺失](markune-asset://missing)',
       vi.fn().mockRejectedValue(new Error('not found')),
     );
 
-    expect(prepared.portableMarkdown).toContain('madora-asset://missing');
+    expect(prepared.portableMarkdown).toContain('markune-asset://missing');
     expect(prepared.warnings).toEqual([
       '资源 missing 未能导出：not found',
     ]);
@@ -181,7 +181,7 @@ describe('document export core', () => {
 
   it('builds script-free current-theme HTML and professional A4 print HTML', async () => {
     const content = document.createElement('article');
-    content.className = 'madora-export-document';
+    content.className = 'markune-export-document';
     content.innerHTML = '<h1>标题</h1><p>正文</p>';
 
     const dark = await createStaticExportHtml({
@@ -206,8 +206,8 @@ describe('document export core', () => {
 
     expect(dark.html).toContain('<html class="dark"');
     expect(dark.html).toContain('data-page-width-mode="wide"');
-    expect(dark.html).toContain('--madora-export-content-max:88rem');
-    expect(standard.html).toContain('--madora-export-content-max:64rem');
+    expect(dark.html).toContain('--markune-export-content-max:88rem');
+    expect(standard.html).toContain('--markune-export-content-max:64rem');
     expect(dark.html).toContain("script-src 'none'");
     expect(dark.html).not.toContain('<script');
     expect(print.html).toContain('@page{size:A4;margin:18mm}');

@@ -4,7 +4,7 @@ import * as React from 'react';
 
 import {
   checkAppUpdate,
-  getMadoraVersion,
+  getMarkuneVersion,
   installAppUpdate,
   isTauriRuntime,
   restartAppAfterUpdate,
@@ -96,7 +96,7 @@ export function useAppUpdate({
     if (!isTauriRuntime()) return;
 
     let cancelled = false;
-    void getMadoraVersion()
+    void getMarkuneVersion()
       .then((version) => {
         if (cancelled) return;
         updateState((current) => ({ ...current, currentVersion: version }));

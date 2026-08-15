@@ -93,7 +93,7 @@ async function stageTool(tool) {
   } else {
     const archive = await ensureArchive(tool);
     temporaryDirectory = await mkdtemp(
-      join(tmpdir(), `madora-${tool.name}-${tool.version}-`),
+      join(tmpdir(), `markune-${tool.name}-${tool.version}-`),
     );
     extractArchive(archive, temporaryDirectory);
     source = await findBinary(
@@ -242,7 +242,7 @@ function probeVersion(binaryPath) {
 
 function downloadRequestOptions() {
   return {
-    headers: { 'User-Agent': 'Madora-build-runtime-stager' },
+    headers: { 'User-Agent': 'Markune-build-runtime-stager' },
     redirect: 'follow',
     signal: AbortSignal.timeout(120_000),
   };
@@ -337,13 +337,13 @@ function resolveTarget() {
       {
         ...manifest.pandoc,
         name: 'pandoc',
-        override: 'MADORA_PANDOC_BIN',
+        override: 'MARKUNE_PANDOC_BIN',
         version: PANDOC_VERSION,
       },
       {
         ...manifest.typst,
         name: 'typst',
-        override: 'MADORA_TYPST_BIN',
+        override: 'MARKUNE_TYPST_BIN',
         version: TYPST_VERSION,
       },
     ],

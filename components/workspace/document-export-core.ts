@@ -9,7 +9,7 @@ import {
   getWorkspaceAssetIdFromReference,
 } from './workspace-local-assets';
 
-export const EXPORT_STEM_PLACEHOLDER = '__MADORA_EXPORT_STEM__';
+export const EXPORT_STEM_PLACEHOLDER = '__MARKUNE_EXPORT_STEM__';
 
 export interface PreparedDocumentAssets {
   allAssetFiles: DocumentExportFile[];
@@ -139,7 +139,7 @@ export function sanitizeMarkweaveSnapshot(source: HTMLElement) {
   )) {
     const marker = document.createElement('span');
 
-    marker.className = 'madora-export-task-marker';
+    marker.className = 'markune-export-task-marker';
     marker.textContent = checkbox.checked ? '☑' : '☐';
     checkbox.replaceWith(marker);
   }
@@ -206,7 +206,7 @@ export function sanitizeMarkweaveSnapshot(source: HTMLElement) {
     if (image.dataset.exportMissing === 'true') {
       const placeholder = document.createElement('span');
 
-      placeholder.className = 'madora-export-missing-resource';
+      placeholder.className = 'markune-export-missing-resource';
       placeholder.textContent = `[图片不可用：${
         image.getAttribute('alt') || image.getAttribute('src') || '未知图片'
       }]`;
@@ -221,7 +221,7 @@ export function sanitizeMarkweaveSnapshot(source: HTMLElement) {
     image.removeAttribute('loading');
   }
 
-  clone.classList.add('madora-export-document');
+  clone.classList.add('markune-export-document');
   return clone;
 }
 
@@ -234,7 +234,7 @@ export async function createStaticExportHtml(options: {
 }) {
   const warnings: string[] = [];
   const missingResourceCount = options.content.querySelectorAll(
-    '.madora-export-missing-resource',
+    '.markune-export-missing-resource',
   ).length;
   if (missingResourceCount > 0) {
     warnings.push(`${missingResourceCount} 个图片资源不可用，已输出占位内容。`);
@@ -584,23 +584,23 @@ function bytesToBase64(value: Uint8Array) {
 }
 
 const BASE_EXPORT_CSS = `
-html[data-page-width-mode="standard"]{--madora-export-content-max:64rem}
-html[data-page-width-mode="wide"]{--madora-export-content-max:88rem}
+html[data-page-width-mode="standard"]{--markune-export-content-max:64rem}
+html[data-page-width-mode="wide"]{--markune-export-content-max:88rem}
 html,body{margin:0;min-height:100%;background:var(--background);color:var(--foreground)}
-body{font-family:var(--madora-document-font,var(--font-sans));line-height:1.75}
-.madora-export-document{box-sizing:border-box;margin:0 auto;max-width:calc(var(--madora-export-content-max) + 128px);padding:48px 64px 80px}
-.madora-export-document img,.madora-export-document svg{max-width:100%;height:auto}
-.madora-export-document pre{overflow:auto}
-.madora-export-document table{max-width:100%;border-collapse:collapse}
-.madora-export-task-marker{display:inline-block;width:1.35em;color:var(--primary)}
-@media(max-width:720px){.madora-export-document{padding:28px 22px 48px}}
+body{font-family:var(--markune-document-font,var(--font-sans));line-height:1.75}
+.markune-export-document{box-sizing:border-box;margin:0 auto;max-width:calc(var(--markune-export-content-max) + 128px);padding:48px 64px 80px}
+.markune-export-document img,.markune-export-document svg{max-width:100%;height:auto}
+.markune-export-document pre{overflow:auto}
+.markune-export-document table{max-width:100%;border-collapse:collapse}
+.markune-export-task-marker{display:inline-block;width:1.35em;color:var(--primary)}
+@media(max-width:720px){.markune-export-document{padding:28px 22px 48px}}
 `;
 
 const PROFESSIONAL_PRINT_CSS = `
 @page{size:A4;margin:18mm}
 html,body{background:#fff!important;color:#171717!important}
 body{-webkit-print-color-adjust:exact;print-color-adjust:exact;font-size:10.5pt}
-.madora-export-document{max-width:none!important;margin:0!important;padding:0!important;background:#fff!important;color:#171717!important}
+.markune-export-document{max-width:none!important;margin:0!important;padding:0!important;background:#fff!important;color:#171717!important}
 h1,h2,h3,h4,h5,h6{break-after:avoid-page;page-break-after:avoid;orphans:3;widows:3;color:#111!important}
 p,li,blockquote{orphans:3;widows:3}
 thead{display:table-header-group}

@@ -576,7 +576,7 @@ export function reduceCodexProtocolMessage(
       : null;
     next.approvals.push({
       choices: supportedApprovalChoices(
-        params.madoraApprovalChoices,
+        params.markuneApprovalChoices,
         params.availableDecisions,
         message.method,
       ),
@@ -601,7 +601,7 @@ export function reduceCodexProtocolMessage(
     message.method === 'item/tool/requestUserInput' &&
     message.id !== undefined
   ) {
-    const request = parseUserInputRequest(params.madoraUserInput);
+    const request = parseUserInputRequest(params.markuneUserInput);
     if (request) {
       next.userInputRequests = next.userInputRequests.filter(
         (candidate) => String(candidate.id) !== String(message.id),
@@ -627,7 +627,7 @@ export function reduceCodexProtocolMessage(
     return next;
   }
 
-  if (message.method === 'madora/runtime/exited') {
+  if (message.method === 'markune/runtime/exited') {
     next.activeTurnId = null;
     next.userInputRequests = [];
     next.entries.push({
@@ -1863,7 +1863,7 @@ function messageFromUserMessage(
       continue;
     }
 
-    const restored = restoreMadoraAttachmentContext(
+    const restored = restoreMarkuneAttachmentContext(
       input.text,
       input.text_elements,
     );
@@ -1967,32 +1967,32 @@ function messageFromUserMessage(
 }
 
 export function createDrawingMentionPath(drawingId: string) {
-  return `madora-drawing://${drawingId}`;
+  return `markune-drawing://${drawingId}`;
 }
 
 export function parseDrawingMentionPath(value: string) {
-  const match = /^madora-drawing:\/\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/.exec(
+  const match = /^markune-drawing:\/\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/.exec(
     value,
   );
   return match?.[1] ?? null;
 }
 
-const MADORA_ATTACHMENT_ELEMENT_PREFIX = 'madora:attachment:';
-const MADORA_FILE_CONTEXT_HEADING = '# Files mentioned by the user:\n\n';
-const MADORA_FILE_REQUEST_HEADING = '## My request for Codex:\n';
+const MARKUNE_ATTACHMENT_ELEMENT_PREFIX = 'markune:attachment:';
+const MARKUNE_FILE_CONTEXT_HEADING = '# Files mentioned by the user:\n\n';
+const MARKUNE_FILE_REQUEST_HEADING = '## My request for Codex:\n';
 
-function restoreMadoraAttachmentContext(
+function restoreMarkuneAttachmentContext(
   text: string,
   rawTextElements: unknown,
 ) {
-  if (!text.startsWith(MADORA_FILE_CONTEXT_HEADING)) {
+  if (!text.startsWith(MARKUNE_FILE_CONTEXT_HEADING)) {
     return {
       attachments: [] as AiMessageAttachment[],
       text,
       textElements: rawTextElements,
     };
   }
-  const requestHeadingStart = text.indexOf(MADORA_FILE_REQUEST_HEADING);
+  const requestHeadingStart = text.indexOf(MARKUNE_FILE_REQUEST_HEADING);
   if (requestHeadingStart < 0) {
     return {
       attachments: [] as AiMessageAttachment[],
@@ -2001,7 +2001,7 @@ function restoreMadoraAttachmentContext(
     };
   }
 
-  const prefixEnd = requestHeadingStart + MADORA_FILE_REQUEST_HEADING.length;
+  const prefixEnd = requestHeadingStart + MARKUNE_FILE_REQUEST_HEADING.length;
   const prefixBytes = utf8ByteLength(text.slice(0, prefixEnd));
   const attachments: AiMessageAttachment[] = [];
   const textElements: unknown[] = [];
@@ -2012,8 +2012,8 @@ function restoreMadoraAttachmentContext(
       const record = element as Record<string, unknown>;
       const placeholder =
         typeof record.placeholder === 'string' ? record.placeholder : '';
-      if (placeholder.startsWith(MADORA_ATTACHMENT_ELEMENT_PREFIX)) {
-        const metadata = placeholder.slice(MADORA_ATTACHMENT_ELEMENT_PREFIX.length);
+      if (placeholder.startsWith(MARKUNE_ATTACHMENT_ELEMENT_PREFIX)) {
+        const metadata = placeholder.slice(MARKUNE_ATTACHMENT_ELEMENT_PREFIX.length);
         const separator = metadata.indexOf(':');
         const kind = metadata.slice(0, separator);
         const name = metadata.slice(separator + 1);

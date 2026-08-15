@@ -384,7 +384,7 @@ function DocumentExportRenderer({
       );
 
       const root = hostRef.current?.querySelector<HTMLElement>(
-        '.madora-markweave-editor',
+        '.markune-markweave-editor',
       );
 
       if (!root) {

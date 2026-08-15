@@ -100,7 +100,7 @@ async fn fetch_preview_response(
         let response = client
             .get(current_url.clone())
             .header(ACCEPT, "text/html,application/xhtml+xml")
-            .header(USER_AGENT, "MadoraLinkPreview/1.0")
+            .header(USER_AGENT, "MarkuneLinkPreview/1.0")
             .send()
             .await
             .map_err(|_| "Link preview request failed".to_string())?;

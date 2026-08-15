@@ -123,7 +123,7 @@ describe('drawing integration', () => {
     expect(layout).toContain('<DrawingSidebar');
     expect(layout).toContain('<DrawingWorkspacePage');
     expect(api).toContain("invoke<void>('stage_drawing_scene', bytes");
-    expect(api).toContain("'x-madora-drawing-session'");
+    expect(api).toContain("'x-markune-drawing-session'");
     expect(editor).toContain('parseDrawingMarkdownUrl(href)');
     expect(drawingReference).toContain(
       "'[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'",

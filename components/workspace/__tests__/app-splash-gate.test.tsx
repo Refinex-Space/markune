@@ -9,27 +9,27 @@ const splashGatePath = join(
   process.cwd(),
   'components/workspace/app-splash-gate.tsx',
 );
-const madoraDarkLogoPath = join(
+const markuneDarkLogoPath = join(
   process.cwd(),
-  'public/brand/madora-logo-dark.svg',
+  'public/brand/markune-logo-dark.svg',
 );
-const madoraLightLogoPath = join(
+const markuneLightLogoPath = join(
   process.cwd(),
-  'public/brand/madora-logo-light.svg',
+  'public/brand/markune-logo-light.svg',
 );
 
 describe('app splash screen', () => {
-  it('renders a static Madora splash from the root layout before the workspace hydrates', () => {
+  it('renders a static Markune splash from the root layout before the workspace hydrates', () => {
     const layoutSource = readFileSync(layoutPath, 'utf8');
     const globalsCssSource = readFileSync(globalsCssPath, 'utf8');
 
-    expect(existsSync(madoraDarkLogoPath)).toBe(true);
-    expect(existsSync(madoraLightLogoPath)).toBe(true);
+    expect(existsSync(markuneDarkLogoPath)).toBe(true);
+    expect(existsSync(markuneLightLogoPath)).toBe(true);
     expect(layoutSource).toContain('AppSplashGate');
     expect(layoutSource).toContain('data-app-splash="active"');
     expect(layoutSource).toContain('className="app-splash"');
-    expect(layoutSource).toContain('/brand/madora-logo-dark.svg');
-    expect(layoutSource).toContain('/brand/madora-logo-light.svg');
+    expect(layoutSource).toContain('/brand/markune-logo-dark.svg');
+    expect(layoutSource).toContain('/brand/markune-logo-light.svg');
     expect(layoutSource).toContain('dark:hidden');
     expect(layoutSource).toContain('dark:block');
     expect(layoutSource).not.toContain('先让它存在，再把它做好');

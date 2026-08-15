@@ -179,7 +179,7 @@ function LocalTreeNodeIcon({
     const cacheKey = `${rootPath}\0${assetId}`;
     const request =
       localIconDataCache.get(cacheKey) ??
-      localAssetUrlToImageDataUrl(`madora-asset://${assetId}`, rootPath).catch(
+      localAssetUrlToImageDataUrl(`markune-asset://${assetId}`, rootPath).catch(
         () => null,
       );
     localIconDataCache.set(cacheKey, request);

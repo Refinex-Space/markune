@@ -20,7 +20,7 @@ import type {
   WorkspaceImportFormat,
 } from './workspace-types';
 
-export const IMPORT_ASSET_PREFIX = 'madora-import://asset/';
+export const IMPORT_ASSET_PREFIX = 'markune-import://asset/';
 
 export interface PreparedImportAsset {
   data?: Uint8Array;
@@ -71,8 +71,8 @@ const HTML_IMPORT_SCHEMA: RehypeSanitizeSchema = {
       'data',
       'http',
       'https',
-      'madora-asset',
-      'madora-import',
+      'markune-asset',
+      'markune-import',
     ],
   },
 };
@@ -359,7 +359,7 @@ function createImportImageResolver(
         return '';
       }
     }
-    if (/^[a-z][a-z0-9+.-]*:/iu.test(reference) && !reference.startsWith('madora-asset://')) {
+    if (/^[a-z][a-z0-9+.-]*:/iu.test(reference) && !reference.startsWith('markune-asset://')) {
       warnings.push(`不支持的图片协议，已移除：${reference.split(':')[0]}`);
       return '';
     }
@@ -437,7 +437,7 @@ export function normalizeImportTitle(value: string) {
 }
 
 function referenceFileName(reference: string) {
-  if (reference.startsWith('madora-asset://')) {
+  if (reference.startsWith('markune-asset://')) {
     return 'imported-image';
   }
   const withoutSuffix = reference.split(/[?#]/u)[0].replace(/\\/g, '/');

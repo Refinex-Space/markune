@@ -1,5 +1,20 @@
 export type WorkspaceNodeKind = 'directory' | 'document';
 
+export type WorkspaceBrandState = 'new' | 'current' | 'legacy' | 'conflict';
+
+export interface WorkspaceBrandInspection {
+  state: WorkspaceBrandState;
+}
+
+export interface WorkspaceBrandMigrationReport {
+  backupPath: string;
+  migratedFiles: number;
+  appSettingsMigrated: boolean;
+  codexProviderMigrated: boolean;
+  credentialMigrated: boolean;
+  warnings: string[];
+}
+
 export type WorkspaceExportFormat = 'html' | 'markdown' | 'pdf' | 'word';
 
 export type WorkspaceImportFormat = 'html' | 'markdown' | 'pdf' | 'word';

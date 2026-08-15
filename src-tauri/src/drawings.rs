@@ -467,7 +467,7 @@ pub fn begin_drawing_save(
     if !force {
         validate_scene(&current_scene)?;
         if current_scene_sha256 != current.scene_sha256 {
-            return Err("DRAWING_CONFLICT:磁盘场景已在 Madora 外部修改。".to_string());
+            return Err("DRAWING_CONFLICT:磁盘场景已在 Markune 外部修改。".to_string());
         }
     }
     let next_revision = current.revision.saturating_add(1);
@@ -536,7 +536,7 @@ pub fn stage_drawing_scene(
     state: State<'_, DrawingState>,
     request: Request<'_>,
 ) -> Result<(), String> {
-    let session_id = read_header(&request, "x-madora-drawing-session")?;
+    let session_id = read_header(&request, "x-markune-drawing-session")?;
     let staging_dir = get_staging_dir(&state, &session_id)?;
     let bytes = raw_body(&request, "图稿场景")?;
     if bytes.len() > MAX_SCENE_BYTES {
@@ -552,7 +552,7 @@ pub fn stage_drawing_preview(
     state: State<'_, DrawingState>,
     request: Request<'_>,
 ) -> Result<(), String> {
-    let session_id = read_header(&request, "x-madora-drawing-session")?;
+    let session_id = read_header(&request, "x-markune-drawing-session")?;
     let staging_dir = get_staging_dir(&state, &session_id)?;
     let bytes = raw_body(&request, "图稿预览")?;
     if bytes.len() > MAX_PREVIEW_BYTES {
@@ -970,7 +970,7 @@ pub fn write_drawing_library(
     state: State<'_, DrawingState>,
     request: Request<'_>,
 ) -> Result<(), String> {
-    let session_id = read_header(&request, "x-madora-drawing-session")?;
+    let session_id = read_header(&request, "x-markune-drawing-session")?;
     validate_uuid(&session_id, "组件库写入会话 ID")?;
     let session = {
         let mut sessions = state
@@ -1191,7 +1191,7 @@ pub fn write_drawing_export(
     state: State<'_, DrawingState>,
     request: Request<'_>,
 ) -> Result<String, String> {
-    let grant_id = read_header(&request, "x-madora-drawing-export")?;
+    let grant_id = read_header(&request, "x-markune-drawing-export")?;
     validate_uuid(&grant_id, "图稿导出授权 ID")?;
     let grant = {
         let mut grants = state
@@ -1250,7 +1250,7 @@ pub fn create_drawing_markdown_snapshot(
     state: State<'_, DrawingState>,
     request: Request<'_>,
 ) -> Result<UploadedWorkspaceAsset, String> {
-    let session_id = read_header(&request, "x-madora-drawing-session")?;
+    let session_id = read_header(&request, "x-markune-drawing-session")?;
     validate_uuid(&session_id, "Markdown 图稿快照会话 ID")?;
     let session = {
         let mut sessions = state
@@ -1793,7 +1793,7 @@ fn ensure_drawings_root(root: &Path) -> Result<PathBuf, String> {
     let root = root
         .canonicalize()
         .map_err(|_| "工作区路径不存在。".to_string())?;
-    let drawings = root.join(".madora").join("drawings");
+    let drawings = root.join(".markune").join("drawings");
     fs::create_dir_all(drawings.join("albums"))
         .map_err(|error| format!("无法创建图稿存储目录：{error}"))?;
     fs::create_dir_all(drawings.join(".trash"))
@@ -2235,7 +2235,7 @@ fn album_path_for_bundle(root: &Path, bundle: &Path) -> String {
 }
 
 fn album_path_for_dir(root: &Path, directory: &Path) -> String {
-    let albums = root.join(".madora").join("drawings").join("albums");
+    let albums = root.join(".markune").join("drawings").join("albums");
     directory
         .strip_prefix(albums)
         .ok()
@@ -2319,7 +2319,7 @@ fn default_scene_bytes() -> Vec<u8> {
 }
 
 fn default_library_bytes() -> Vec<u8> {
-    b"{\n  \"type\": \"excalidrawlib\",\n  \"version\": 2,\n  \"source\": \"madora\",\n  \"libraryItems\": []\n}\n".to_vec()
+    b"{\n  \"type\": \"excalidrawlib\",\n  \"version\": 2,\n  \"source\": \"markune\",\n  \"libraryItems\": []\n}\n".to_vec()
 }
 
 fn default_ui_state() -> DrawingUiState {
@@ -2486,7 +2486,7 @@ mod tests {
 
     fn workspace() -> tempfile::TempDir {
         let directory = tempdir().expect("创建临时工作区失败");
-        fs::create_dir_all(directory.path().join(".madora")).expect("创建 .madora 失败");
+        fs::create_dir_all(directory.path().join(".markune")).expect("创建 .markune 失败");
         directory
     }
 

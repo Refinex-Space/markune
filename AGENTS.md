@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Project
-Madora is a local knowledge-base desktop app built with Next.js App Router, React, TypeScript, Tauri v2, and a Markdown-first editor powered by `@refinex/markora`.
+Markune is a local knowledge-base desktop app built with Next.js App Router, React, TypeScript, Tauri v2, and a Markdown-first editor powered by `@refinex/markora`.
 
 ## Environment And Commands
 - Install: `pnpm install`

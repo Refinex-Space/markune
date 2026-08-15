@@ -5,7 +5,7 @@ import { useAppUpdate } from '../use-app-update';
 
 const workspaceApiState = vi.hoisted(() => ({
   checkAppUpdate: vi.fn(),
-  getMadoraVersion: vi.fn(),
+  getMarkuneVersion: vi.fn(),
   installAppUpdate: vi.fn(),
   isTauriRuntime: vi.fn(),
   restartAppAfterUpdate: vi.fn(),
@@ -14,7 +14,7 @@ const workspaceApiState = vi.hoisted(() => ({
 vi.mock('../workspace-api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../workspace-api')>()),
   checkAppUpdate: workspaceApiState.checkAppUpdate,
-  getMadoraVersion: workspaceApiState.getMadoraVersion,
+  getMarkuneVersion: workspaceApiState.getMarkuneVersion,
   installAppUpdate: workspaceApiState.installAppUpdate,
   isTauriRuntime: workspaceApiState.isTauriRuntime,
   restartAppAfterUpdate: workspaceApiState.restartAppAfterUpdate,
@@ -31,7 +31,7 @@ describe('useAppUpdate', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     workspaceApiState.isTauriRuntime.mockReturnValue(true);
-    workspaceApiState.getMadoraVersion.mockResolvedValue('0.1.6');
+    workspaceApiState.getMarkuneVersion.mockResolvedValue('0.1.6');
     workspaceApiState.checkAppUpdate.mockResolvedValue({
       currentVersion: '0.1.6',
       update: availableUpdate,

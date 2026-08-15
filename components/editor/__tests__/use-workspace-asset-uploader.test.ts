@@ -36,13 +36,13 @@ describe('useWorkspaceAssetUploader', () => {
 
   it('上传 File 后返回 Markweave 可显示 URL，并在入库前还原资产协议引用', async () => {
     vi.mocked(uploadWorkspaceAsset).mockResolvedValue({
-      absolutePath: '/ws/.madora/assets/files/ab/hash.png',
+      absolutePath: '/ws/.markune/assets/files/ab/hash.png',
       id: 'hash',
       mediaType: 'image/png',
       name: 'pic.png',
-      relativePath: '.madora/assets/files/ab/hash.png',
+      relativePath: '.markune/assets/files/ab/hash.png',
       size: 100,
-      url: 'madora-asset://hash',
+      url: 'markune-asset://hash',
     });
 
     const { result } = renderHook(() =>
@@ -77,25 +77,25 @@ describe('useWorkspaceAssetUploader', () => {
       mimeType: 'image/png',
       name: 'pic.png',
       size: 100,
-      src: 'asset:///ws/.madora/assets/files/ab/hash.png',
+      src: 'asset:///ws/.markune/assets/files/ab/hash.png',
     });
     expect(
       result.current.toStorageMarkdown(
-        '![图](asset:///ws/.madora/assets/files/ab/hash.png)',
+        '![图](asset:///ws/.markune/assets/files/ab/hash.png)',
       ),
-    ).toBe('![图](madora-asset://hash)');
+    ).toBe('![图](markune-asset://hash)');
   });
 
-  it('附件上传返回不透明 madora-asset 定位符并支持进度回调与下载', async () => {
+  it('附件上传返回不透明 markune-asset 定位符并支持进度回调与下载', async () => {
     const onProgress = vi.fn();
     vi.mocked(uploadWorkspaceAsset).mockResolvedValue({
-      absolutePath: '/ws/.madora/assets/files/ab/hash.pdf',
+      absolutePath: '/ws/.markune/assets/files/ab/hash.pdf',
       id: 'hash',
       mediaType: 'application/pdf',
       name: 'notes.pdf',
-      relativePath: '.madora/assets/files/ab/hash.pdf',
+      relativePath: '.markune/assets/files/ab/hash.pdf',
       size: 4,
-      url: 'madora-asset://hash',
+      url: 'markune-asset://hash',
     });
     vi.mocked(readWorkspaceAssetData).mockResolvedValue({
       base64Data: 'AQIDBA==',
@@ -135,14 +135,14 @@ describe('useWorkspaceAssetUploader', () => {
       mimeType: 'application/pdf',
       name: 'notes.pdf',
       size: 4,
-      src: 'madora-asset://hash',
+      src: 'markune-asset://hash',
     });
     expect(onProgress).toHaveBeenCalled();
     expect(
       result.current.toStorageMarkdown(
-        '<a href="madora-asset://hash" class="markweave-attachment" data-markweave-attachment="true">notes.pdf</a>',
+        '<a href="markune-asset://hash" class="markweave-attachment" data-markweave-attachment="true">notes.pdf</a>',
       ),
-    ).toContain('madora-asset://hash');
+    ).toContain('markune-asset://hash');
 
     await act(async () => {
       await result.current.onAttachmentDownload(
@@ -150,7 +150,7 @@ describe('useWorkspaceAssetUploader', () => {
           mimeType: 'application/pdf',
           name: 'notes.pdf',
           size: 4,
-          src: 'madora-asset://hash',
+          src: 'markune-asset://hash',
         },
         {
           event: new MouseEvent('click'),
@@ -188,13 +188,13 @@ describe('useWorkspaceAssetUploader', () => {
 
   it('为空文件名的剪贴板截图生成安全文件名', async () => {
     vi.mocked(uploadWorkspaceAsset).mockResolvedValue({
-      absolutePath: '/ws/.madora/assets/files/ab/hash.png',
+      absolutePath: '/ws/.markune/assets/files/ab/hash.png',
       id: 'hash',
       mediaType: 'image/png',
       name: 'clipboard-image.png',
-      relativePath: '.madora/assets/files/ab/hash.png',
+      relativePath: '.markune/assets/files/ab/hash.png',
       size: 3,
-      url: 'madora-asset://hash',
+      url: 'markune-asset://hash',
     });
     const { result } = renderHook(() =>
       useWorkspaceAssetUploader('/ws/root', '# 文档'),
@@ -223,13 +223,13 @@ describe('useWorkspaceAssetUploader', () => {
 
   it('Windows 展示路径在保存时还原为与系统路径无关的资产协议引用', async () => {
     vi.mocked(uploadWorkspaceAsset).mockResolvedValue({
-      absolutePath: 'C:\\workspace\\.madora\\assets\\files\\ab\\hash.png',
+      absolutePath: 'C:\\workspace\\.markune\\assets\\files\\ab\\hash.png',
       id: 'hash',
       mediaType: 'image/png',
       name: 'screenshot.png',
-      relativePath: '.madora/assets/files/ab/hash.png',
+      relativePath: '.markune/assets/files/ab/hash.png',
       size: 3,
-      url: 'madora-asset://hash',
+      url: 'markune-asset://hash',
     });
     const { result } = renderHook(() =>
       useWorkspaceAssetUploader('C:\\workspace', '# 文档'),
@@ -253,11 +253,11 @@ describe('useWorkspaceAssetUploader', () => {
     });
 
     expect(uploaded?.src).toBe(
-      'asset://C:\\workspace\\.madora\\assets\\files\\ab\\hash.png',
+      'asset://C:\\workspace\\.markune\\assets\\files\\ab\\hash.png',
     );
     expect(
       result.current.toStorageMarkdown(`![截图](${uploaded?.src})`),
-    ).toBe('![截图](madora-asset://hash)');
+    ).toBe('![截图](markune-asset://hash)');
   });
 
   it('直接 URL、base64 或用户输入相对路径按 Markweave 协议透传', async () => {
@@ -293,8 +293,8 @@ describe('useWorkspaceAssetUploader', () => {
           asset: {
             absolutePath:
               assetId === 'legacy'
-                ? '/ws/.madora/assets/files/le/legacy.png'
-                : '/ws/.madora/assets/files/aa/new.png',
+                ? '/ws/.markune/assets/files/le/legacy.png'
+                : '/ws/.markune/assets/files/aa/new.png',
             id: assetId,
             height: 600,
             mediaType: 'image/png',
@@ -308,7 +308,7 @@ describe('useWorkspaceAssetUploader', () => {
       }),
     );
     const markdown =
-      '![旧](madora-asset://legacy)\n![新](.madora/assets/files/aa/new.png)';
+      '![旧](markune-asset://legacy)\n![新](.markune/assets/files/aa/new.png)';
 
     const { result } = renderHook(() =>
       useWorkspaceAssetUploader('/ws/root', markdown),
@@ -321,20 +321,20 @@ describe('useWorkspaceAssetUploader', () => {
         kind: 'image',
         priority: 'visible',
         signal,
-        src: 'madora-asset://legacy',
+        src: 'markune-asset://legacy',
       }),
     ).resolves.toMatchObject({
-      src: 'asset:///ws/.madora/assets/files/le/legacy.png',
+      src: 'asset:///ws/.markune/assets/files/le/legacy.png',
     });
     await expect(
       result.current.resolveMediaSource({
         kind: 'image',
         priority: 'nearby',
         signal,
-        src: '.madora/assets/files/aa/new.png',
+        src: '.markune/assets/files/aa/new.png',
       }),
     ).resolves.toMatchObject({
-      src: 'asset:///ws/.madora/assets/files/aa/new.png',
+      src: 'asset:///ws/.markune/assets/files/aa/new.png',
     });
 
     expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(1);
@@ -348,11 +348,11 @@ describe('useWorkspaceAssetUploader', () => {
         kind: 'image',
         priority: 'visible',
         signal,
-        src: 'asset:///ws/.madora/assets/files/le/legacy.png',
+        src: 'asset:///ws/.markune/assets/files/le/legacy.png',
       }),
     ).resolves.toEqual({
       height: 600,
-      src: 'asset:///ws/.madora/assets/files/le/legacy.png',
+      src: 'asset:///ws/.markune/assets/files/le/legacy.png',
       width: 800,
     });
     await expect(
@@ -364,7 +364,7 @@ describe('useWorkspaceAssetUploader', () => {
       }),
     ).resolves.toEqual({ src: 'https://example.com/remote.png' });
     expect(result.current.toStorageMarkdown(result.current.editorMarkdown)).toBe(
-      '![旧](madora-asset://legacy)\n![新](madora-asset://new)',
+      '![旧](markune-asset://legacy)\n![新](markune-asset://new)',
     );
   });
 
@@ -372,7 +372,7 @@ describe('useWorkspaceAssetUploader', () => {
     vi.mocked(resolveWorkspaceAssets).mockResolvedValue({
       items: [{
         asset: {
-          absolutePath: '/ws/.madora/assets/files/aa/hash.png',
+          absolutePath: '/ws/.markune/assets/files/aa/hash.png',
           id: 'hash',
           mediaType: 'image/png',
           name: 'hash.png',
@@ -383,7 +383,7 @@ describe('useWorkspaceAssetUploader', () => {
       }],
     });
     const initialMarkdown =
-      '![图](madora-asset://hash)\n\n1. 第一项\n2. 第二项';
+      '![图](markune-asset://hash)\n\n1. 第一项\n2. 第二项';
     const nextMarkdown = `${initialMarkdown}\n3. `;
     const { result, rerender } = renderHook(
       ({ markdown }) => useWorkspaceAssetUploader('/ws/root', markdown),
@@ -396,10 +396,10 @@ describe('useWorkspaceAssetUploader', () => {
       kind: 'image' as const,
       priority: 'visible' as const,
       signal: new AbortController().signal,
-      src: 'madora-asset://hash',
+      src: 'markune-asset://hash',
     };
     await expect(result.current.resolveMediaSource(request)).resolves.toMatchObject({
-      src: 'asset:///ws/.madora/assets/files/aa/hash.png',
+      src: 'asset:///ws/.markune/assets/files/aa/hash.png',
     });
     expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(1);
 
@@ -407,7 +407,7 @@ describe('useWorkspaceAssetUploader', () => {
 
     expect(result.current.editorMarkdown).toBe(nextMarkdown);
     await expect(result.current.resolveMediaSource(request)).resolves.toMatchObject({
-      src: 'asset:///ws/.madora/assets/files/aa/hash.png',
+      src: 'asset:///ws/.markune/assets/files/aa/hash.png',
     });
     await waitFor(() => {
       expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(1);
@@ -418,7 +418,7 @@ describe('useWorkspaceAssetUploader', () => {
     vi.mocked(resolveWorkspaceAssets).mockResolvedValueOnce({
       items: [{ id: 'missing', status: 'missing' }],
     });
-    const markdown = '![缺失](.madora/assets/files/aa/missing.png)';
+    const markdown = '![缺失](.markune/assets/files/aa/missing.png)';
 
     const { result } = renderHook(() =>
       useWorkspaceAssetUploader('/ws/root', markdown),
@@ -437,7 +437,7 @@ describe('useWorkspaceAssetUploader', () => {
   });
 
   it('没有工作区根路径时不解析存储引用', () => {
-    const markdown = '![旧](madora-asset://legacy)';
+    const markdown = '![旧](markune-asset://legacy)';
     const { result } = renderHook(() =>
       useWorkspaceAssetUploader(null, markdown),
     );
@@ -475,7 +475,7 @@ describe('useWorkspaceAssetUploader', () => {
       (_, index) => `slow-${index}`,
     );
     const markdown = assetIds
-      .map((assetId) => `![图](madora-asset://${assetId})`)
+      .map((assetId) => `![图](markune-asset://${assetId})`)
       .join('\n');
     const { result } = renderHook(() =>
       useWorkspaceAssetUploader('/ws/root', markdown),
@@ -494,7 +494,7 @@ describe('useWorkspaceAssetUploader', () => {
       items: [
         {
           asset: {
-            absolutePath: '/ws/.madora/assets/files/aa/cached.png',
+            absolutePath: '/ws/.markune/assets/files/aa/cached.png',
             id: 'cached',
             mediaType: 'image/png',
             name: 'cached.png',
@@ -507,7 +507,7 @@ describe('useWorkspaceAssetUploader', () => {
       ],
     });
     const markdown =
-      '![有效](madora-asset://cached)\n![缺失](madora-asset://missing)';
+      '![有效](markune-asset://cached)\n![缺失](markune-asset://missing)';
     const request = (src: string) => ({
       kind: 'image' as const,
       priority: 'visible' as const,
@@ -520,14 +520,14 @@ describe('useWorkspaceAssetUploader', () => {
 
     await expect(
       first.result.current.resolveMediaSource(
-        request('madora-asset://cached'),
+        request('markune-asset://cached'),
       ),
     ).resolves.toMatchObject({
-      src: 'asset:///ws/.madora/assets/files/aa/cached.png',
+      src: 'asset:///ws/.markune/assets/files/aa/cached.png',
     });
     await expect(
       first.result.current.resolveMediaSource(
-        request('madora-asset://missing'),
+        request('markune-asset://missing'),
       ),
     ).resolves.toBeNull();
     first.unmount();
@@ -537,14 +537,14 @@ describe('useWorkspaceAssetUploader', () => {
     );
     await expect(
       second.result.current.resolveMediaSource(
-        request('madora-asset://cached'),
+        request('markune-asset://cached'),
       ),
     ).resolves.toMatchObject({
-      src: 'asset:///ws/.madora/assets/files/aa/cached.png',
+      src: 'asset:///ws/.markune/assets/files/aa/cached.png',
     });
     await expect(
       second.result.current.resolveMediaSource(
-        request('madora-asset://missing'),
+        request('markune-asset://missing'),
       ),
     ).resolves.toBeNull();
 
@@ -573,7 +573,7 @@ describe('useWorkspaceAssetUploader', () => {
           finishResolution = resolve;
         }),
     );
-    const markdown = '![图](madora-asset://pending)';
+    const markdown = '![图](markune-asset://pending)';
     const first = renderHook(() =>
       useWorkspaceAssetUploader('/ws/root', markdown),
     );
@@ -590,7 +590,7 @@ describe('useWorkspaceAssetUploader', () => {
         items: [
           {
             asset: {
-              absolutePath: '/ws/.madora/assets/files/aa/pending.png',
+              absolutePath: '/ws/.markune/assets/files/aa/pending.png',
               id: 'pending',
               mediaType: 'image/png',
               name: 'pending.png',
@@ -608,10 +608,10 @@ describe('useWorkspaceAssetUploader', () => {
         kind: 'image',
         priority: 'visible',
         signal: new AbortController().signal,
-        src: 'madora-asset://pending',
+        src: 'markune-asset://pending',
       }),
     ).resolves.toMatchObject({
-      src: 'asset:///ws/.madora/assets/files/aa/pending.png',
+      src: 'asset:///ws/.markune/assets/files/aa/pending.png',
     });
   });
 
@@ -620,7 +620,7 @@ describe('useWorkspaceAssetUploader', () => {
       async (rootPath, assetIds) => ({
         items: assetIds.map((assetId) => ({
           asset: {
-            absolutePath: `${rootPath}/.madora/assets/files/aa/${assetId}.png`,
+            absolutePath: `${rootPath}/.markune/assets/files/aa/${assetId}.png`,
             id: assetId,
             mediaType: 'image/png',
             name: `${assetId}.png`,
@@ -631,7 +631,7 @@ describe('useWorkspaceAssetUploader', () => {
         })),
       }),
     );
-    const markdown = '![图](madora-asset://shared)';
+    const markdown = '![图](markune-asset://shared)';
     const { result, rerender } = renderHook(
       ({ rootPath }) => useWorkspaceAssetUploader(rootPath, markdown),
       { initialProps: { rootPath: '/ws/one' } },
@@ -640,13 +640,13 @@ describe('useWorkspaceAssetUploader', () => {
       kind: 'image' as const,
       priority: 'visible' as const,
       signal: new AbortController().signal,
-      src: 'madora-asset://shared',
+      src: 'markune-asset://shared',
     });
 
     await expect(
       result.current.resolveMediaSource(createRequest()),
     ).resolves.toMatchObject({
-      src: 'asset:///ws/one/.madora/assets/files/aa/shared.png',
+      src: 'asset:///ws/one/.markune/assets/files/aa/shared.png',
     });
 
     rerender({ rootPath: '/ws/two' });
@@ -654,7 +654,7 @@ describe('useWorkspaceAssetUploader', () => {
     await expect(
       result.current.resolveMediaSource(createRequest()),
     ).resolves.toMatchObject({
-      src: 'asset:///ws/two/.madora/assets/files/aa/shared.png',
+      src: 'asset:///ws/two/.markune/assets/files/aa/shared.png',
     });
     expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(2);
   });
@@ -667,7 +667,7 @@ describe('useWorkspaceAssetUploader', () => {
         items: [
           {
             asset: {
-              absolutePath: '/ws/.madora/assets/files/aa/retry.png',
+              absolutePath: '/ws/.markune/assets/files/aa/retry.png',
               id: 'retry',
               mediaType: 'image/png',
               name: 'retry.png',
@@ -681,7 +681,7 @@ describe('useWorkspaceAssetUploader', () => {
     const { result } = renderHook(() =>
       useWorkspaceAssetUploader(
         '/ws/root',
-        '![图](madora-asset://retry)',
+        '![图](markune-asset://retry)',
       ),
     );
 
@@ -695,10 +695,10 @@ describe('useWorkspaceAssetUploader', () => {
         kind: 'image',
         priority: 'visible',
         signal: new AbortController().signal,
-        src: 'madora-asset://retry',
+        src: 'markune-asset://retry',
       }),
     ).resolves.toMatchObject({
-      src: 'asset:///ws/.madora/assets/files/aa/retry.png',
+      src: 'asset:///ws/.markune/assets/files/aa/retry.png',
     });
     expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(2);
     warn.mockRestore();

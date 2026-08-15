@@ -21,6 +21,7 @@ import {
   type DocumentFindRequest,
 } from '@/components/editor/document-find-bar';
 import {
+  createDrawingMarkdownReferenceHtml,
   normalizeDrawingMarkdownReferences,
   parseDrawingMarkdownUrl,
   projectDrawingMarkdownReferencesForEditor,
@@ -251,6 +252,31 @@ export const MarkdownEditor = React.forwardRef<
       workspaceRootPath,
     ]);
 
+  const resolveWorkspaceDocumentLink = React.useCallback(
+    (href: string) => {
+      const parsed = parseInternalDocumentHref(href);
+      if (!parsed) {
+        return { isWorkspaceDocument: false, target: null };
+      }
+
+      const target = resolveWorkspaceDocumentTarget({
+        href,
+        documentAbsolutePath: documentPath,
+        workspaceRootPath,
+      });
+      const isWorkspaceDocument =
+        /\.mdx?$/i.test(parsed.target) ||
+        (target !== null &&
+          workspaceDocumentIndex !== null &&
+          workspaceDocumentIndex.resolveByRelativePath(
+            target.relativePath,
+          ) !== null);
+
+      return { isWorkspaceDocument, target };
+    },
+    [documentPath, workspaceDocumentIndex, workspaceRootPath],
+  );
+
   const internalLinkCard =
     React.useMemo<MarkweaveInternalLinkCardConfig | null>(() => {
       if (!workspaceDocumentIndex || !documentPath || !workspaceRootPath) {
@@ -258,34 +284,10 @@ export const MarkdownEditor = React.forwardRef<
       }
 
       return {
-        isInternalLink: (href) => {
-          const parsed = parseInternalDocumentHref(href);
-          if (!parsed) {
-            return false;
-          }
-
-          if (/\.mdx?$/i.test(parsed.target)) {
-            return true;
-          }
-
-          const target = resolveWorkspaceDocumentTarget({
-            href,
-            documentAbsolutePath: documentPath,
-            workspaceRootPath,
-          });
-
-          return target
-            ? workspaceDocumentIndex.resolveByRelativePath(
-                target.relativePath,
-              ) !== null
-            : false;
-        },
+        isInternalLink: (href) =>
+          resolveWorkspaceDocumentLink(href).isWorkspaceDocument,
         resolve: async ({ href, signal }) => {
-          const target = resolveWorkspaceDocumentTarget({
-            href,
-            documentAbsolutePath: documentPath,
-            workspaceRootPath,
-          });
+          const { target } = resolveWorkspaceDocumentLink(href);
 
           if (!target) {
             return { exists: false };
@@ -325,7 +327,12 @@ export const MarkdownEditor = React.forwardRef<
           };
         },
       };
-    }, [documentPath, workspaceDocumentIndex, workspaceRootPath]);
+    }, [
+      documentPath,
+      resolveWorkspaceDocumentLink,
+      workspaceDocumentIndex,
+      workspaceRootPath,
+    ]);
 
   React.useEffect(() => {
     if (pendingFlushTimerRef.current) {
@@ -388,8 +395,10 @@ export const MarkdownEditor = React.forwardRef<
         const markdown =
           sourceMarkdown ??
           serializeBody(
-            restoreDrawingMarkdownReferencesFromEditor(
-              toStorageMarkdown(payload!.markdown),
+            normalizeDrawingMarkdownReferences(
+              restoreDrawingMarkdownReferencesFromEditor(
+                toStorageMarkdown(payload!.markdown),
+              ),
             ),
           );
         const origin = sourceMarkdown === null ? undefined : 'source';
@@ -469,6 +478,36 @@ export const MarkdownEditor = React.forwardRef<
       }, LIVE_DRAFT_IDLE_MS);
     },
     [flushDraft, onMarkdownChange, readOnly],
+  );
+
+  const handlePasteCapture = React.useCallback(
+    (event: React.ClipboardEvent<HTMLDivElement>) => {
+      if (readOnly || event.clipboardData.getData('text/html').trim()) {
+        return;
+      }
+
+      let drawingHtml: string;
+      try {
+        drawingHtml = createDrawingMarkdownReferenceHtml(
+          event.clipboardData.getData('text/plain'),
+        );
+      } catch {
+        return;
+      }
+
+      const clipboardData = event.clipboardData;
+      const getData = clipboardData.getData.bind(clipboardData);
+      try {
+        Object.defineProperty(clipboardData, 'getData', {
+          configurable: true,
+          value: (type: string) =>
+            type === 'text/html' ? drawingHtml : getData(type),
+        });
+      } catch {
+        // The editor can still persist the canonical plain-text fallback.
+      }
+    },
+    [readOnly],
   );
 
   const handleSourceUpdate = React.useCallback(
@@ -681,6 +720,7 @@ export const MarkdownEditor = React.forwardRef<
       data-editor-mode={sourceMode ? 'source' : readOnly ? 'view' : 'live'}
       data-page-width-mode={pageWidthMode}
       data-testid="markdown-editor-root"
+      onPasteCapture={handlePasteCapture}
       ref={editorRootRef}
       tabIndex={-1}
       onClickCapture={(event) => {
@@ -688,7 +728,7 @@ export const MarkdownEditor = React.forwardRef<
         if (!(target instanceof Element)) return;
         const link = target.closest<HTMLAnchorElement>('a[href]');
         const drawingImage = target.closest<HTMLImageElement>(
-          'img[title^="madora-drawing://"]',
+          'img[title^="markune-drawing://"]',
         );
         const linkHref = link?.getAttribute('href') ?? '';
         const href = linkHref || drawingImage?.getAttribute('title') || '';
@@ -697,7 +737,7 @@ export const MarkdownEditor = React.forwardRef<
           event.preventDefault();
           event.stopPropagation();
           window.dispatchEvent(
-            new CustomEvent('madora:open-drawing', {
+            new CustomEvent('markune:open-drawing', {
               detail: { drawingId },
             }),
           );
@@ -705,7 +745,7 @@ export const MarkdownEditor = React.forwardRef<
         }
 
         // Open workspace document links as tabs.
-        // - Document reference cards: always open in Madora (never the browser).
+        // - Document reference cards: always open in Markune (never the browser).
         // - Inline []() links: Ctrl/Cmd-click in live mode; plain click in view.
         // author: liyao
         const internalCard = target.closest<HTMLElement>(
@@ -715,25 +755,23 @@ export const MarkdownEditor = React.forwardRef<
         const effectiveHref = cardHref || linkHref;
         if (!effectiveHref) return;
 
-        const primaryModifier = event.metaKey || event.ctrlKey;
-        if (!internalCard && !readOnly && !primaryModifier) return;
+        const { isWorkspaceDocument, target: documentTarget } =
+          resolveWorkspaceDocumentLink(effectiveHref);
+        if (!isWorkspaceDocument) return;
 
-        const documentTarget = resolveWorkspaceDocumentTarget({
-          href: effectiveHref,
-          documentAbsolutePath: documentPath,
-          workspaceRootPath,
-        });
-        if (!documentTarget) {
-          if (internalCard) {
-            // Still block browser navigation for unresolved document cards.
-            event.preventDefault();
-            event.stopPropagation();
-          }
+        // Workspace Markdown links must never fall through to WebView/browser
+        // navigation. In Live mode, an ordinary inline click still bubbles to
+        // Markweave so the link remains editable; navigation is explicit.
+        event.preventDefault();
+
+        const primaryModifier = event.metaKey || event.ctrlKey;
+        if (!internalCard && !readOnly && !primaryModifier) {
           return;
         }
 
-        event.preventDefault();
         event.stopPropagation();
+        if (!documentTarget) return;
+
         window.dispatchEvent(
           new CustomEvent(OPEN_WORKSPACE_DOCUMENT_EVENT, {
             detail: documentTarget,
@@ -831,7 +869,7 @@ export const MarkdownEditor = React.forwardRef<
             ariaLabel="Markdown 正文"
             askAi={askAiConfig}
             canvasColor="var(--background)"
-            className="madora-markweave-editor"
+            className="markune-markweave-editor"
             defaultContent={editorMarkdown}
             defaultContentFormat="markdown"
             editable={!readOnly}

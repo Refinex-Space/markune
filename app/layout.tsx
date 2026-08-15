@@ -6,7 +6,7 @@ import { AppSplashGate } from "@/components/workspace/app-splash-gate";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Madora",
+  title: "Markune",
   description: "A quiet Markdown workspace for local notes.",
 };
 
@@ -22,11 +22,11 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col" data-app-splash="active">
-        <div className="app-splash" aria-label="Madora is loading">
+        <div className="app-splash" aria-label="Markune is loading">
           <main className="app-splash__content">
             <Image
               className="app-splash__logo block dark:hidden"
-              src="/brand/madora-logo-dark.svg"
+              src="/brand/markune-logo-dark.svg"
               alt=""
               width={32}
               height={32}
@@ -34,7 +34,7 @@ export default function RootLayout({
             />
             <Image
               className="app-splash__logo hidden dark:block"
-              src="/brand/madora-logo-light.svg"
+              src="/brand/markune-logo-light.svg"
               alt=""
               width={32}
               height={32}

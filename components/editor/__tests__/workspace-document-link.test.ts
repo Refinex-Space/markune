@@ -41,8 +41,8 @@ describe('parseInternalDocumentHref', () => {
     expect(parseInternalDocumentHref('https://example.com/a.md')).toBeNull();
     expect(parseInternalDocumentHref('http://example.com')).toBeNull();
     expect(parseInternalDocumentHref('mailto:a@b.com')).toBeNull();
-    expect(parseInternalDocumentHref('madora-asset://abc')).toBeNull();
-    expect(parseInternalDocumentHref('madora-drawing://abc')).toBeNull();
+    expect(parseInternalDocumentHref('markune-asset://abc')).toBeNull();
+    expect(parseInternalDocumentHref('markune-drawing://abc')).toBeNull();
     expect(parseInternalDocumentHref('//cdn.example.com/x.md')).toBeNull();
     expect(parseInternalDocumentHref('#heading')).toBeNull();
     expect(parseInternalDocumentHref('   ')).toBeNull();

@@ -187,8 +187,8 @@ describe('CodexAppServerClient', () => {
       model: 'gpt-5',
       hasApiKey: true,
       enabled: true,
-      envKey: 'MADORA_CODEX_PROVIDER_API_KEY',
-      providerId: 'madora_custom',
+      envKey: 'MARKUNE_CODEX_PROVIDER_API_KEY',
+      providerId: 'markune_custom',
       wireApi: 'responses',
     };
     vi.mocked(invoke).mockResolvedValue(provider);

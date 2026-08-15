@@ -1,17 +1,23 @@
 const DRAWING_ID_SOURCE =
   '[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
 const ASSET_ID_SOURCE = '[0-9a-f]{64}';
+const MARKWEAVE_CLIPBOARD_ASSET_PREFIX =
+  'https://clipboard.markune.invalid/asset/';
+const clipboardAssetPattern = new RegExp(
+  `${MARKWEAVE_CLIPBOARD_ASSET_PREFIX.replaceAll('.', '\\.')}(${ASSET_ID_SOURCE})`,
+  'gi',
+);
 
 const canonicalReferencePattern = new RegExp(
-  `\\[!\\[((?:\\\\.|[^\\]])*)\\]\\((madora-asset:\\/\\/(${ASSET_ID_SOURCE}))\\)\\]\\((madora-drawing:\\/\\/(${DRAWING_ID_SOURCE}))\\)`,
+  `\\[!\\[((?:\\\\.|[^\\]])*)\\]\\((markune-asset:\\/\\/(${ASSET_ID_SOURCE}))\\)\\]\\((markune-drawing:\\/\\/(${DRAWING_ID_SOURCE}))\\)`,
   'gi',
 );
 const escapedReferencePattern = new RegExp(
-  `\\\\\\[!\\\\\\[((?:\\\\.|[^\\]])*)\\\\\\]\\((madora-asset:\\/\\/(${ASSET_ID_SOURCE}))\\)\\\\\\]\\((madora-drawing:\\/\\/(${DRAWING_ID_SOURCE}))\\)`,
+  `\\\\\\[!\\\\\\[((?:\\\\.|[^\\]])*)\\\\\\]\\((markune-asset:\\/\\/(${ASSET_ID_SOURCE}))\\)\\\\\\]\\((markune-drawing:\\/\\/(${DRAWING_ID_SOURCE}))\\)`,
   'gi',
 );
 const projectedReferencePattern = new RegExp(
-  `!\\[((?:\\\\.|[^\\]])*)\\]\\((madora-asset:\\/\\/${ASSET_ID_SOURCE})\\s+"(madora-drawing:\\/\\/(${DRAWING_ID_SOURCE}))"\\)`,
+  `!\\[((?:\\\\.|[^\\]])*)\\]\\((markune-asset:\\/\\/${ASSET_ID_SOURCE})\\s+"(markune-drawing:\\/\\/(${DRAWING_ID_SOURCE}))"\\)`,
   'gi',
 );
 
@@ -36,7 +42,7 @@ export function createDrawingMarkdownReference({
   const normalizedDrawingId = normalizeDrawingId(drawingId);
   const alt = escapeMarkdownImageAlt(title);
 
-  return `[![${alt}](madora-asset://${normalizedAssetId})](madora-drawing://${normalizedDrawingId})`;
+  return `[![${alt}](markune-asset://${normalizedAssetId})](markune-drawing://${normalizedDrawingId})`;
 }
 
 export function normalizeDrawingMarkdownReferences(markdown: string) {
@@ -70,12 +76,32 @@ export function createDrawingMarkdownReferenceHtml(markdown: string) {
     throw new Error('图稿 Markdown 引用格式无效。');
   }
 
-  return `<a href="${escapeHtmlAttribute(parsed.drawingUrl)}"><img alt="${escapeHtmlAttribute(unescapeMarkdownImageAlt(parsed.alt))}" src="${escapeHtmlAttribute(parsed.assetUrl)}" title="${escapeHtmlAttribute(parsed.drawingUrl)}"></a>`;
+  const assetId = parsed.assetUrl.slice('markune-asset://'.length);
+  const clipboardAssetUrl = `${MARKWEAVE_CLIPBOARD_ASSET_PREFIX}${assetId}`;
+
+  return `<a href="${escapeHtmlAttribute(parsed.drawingUrl)}"><img alt="${escapeHtmlAttribute(unescapeMarkdownImageAlt(parsed.alt))}" src="${clipboardAssetUrl}" title="${escapeHtmlAttribute(parsed.drawingUrl)}"></a>`;
+}
+
+export function normalizeDrawingClipboardAssetReferences(markdown: string) {
+  return markdown.replace(
+    clipboardAssetPattern,
+    (_match, assetId: string) => `markune-asset://${assetId.toLowerCase()}`,
+  );
+}
+
+export function getDrawingClipboardAssetReference(value: string) {
+  const pattern = new RegExp(
+    `^${MARKWEAVE_CLIPBOARD_ASSET_PREFIX.replaceAll('.', '\\.')}(${ASSET_ID_SOURCE})$`,
+    'i',
+  );
+  const assetId = pattern.exec(value.trim())?.[1];
+
+  return assetId ? `markune-asset://${assetId.toLowerCase()}` : null;
 }
 
 export function parseDrawingMarkdownUrl(value: string) {
   const pattern = new RegExp(
-    `^madora-drawing:\\/\\/(${DRAWING_ID_SOURCE})$`,
+    `^markune-drawing:\\/\\/(${DRAWING_ID_SOURCE})$`,
     'i',
   );
   return pattern.exec(value)?.[1].toLowerCase() ?? null;

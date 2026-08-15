@@ -4,7 +4,7 @@
 
 **Goal:** Build a sidebar Daily calendar that opens date-specific Markdown notes in the existing editor and marks dates with real content.
 
-**Architecture:** Daily note bodies are normal Markdown files under `Daily/YYYY/MM/YYYY-MM-DD.md`. `.madora/workspace.json` stores only a `dailyNotes` index for selected date, document paths, content markers, and update times. The frontend uses the existing `Calendar` wrapper and editor/tab flow; Rust owns file creation, path validation, month indexing, and metadata persistence.
+**Architecture:** Daily note bodies are normal Markdown files under `Daily/YYYY/MM/YYYY-MM-DD.md`. `.markune/workspace.json` stores only a `dailyNotes` index for selected date, document paths, content markers, and update times. The frontend uses the existing `Calendar` wrapper and editor/tab flow; Rust owns file creation, path validation, month indexing, and metadata persistence.
 
 **Tech Stack:** Next.js App Router, React 19, TypeScript, Tauri v2 Rust commands, `react-day-picker` through `components/ui/calendar.tsx`, Vitest, Cargo tests.
 
@@ -137,7 +137,7 @@ fn open_daily_note_creates_markdown_file_and_metadata_entry() {
     assert!(opened.content.content.contains("dailyDate: 2026-06-20"));
     assert!(temp_dir.path().join("Daily/2026/06/2026-06-20.md").is_file());
 
-    let raw = fs::read_to_string(temp_dir.path().join(".madora/workspace.json"))
+    let raw = fs::read_to_string(temp_dir.path().join(".markune/workspace.json"))
         .expect("metadata");
     let metadata: WorkspaceMetadata = serde_json::from_str(&raw).expect("metadata json");
     assert_eq!(metadata.daily_notes.selected_date.as_deref(), Some("2026-06-20"));
@@ -563,7 +563,7 @@ Expected: PASS.
 Add to Workspace Metadata:
 
 ```markdown
-- `dailyNotes`：每日笔记索引，包含最近选中日期 `selectedDate` 以及 `entries` 日期映射。正文仍保存在工作区可见 Markdown 文件 `Daily/YYYY/MM/YYYY-MM-DD.md`，`.madora/workspace.json` 只保存路径和内容标记。
+- `dailyNotes`：每日笔记索引，包含最近选中日期 `selectedDate` 以及 `entries` 日期映射。正文仍保存在工作区可见 Markdown 文件 `Daily/YYYY/MM/YYYY-MM-DD.md`，`.markune/workspace.json` 只保存路径和内容标记。
 ```
 
 - [ ] **Step 2: Run smallest relevant checks**

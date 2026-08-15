@@ -118,14 +118,14 @@ export async function packWordDocument(
   }
 
   const document = new Document({
-    creator: 'Madora',
-    description: '由 Madora 专业文档导出生成',
+    creator: 'Markune',
+    description: '由 Markune 专业文档导出生成',
     title,
     features: { updateFields: true },
     numbering: {
       config: [
         {
-          reference: 'madora-numbering',
+          reference: 'markune-numbering',
           levels: Array.from({ length: 9 }, (_, level) => ({
             level,
             format: LevelFormat.DECIMAL,
@@ -171,8 +171,8 @@ export async function packWordDocument(
       },
       paragraphStyles: [
         {
-          id: 'MadoraCode',
-          name: 'Madora Code',
+          id: 'MarkuneCode',
+          name: 'Markune Code',
           basedOn: 'Normal',
           next: 'Normal',
           run: {
@@ -198,8 +198,8 @@ export async function packWordDocument(
           },
         },
         {
-          id: 'MadoraQuote',
-          name: 'Madora Quote',
+          id: 'MarkuneQuote',
+          name: 'Markune Quote',
           basedOn: 'Normal',
           next: 'Normal',
           run: { color: '52525B', italics: true },
@@ -270,8 +270,8 @@ function appendBlock(
   const tag = element.tagName.toLocaleLowerCase();
 
   if (
-    element.matches('.madora-export-missing-resource') ||
-    element.querySelector(':scope > .madora-export-missing-resource')
+    element.matches('.markune-export-missing-resource') ||
+    element.querySelector(':scope > .markune-export-missing-resource')
   ) {
     warnings.push('Word 中存在不可用图片，已输出可识别占位内容。');
   }
@@ -357,7 +357,7 @@ function appendBlock(
         ':scope > input[type="checkbox"], :scope > p > input[type="checkbox"]',
       );
       const taskMarker = itemElement.querySelector<HTMLElement>(
-        ':scope > .madora-export-task-marker, :scope > p > .madora-export-task-marker',
+        ':scope > .markune-export-task-marker, :scope > p > .markune-export-task-marker',
       );
       const inlineContainer =
         itemElement.querySelector<HTMLElement>(':scope > p') ?? itemElement;
@@ -659,7 +659,7 @@ function createWordParagraph(block: WordParagraphBlock) {
       ? headingLevel(block.headingLevel)
       : undefined,
     keepNext: Boolean(block.headingLevel),
-    style: block.type === 'code' ? 'MadoraCode' : block.quote ? 'MadoraQuote' : undefined,
+    style: block.type === 'code' ? 'MarkuneCode' : block.quote ? 'MarkuneQuote' : undefined,
     bullet:
       block.list?.kind === 'bullet'
         ? { level: Math.min(8, block.list.level) }
@@ -667,7 +667,7 @@ function createWordParagraph(block: WordParagraphBlock) {
     numbering:
       block.list?.kind === 'ordered'
         ? {
-            reference: 'madora-numbering',
+            reference: 'markune-numbering',
             level: Math.min(8, block.list.level),
           }
         : undefined,
@@ -970,7 +970,7 @@ function headingLevel(level: number) {
 
 function normalizeBookmark(value: string) {
   const normalized = value.replace(/[^A-Za-z0-9_]/gu, '_').slice(0, 36);
-  return /^[A-Za-z_]/u.test(normalized) ? normalized : `madora_${normalized}`;
+  return /^[A-Za-z_]/u.test(normalized) ? normalized : `markune_${normalized}`;
 }
 
 function normalizeWordColor(value: string | undefined) {

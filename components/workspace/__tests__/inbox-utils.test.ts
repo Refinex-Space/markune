@@ -10,8 +10,8 @@ import {
 
 describe('Inbox utilities', () => {
   it('normalizes tags and derives a title from the first non-empty line', () => {
-    expect(parseInboxTags('#Madora, idea  IDEA，产品 设计')).toEqual([
-      'madora',
+    expect(parseInboxTags('#Markune, idea  IDEA，产品 设计')).toEqual([
+      'markune',
       'idea',
       '产品',
       '设计',

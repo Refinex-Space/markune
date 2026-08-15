@@ -12,7 +12,7 @@ A 子项目建立了 parts 纵向流契约与 atomFamily 消息隔离 store；B 
 
 ### 现状
 
-Madora 现有 AI 面板（`ai-panel-content.tsx` 4400 行单体）用 `whitespace-pre-wrap` 纯文本渲染消息，**无 markdown 渲染器**。C 子项目引入专业的流式 markdown 渲染。
+Markune 现有 AI 面板（`ai-panel-content.tsx` 4400 行单体）用 `whitespace-pre-wrap` 纯文本渲染消息，**无 markdown 渲染器**。C 子项目引入专业的流式 markdown 渲染。
 
 ### 1code 参考
 
@@ -23,7 +23,7 @@ Madora 现有 AI 面板（`ai-panel-content.tsx` 4400 行单体）用 `whitespac
 - **关键优化**：`parseMarkdownIntoBlocks` 区块级 memo，流式只重渲染最后区块
 - **AI SDK 原地修改陷阱**：1code 用 AI SDK 的 useChat（parts 原地修改），需外部快照对比
 
-### Madora 简化点
+### Markune 简化点
 
 我们**不用 AI SDK 的 useChat**，而是自建 store（A 的 `consumeChunk` 每次 chunk 创建新对象引用）。因此**不存在原地修改问题**，标准 `React.memo` 即可正确触发流式更新。这是架构优势。
 
@@ -73,9 +73,9 @@ Madora 现有 AI 面板（`ai-panel-content.tsx` 4400 行单体）用 `whitespac
 
 ## 5. 侧边栏自适应布局
 
-Madora AI 是侧边面板（窄），1code 是全屏（宽）。布局决策：
+Markune AI 是侧边面板（窄），1code 是全屏（宽）。布局决策：
 
-| 元素 | 全屏（1code） | 侧边栏（Madora） |
+| 元素 | 全屏（1code） | 侧边栏（Markune） |
 |---|---|---|
 | user 消息 | 右对齐气泡 + git 徽章 + 回滚 | **左对齐轻量气泡**（无 git 徽章，写作场景不需要） |
 | assistant 消息 | 无气泡，markdown | **无气泡，markdown**（与 1code 一致） |

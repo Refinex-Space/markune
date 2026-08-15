@@ -1,257 +1,92 @@
-# Madora
+<div align="center">
+  <img src="public/brand/markune-logo-dark-app.svg.svg" alt="Markune" width="112" />
 
-Madora 是一个基于 Next.js、React、Tauri v2 和 markora 的本地知识库桌面应用。项目的 Web 前端由 Next.js 构建，桌面端由 Tauri 打包为 macOS 应用和安装包。
+  # Markune
 
-## 环境要求
+  **以本地 Markdown 为核心的桌面知识工作区**
 
-- Node.js 20+
-- pnpm
-- Rust stable
+  将笔记、日程、画板、全文搜索、Git 与 Codex 协作放在同一个安静的工作环境中。
 
-macOS 构建额外需要：
+  [![Release](https://img.shields.io/github/v/release/Refinex-Space/markune?display_name=tag&sort=semver)](https://github.com/Refinex-Space/markune/releases/latest)
+  [![Release workflow](https://github.com/Refinex-Space/markune/actions/workflows/release.yml/badge.svg?branch=dev)](https://github.com/Refinex-Space/markune/actions/workflows/release.yml)
+  [![License](https://img.shields.io/github/license/Refinex-Space/markune)](LICENSE)
+</div>
 
-- macOS，用于构建 Mac `.app` / `.dmg` 产物
-- Xcode Command Line Tools
+## 为什么选择 Markune
 
-首次准备 macOS 构建环境：
+- **Markdown 优先**：正文以普通 `.md` 文件保存，可被其他编辑器、Git 和脚本直接读取。
+- **本地工作区**：文档、资源、图稿和工作区元数据保存在用户选择的目录中，不依赖专有云端格式。
+- **写作与组织一体化**：提供目录树、多标签编辑、日程、Inbox、全文搜索、图谱和多格式导入导出。
+- **原生桌面能力**：通过 Tauri v2 集成文件系统、Git、终端、系统菜单和安全签名的应用更新。
+- **可控的 AI 协作**：内置 Codex 工作区入口，文件变更仍落在可审查、可回滚的本地仓库中。
 
-```bash
-xcode-select --install
-```
+## 下载
 
-Windows 构建额外需要：
+前往 [GitHub Releases](https://github.com/Refinex-Space/markune/releases/latest) 下载：
 
-- Windows，用于构建 Windows 安装包
-- Microsoft C++ Build Tools
-- Microsoft Edge WebView2 Runtime
+| 平台 | 安装包 |
+| --- | --- |
+| macOS Apple Silicon | `Markune_aarch64.dmg` |
+| macOS Intel | `Markune_x64.dmg` |
+| Windows x64 | `Markune_x64-setup.exe` |
 
-如果要构建 MSI 安装包，还需要确保系统启用了 VBScript。多数 Windows 默认已启用。
+当前 macOS 构建尚未完成 Apple 公证，Windows 安装包尚未使用 Authenticode 签名，首次安装可能出现系统安全提示。请只从本仓库 Releases 下载，并核对版本与文件名。
 
-如果还没有安装 Rust：
+## 工作区与数据
 
-```bash
-curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
-```
+Markune 不改变 Markdown-first 的存储方式。应用级工作区数据统一保存在工作区根目录的 `.markune/` 中，资源与图稿引用使用 `markune-asset://`、`markune-drawing://` 等持久化协议。
 
-安装项目依赖：
-
-```bash
-pnpm install
-```
+从旧版 Madora 首次打开含 `.madora/` 的工作区时，Markune 会先显示品牌迁移说明。只有用户确认后才会迁移；迁移会创建带 SHA-256 清单的备份，发生错误时自动回滚。若 `.madora/` 与 `.markune/` 同时存在，应用会阻止自动合并，避免覆盖无法判断归属的数据。
 
 ## 本地开发
 
-启动 Next.js Web 开发服务：
+### 环境要求
+
+- Node.js 24
+- pnpm 11.16.0
+- Rust stable（最低版本以 `src-tauri/Cargo.toml` 为准）
+- macOS：Xcode Command Line Tools
+- Windows：Microsoft C++ Build Tools 与 WebView2 Runtime
 
 ```bash
-pnpm dev
-```
-
-启动 Tauri 桌面开发模式：
-
-```bash
+git clone git@github.com:Refinex-Space/markune.git
+cd markune
+pnpm install
 pnpm desktop:dev
 ```
 
-Tauri 开发模式会使用 `src-tauri/tauri.conf.json` 中的 `devUrl`，默认连接 `http://localhost:3000`。
+仅启动 Next.js 开发服务可运行 `pnpm dev`。桌面端开发会额外准备 Codex、Pandoc、Typst 与导入导出运行时。
 
-## 测试和检查
-
-运行前端测试：
-
-```bash
-pnpm test:run
-```
-
-运行 ESLint：
-
-```bash
-pnpm lint
-```
-
-运行 Tauri/Rust 测试：
-
-```bash
-cargo test --manifest-path src-tauri/Cargo.toml
-```
-
-## Web 构建
-
-普通 Next.js 构建：
-
-```bash
-pnpm build
-```
-
-桌面端 Web 静态构建：
-
-```bash
-pnpm build:desktop:web
-```
-
-`build:desktop:web` 会设置 `NEXT_OUTPUT=export`，生成 Tauri 使用的静态资源目录 `out/`。Tauri 配置中的 `frontendDist` 指向 `../out`，因此桌面打包前会自动走这一套静态构建。
-
-## 打包 Mac 安装包
-
-生成 macOS `.dmg` 安装包：
-
-```bash
-pnpm desktop:build --bundles dmg
-```
-
-如果本机没有 Apple Developer 签名证书，只需要本地测试安装包，可以跳过签名：
-
-```bash
-pnpm desktop:build --bundles dmg --no-sign
-```
-
-构建完成后，`.dmg` 通常输出在：
-
-```text
-src-tauri/target/release/bundle/dmg/
-```
-
-如果只想生成 macOS `.app` 应用包：
-
-```bash
-pnpm desktop:build --bundles app
-```
-
-`.app` 通常输出在：
-
-```text
-src-tauri/target/release/bundle/macos/
-```
-
-生成项目配置中的全部 bundle 目标：
-
-```bash
-pnpm desktop:build
-```
-
-只验证 Tauri release 构建、不生成安装包：
-
-```bash
-pnpm desktop:build --no-bundle
-```
-
-## Universal Mac 构建
-
-如果需要同时支持 Apple Silicon 和 Intel Mac，可以构建 Universal 产物：
-
-```bash
-rustup target add aarch64-apple-darwin x86_64-apple-darwin
-pnpm desktop:build --target universal-apple-darwin --bundles dmg
-```
-
-本地无签名证书时：
-
-```bash
-pnpm desktop:build --target universal-apple-darwin --bundles dmg --no-sign
-```
-
-## 打包 Windows 安装包
-
-Windows 安装包建议在 Windows 环境中构建。Tauri v2 支持生成 NSIS 安装程序和 MSI 安装包。
-
-生成 Windows 安装包：
-
-```powershell
-pnpm desktop:build
-```
-
-只生成 NSIS 安装程序：
-
-```powershell
-pnpm desktop:build --bundles nsis
-```
-
-NSIS 产物通常输出在：
-
-```text
-src-tauri\target\release\bundle\nsis\
-```
-
-只生成 MSI 安装包：
-
-```powershell
-pnpm desktop:build --bundles msi
-```
-
-MSI 产物通常输出在：
-
-```text
-src-tauri\target\release\bundle\msi\
-```
-
-只验证 Windows release 构建、不生成安装包：
-
-```powershell
-pnpm desktop:build --no-bundle
-```
-
-Windows 安装包的签名需要有效的代码签名证书。未签名安装包可用于本地验证，但正式分发时建议完成代码签名，减少 SmartScreen 和安全提示。
-
-## 图标
-
-项目图标来源于：
-
-```text
-public/logo.png
-```
-
-Tauri 桌面图标位于：
-
-```text
-src-tauri/icons/
-```
-
-重新生成 Tauri 图标：
-
-```bash
-pnpm tauri icon public/logo.png
-```
-
-## 关键脚本
+### 常用命令
 
 | 命令 | 用途 |
 | --- | --- |
-| `pnpm dev` | 启动 Next.js Web 开发服务 |
+| `pnpm dev` | 启动 Web 开发服务 |
 | `pnpm desktop:dev` | 启动 Tauri 桌面开发模式 |
-| `pnpm build` | 普通 Next.js 构建 |
-| `pnpm build:desktop:web` | 生成 Tauri 使用的静态 Web 资源 |
-| `pnpm desktop:build --bundles dmg` | 构建 macOS `.dmg` 安装包 |
-| `pnpm desktop:build --bundles app` | 构建 macOS `.app` 应用包 |
-| `pnpm desktop:build --bundles nsis` | 构建 Windows NSIS 安装程序 |
-| `pnpm desktop:build --bundles msi` | 构建 Windows MSI 安装包 |
-| `pnpm desktop:build --no-bundle` | 只做 Tauri release 构建，不生成安装包 |
+| `pnpm test:run` | 运行前端测试 |
+| `pnpm lint` | 运行 ESLint |
+| `pnpm build:desktop:web` | 构建 Tauri 使用的静态前端 |
+| `cargo test --manifest-path src-tauri/Cargo.toml` | 运行 Rust 测试 |
+| `pnpm harness:check` | 检查仓库知识与治理文档 |
 
-## 常见问题
+本地诊断安装包可使用 `pnpm desktop:build --no-sign`，但无签名产物不得作为正式 Release 或自动更新资产发布。完整打包、签名和回滚流程见 [发布与更新手册](docs/guides/release-and-update.md)。
 
-### 找不到 Rust 或 Cargo
+## 技术架构
 
-确认 Rust 已安装并且 shell 已加载 Rust 环境：
+| 层 | 主要技术 | 职责 |
+| --- | --- | --- |
+| Web shell | Next.js App Router、React、TypeScript | 工作区界面与交互状态 |
+| Editor | Markweave、CodeMirror | Markdown Live/Source 编辑 |
+| Desktop | Tauri v2、Rust | 文件系统、Git、终端、更新与原生窗口 |
+| Drawing | Excalidraw | 本地图稿与 Markdown 快照引用 |
+| AI runtime | Codex App Server | 本地工作区内的可审查协作 |
 
-```bash
-source "$HOME/.cargo/env"
-rustc --version
-cargo --version
-```
+更细的运行时和持久化边界见 [架构说明](docs/architecture/overview.md)，文档索引见 [项目知识地图](docs/README.md)。
 
-### macOS 构建缺少系统工具
+## 参与贡献
 
-安装 Xcode Command Line Tools：
+提交 Issue 或 Pull Request 前，请阅读 [贡献指南](CONTRIBUTING.md)、[行为准则](CODE_OF_CONDUCT.md) 与 [安全策略](SECURITY.md)。代码变更应保持 Markdown-first、本地优先和最小权限边界，并按变更层运行最小相关测试。
 
-```bash
-xcode-select --install
-```
+## 许可证
 
-### Windows 构建缺少系统工具
-
-安装 Microsoft C++ Build Tools，并确认安装了 Microsoft Edge WebView2 Runtime。WebView2 是 Tauri 在 Windows 上渲染应用界面的运行时。
-
-### 生成的安装包无法直接打开
-
-未签名的 `.dmg` 或 `.app` 在其它 Mac 上可能被 Gatekeeper 拦截。正式分发需要 Apple Developer 证书签名，并按 Apple 要求完成 notarization。
-
-Windows 未签名安装包可能触发 SmartScreen 或安全提示。正式分发建议使用代码签名证书签名。
+本项目基于 [Apache License 2.0](LICENSE) 发布。

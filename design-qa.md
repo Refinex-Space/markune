@@ -1,9 +1,9 @@
 # Task Progress Density Design QA
 
 - source visual truth path: `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-0d303ae0-5789-4972-9b5b-48bd8c2f8c59.png`
-- implementation screenshot path: `/tmp/madora-task-progress-compact.jpeg`
-- focused source path: `/tmp/madora-task-progress-source-focus.png`
-- focused implementation path: `/tmp/madora-task-progress-compact-focus.jpeg`
+- implementation screenshot path: `/tmp/markune-task-progress-compact.jpeg`
+- focused source path: `/tmp/markune-task-progress-source-focus.png`
+- focused implementation path: `/tmp/markune-task-progress-compact-focus.jpeg`
 - viewport: `1456 × 769`
 - state: 本地 `pnpm desktop:dev`、浅色主题、右侧 AI 面板约 330px、活跃 Default turn、第 2 / 3 步、点击后固定展开任务列表
 
@@ -28,7 +28,7 @@
 
 - Pass 1: 用户截图指出胶囊与输入框顶部间距偏大，展开浮层横向和纵向密度偏松。
 - Fix: 外层 `pb-2` 改为 `pb-1`，胶囊 `h-9` 改为 `h-8`；浮层最大宽度由 `440px` 改为 `400px`，并收紧内边距、行高、图标尺寸和锚点间距。
-- Pass 2: 在本地 `src-tauri/target/debug/bundle/macos/Madora.app` 真实开发程序中启动三步任务，点击固定展开浮层并重新截图；胶囊与输入框间距稳定，三步列表完整可读，无 P0/P1/P2 问题。
+- Pass 2: 在本地 `src-tauri/target/debug/bundle/macos/Markune.app` 真实开发程序中启动三步任务，点击固定展开浮层并重新截图；胶囊与输入框间距稳定，三步列表完整可读，无 P0/P1/P2 问题。
 
 ## Primary interactions tested
 
@@ -61,12 +61,12 @@ The source and rebuilt desktop month view were opened together in one comparison
 
 - A real pointer state exposed the bottom-left `编辑日程` action inside a non-selected cell without moving, scaling or lifting the card.
 - Clicking the selected cell preview opened the same `编辑日程` modal used by the hover action.
-- The modal rendered the existing Madora core Markdown editor, the relative `Daily/2026/08/2026-08-09.md` path, explicit Save and `打开日程详情` actions, and a restrained backdrop.
+- The modal rendered the existing Markune core Markdown editor, the relative `Daily/2026/08/2026-08-09.md` path, explicit Save and `打开日程详情` actions, and a restrained backdrop.
 - The right inspector exposes one accessible `从详情预览编辑 2026-08-09 日程` action over the rendered Markdown region while preserving the existing export and full-detail actions.
 
 ## Required fidelity surfaces
 
-- Typography: the month grid, document preview and editor continue to inherit Madora's established UI and Markdown typography; no Craft font or new font asset was introduced.
+- Typography: the month grid, document preview and editor continue to inherit Markune's established UI and Markdown typography; no Craft font or new font asset was introduced.
 - Spacing and layout: date badges remain upper-left, preview text uses the existing cell padding, the hover action stays at the lower-left edge and the inspector width remains unchanged.
 - Color and elevation: selected, hover, border, muted text, modal overlay and shadows use existing semantic tokens. The hover treatment changes only opacity and background color; there is no transform animation.
 - Assets: existing Lucide icons and the core editor are reused. No placeholder image, custom SVG or CSS illustration was added.
@@ -123,7 +123,7 @@ final result: passed
 - Focused implementation card: `/Users/refinex/.codex/visualizations/2026/07/31/019fb787-37aa-77e2-a66a-374270d39045/implementation-card-focus.png`
 - Focused source inspector: `/Users/refinex/.codex/visualizations/2026/07/31/019fb787-37aa-77e2-a66a-374270d39045/source-inspector-focus.png`
 - Focused implementation inspector: `/Users/refinex/.codex/visualizations/2026/07/31/019fb787-37aa-77e2-a66a-374270d39045/implementation-inspector-focus.png`
-- State: Madora desktop, light theme, July 2026 month view. The source shows a fixed-format empty-note inspector; the implementation intentionally selects real populated Daily entries to verify the requested complete rendered Markdown state.
+- State: Markune desktop, light theme, July 2026 month view. The source shows a fixed-format empty-note inspector; the implementation intentionally selects real populated Daily entries to verify the requested complete rendered Markdown state.
 
 ## Viewport and normalization
 
@@ -135,7 +135,7 @@ final result: passed
 
 - The calendar keeps the source's flat month grid, compact toolbar, selected-day border, fixed right column, quiet dividers, and persistent bottom action.
 - Calendar excerpts no longer end at a hard two-line clamp. The text remains naturally wrapped inside a bounded preview region and loses opacity toward the lower edge while the title and task ratio remain stable.
-- The right column no longer reconstructs title, excerpt, progress, and update time as separate summary blocks. It renders the selected Markdown through the same read-only document renderer used elsewhere in Madora, including headings, paragraphs, task lists, inline code, and long-form scrolling.
+- The right column no longer reconstructs title, excerpt, progress, and update time as separate summary blocks. It renders the selected Markdown through the same read-only document renderer used elsewhere in Markune, including headings, paragraphs, task lists, inline code, and long-form scrolling.
 - Empty dates retain the explicit non-mutating creation state; selecting a date alone does not create a file.
 
 ## Focused-region evidence
@@ -146,7 +146,7 @@ final result: passed
 
 ## Required fidelity surfaces
 
-- Fonts and typography: complete Markdown inherits Madora's document font, heading scale, 15 px body size, and line-height. The inspector-specific width override removes the prior narrow text column without changing renderer typography.
+- Fonts and typography: complete Markdown inherits Markune's document font, heading scale, 15 px body size, and line-height. The inspector-specific width override removes the prior narrow text column without changing renderer typography.
 - Spacing and layout rhythm: the 320 px inspector remains aligned with the calendar header and grid. Its renderer uses `1.25rem` horizontal padding and full available content width; the pinned footer keeps a consistent 12 px action inset.
 - Colors and visual tokens: borders, muted excerpts, brand selection, task checks, and Markdown foregrounds use existing tokens. The fade is alpha-only and does not introduce a new color.
 - Image quality and asset fidelity: no new raster imagery, custom SVG, CSS illustration, or placeholder asset was introduced. Existing renderer asset resolution remains active through the workspace root path.
@@ -172,9 +172,9 @@ final result: passed
 - source visual truth:
   - `C:\Users\Administrator\AppData\Local\Temp\codex-clipboard-5e9aaeed-85d5-491f-b8fc-1575c08cfc46.png`
   - `C:\Users\Administrator\AppData\Local\Temp\codex-clipboard-14715a9e-a4f3-4210-96f0-ed99ae25a9ea.png`
-- implementation screenshot: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-windows-outer-titlebar.png`
-- full-view comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-windows-titlebar-full-comparison.png`
-- focused comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-windows-titlebar-focus-comparison.png`
+- implementation screenshot: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\markune-windows-outer-titlebar.png`
+- full-view comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\markune-windows-titlebar-full-comparison.png`
+- focused comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\markune-windows-titlebar-focus-comparison.png`
 - viewport: implementation `1280 × 720` CSS px, `devicePixelRatio: 1`
 - pixel dimensions: source baseline `1920 × 704`, source reference `1600 × 154`, implementation `1280 × 720`
 - density normalization: full view preserves each screenshot's aspect ratio; focused comparison scales both titlebar regions to the same 1600 px width before comparison
@@ -182,7 +182,7 @@ final result: passed
 
 ## Full-view comparison evidence
 
-- The prior Madora screen placed window controls inside the rounded main panel and reserved a visibly empty strip after the custom tools.
+- The prior Markune screen placed window controls inside the rounded main panel and reserved a visibly empty strip after the custom tools.
 - The implementation creates a dedicated `32px` outer titlebar. Window controls occupy the window's top-right edge while the rounded main panel begins at `y = 40`, preserving the existing `8px` panel gutter below the titlebar.
 - The sidebar begins below the outer titlebar, while its collapse, pin, and refresh controls remain in the outer strip. The content panel and sidebar therefore read as one workspace below a single window-level chrome row.
 
@@ -209,7 +209,7 @@ final result: passed
 ## Findings
 
 - No actionable P0, P1, or P2 mismatch remains.
-- The reference application's exact icon sizing differs slightly, but Madora intentionally keeps its established Windows control icons and hover behavior; this is not an actionable fidelity issue for the requested hierarchy change.
+- The reference application's exact icon sizing differs slightly, but Markune intentionally keeps its established Windows control icons and hover behavior; this is not an actionable fidelity issue for the requested hierarchy change.
 
 ## Comparison history
 
@@ -245,7 +245,7 @@ final result: passed
 - 前端测试覆盖加号入口、斜杠入口、目标占位、状态条、编辑、暂停、恢复、清除、既有消息设为目标以及首次 `turn/start -> thread/goal/set` 顺序。
 - Rust 测试覆盖方法白名单、4,000 字符边界、非法状态、伪造字段、控制字符和 token budget 拒绝。
 - 使用临时 Codex Home 启动真实固定 sidecar，完成 `initialize -> thread/start -> goal/set(paused) -> goal/get -> goal/set(objective) -> goal/clear`，所有响应与 Schema 一致且临时数据已清理。
-- macOS 会话在本轮视觉验收时处于锁屏状态；Computer Use 无法解锁，窗口级截图也只返回受保护的黑色表面。未伪造实现截图，也未改用安装版 Madora。当前源码构建的 `pnpm desktop:dev` 已保持运行，解锁后可直接做最后的像素级复核。
+- macOS 会话在本轮视觉验收时处于锁屏状态；Computer Use 无法解锁，窗口级截图也只返回受保护的黑色表面。未伪造实现截图，也未改用安装版 Markune。当前源码构建的 `pnpm desktop:dev` 已保持运行，解锁后可直接做最后的像素级复核。
 
 ## Findings
 
@@ -261,10 +261,10 @@ final result: passed for protocol, interaction, and automated rendering; live pi
   - `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-2526fe20-923c-4d7e-8a0d-e98e5d16d9f1.png`
   - `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-b3c1c019-bb07-4d22-96a0-343e09ab43da.png`
 - implementation screenshot paths:
-  - `/tmp/madora-context-dynamic-progress-focus.jpeg`
-  - `/tmp/madora-context-compact-enabled-focus.jpeg`
+  - `/tmp/markune-context-dynamic-progress-focus.jpeg`
+  - `/tmp/markune-context-compact-enabled-focus.jpeg`
 - viewport: `1456 × 769`
-- state: 当前源码构建的 `src-tauri/target/debug/bundle/macos/Madora.app`、浅色主题、右侧 AI 面板、恢复一条已有任务、上下文占用 `20.9k / 258.4k`（`8%`）、输入 `/` 展开命令与 Skill 菜单
+- state: 当前源码构建的 `src-tauri/target/debug/bundle/macos/Markune.app`、浅色主题、右侧 AI 面板、恢复一条已有任务、上下文占用 `20.9k / 258.4k`（`8%`）、输入 `/` 展开命令与 Skill 菜单
 
 ## Full-view comparison evidence
 
@@ -297,7 +297,7 @@ final result: passed for protocol, interaction, and automated rendering; live pi
 - 点击上下文圆环展示完整用量提示，键盘焦点可达。
 - 输入 `/` 展开命令与 Skill 菜单，压缩入口优先展示。
 - 新任务禁用压缩并展示原因；已有空闲任务允许选择。
-- 本轮只使用当前源码构建的本地调试程序，未启动或验证 `/Applications/Madora.app`。
+- 本轮只使用当前源码构建的本地调试程序，未启动或验证 `/Applications/Markune.app`。
 
 ## Follow-up polish
 
@@ -314,7 +314,7 @@ final result: passed
 
 ## Full-view comparison evidence
 
-参考截图显示普通文字“总结”的基线低于文档 mention。当前本地开发程序使用原生 Tauri 窗口，桌面自动化只能解析安装版 `/Applications/Madora.app`，无法安全绑定正在运行的 `target/debug/madora`，因此本轮没有伪造或借用安装版实现截图。
+参考截图显示普通文字“总结”的基线低于文档 mention。当前本地开发程序使用原生 Tauri 窗口，桌面自动化只能解析安装版 `/Applications/Markune.app`，无法安全绑定正在运行的 `target/debug/markune`，因此本轮没有伪造或借用安装版实现截图。
 
 ## Focused region comparison evidence
 
@@ -349,8 +349,8 @@ final result: blocked
   - `C:/Users/ADMINI~1/AppData/Local/Temp/codex-clipboard-26cf02f7-17b3-4da5-ba87-05b506f7d41d.png`
   - `C:/Users/ADMINI~1/AppData/Local/Temp/codex-clipboard-649c8d94-c9e1-46bc-9d35-01bf87b4ee4e.png`
 - implementation screenshot paths:
-  - `C:/Users/Administrator/.codex/visualizations/2026/07/22/019f875e-5809-7e80-ba25-ef1dcd229a0a/madora-workspace-menu-flat.png`
-  - `C:/Users/Administrator/.codex/visualizations/2026/07/22/019f875e-5809-7e80-ba25-ef1dcd229a0a/madora-global-search-flat.png`
+  - `C:/Users/Administrator/.codex/visualizations/2026/07/22/019f875e-5809-7e80-ba25-ef1dcd229a0a/markune-workspace-menu-flat.png`
+  - `C:/Users/Administrator/.codex/visualizations/2026/07/22/019f875e-5809-7e80-ba25-ef1dcd229a0a/markune-global-search-flat.png`
 - viewport: implementation `1280 × 720` CSS px, `devicePixelRatio: 1`
 - pixel dimensions: menu source `357 × 222`, search source `1897 × 726`, both implementation captures `1280 × 720`
 - density normalization: source density is unavailable; comparison was normalized by matching the same open states and judging the component shells rather than absolute full-screen scale
@@ -399,9 +399,9 @@ final result: passed
 - source visual truth:
   - `C:\Users\Administrator\AppData\Local\Temp\codex-clipboard-96f7fb39-6561-481a-8062-9093419dd745.png`
   - `C:\Users\Administrator\AppData\Local\Temp\codex-clipboard-2e0d131e-967f-4c8a-9b52-93824a05ed25.png`
-- implementation screenshot: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-main-panel-inset.png`
-- full-view comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-main-panel-comparison.png`
-- focused comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-main-panel-focus-comparison.png`
+- implementation screenshot: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\markune-main-panel-inset.png`
+- full-view comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\markune-main-panel-comparison.png`
+- focused comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\markune-main-panel-focus-comparison.png`
 - viewport: 1920 × 1032 CSS px
 - pixel dimensions: source 1920 × 1032; implementation 1920 × 1032
 - density normalization: source and implementation use matching dimensions; implementation `devicePixelRatio = 1`
@@ -409,7 +409,7 @@ final result: passed
 
 ## Full-view comparison evidence
 
-- The source Madora panel was flush with the top, right, and bottom window edges. The implementation places the main panel at `y = 8`, `right = 1912`, and `bottom = 1024`, producing an even 8 px outer gutter.
+- The source Markune panel was flush with the top, right, and bottom window edges. The implementation places the main panel at `y = 8`, `right = 1912`, and `bottom = 1024`, producing an even 8 px outer gutter.
 - The expanded sidebar ends at `x = 280` and the main panel begins at `x = 288`, producing an 8 px left gutter that also contains the resize hit area.
 - The main panel remains a single restrained surface. Existing radius, border, shadow, content alignment, and empty-state placement are unchanged.
 
@@ -421,7 +421,7 @@ final result: passed
 
 ## Required fidelity surfaces
 
-- Fonts and typography: unchanged; empty-state hierarchy, weight, line height, and wrapping match the existing Madora screen.
+- Fonts and typography: unchanged; empty-state hierarchy, weight, line height, and wrapping match the existing Markune screen.
 - Spacing and layout rhythm: 8 px on all four main-panel edges; the same inset remains when the sidebar collapses. At 1366 × 768 there is no body overflow.
 - Colors and visual tokens: existing `bg-sidebar`, `bg-background`, border opacity, and shadow tokens are preserved, so the gutter reads as shell depth instead of a new color block.
 - Image quality and asset fidelity: no image, icon, logo, or generated asset changed.
@@ -452,10 +452,10 @@ final result: passed
   - `C:\Users\Administrator\AppData\Local\Temp\codex-clipboard-ebdff35c-0ada-4814-b39a-23e6eb7ffccd.png`
   - `C:\Users\Administrator\AppData\Local\Temp\codex-clipboard-c412fd5b-c2f0-4fd0-a4fe-bd3fce80a8ff.png`
 - implementation screenshots:
-  - `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-tab-overflow-closed.png`
-  - `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-tab-overflow-open.png`
-- full-view comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-tab-header-full-comparison.png`
-- focused comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\madora-tab-header-focus-comparison.png`
+  - `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\markune-tab-overflow-closed.png`
+  - `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\markune-tab-overflow-open.png`
+- full-view comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\markune-tab-header-full-comparison.png`
+- focused comparison: `C:\Users\Administrator\.codex\visualizations\2026\07\22\019f875e-5809-7e80-ba25-ef1dcd229a0a\markune-tab-header-focus-comparison.png`
 - viewport: implementation `1280 × 720` CSS px, `devicePixelRatio: 1`
 - pixel dimensions: full source `1920 × 1038`, focused source `1920 × 366`, implementation captures `1280 × 720`
 - density normalization: the full source was proportionally reduced to 1280 px width; the focused header comparison uses the same 1280 px width for source, closed implementation, and open implementation
@@ -492,7 +492,7 @@ final result: passed
 ## Findings
 
 - No actionable P0, P1, or P2 visual or interaction issue remains.
-- The focused source does not specify an overflow-menu treatment; the implementation follows Madora's existing popover surface, radius, shadow, and keyboard-accessible DropdownMenu behavior.
+- The focused source does not specify an overflow-menu treatment; the implementation follows Markune's existing popover surface, radius, shadow, and keyboard-accessible DropdownMenu behavior.
 
 ## Comparison history
 
@@ -542,7 +542,7 @@ final result: passed
 
 - Source visual truth: `/Users/refinex/.codex/generated_images/019fb787-37aa-77e2-a66a-374270d39045/exec-8410f7d6-2cd9-46c8-b49c-a9c31ae8c459.png`
 - Rendered implementation: `/Users/refinex/.codex/visualizations/2026/07/31/019fb787-37aa-77e2-a66a-374270d39045/daily-calendar-implementation.jpeg`
-- State: Madora desktop, light theme, expanded workspace sidebar, July 2026 month view, July 31 selected, inline date inspector visible, real workspace Daily data.
+- State: Markune desktop, light theme, expanded workspace sidebar, July 2026 month view, July 31 selected, inline date inspector visible, real workspace Daily data.
 
 ## Viewport and normalization
 
@@ -553,8 +553,8 @@ final result: passed
 
 ## Full-view comparison evidence
 
-- Information architecture matches the selected direction: persistent Madora sidebar, compact calendar toolbar, Monday-first month grid, selected-day treatment, and a fixed right-side context inspector.
-- The header, grid boundaries, active blue state, low-contrast dividers, white surfaces, and restrained elevation preserve Madora's existing visual language rather than introducing a separate calendar theme.
+- Information architecture matches the selected direction: persistent Markune sidebar, compact calendar toolbar, Monday-first month grid, selected-day treatment, and a fixed right-side context inspector.
+- The header, grid boundaries, active blue state, low-contrast dividers, white surfaces, and restrained elevation preserve Markune's existing visual language rather than introducing a separate calendar theme.
 - The implementation keeps the selected source's flat, quiet month canvas. Real content is sparser than the design fixture, but cell rhythm and hierarchy remain stable.
 - The source and implementation screenshots were reviewed together at original resolution; no overlapping controls, clipped persistent actions, broken grid tracks, or hierarchy-changing proportion drift was visible.
 
@@ -569,7 +569,7 @@ A separate crop was not required: the original-resolution comparison kept the to
 
 ## Required fidelity surfaces
 
-- Fonts and typography: existing Madora/Geist typography, weights, line heights, truncation, and small-control hierarchy are consistent with the surrounding workspace. No actionable mismatch.
+- Fonts and typography: existing Markune/Geist typography, weights, line heights, truncation, and small-control hierarchy are consistent with the surrounding workspace. No actionable mismatch.
 - Spacing and layout rhythm: toolbar, weekday row, month cells, and 320 px inspector maintain the selected design's quiet rhythm. Container-query fallback prevents inspector compression. No actionable mismatch.
 - Colors and visual tokens: implementation uses existing foreground, muted, border, sidebar, and brand tokens; selected and progress states preserve the source's restrained blue emphasis. No actionable mismatch.
 - Image quality and asset fidelity: the target contains no raster product imagery. Existing Lucide icons are used consistently; no placeholder art, handcrafted SVG, CSS illustration, or substituted asset is present.
@@ -605,7 +605,7 @@ final result: passed
 - Source visual truth: `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-4e620f95-0fe1-45cb-8402-7839029203cf.png`
 - Recommended 420 px implementation: `/Users/refinex/.codex/visualizations/2026/07/31/019fb787-37aa-77e2-a66a-374270d39045/daily-calendar-resizable-preview.png`
 - Dragged implementation: `/Users/refinex/.codex/visualizations/2026/07/31/019fb787-37aa-77e2-a66a-374270d39045/daily-calendar-resized-preview.png`
-- State: Madora desktop debug bundle, light theme, July 2026 month view, July 25 selected, complete rendered Markdown inspector visible.
+- State: Markune desktop debug bundle, light theme, July 2026 month view, July 25 selected, complete rendered Markdown inspector visible.
 
 ## Viewport and comparison evidence
 
@@ -647,7 +647,7 @@ final result: passed
 
 - Source visual truth: `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-c6cd045a-ab5f-4fe7-8006-b552cff107e7.png`
 - Rendered implementation: `/Users/refinex/.codex/visualizations/2026/07/31/019fb787-37aa-77e2-a66a-374270d39045/daily-calendar-date-badges-bottom-divider.png`
-- State: Madora desktop debug bundle, light theme, July 2026 month view, July 25 selected, 521 px persisted inspector width.
+- State: Markune desktop debug bundle, light theme, July 2026 month view, July 25 selected, 521 px persisted inspector width.
 
 ## Comparison evidence
 
@@ -690,7 +690,7 @@ final result: passed
 - Header-overflow source: `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-c05fbae8-4023-485c-8ef4-1691ce0b940b.png`
 - Light implementation: `/Users/refinex/.codex/visualizations/2026/07/31/019fb787-37aa-77e2-a66a-374270d39045/daily-calendar-empty-top-fix-light.jpg`
 - Dark implementation: `/Users/refinex/.codex/visualizations/2026/07/31/019fb787-37aa-77e2-a66a-374270d39045/daily-calendar-border-fix-dark.jpg`
-- State: Madora desktop debug bundle, July 2026 month view, July 25 selected, 490 px persisted inspector width.
+- State: Markune desktop debug bundle, July 2026 month view, July 25 selected, 490 px persisted inspector width.
 
 ## Comparison evidence
 
@@ -731,7 +731,7 @@ final result: passed
 - Rendered implementation: `/Users/refinex/.codex/visualizations/2026/07/31/019fb787-37aa-77e2-a66a-374270d39045/daily-calendar-sidebar-tool-row-aligned.jpg`
 - Focused source: `/Users/refinex/.codex/visualizations/2026/07/31/019fb787-37aa-77e2-a66a-374270d39045/daily-calendar-sidebar-tool-row-source-focus.png`
 - Focused implementation: `/Users/refinex/.codex/visualizations/2026/07/31/019fb787-37aa-77e2-a66a-374270d39045/daily-calendar-sidebar-tool-row-aligned-focus.jpg`
-- State: Madora desktop debug bundle, light theme, July 2026 month view, July 31 selected.
+- State: Markune desktop debug bundle, light theme, July 2026 month view, July 31 selected.
 
 ## Viewport and comparison evidence
 
@@ -773,7 +773,7 @@ final result: passed
 - Overflow source 2: `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-e26239c5-6981-42a1-b818-9a4ad49a4faa.png`
 - Rendered implementation: `/Users/refinex/.codex/visualizations/2026/07/31/019fb787-37aa-77e2-a66a-374270d39045/daily-calendar-aligned-without-toolbar-overlap.jpg`
 - Focused implementation: `/Users/refinex/.codex/visualizations/2026/07/31/019fb787-37aa-77e2-a66a-374270d39045/daily-calendar-aligned-without-toolbar-overlap-focus.jpg`
-- State: Madora desktop debug bundle, light theme, July 2026 month view, July 31 selected.
+- State: Markune desktop debug bundle, light theme, July 2026 month view, July 31 selected.
 
 ## Viewport and comparison evidence
 
@@ -811,8 +811,8 @@ final result: passed
 # Workspace folder overview Design QA
 
 - Source visual truth: `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-1e45eac2-5cc3-4f49-9ff4-9681949ab9f2.png`
-- Implementation screenshot: `/Users/refinex/.codex/visualizations/2026/08/08/019fe089-732a-7841-b79d-c1b6309f6c4e/madora-workspace-overview-pass2.png`
-- Side-by-side comparison: `/Users/refinex/.codex/visualizations/2026/08/08/019fe089-732a-7841-b79d-c1b6309f6c4e/madora-workspace-overview-comparison.png`
+- Implementation screenshot: `/Users/refinex/.codex/visualizations/2026/08/08/019fe089-732a-7841-b79d-c1b6309f6c4e/markune-workspace-overview-pass2.png`
+- Side-by-side comparison: `/Users/refinex/.codex/visualizations/2026/08/08/019fe089-732a-7841-b79d-c1b6309f6c4e/markune-workspace-overview-comparison.png`
 - State: light theme, workspace root overview active, six root folders visible
 - Viewport: 1280 × 720 CSS px; browser reported device pixel ratio 2
 - Source pixels: 4366 × 2582
@@ -821,7 +821,7 @@ final result: passed
 
 ## Full-view comparison evidence
 
-The implementation preserves Madora's existing shell, typography settings, sidebar density, monochrome tokens and icon system while adopting the reference's root-folder information architecture: a selected “文件夹” navigation row, a sparse overview canvas, centered folder cards, folder names and recursive item counts. The number of cards and grouping copy are data-driven Madora content rather than a literal copy of Craft's dates and sample folders.
+The implementation preserves Markune's existing shell, typography settings, sidebar density, monochrome tokens and icon system while adopting the reference's root-folder information architecture: a selected “文件夹” navigation row, a sparse overview canvas, centered folder cards, folder names and recursive item counts. The number of cards and grouping copy are data-driven Markune content rather than a literal copy of Craft's dates and sample folders.
 
 ## Focused-region evidence
 
@@ -829,11 +829,11 @@ A separate crop was not required because the normalized full-view comparison kee
 
 ## Required fidelity surfaces
 
-- Fonts and typography: existing Madora font settings and heading hierarchy are preserved; no Craft font is introduced. Folder names and counts remain legible and use the product's established optical weights.
-- Spacing and layout rhythm: overview cards measure 220 × 176 CSS px with 16 px gaps, matching the reference's sparse card rhythm while fitting Madora's narrower content shell. Header, search and view controls align with the existing directory page.
-- Colors and visual tokens: all backgrounds, borders, foregrounds, focus rings and hover states use existing Madora semantic tokens. The Craft blue folder accent is intentionally not copied.
+- Fonts and typography: existing Markune font settings and heading hierarchy are preserved; no Craft font is introduced. Folder names and counts remain legible and use the product's established optical weights.
+- Spacing and layout rhythm: overview cards measure 220 × 176 CSS px with 16 px gaps, matching the reference's sparse card rhythm while fitting Markune's narrower content shell. Header, search and view controls align with the existing directory page.
+- Colors and visual tokens: all backgrounds, borders, foregrounds, focus rings and hover states use existing Markune semantic tokens. The Craft blue folder accent is intentionally not copied.
 - Image quality and asset fidelity: the screen contains no custom raster assets. Folder and control icons reuse the existing product icon components and icon library at native resolution.
-- Copy and content: “文件夹”“工作区” and “N 个项目” describe the actual Madora workspace model. Craft's date group labels are omitted because the current workspace snapshot does not expose a reliable folder-recency grouping contract.
+- Copy and content: “文件夹”“工作区” and “N 个项目” describe the actual Markune workspace model. Craft's date group labels are omitted because the current workspace snapshot does not expose a reliable folder-recency grouping contract.
 
 ## Interaction verification
 
@@ -850,7 +850,7 @@ A separate crop was not required because the normalized full-view comparison kee
 
 ### Pass 2
 
-- Post-fix evidence: `madora-workspace-overview-pass2.png` shows a single rounded focus boundary around the complete selected row.
+- Post-fix evidence: `markune-workspace-overview-pass2.png` shows a single rounded focus boundary around the complete selected row.
 - No actionable P0, P1 or P2 findings remain.
 
 ## Follow-up polish

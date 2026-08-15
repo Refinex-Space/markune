@@ -356,7 +356,7 @@ describe('AI panel startup lifecycle', () => {
     await waitFor(() =>
       expect(bridge.request).toHaveBeenCalledWith(
         'turn/start',
-        expect.objectContaining({ madoraFileAttachments: ['image-grant-1'] }),
+        expect.objectContaining({ markuneFileAttachments: ['image-grant-1'] }),
       ),
     );
     expect(screen.getAllByText('粘贴图片.png').length).toBeGreaterThan(0);
@@ -468,7 +468,7 @@ describe('AI panel startup lifecycle', () => {
       expect(bridge.request).toHaveBeenCalledWith(
         'turn/start',
         expect.objectContaining({
-          madoraDrawingReferences: [
+          markuneDrawingReferences: [
             { drawingId: activeDrawing.id, role: 'active' },
           ],
         }),
@@ -480,7 +480,7 @@ describe('AI panel startup lifecycle', () => {
   it('通过 @ 搜索并提及图稿，发送稳定 Drawing URI 和结构化引用', async () => {
     const user = userEvent.setup();
     const openDrawing = vi.fn();
-    window.addEventListener('madora:open-drawing', openDrawing, { once: true });
+    window.addEventListener('markune:open-drawing', openDrawing, { once: true });
     renderPanel(vi.fn().mockResolvedValue(true), null, null, [], null, [activeDrawing]);
 
     await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
@@ -501,10 +501,10 @@ describe('AI panel startup lifecycle', () => {
         expect.objectContaining({
           input: [
             expect.objectContaining({
-              text: `madora-drawing://${activeDrawing.id} 检查连线`,
+              text: `markune-drawing://${activeDrawing.id} 检查连线`,
             }),
           ],
-          madoraDrawingReferences: [
+          markuneDrawingReferences: [
             { drawingId: activeDrawing.id, role: 'mention' },
           ],
         }),
@@ -841,7 +841,7 @@ describe('AI panel startup lifecycle', () => {
               text: '总结当前文档并指出信息缺口',
             }),
           ],
-          madoraDocumentReferences: [
+          markuneDocumentReferences: [
             {
               path: '/workspace/Test.md',
               role: 'active',
@@ -890,14 +890,14 @@ describe('AI panel startup lifecycle', () => {
               errors: [],
               skills: [
                 {
-                  description: 'Create editable Madora technical diagrams',
+                  description: 'Create editable Markune technical diagrams',
                   enabled: true,
                   interface: {
-                    displayName: 'Madora AI 画图',
+                    displayName: 'Markune AI 画图',
                     shortDescription: '创建可编辑技术图稿',
                   },
-                  name: 'madora-diagram',
-                  path: '/Applications/Madora.app/skills/madora-diagram/SKILL.md',
+                  name: 'markune-diagram',
+                  path: '/Applications/Markune.app/skills/markune-diagram/SKILL.md',
                   scope: 'user',
                   shortDescription: null,
                 },
@@ -925,12 +925,12 @@ describe('AI panel startup lifecycle', () => {
 
     await user.click(screen.getByRole('button', { name: 'AI 画图' }));
     const diagramSkillMention = await screen.findByRole('note', {
-      name: 'Madora AI 画图',
+      name: 'Markune AI 画图',
     });
     expect(diagramSkillMention.classList.contains('inline-flex')).toBe(true);
     expect(diagramSkillMention.classList.contains('whitespace-nowrap')).toBe(true);
     expect(
-      screen.queryByText('AI 画图 Skill 加载失败，请重试或重启 Madora。'),
+      screen.queryByText('AI 画图 Skill 加载失败，请重试或重启 Markune。'),
     ).toBeNull();
 
     const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
@@ -944,12 +944,12 @@ describe('AI panel startup lifecycle', () => {
           input: [
             expect.objectContaining({
               type: 'text',
-              text: '$madora-diagram 画 Spring Cloud 架构',
+              text: '$markune-diagram 画 Spring Cloud 架构',
             }),
             {
               type: 'skill',
-              name: 'madora-diagram',
-              path: '/Applications/Madora.app/skills/madora-diagram/SKILL.md',
+              name: 'markune-diagram',
+              path: '/Applications/Markune.app/skills/markune-diagram/SKILL.md',
             },
           ],
         }),
@@ -1352,7 +1352,7 @@ describe('AI panel startup lifecycle', () => {
         },
       },
       input: [expect.objectContaining({ text: 'Implement the plan.' })],
-      madoraDocumentReferences: [
+      markuneDocumentReferences: [
         {
           path: '/workspace/Test.md',
           role: 'active',
@@ -1442,7 +1442,7 @@ describe('AI panel startup lifecycle', () => {
           input: [
             expect.objectContaining({ text: '当前文档是什么？' }),
           ],
-          madoraDocumentReferences: [
+          markuneDocumentReferences: [
             {
               path: '/workspace/Test.md',
               role: 'active',

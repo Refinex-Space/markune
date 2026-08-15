@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Madora desktop base permissions",
+  "description": "Markune desktop base permissions",
   "windows": [
     "main"
   ],

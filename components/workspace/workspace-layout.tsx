@@ -111,6 +111,7 @@ import {
   useMacosChromeControlsTop,
 } from './use-macos-titlebar-metrics';
 import { WorkspaceGlobalSearchDialog } from './workspace-global-search-dialog';
+import { WorkspaceBrandMigrationDialog } from './workspace-brand-migration-dialog';
 import { useDocumentExport } from './use-document-export';
 import { useDocumentImport } from './use-document-import';
 import {
@@ -295,16 +296,16 @@ const GIT_LOG_DETAIL_HEIGHT = {
 };
 
 const WORKSPACE_PANEL_WIDTH_STORAGE_KEYS = {
-  gitLogBranchWidth: 'madora:workspace:git-log-branch-width',
-  gitLogDetailHeight: 'madora:workspace:git-log-detail-height',
-  gitLogDetailWidth: 'madora:workspace:git-log-detail-width',
-  gitLogHeight: 'madora:workspace:git-log-height',
-  left: 'madora:workspace:left-sidebar-width',
-  ai: 'madora:workspace:ai-panel-width',
-  aiWorkspacePreview: 'madora:workspace:ai-workspace-preview-width:v2',
-  dailyNotesInspector: 'madora:workspace:daily-notes-inspector-width:v2',
-  meta: 'madora:workspace:right-panel-width',
-  terminalHeight: 'madora:workspace:terminal-height',
+  gitLogBranchWidth: 'markune:workspace:git-log-branch-width',
+  gitLogDetailHeight: 'markune:workspace:git-log-detail-height',
+  gitLogDetailWidth: 'markune:workspace:git-log-detail-width',
+  gitLogHeight: 'markune:workspace:git-log-height',
+  left: 'markune:workspace:left-sidebar-width',
+  ai: 'markune:workspace:ai-panel-width',
+  aiWorkspacePreview: 'markune:workspace:ai-workspace-preview-width:v2',
+  dailyNotesInspector: 'markune:workspace:daily-notes-inspector-width:v2',
+  meta: 'markune:workspace:right-panel-width',
+  terminalHeight: 'markune:workspace:terminal-height',
 };
 
 const GLOBAL_SEARCH_READ_CONCURRENCY = 6;
@@ -356,6 +357,8 @@ export function WorkspaceLayout({
     resolve: resolveConfirmation,
   } = useConfirmationDialog();
   const workspace = useWorkspace(initialSnapshot);
+  const brandMigrationReport = workspace.brandMigrationReport;
+  const clearBrandMigrationReport = workspace.clearBrandMigrationReport;
   const refreshWorkspaceNodes = workspace.refreshWorkspaceNodes;
   const [leftSidebarWidth, setLeftSidebarWidth] = useStoredPanelWidth(
     WORKSPACE_PANEL_WIDTH_STORAGE_KEYS.left,
@@ -466,6 +469,26 @@ export function WorkspaceLayout({
   const pageTitle = documentTitle ?? workspace.currentDirectory?.name;
   const currentDocumentPath = workspace.currentDocument?.absolutePath ?? null;
   const workspaceRootPath = workspace.snapshot?.rootPath ?? null;
+
+  React.useEffect(() => {
+    const report = brandMigrationReport;
+    if (!report) {
+      return;
+    }
+    if (report.warnings.length > 0) {
+      toast.warning('工作区已迁移，部分应用级设置需要手动检查。', {
+        description: [
+          `备份保存在 ${report.backupPath}`,
+          ...report.warnings,
+        ].join('；'),
+      });
+    } else {
+      toast.success('工作区已安全迁移到 Markune。', {
+        description: `备份保存在 ${report.backupPath}`,
+      });
+    }
+    clearBrandMigrationReport();
+  }, [brandMigrationReport, clearBrandMigrationReport]);
   const visibleWorkspaceNodes = React.useMemo(
     () => filterWorkspaceOverviewNodes(workspace.snapshot?.nodes ?? []),
     [workspace.snapshot?.nodes],
@@ -848,8 +871,8 @@ export function WorkspaceLayout({
       cancelLabel: '稍后更新',
       confirmLabel: '保存并安装',
       description:
-        'Madora 会先保存当前文档和图稿，再下载并验证更新包。Windows 安装时应用可能自动退出；macOS 安装完成后会提示重启。',
-      title: '安装 Madora 更新？',
+        'Markune 会先保存当前文档和图稿，再下载并验证更新包。Windows 安装时应用可能自动退出；macOS 安装完成后会提示重启。',
+      title: '安装 Markune 更新？',
     });
     if (!confirmed) return false;
 
@@ -917,8 +940,8 @@ export function WorkspaceLayout({
       clearCurrentDocument();
       void openDrawingFromLibrary(drawingId);
     };
-    window.addEventListener('madora:open-drawing', handleOpenDrawing);
-    return () => window.removeEventListener('madora:open-drawing', handleOpenDrawing);
+    window.addEventListener('markune:open-drawing', handleOpenDrawing);
+    return () => window.removeEventListener('markune:open-drawing', handleOpenDrawing);
   }, [clearCurrentDocument, openDrawingFromLibrary, showWorkspaceSidebar]);
   const [treeRevealRequest, setTreeRevealRequest] = React.useState<{
     absolutePath: string;
@@ -1117,7 +1140,7 @@ export function WorkspaceLayout({
       return;
     }
 
-    void setAppWindowTitle(pageTitle ?? 'Madora');
+    void setAppWindowTitle(pageTitle ?? 'Markune');
   }, [isMacRuntime, isTauriRuntime, pageTitle]);
 
   React.useEffect(() => {
@@ -1343,15 +1366,15 @@ export function WorkspaceLayout({
     const root = document.documentElement;
 
     root.style.setProperty(
-      '--madora-ui-font',
+      '--markune-ui-font',
       buildFontStack(appearanceFonts.ui, UI_FONT_FALLBACK),
     );
     root.style.setProperty(
-      '--madora-document-font',
+      '--markune-document-font',
       buildFontStack(appearanceFonts.document, DOCUMENT_FONT_FALLBACK),
     );
     root.style.setProperty(
-      '--madora-code-font',
+      '--markune-code-font',
       buildFontStack(appearanceFonts.code, CODE_FONT_FALLBACK),
     );
   }, [appearanceFonts]);
@@ -3419,6 +3442,17 @@ export function WorkspaceLayout({
         onSelectResult={handleSelectGlobalSearchResult}
       />
 
+      <WorkspaceBrandMigrationDialog
+        key={
+          workspace.pendingBrandMigration
+            ? `${workspace.pendingBrandMigration.rootPath}:${workspace.pendingBrandMigration.state}`
+            : 'none'
+        }
+        migration={workspace.pendingBrandMigration}
+        onCancel={workspace.cancelBrandMigration}
+        onMigrate={workspace.migratePendingBrandWorkspace}
+      />
+
       <div
         className={cn(
           'flex min-h-0 min-w-0 flex-1 overflow-hidden',
@@ -5207,7 +5241,7 @@ function emitStoredPanelWidthChange(key: string) {
 }
 
 function getStoredPanelWidthEventName(key: string) {
-  return `madora:panel-width:${key}`;
+  return `markune:panel-width:${key}`;
 }
 
 function formatUnknownError(error: unknown) {
@@ -5255,7 +5289,7 @@ function ExternalDocumentConflictBanner({
     <div className="flex shrink-0 items-center gap-3 border-t border-amber-500/30 bg-amber-500/8 px-4 py-2 text-xs">
       <AlertTriangle className="shrink-0 text-amber-600" size={15} />
       <span className="min-w-0 flex-1 text-foreground/80">
-        当前草稿与 Codex 写入的磁盘版本发生冲突，Madora 已暂停自动保存。
+        当前草稿与 Codex 写入的磁盘版本发生冲突，Markune 已暂停自动保存。
       </span>
       <button
         className="shrink-0 rounded-md px-2 py-1 text-muted-foreground outline-none hover:bg-background/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/30"

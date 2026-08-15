@@ -6,7 +6,7 @@
 const EXPLICIT_SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*:/i;
 const MARKWEAVE_DOC_PREFIX = 'markweave://doc/';
 
-export const OPEN_WORKSPACE_DOCUMENT_EVENT = 'madora:open-document';
+export const OPEN_WORKSPACE_DOCUMENT_EVENT = 'markune:open-document';
 
 export interface OpenWorkspaceDocumentDetail {
   relativePath: string;
@@ -44,7 +44,7 @@ function splitHash(value: string): { path: string; hash: string | null } {
 
 /**
  * Classifies a raw href. Returns the internal document target, or `null` for
- * external links (http(s), mailto, custom protocols such as `madora-asset://`),
+ * external links (http(s), mailto, custom protocols such as `markune-asset://`),
  * protocol-relative URLs and pure in-page anchors, none of which navigate to a
  * workspace document.
  */
@@ -76,7 +76,7 @@ export function parseInternalDocumentHref(
   }
 
   // Any explicit scheme (http:, https:, mailto:, tel:, data:, file:,
-  // madora-asset:, madora-drawing:, ...) is not a workspace document link.
+  // markune-asset:, markune-drawing:, ...) is not a workspace document link.
   if (EXPLICIT_SCHEME_PATTERN.test(href)) {
     return null;
   }

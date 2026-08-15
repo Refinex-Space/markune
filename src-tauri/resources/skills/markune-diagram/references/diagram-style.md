@@ -83,7 +83,7 @@ Expand individual services only when the diagram's question is specifically abou
 - Avoid prose, decorative emoji, placeholder names, and redundant words such as `系统模块组件`.
 - Put detail on a meaningful edge only when it improves interpretation.
 
-Madora applies the professional Excalidraw theme: system sans-serif typography, straight low-roughness connectors, neutral group containers, and restrained semantic pastels. Mermaid `classDef` is optional and should not be used for layout tricks.
+Markune applies the native Excalidraw theme: Excalifont typography with its bundled CJK fallback, artist roughness, 2px charcoal strokes, rounded nodes and connectors, and transparent default node backgrounds. Explicit Mermaid `classDef` fills are preserved for semantic emphasis, but are optional and must not be used for layout tricks.
 
 ## 7. Repair by quality finding
 

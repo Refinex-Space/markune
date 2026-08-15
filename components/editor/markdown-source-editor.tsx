@@ -52,7 +52,7 @@ export function MarkdownSourceEditor({
         EditorView.theme({
           '&': { height: '100%' },
           '.cm-scroller': {
-            fontFamily: 'var(--madora-code-font)',
+            fontFamily: 'var(--markune-code-font)',
             lineHeight: '1.5rem',
             overflow: 'auto',
           },

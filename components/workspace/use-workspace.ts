@@ -10,7 +10,9 @@ import {
   ensureWorkspace,
   getRecentWorkspacePath,
   getWorkspaceHistory,
+  inspectWorkspaceBrand,
   loadWorkspaceTree,
+  migrateLegacyWorkspaceBrand,
   moveWorkspaceNode,
   recordWorkspaceHistory,
   refreshWorkspaceNode as refreshWorkspaceNodeApi,
@@ -24,6 +26,7 @@ import {
   setWorkspaceNodeState,
   setTreeNodeAppearance,
 } from './workspace-api';
+import { migrateLegacyBrowserStorage } from './brand-migration';
 import {
   extractH1FromMarkdown,
   parseMarkdownMetadata,
@@ -46,6 +49,7 @@ import type {
   RightPanelMode,
   WorkspaceLoadError,
   WorkspaceHistoryItem,
+  WorkspaceBrandMigrationReport,
   WorkspaceMoveRequest,
   WorkspaceNode,
   WorkspaceSnapshot,
@@ -57,6 +61,11 @@ const FRONTMATTER_OPENING_PATTERN = /^---\r?\n/;
 export interface ExternalDocumentConflict {
   externalDocument: MarkdownDocumentContent;
   path: string;
+}
+
+export interface PendingWorkspaceBrandMigration {
+  rootPath: string;
+  state: 'legacy' | 'conflict';
 }
 
 export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
@@ -98,7 +107,16 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   const [rightPanelMode, setRightPanelMode] = React.useState<RightPanelMode>(null);
   const [storedWorkspaceHistory, setStoredWorkspaceHistory] = React.useState<
     WorkspaceHistoryItem[]
-  >(() => getWorkspaceHistory());
+  >(() => {
+    migrateLegacyBrowserStorage();
+    return getWorkspaceHistory();
+  });
+  const [pendingBrandMigration, setPendingBrandMigration] = React.useState<
+    PendingWorkspaceBrandMigration | null
+  >(null);
+  const [brandMigrationReport, setBrandMigrationReport] = React.useState<
+    WorkspaceBrandMigrationReport | null
+  >(null);
   const [initialRecentDocumentPaths, setInitialRecentDocumentPaths] =
     React.useState<string[]>([]);
 
@@ -258,7 +276,10 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   const loadWorkspace = React.useCallback(
     async (
       rootPath: string,
-      options?: { reason?: 'auto-restore' | 'user' },
+      options?: {
+        reason?: 'auto-restore' | 'user';
+        skipBrandInspection?: boolean;
+      },
     ) => {
       const requestId = ++loadWorkspaceRequestIdRef.current;
       const reason = options?.reason ?? 'user';
@@ -266,6 +287,23 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       setError(null);
 
       try {
+        if (!options?.skipBrandInspection) {
+          const inspection = await inspectWorkspaceBrand(rootPath);
+          if (
+            inspection.state === 'legacy' ||
+            inspection.state === 'conflict'
+          ) {
+            if (requestId !== loadWorkspaceRequestIdRef.current) {
+              return;
+            }
+            setPendingBrandMigration({
+              rootPath,
+              state: inspection.state,
+            });
+            return;
+          }
+        }
+
         const [nextSnapshot, metadata] = await Promise.all([
           loadWorkspaceTree(rootPath),
           ensureWorkspace(rootPath).catch(() => null),
@@ -276,6 +314,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         }
 
         setSnapshot(nextSnapshot);
+        setPendingBrandMigration(null);
         setInitialRecentDocumentPaths(
           metadata?.recentDocumentPaths ?? [],
         );
@@ -1204,11 +1243,44 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     return selectWorkspaceParentDirectory();
   }, []);
 
+  const cancelBrandMigration = React.useCallback(() => {
+    suppressNextAutoRestoreRef.current = true;
+    setPendingBrandMigration(null);
+  }, []);
+
+  const migratePendingBrandWorkspace = React.useCallback(async () => {
+    const pending = pendingBrandMigration;
+    if (!pending || pending.state !== 'legacy') {
+      return null;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    try {
+      const report = await migrateLegacyWorkspaceBrand(pending.rootPath);
+      setBrandMigrationReport(report);
+      setPendingBrandMigration(null);
+      await loadWorkspace(pending.rootPath, { skipBrandInspection: true });
+      return report;
+    } catch (migrationError) {
+      setIsLoading(false);
+      throw migrationError;
+    }
+  }, [loadWorkspace, pendingBrandMigration]);
+
+  const clearBrandMigrationReport = React.useCallback(() => {
+    setBrandMigrationReport(null);
+  }, []);
+
   const clearPendingRenameNode = React.useCallback(() => {
     setPendingRenameNodePath(null);
   }, []);
 
   React.useEffect(() => {
+    if (pendingBrandMigration) {
+      return;
+    }
+
     if (snapshot) {
       autoRestoreAttemptedRef.current = false;
       return;
@@ -1231,7 +1303,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         void loadWorkspace(recentPath, { reason: 'auto-restore' });
       });
     }
-  }, [loadWorkspace, snapshot]);
+  }, [loadWorkspace, pendingBrandMigration, snapshot]);
 
   React.useEffect(() => {
     return () => {
@@ -1241,7 +1313,10 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   }, [clearPendingSave, clearPendingRename]);
 
   return {
+    brandMigrationReport,
+    cancelBrandMigration,
     chooseWorkspaceParentDirectory,
+    clearBrandMigrationReport,
     clearCurrentDocument: resetDocumentState,
     createDirectory,
     createDocument,
@@ -1261,10 +1336,12 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     isLoading,
     isSidebarCollapsed,
     lastSavedAt,
+    migratePendingBrandWorkspace,
     moveNode,
     openDocument,
     selectDirectory,
     openWorkspace,
+    pendingBrandMigration,
     pendingRenameNodePath,
     prepareCurrentDocumentForAi,
     refreshWorkspaceNode,

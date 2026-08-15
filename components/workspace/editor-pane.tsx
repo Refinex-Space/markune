@@ -165,14 +165,14 @@ function DocumentEmptyState({
           alt=""
           className="size-8 opacity-90 dark:hidden"
           height={32}
-          src="/brand/madora-logo-dark.svg"
+          src="/brand/markune-logo-dark.svg"
           width={32}
         />
         <Image
           alt=""
           className="hidden size-8 opacity-90 dark:block"
           height={32}
-          src="/brand/madora-logo-light.svg"
+          src="/brand/markune-logo-light.svg"
           width={32}
         />
         <div className="mt-6 h-px w-24 overflow-hidden rounded-full bg-border">
@@ -237,14 +237,14 @@ function RecentDocumentsBoard({
             alt=""
             className="size-7 shrink-0 opacity-90 dark:hidden"
             height={28}
-            src="/brand/madora-logo-dark.svg"
+            src="/brand/markune-logo-dark.svg"
             width={28}
           />
           <Image
             alt=""
             className="hidden size-7 shrink-0 opacity-90 dark:block"
             height={28}
-            src="/brand/madora-logo-light.svg"
+            src="/brand/markune-logo-light.svg"
             width={28}
           />
           <h1 className="text-2xl font-bold tracking-tight text-foreground">

@@ -2,8 +2,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const GITHUB_UPDATER_FALLBACK_ENDPOINT =
-  'https://github.com/Refinex-Space/madora-site/releases/latest/download/latest-github.json';
+export const GITHUB_UPDATER_ENDPOINT =
+  'https://github.com/Refinex-Space/markune/releases/latest/download/latest.json';
 
 const scriptPath = fileURLToPath(import.meta.url);
 const projectRoot = dirname(dirname(scriptPath));
@@ -80,47 +80,11 @@ function isCanonicalBase64(value) {
 
 function throwInvalidUpdaterPublicKey() {
   throw new Error(
-    'MADORA_UPDATER_PUBLIC_KEY must be the Base64 content of the Tauri-generated .key.pub file or a complete two-line minisign public key.',
+    'MARKUNE_UPDATER_PUBLIC_KEY must be the Base64 content of the Tauri-generated .key.pub file or a complete two-line minisign public key.',
   );
 }
 
-export function normalizeOssPublicBaseUrl(value) {
-  const rawValue = String(value ?? '').trim();
-  let url;
-
-  try {
-    url = new URL(rawValue);
-  } catch {
-    throwInvalidOssPublicBaseUrl();
-  }
-
-  if (
-    url.protocol !== 'https:' ||
-    url.username ||
-    url.password ||
-    url.port ||
-    url.search ||
-    url.hash ||
-    url.pathname !== '/' ||
-    !/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]\.oss-cn-shanghai\.aliyuncs\.com$/.test(
-      url.hostname,
-    )
-  ) {
-    throwInvalidOssPublicBaseUrl();
-  }
-
-  return `https://${url.hostname}`;
-}
-
-function throwInvalidOssPublicBaseUrl() {
-  throw new Error(
-    'MADORA_OSS_PUBLIC_BASE_URL must be the HTTPS public domain of a cn-shanghai OSS bucket without a path, query, fragment, port, or credentials.',
-  );
-}
-
-export function createReleaseUpdaterConfig(publicKey, ossPublicBaseUrl) {
-  const primaryEndpoint = `${normalizeOssPublicBaseUrl(ossPublicBaseUrl)}/updates/stable/latest.json`;
-
+export function createReleaseUpdaterConfig(publicKey) {
   return {
     bundle: {
       createUpdaterArtifacts: true,
@@ -130,7 +94,7 @@ export function createReleaseUpdaterConfig(publicKey, ossPublicBaseUrl) {
     },
     plugins: {
       updater: {
-        endpoints: [primaryEndpoint, GITHUB_UPDATER_FALLBACK_ENDPOINT],
+        endpoints: [GITHUB_UPDATER_ENDPOINT],
         pubkey: normalizeUpdaterPublicKey(publicKey),
         windows: {
           installMode: 'passive',
@@ -154,10 +118,7 @@ export async function prepareReleaseUpdaterConfig({
     tauriConfig.version,
     tagName,
   );
-  const config = createReleaseUpdaterConfig(
-    env.MADORA_UPDATER_PUBLIC_KEY,
-    env.MADORA_OSS_PUBLIC_BASE_URL,
-  );
+  const config = createReleaseUpdaterConfig(env.MARKUNE_UPDATER_PUBLIC_KEY);
   const outputPath = join(root, '.tauri-build', 'tauri.release.generated.json');
 
   await mkdir(dirname(outputPath), { recursive: true });
@@ -177,7 +138,7 @@ if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {
   prepareReleaseUpdaterConfig()
     .then(({ version }) => {
       process.stdout.write(
-        `Prepared updater release config for Madora v${version}: .tauri-build/tauri.release.generated.json\n`,
+        `Prepared updater release config for Markune v${version}: .tauri-build/tauri.release.generated.json\n`,
       );
     })
     .catch((error) => {

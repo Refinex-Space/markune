@@ -89,7 +89,7 @@ function previewRequest() {
       title: compiled.title,
     },
     callId: 'call-1',
-    namespace: 'madora_drawing' as const,
+    namespace: 'markune_drawing' as const,
     threadId: 'thread-1',
     tool: 'preview_mermaid' as const,
     turnId: 'turn-1',
@@ -253,7 +253,7 @@ describe('useAiDrawingTools', () => {
     const response = await result.current({
       arguments: { drawingId: descriptor.meta.id },
       callId: 'call-inspect',
-      namespace: 'madora_drawing',
+      namespace: 'markune_drawing',
       threadId: 'thread-1',
       tool: 'inspect_drawing',
       turnId: 'turn-1',

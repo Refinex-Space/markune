@@ -56,10 +56,10 @@ const codexApiState = vi.hoisted(() => ({
     Promise.resolve({
       baseUrl: null,
       enabled: false,
-      envKey: 'MADORA_CODEX_PROVIDER_API_KEY',
+      envKey: 'MARKUNE_CODEX_PROVIDER_API_KEY',
       hasApiKey: false,
       model: 'gpt-5',
-      providerId: 'madora_custom',
+      providerId: 'markune_custom',
       wireApi: 'responses',
     }),
   ),
@@ -243,7 +243,7 @@ describe('WorkspaceSettingsPage', () => {
       (screen.getByRole('slider', { name: '应用透明度' }) as HTMLInputElement)
         .disabled,
     ).toBe(true);
-    expect(screen.getByText('Madora · 本地知识库')).toBeTruthy();
+    expect(screen.getByText('Markune · 本地知识库')).toBeTruthy();
     expect(
       screen.getByText('这是一段用于预览文档字体的文本。'),
     ).toBeTruthy();
@@ -468,7 +468,7 @@ describe('WorkspaceSettingsPage', () => {
     expect(spacer.className).not.toContain('h-10');
   });
 
-  it('shows the runtime Madora version from the last settings section', async () => {
+  it('shows the runtime Markune version from the last settings section', async () => {
     const user = userEvent.setup();
     renderSettingsPage();
     const navigation = screen.getByRole('navigation', { name: '设置分类' });
@@ -480,8 +480,8 @@ describe('WorkspaceSettingsPage', () => {
 
     await user.click(screen.getByRole('button', { name: '版本' }));
 
-    expect(screen.getByRole('img', { name: 'Madora Logo' })).toBeTruthy();
-    expect((await screen.findByTestId('madora-version')).textContent).toBe(
+    expect(screen.getByRole('img', { name: 'Markune Logo' })).toBeTruthy();
+    expect((await screen.findByTestId('markune-version')).textContent).toBe(
       '0.1.0',
     );
   });
@@ -500,7 +500,7 @@ describe('WorkspaceSettingsPage', () => {
       />,
     );
 
-    expect((await screen.findByTestId('madora-version')).textContent).toBe(
+    expect((await screen.findByTestId('markune-version')).textContent).toBe(
       '版本信息不可用',
     );
   });
@@ -574,7 +574,7 @@ describe('WorkspaceSettingsPage', () => {
 
     expect(screen.getByTestId('storage-provider-card')).toBeTruthy();
     expect(screen.getByTestId('storage-local-card')).toBeTruthy();
-    expect(screen.getByDisplayValue('D:/notes/.madora/assets/files')).toBeTruthy();
+    expect(screen.getByDisplayValue('D:/notes/.markune/assets/files')).toBeTruthy();
 
     await user.click(screen.getByRole('button', { name: 'Git Sync' }));
 
@@ -651,10 +651,10 @@ describe('WorkspaceSettingsPage', () => {
     codexApiState.setCodexCustomProvider.mockResolvedValue({
       baseUrl: 'https://api.openai.com/v1',
       enabled: true,
-      envKey: 'MADORA_CODEX_PROVIDER_API_KEY',
+      envKey: 'MARKUNE_CODEX_PROVIDER_API_KEY',
       hasApiKey: true,
       model: 'gpt-5',
-      providerId: 'madora_custom',
+      providerId: 'markune_custom',
       wireApi: 'responses',
     });
 
@@ -733,8 +733,8 @@ describe('WorkspaceSettingsPage', () => {
         rootPath: 'D:/notes',
       },
       gitRemote: {
-        remoteUrl: 'git@github.com:refinex-space/madora.git',
-        webUrl: 'https://github.com/refinex-space/madora',
+        remoteUrl: 'git@github.com:refinex-space/markune.git',
+        webUrl: 'https://github.com/refinex-space/markune',
       },
       gitSyncSettings: {
         conflictResolution: 'abort',
@@ -760,7 +760,7 @@ describe('WorkspaceSettingsPage', () => {
     await user.click(screen.getByRole('link', { name: '打开远程仓库' }));
 
     expect(workspaceApiState.openUrlInDefaultBrowser).toHaveBeenCalledWith(
-      'https://github.com/refinex-space/madora',
+      'https://github.com/refinex-space/markune',
     );
   });
 });

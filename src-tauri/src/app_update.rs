@@ -62,7 +62,7 @@ impl AppUpdateState {
         let mut pending = self
             .pending
             .lock()
-            .map_err(|_| "更新状态不可用，请重启 Madora 后重试。".to_string())?;
+            .map_err(|_| "更新状态不可用，请重启 Markune 后重试。".to_string())?;
         *pending = update;
         Ok(())
     }
@@ -70,7 +70,7 @@ impl AppUpdateState {
     fn take_pending(&self) -> Result<Update, String> {
         self.pending
             .lock()
-            .map_err(|_| "更新状态不可用，请重启 Madora 后重试。".to_string())?
+            .map_err(|_| "更新状态不可用，请重启 Markune 后重试。".to_string())?
             .take()
             .ok_or_else(|| "没有可安装的更新，请先重新检查。".to_string())
     }

@@ -289,8 +289,8 @@ const composerMentionClassName = cn(
   mentionLinkClassName,
   'inline-flex items-center gap-1 whitespace-nowrap align-middle',
 );
-const GOAL_COMMAND_SELECTION = 'madora:goal-mode';
-const COMPACT_COMMAND_SELECTION = 'madora:compact-context';
+const GOAL_COMMAND_SELECTION = 'markune:goal-mode';
+const COMPACT_COMMAND_SELECTION = 'markune:compact-context';
 const GOAL_OBJECTIVE_MAX_LENGTH = 4_000;
 
 type PanelView = 'chat' | 'history';
@@ -402,7 +402,7 @@ const WORKSPACE_STARTER_ACTIONS: StarterAction[] = [
 
 const SCROLL_BOTTOM_THRESHOLD = 64;
 
-const DEVELOPER_INSTRUCTIONS = `你运行在 Madora 的工作区级 AI 面板中。默认只在当前工作区内读取和修改文件；仅当当前命名权限配置明确允许、且用户请求确实需要时，才可访问工作区外路径。Madora 以 Markdown 为唯一持久化文档格式，请保持现有 frontmatter 和目录约定。Madora 会为每个 turn 提供编辑器活跃文档和显式文档引用；“当前文档”“本文”“这篇文档”等表述只指向该 turn 的 madora_active_document，不得根据日期、最近文件或工作区惯例猜测。请求依赖文档内容时，必须先使用工作区工具读取相关文件，并让读取动作通过正常工具事件返回；不得在尝试读取前声称缺少路径。与文档无关的请求不必读取活跃文档。AI 画图必须使用 Madora 提供的 madora_drawing 工具，禁止直接读写 .madora/drawings 或生成待导入文件。严格遵循当前线程的 Codex 权限配置和审批结果，不得绕过权限边界。删除文档前必须明确说明将删除的路径和影响，并等待用户确认。不要读取、输出或记录密钥、Token、Cookie、连接串或其他敏感信息。完成文件变更后简要列出实际修改和验证结果。`;
+const DEVELOPER_INSTRUCTIONS = `你运行在 Markune 的工作区级 AI 面板中。默认只在当前工作区内读取和修改文件；仅当当前命名权限配置明确允许、且用户请求确实需要时，才可访问工作区外路径。Markune 以 Markdown 为唯一持久化文档格式，请保持现有 frontmatter 和目录约定。Markune 会为每个 turn 提供编辑器活跃文档和显式文档引用；“当前文档”“本文”“这篇文档”等表述只指向该 turn 的 markune_active_document，不得根据日期、最近文件或工作区惯例猜测。请求依赖文档内容时，必须先使用工作区工具读取相关文件，并让读取动作通过正常工具事件返回；不得在尝试读取前声称缺少路径。与文档无关的请求不必读取活跃文档。AI 画图必须使用 Markune 提供的 markune_drawing 工具，禁止直接读写 .markune/drawings 或生成待导入文件。严格遵循当前线程的 Codex 权限配置和审批结果，不得绕过权限边界。删除文档前必须明确说明将删除的路径和影响，并等待用户确认。不要读取、输出或记录密钥、Token、Cookie、连接串或其他敏感信息。完成文件变更后简要列出实际修改和验证结果。`;
 
 const PLAN_IMPLEMENTATION_MESSAGE = 'Implement the plan.';
 const PLAN_IMPLEMENTATION_FRESH_PREFIX =
@@ -960,7 +960,7 @@ export function AiPanel({
       const drawingId = parseDrawingMentionPath(path);
       if (drawingId) {
         window.dispatchEvent(
-          new CustomEvent('madora:open-drawing', { detail: { drawingId } }),
+          new CustomEvent('markune:open-drawing', { detail: { drawingId } }),
         );
         return;
       }
@@ -1846,8 +1846,8 @@ export function AiPanel({
         applyThreadName(threadNameUpdate.threadId, threadNameUpdate.name);
       }
 
-      if (message.method === 'madora/runtime/exited') {
-        window.dispatchEvent(new Event('madora:codex-runtime-stopped'));
+      if (message.method === 'markune/runtime/exited') {
+        window.dispatchEvent(new Event('markune:codex-runtime-stopped'));
         setPlanImplementation(null);
         goalDraftModeRef.current = false;
         setGoalDraftMode(false);
@@ -1897,7 +1897,7 @@ export function AiPanel({
                 ? await onDrawingToolCallRef.current(request)
                 : {
                     success: false,
-                    text: '当前 Madora 窗口未启用 AI 画图工具。请在新任务中重试。',
+                    text: '当前 Markune 窗口未启用 AI 画图工具。请在新任务中重试。',
                   };
               await respondToCodexDynamicTool(message.id!, response);
             } catch (error) {
@@ -2028,7 +2028,7 @@ export function AiPanel({
     const requestId = composerSkillInsertRequestIdRef.current;
     void (async () => {
       let skill = skillOptions.find(
-        (candidate) => candidate.name === 'madora-diagram',
+        (candidate) => candidate.name === 'markune-diagram',
       );
       if (!skill) {
         try {
@@ -2041,14 +2041,14 @@ export function AiPanel({
         }
         const options = await loadSkills(runtimeGenerationRef.current, true);
         skill = options?.find(
-          (candidate) => candidate.name === 'madora-diagram',
+          (candidate) => candidate.name === 'markune-diagram',
         );
       }
       if (requestId !== composerSkillInsertRequestIdRef.current) {
         return;
       }
       if (!skill) {
-        setRuntimeError('AI 画图 Skill 加载失败，请重试或重启 Madora。');
+        setRuntimeError('AI 画图 Skill 加载失败，请重试或重启 Markune。');
         return;
       }
       setComposerSkillInsertRequest({ id: requestId, skill });
@@ -2181,7 +2181,7 @@ export function AiPanel({
         Boolean(options.forceNewThread) ||
         composerMentions.some(
           (mention) =>
-            isSkillComposerMention(mention) && mention.name === 'madora-diagram',
+            isSkillComposerMention(mention) && mention.name === 'markune-diagram',
         ) ||
         (needsDrawingTools && Boolean(activeThread) && !activeThreadSupportsDrawing);
       const previousConversation = conversationRef.current;
@@ -2223,7 +2223,7 @@ export function AiPanel({
         return;
       }
 
-      const clientMessageId = `madora-${Date.now()}`;
+      const clientMessageId = `markune-${Date.now()}`;
       const deliveryStartedAtMs = Date.now();
       const optimisticAttachments = attachments.map((attachment) => ({
         kind: attachment.isImage ? ('image' as const) : attachment.kind,
@@ -2424,10 +2424,10 @@ export function AiPanel({
                 path: skill.path,
               })),
             ],
-            madoraFileAttachments: attachments.map(
+            markuneFileAttachments: attachments.map(
               (attachment) => attachment.attachmentId,
             ),
-            madoraDocumentReferences: [
+            markuneDocumentReferences: [
               ...(activeDocumentPath
                 ? [
                     {
@@ -2441,7 +2441,7 @@ export function AiPanel({
                 role: 'mention',
               })),
             ],
-            madoraDrawingReferences: [
+            markuneDrawingReferences: [
               ...(currentDrawing
                 ? [{ drawingId: currentDrawing.id, role: 'active' }]
                 : []),
@@ -2641,7 +2641,7 @@ export function AiPanel({
       controls: 'default',
       metadata: {
         documentPath: currentDocumentPath,
-        source: 'madora-ai-panel',
+        source: 'markune-ai-panel',
       },
     });
     if (!captured.ok) {
@@ -2866,7 +2866,7 @@ export function AiPanel({
               type="button"
               onClick={startNewDiagram}
             >
-              该历史任务可能没有 Madora 画图工具。在新任务中使用 AI 画图
+              该历史任务可能没有 Markune 画图工具。在新任务中使用 AI 画图
             </button>
           ) : null}
           <AiConversationViewport
@@ -3270,7 +3270,7 @@ export function PanelContent({
   if (runtimeStatus === 'web') {
     return (
       <EmptyPanel icon={<Bot size={20} />} title="AI 面板已就绪">
-        <p>Codex App Server 只在 Madora 桌面端运行，Web 预览不会启动本地进程。</p>
+        <p>Codex App Server 只在 Markune 桌面端运行，Web 预览不会启动本地进程。</p>
       </EmptyPanel>
     );
   }
@@ -3300,7 +3300,7 @@ export function PanelContent({
   if (authRequired && !account) {
     return (
       <EmptyPanel icon={<Sparkles size={20} />} title="连接你的 ChatGPT 账户">
-        <p>登录由 Codex App Server 管理，Madora 不接触或保存账户 Token。</p>
+        <p>登录由 Codex App Server 管理，Markune 不接触或保存账户 Token。</p>
         <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
           <button
             className="inline-flex h-8 items-center justify-center rounded-md bg-foreground px-3 text-xs font-medium text-background disabled:opacity-50"
@@ -3901,7 +3901,7 @@ function ChangeDiffPreview({ change }: { change: AiFileChange }) {
           <span className="text-red-500">-{change.deletions}</span>
         </div>
       </header>
-      <div className="madora-thin-scrollarea max-h-[min(420px,65vh)] overflow-auto overscroll-contain py-1 font-mono text-[11px] leading-5">
+      <div className="markune-thin-scrollarea max-h-[min(420px,65vh)] overflow-auto overscroll-contain py-1 font-mono text-[11px] leading-5">
         {lines.map((line, index) =>
           line.kind === 'omitted' ? (
             <div
@@ -4753,7 +4753,7 @@ function MessageMentionIcon({
 
 function StaticMentionIcon({ src }: { src: string }) {
   return (
-    // Mention 图标来自 Madora 自带静态资源，不需要 Next 图片优化。
+    // Mention 图标来自 Markune 自带静态资源，不需要 Next 图片优化。
     // eslint-disable-next-line @next/next/no-img-element
     <img
       alt=""
@@ -5402,7 +5402,7 @@ export function ActivityDetails({
         {activity.progress ? <div>{activity.progress}</div> : null}
         <JsonDetail label="参数" value={activity.arguments} />
         {resultImages.map((imageUrl) => (
-          // Madora-generated Data URLs are already bounded and cannot use the Next image optimizer.
+          // Markune-generated Data URLs are already bounded and cannot use the Next image optimizer.
           // eslint-disable-next-line @next/next/no-img-element
           <img
             alt="AI 图稿预览"

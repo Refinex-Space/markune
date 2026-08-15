@@ -85,7 +85,7 @@ describe('useDocumentImport', () => {
           token: 'asset-1',
         },
       ],
-      markdown: '# Note\n\n![](madora-import://asset/asset-1)',
+      markdown: '# Note\n\n![](markune-import://asset/asset-1)',
       source,
       title: 'Note',
       warnings: [],

@@ -193,85 +193,88 @@ function validateBindings(elements: readonly Record<string, unknown>[]) {
   }
 }
 
-function applyProfessionalTheme<T extends { type: string }>(
+interface ExcalidrawNativeThemeOptions {
+  adaptiveRadius: number;
+  fontFamily: number;
+  proportionalRadius: number;
+}
+
+const EXCALIDRAW_NATIVE_FONT_SIZE = 20;
+const EXCALIDRAW_NATIVE_STROKE_COLOR = '#1e1e1e';
+
+function resolveExcalidrawNativeRoundness(
+  elementType: string,
+  options: ExcalidrawNativeThemeOptions,
+) {
+  if (elementType === 'rectangle') return { type: options.adaptiveRadius };
+  if (['arrow', 'diamond', 'line'].includes(elementType)) {
+    return { type: options.proportionalRadius };
+  }
+  return null;
+}
+
+export function applyExcalidrawNativeTheme<T extends { type: string }>(
   element: T,
-  fontFamily: number,
+  options: ExcalidrawNativeThemeOptions,
 ): T {
   const record = element as T & {
     backgroundColor?: string;
     label?: Record<string, unknown>;
     strokeColor?: string;
   };
+  const fontFamily = options.fontFamily;
   const label = record.label
     ? {
         ...record.label,
         fontFamily,
         fontSize: Math.max(
-          record.label.verticalAlign === 'top' ? 20 : 18,
-          Number(record.label.fontSize) || 18,
+          EXCALIDRAW_NATIVE_FONT_SIZE,
+          Number(record.label.fontSize) || EXCALIDRAW_NATIVE_FONT_SIZE,
         ),
-        strokeColor: '#0f172a',
+        strokeColor: EXCALIDRAW_NATIVE_STROKE_COLOR,
       }
     : undefined;
   const base = {
     ...element,
     ...(label ? { label } : {}),
     fillStyle: 'solid',
-    roughness: 0,
-    strokeWidth: 1,
+    roughness: 1,
+    strokeColor: EXCALIDRAW_NATIVE_STROKE_COLOR,
+    strokeWidth: 2,
   };
   if (element.type === 'text') {
     return {
       ...base,
       fontFamily,
-      fontSize: Math.max(18, Number((element as T & { fontSize?: number }).fontSize) || 18),
-      strokeColor: '#0f172a',
+      fontSize: Math.max(
+        EXCALIDRAW_NATIVE_FONT_SIZE,
+        Number((element as T & { fontSize?: number }).fontSize) ||
+          EXCALIDRAW_NATIVE_FONT_SIZE,
+      ),
     } as T;
   }
   if (element.type === 'arrow' || element.type === 'line') {
     return {
       ...base,
-      roundness: null,
-      strokeColor: '#64748b',
+      backgroundColor: 'transparent',
+      roundness: resolveExcalidrawNativeRoundness(element.type, options),
     } as T;
   }
   if (record.label?.verticalAlign === 'top') {
     return {
       ...base,
-      backgroundColor: '#f8fafc',
-      strokeColor: '#cbd5e1',
+      backgroundColor: 'transparent',
+      roundness: resolveExcalidrawNativeRoundness(element.type, options),
     } as T;
   }
   const currentFill = (record.backgroundColor ?? '').toLocaleLowerCase();
   const hasCustomFill =
     currentFill &&
     !['#ececff', '#ffffde', 'transparent'].includes(currentFill);
-  if (hasCustomFill) return base as T;
-  if (currentFill === '#ffffde') {
-    return {
-      ...base,
-      backgroundColor: '#ecfdf5',
-      strokeColor: '#059669',
-    } as T;
-  }
-  if (element.type === 'diamond') {
-    return {
-      ...base,
-      backgroundColor: '#fef3c7',
-      strokeColor: '#d97706',
-    } as T;
-  }
-  if (element.type === 'ellipse') {
-    return {
-      ...base,
-      backgroundColor: '#ede9fe',
-      strokeColor: '#7c3aed',
-    } as T;
-  }
   return {
     ...base,
-    backgroundColor: '#eff6ff',
-    strokeColor: '#2563eb',
+    backgroundColor: hasCustomFill ? record.backgroundColor : 'transparent',
+    roundness: resolveExcalidrawNativeRoundness(element.type, options),
   } as T;
 }
 
@@ -302,18 +305,25 @@ export async function compileMermaidDrawing(
   if (parsed.files && Object.keys(parsed.files).length > 0) {
     throw new Error('Mermaid 结果包含图片文件，首版仅支持可编辑矢量元素。');
   }
-  const fontFamily = Number(excalidraw.FONT_FAMILY.Helvetica);
+  const themeOptions = {
+    adaptiveRadius: Number(excalidraw.ROUNDNESS.ADAPTIVE_RADIUS),
+    fontFamily: Number(excalidraw.FONT_FAMILY.Excalifont),
+    proportionalRadius: Number(excalidraw.ROUNDNESS.PROPORTIONAL_RADIUS),
+  };
   const skeletons = parsed.elements.map((element) => {
     if (element.type === 'text') {
-      return applyProfessionalTheme(
+      return applyExcalidrawNativeTheme(
         {
           ...element,
-          fontSize: Math.max(18, element.fontSize ?? 18),
+          fontSize: Math.max(
+            EXCALIDRAW_NATIVE_FONT_SIZE,
+            element.fontSize ?? EXCALIDRAW_NATIVE_FONT_SIZE,
+          ),
         },
-        fontFamily,
+        themeOptions,
       );
     }
-    return applyProfessionalTheme(element, fontFamily);
+    return applyExcalidrawNativeTheme(element, themeOptions);
   });
   const converted = excalidraw.convertToExcalidrawElements(skeletons, {
     regenerateIds: false,
@@ -328,9 +338,9 @@ export async function compileMermaidDrawing(
     [
       {
         fontSize: 24,
-        fontFamily,
-        roughness: 0,
-        strokeColor: '#0f172a',
+        fontFamily: themeOptions.fontFamily,
+        roughness: 1,
+        strokeColor: EXCALIDRAW_NATIVE_STROKE_COLOR,
         text: title,
         type: 'text',
         x: contentMinX,

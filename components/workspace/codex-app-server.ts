@@ -29,7 +29,7 @@ export interface CodexProtocolMessage {
 export interface CodexDynamicToolRequest {
   arguments: Record<string, unknown>;
   callId: string;
-  namespace: 'madora_drawing';
+  namespace: 'markune_drawing';
   threadId: string;
   tool: 'create_from_preview' | 'inspect_drawing' | 'preview_mermaid';
   turnId: string;

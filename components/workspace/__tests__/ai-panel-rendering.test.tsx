@@ -2139,7 +2139,7 @@ describe('AI message rendering', () => {
     expect(within(preview).getByText('新内容')).toBeTruthy();
     expect(within(preview).getByText('+5')).toBeTruthy();
     expect(within(preview).getByText('-1')).toBeTruthy();
-    expect(preview.querySelector('.madora-thin-scrollarea')).toBeTruthy();
+    expect(preview.querySelector('.markune-thin-scrollarea')).toBeTruthy();
 
     await user.click(screen.getByRole('button', { name: '再显示 1 个文件' }));
     expect(screen.getByText('package.json')).toBeTruthy();

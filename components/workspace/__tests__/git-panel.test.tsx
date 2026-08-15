@@ -37,7 +37,7 @@ const groupedStatus: GitStatus = {
       changeType: 'modified',
       indexStatus: 'M',
       oldPath: null,
-      path: '.madora/assets/index.json',
+      path: '.markune/assets/index.json',
       staged: true,
       workingTreeStatus: '',
     },
@@ -265,7 +265,7 @@ describe('GitPanel', () => {
   it('groups changed files and renders file name before path', () => {
     renderGitPanel({
       selectedPaths: new Set([
-        '.madora/assets/index.json',
+        '.markune/assets/index.json',
         'docs/guides/a.md',
       ]),
       status: groupedStatus,
@@ -274,7 +274,7 @@ describe('GitPanel', () => {
     expect(screen.getByText('已暂存')).toBeTruthy();
     expect(screen.getByText('未暂存')).toBeTruthy();
     expect(screen.getByText('index.json')).toBeTruthy();
-    expect(screen.getByText('.madora/assets')).toBeTruthy();
+    expect(screen.getByText('.markune/assets')).toBeTruthy();
     expect(screen.getByText('a.md')).toBeTruthy();
     expect(screen.getByText('docs/guides')).toBeTruthy();
   });

@@ -18,8 +18,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 
-const WORKSPACE_PRIVATE_DIR: &str = ".madora";
-const PERFORMANCE_LOG_ENV: &str = "MADORA_PERF_LOG";
+pub(crate) const WORKSPACE_PRIVATE_DIR: &str = ".markune";
+const PERFORMANCE_LOG_ENV: &str = "MARKUNE_PERF_LOG";
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -2254,7 +2254,7 @@ fn write_workspace_metadata_atomic(root: &Path, metadata: &WorkspaceMetadata) ->
     )
 }
 
-fn canonical_workspace_root(root_path: &str) -> Result<PathBuf, String> {
+pub(crate) fn canonical_workspace_root(root_path: &str) -> Result<PathBuf, String> {
     let root = PathBuf::from(root_path)
         .canonicalize()
         .map_err(|_| "工作区路径不存在".to_string())?;
@@ -2995,9 +2995,9 @@ fn finish_performance_timer(label: &str, started_at: Option<Instant>, details: &
     let elapsed_ms = started_at.elapsed().as_secs_f64() * 1000.0;
 
     if details.is_empty() {
-        log::debug!("[madora:perf] {label} {elapsed_ms:.1}ms");
+        log::debug!("[markune:perf] {label} {elapsed_ms:.1}ms");
     } else {
-        log::debug!("[madora:perf] {label} {elapsed_ms:.1}ms {details}");
+        log::debug!("[markune:perf] {label} {elapsed_ms:.1}ms {details}");
     }
 }
 
@@ -3297,7 +3297,7 @@ mod tests {
 
         assert_eq!(metadata.schema_version, 1);
         assert_eq!(metadata.recent_document_path, None);
-        assert!(temp_dir.path().join(".madora/workspace.json").is_file());
+        assert!(temp_dir.path().join(".markune/workspace.json").is_file());
     }
 
     #[test]
@@ -3331,7 +3331,7 @@ mod tests {
         assert_eq!(settings.interval_minutes, 15);
         assert_eq!(settings.conflict_resolution, "local");
 
-        let raw = fs::read_to_string(temp_dir.path().join(".madora/workspace.json"))
+        let raw = fs::read_to_string(temp_dir.path().join(".markune/workspace.json"))
             .expect("读取 workspace.json 失败");
         let metadata: WorkspaceMetadata =
             serde_json::from_str(&raw).expect("解析 workspace.json 失败");
@@ -3393,7 +3393,7 @@ mod tests {
             .join("Daily/2026/06/2026-06-20.md")
             .is_file());
 
-        let raw = fs::read_to_string(temp_dir.path().join(".madora/workspace.json"))
+        let raw = fs::read_to_string(temp_dir.path().join(".markune/workspace.json"))
             .expect("读取 workspace.json 失败");
         let metadata: WorkspaceMetadata =
             serde_json::from_str(&raw).expect("解析 workspace.json 失败");
@@ -3548,7 +3548,7 @@ mod tests {
 
         assert_eq!(paths, vec![canonical_doc.clone()]);
 
-        let raw = fs::read_to_string(root.join(".madora/workspace.json"))
+        let raw = fs::read_to_string(root.join(".markune/workspace.json"))
             .expect("读取 workspace.json 失败");
         let value: serde_json::Value =
             serde_json::from_str(&raw).expect("解析 workspace.json 失败");
@@ -3634,7 +3634,7 @@ mod tests {
 
         assert!(metadata.recent_document_paths.is_empty());
         assert_eq!(metadata.recent_document_path, None);
-        assert!(root.join(".madora/workspace.json").is_file());
+        assert!(root.join(".markune/workspace.json").is_file());
         assert!(refinex_metadata_dir.exists());
     }
 
@@ -3642,7 +3642,7 @@ mod tests {
     fn record_recent_document_rebuilds_corrupt_metadata() {
         let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
         let root = temp_dir.path();
-        let metadata_dir = root.join(".madora");
+        let metadata_dir = root.join(".markune");
         fs::create_dir(&metadata_dir).expect("创建元数据目录失败");
         fs::write(metadata_dir.join("workspace.json"), "{ broken").expect("写入损坏元数据失败");
         let doc = root.join("note.md");
@@ -3661,7 +3661,7 @@ mod tests {
     #[test]
     fn corrupt_workspace_metadata_is_backed_up_and_rebuilt() {
         let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
-        let metadata_dir = temp_dir.path().join(".madora");
+        let metadata_dir = temp_dir.path().join(".markune");
         fs::create_dir(&metadata_dir).expect("创建元数据目录失败");
         fs::write(metadata_dir.join("workspace.json"), "{ broken").expect("写入损坏元数据失败");
 
@@ -3695,7 +3695,7 @@ mod tests {
         assert_eq!(snapshot.root_name, "知识库");
         assert!(temp_dir
             .path()
-            .join("知识库/.madora/workspace.json")
+            .join("知识库/.markune/workspace.json")
             .is_file());
     }
 
@@ -3808,8 +3808,9 @@ mod tests {
     #[test]
     fn build_document_node_reads_only_the_head_of_large_documents() {
         let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
-        let mut content =
-            String::from("---\ntitle: 大文档标题\ncreatedAt: 2026-06-01T00:00:00.000Z\n---\n\n# 正文标题\n\n");
+        let mut content = String::from(
+            "---\ntitle: 大文档标题\ncreatedAt: 2026-06-01T00:00:00.000Z\n---\n\n# 正文标题\n\n",
+        );
         // Body far larger than the bounded head read; must not affect title/meta.
         content.push_str(&"内容内容内容内容内容\n".repeat(20_000));
         fs::write(temp_dir.path().join("big.md"), &content).expect("写入大文档失败");
@@ -3869,7 +3870,7 @@ mod tests {
         assert!(snapshot.nodes[0].pinned);
         assert!(snapshot.nodes[0].locked);
 
-        let raw = fs::read_to_string(temp_dir.path().join(".madora/workspace.json"))
+        let raw = fs::read_to_string(temp_dir.path().join(".markune/workspace.json"))
             .expect("读取 workspace.json 失败");
         let metadata: WorkspaceMetadata =
             serde_json::from_str(&raw).expect("解析 workspace.json 失败");
@@ -3890,7 +3891,7 @@ mod tests {
         )
         .expect("清理节点状态失败");
 
-        let raw = fs::read_to_string(temp_dir.path().join(".madora/workspace.json"))
+        let raw = fs::read_to_string(temp_dir.path().join(".markune/workspace.json"))
             .expect("读取 workspace.json 失败");
         let metadata: WorkspaceMetadata =
             serde_json::from_str(&raw).expect("解析 workspace.json 失败");
@@ -3958,7 +3959,7 @@ mod tests {
         .expect("恢复默认目录外观失败");
         assert_eq!(snapshot.nodes[0].appearance, None);
 
-        let raw = fs::read_to_string(temp_dir.path().join(".madora/workspace.json"))
+        let raw = fs::read_to_string(temp_dir.path().join(".markune/workspace.json"))
             .expect("读取 workspace.json 失败");
         let metadata: WorkspaceMetadata =
             serde_json::from_str(&raw).expect("解析 workspace.json 失败");
@@ -4145,7 +4146,7 @@ mod tests {
         assert!(temp_dir.path().join("Guide.md").is_file());
         assert!(temp_dir
             .path()
-            .join(".madora/migrations/backup/Guide.plate.json")
+            .join(".markune/migrations/backup/Guide.plate.json")
             .is_file());
         assert!(fs::read_to_string(temp_dir.path().join("Guide.md"))
             .expect("读取迁移后 Markdown 失败")
@@ -4226,7 +4227,11 @@ mod tests {
     fn refresh_workspace_node_returns_none_for_missing_path() {
         let temp_dir = tempfile::tempdir().expect("创建临时目录失败");
         let root = temp_dir.path().to_string_lossy().to_string();
-        let missing = temp_dir.path().join("ghost.md").to_string_lossy().to_string();
+        let missing = temp_dir
+            .path()
+            .join("ghost.md")
+            .to_string_lossy()
+            .to_string();
 
         let node = refresh_workspace_node_sync(root, missing).expect("刷新缺失节点应成功");
 
@@ -4577,9 +4582,9 @@ mod tests {
         fs::write(temp_dir.path().join("A.md"), "# A\n").expect("写入 A 文档失败");
         std::thread::sleep(std::time::Duration::from_millis(20));
         fs::write(temp_dir.path().join("B.md"), "# B\n").expect("写入 B 文档失败");
-        fs::create_dir_all(temp_dir.path().join(".madora")).expect("创建元数据目录失败");
+        fs::create_dir_all(temp_dir.path().join(".markune")).expect("创建元数据目录失败");
         fs::write(
-            temp_dir.path().join(".madora/workspace.json"),
+            temp_dir.path().join(".markune/workspace.json"),
             r#"{
   "schemaVersion": 1,
   "recentDocumentPath": null,

@@ -170,7 +170,7 @@ describe('Workspace titlebar', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
 
     expect(workspaceLayoutSource).toMatch(
-      /if \(isTauriRuntime && isMacRuntime\) \{\s*return;\s*\}\s*void setAppWindowTitle\(pageTitle \?\? 'Madora'\)/,
+      /if \(isTauriRuntime && isMacRuntime\) \{\s*return;\s*\}\s*void setAppWindowTitle\(pageTitle \?\? 'Markune'\)/,
     );
     expect(workspaceLayoutSource).toContain(
       '[isMacRuntime, isTauriRuntime, pageTitle]',

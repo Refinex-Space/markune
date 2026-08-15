@@ -14,15 +14,15 @@ use crate::codex::{
     CodexState,
 };
 
-pub const CUSTOM_PROVIDER_ID: &str = "madora_custom";
-pub const CUSTOM_PROVIDER_ENV_KEY: &str = "MADORA_CODEX_PROVIDER_API_KEY";
+pub const CUSTOM_PROVIDER_ID: &str = "markune_custom";
+pub const CUSTOM_PROVIDER_ENV_KEY: &str = "MARKUNE_CODEX_PROVIDER_API_KEY";
 pub const DEFAULT_MODEL_PROVIDER: &str = "openai";
 
 #[allow(dead_code)] // used by non-test keyring path
-const KEYRING_SERVICE: &str = "madora.codex.custom-provider";
+const KEYRING_SERVICE: &str = "markune.codex.custom-provider";
 #[allow(dead_code)] // used by non-test keyring path
 const KEYRING_ACCOUNT: &str = "api-key";
-const PROVIDER_DISPLAY_NAME: &str = "Madora Custom";
+const PROVIDER_DISPLAY_NAME: &str = "Markune Custom";
 const MAX_BASE_URL_LEN: usize = 2_048;
 const MAX_MODEL_LEN: usize = 256;
 const MAX_API_KEY_LEN: usize = 8_192;
@@ -115,7 +115,10 @@ pub fn codex_custom_provider_clear(app: AppHandle) -> Result<CodexCustomProvider
 }
 
 #[tauri::command]
-pub fn codex_auth_mode_set(app: AppHandle, mode: String) -> Result<CodexCustomProviderInfo, String> {
+pub fn codex_auth_mode_set(
+    app: AppHandle,
+    mode: String,
+) -> Result<CodexCustomProviderInfo, String> {
     let storage = resolve_codex_storage(&app, None)?;
     let normalized = mode.trim().to_ascii_lowercase();
     match normalized.as_str() {
@@ -124,7 +127,11 @@ pub fn codex_auth_mode_set(app: AppHandle, mode: String) -> Result<CodexCustomPr
         }
         "custom" => {
             let config = read_custom_provider_config(&storage.root)?;
-            if config.base_url.as_ref().is_none_or(|value| value.trim().is_empty()) {
+            if config
+                .base_url
+                .as_ref()
+                .is_none_or(|value| value.trim().is_empty())
+            {
                 return Err("请先配置自定义 Base URL".to_string());
             }
             if !api_key_stored()? {
@@ -403,7 +410,7 @@ fn patch_custom_provider_config(
             .entry(CUSTOM_PROVIDER_ID)
             .or_insert(Item::Table(Table::new()))
             .as_table_mut()
-            .ok_or_else(|| "无法写入 madora_custom provider".to_string())?;
+            .ok_or_else(|| "无法写入 markune_custom provider".to_string())?;
 
         provider["name"] = value(PROVIDER_DISPLAY_NAME);
         provider["base_url"] = value(base_url);
@@ -411,15 +418,13 @@ fn patch_custom_provider_config(
         provider["wire_api"] = value("responses");
         provider["requires_openai_auth"] = value(false);
     } else {
-        if document
-            .get("model_provider")
-            .and_then(Item::as_str)
-            == Some(CUSTOM_PROVIDER_ID)
-        {
+        if document.get("model_provider").and_then(Item::as_str) == Some(CUSTOM_PROVIDER_ID) {
             document["model_provider"] = value(DEFAULT_MODEL_PROVIDER);
         }
 
-        if let Some(providers) = document.get_mut("model_providers").and_then(Item::as_table_mut)
+        if let Some(providers) = document
+            .get_mut("model_providers")
+            .and_then(Item::as_table_mut)
         {
             providers.remove(CUSTOM_PROVIDER_ID);
             if providers.is_empty() {
@@ -448,11 +453,10 @@ fn set_model_provider(codex_home: &Path, provider: &str) -> Result<(), String> {
 
 fn write_config_atomically(path: &Path, document: &DocumentMut) -> Result<(), String> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("创建 Codex 配置目录失败: {error}"))?;
+        fs::create_dir_all(parent).map_err(|error| format!("创建 Codex 配置目录失败: {error}"))?;
     }
 
-    let temp_path = path.with_extension("toml.madora.tmp");
+    let temp_path = path.with_extension("toml.markune.tmp");
     let serialized = document.to_string();
     fs::write(&temp_path, serialized)
         .map_err(|error| format!("写入 Codex config.toml 临时文件失败: {error}"))?;
@@ -537,6 +541,43 @@ fn store_api_key(api_key: &str) -> Result<(), String> {
 
 fn clear_api_key() -> Result<(), String> {
     secret_store::clear_api_key()
+}
+
+#[cfg(not(test))]
+pub(crate) fn migrate_api_key_from_service(legacy_service: &str) -> Result<bool, String> {
+    let current = keyring_entry()?;
+    match current.get_password() {
+        Ok(password) if !password.trim().is_empty() => return Ok(false),
+        Ok(_) | Err(keyring::Error::NoEntry) => {}
+        Err(error) => return Err(format!("读取 Markune 系统钥匙串失败: {error}")),
+    }
+
+    let legacy = keyring::Entry::new(legacy_service, KEYRING_ACCOUNT)
+        .map_err(|error| format!("打开旧版系统钥匙串失败: {error}"))?;
+    let password = match legacy.get_password() {
+        Ok(password) if !password.trim().is_empty() => password,
+        Ok(_) | Err(keyring::Error::NoEntry) => return Ok(false),
+        Err(error) => return Err(format!("读取旧版系统钥匙串失败: {error}")),
+    };
+
+    current
+        .set_password(&password)
+        .map_err(|error| format!("写入 Markune 系统钥匙串失败: {error}"))?;
+    let verified = current
+        .get_password()
+        .map_err(|error| format!("验证 Markune 系统钥匙串失败: {error}"))?;
+    if verified != password {
+        return Err("Markune 系统钥匙串写入验证失败".to_string());
+    }
+    match legacy.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(true),
+        Err(error) => Err(format!("新凭据已写入，但清理旧版系统钥匙串失败: {error}")),
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn migrate_api_key_from_service(_legacy_service: &str) -> Result<bool, String> {
+    Ok(false)
 }
 
 fn validate_base_url(raw: &str) -> Result<String, String> {
@@ -645,10 +686,10 @@ command = "demo"
         .expect("enable custom");
 
         let first = fs::read_to_string(&path).expect("read config");
-        assert!(first.contains("model_provider = \"madora_custom\""));
+        assert!(first.contains("model_provider = \"markune_custom\""));
         assert!(first.contains("base_url = \"https://gateway.example.com/v1\""));
         assert!(first.contains("wire_api = \"responses\""));
-        assert!(first.contains("env_key = \"MADORA_CODEX_PROVIDER_API_KEY\""));
+        assert!(first.contains("env_key = \"MARKUNE_CODEX_PROVIDER_API_KEY\""));
         assert!(first.contains("notify = [\"echo\"]"));
         assert!(first.contains("[mcp_servers.demo]"));
         assert!(first.contains("model = \"gpt-test\""));
@@ -662,13 +703,13 @@ command = "demo"
         .expect("enable again");
         let second = fs::read_to_string(&path).expect("read config again");
         assert_eq!(
-            second.matches("[model_providers.madora_custom]").count(),
+            second.matches("[model_providers.markune_custom]").count(),
             1
         );
 
         patch_custom_provider_config(home.path(), None, None, false).expect("clear custom");
         let cleared = fs::read_to_string(&path).expect("read cleared");
-        assert!(!cleared.contains("madora_custom"));
+        assert!(!cleared.contains("markune_custom"));
         assert!(cleared.contains("model_provider = \"openai\""));
         assert!(cleared.contains("notify = [\"echo\"]"));
         assert!(cleared.contains("[mcp_servers.demo]"));

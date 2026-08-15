@@ -1,11 +1,11 @@
 ---
 owner: refinex
-updated: 2026-07-25
+updated: 2026-08-14
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
 
-# Madora Knowledge Map
+# Markune Knowledge Map
 
 This directory contains routed repository knowledge for agent work. Root instructions stay in `AGENTS.md`; this file keeps every active or preserved docs file reachable in one hop.
 
@@ -19,7 +19,6 @@ This directory contains routed repository knowledge for agent work. Root instruc
 - Domain glossary: `docs/domain/glossary.md`: [open](domain/glossary.md)
 - Runbook: `docs/guides/runbook.md`: [open](guides/runbook.md)
 - Release and update manual: `docs/guides/release-and-update.md`: [open](guides/release-and-update.md)
-- Alibaba Cloud OSS release bucket setup: `docs/guides/aliyun-oss-release-bucket.md`: [open](guides/aliyun-oss-release-bucket.md)
 
 ## Validation Artifacts
 
@@ -29,7 +28,7 @@ This directory contains routed repository knowledge for agent work. Root instruc
 
 These files are retained as historical planning/spec evidence. Prefer current source, README, and active docs for present behavior.
 
-所有在原生 Codex App Server 接入之前描述 `.madora/ai-sessions`、自建 AI conversation JSON 或前端会话镜像的 AI 方案均已被当前架构取代，只能作为历史证据，不能作为现行存储契约。
+所有在原生 Codex App Server 接入之前描述 `.markune/ai-sessions`、自建 AI conversation JSON 或前端会话镜像的 AI 方案均已被当前架构取代，只能作为历史证据，不能作为现行存储契约。
 
 - `docs/superpowers/plans/2026-05-30-markdown-document-edit-save.md`: [open](superpowers/plans/2026-05-30-markdown-document-edit-save.md)
 - `docs/superpowers/plans/2026-05-30-native-plate-workspace.md`: [open](superpowers/plans/2026-05-30-native-plate-workspace.md)

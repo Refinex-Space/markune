@@ -273,7 +273,7 @@ describe('useDrawingController', () => {
     });
 
     expect(reference).toBe(
-      `[![串行保存](madora-asset://${assetId})](madora-drawing://11111111-1111-4111-8111-111111111111)`,
+      `[![串行保存](markune-asset://${assetId})](markune-drawing://11111111-1111-4111-8111-111111111111)`,
     );
     expect(reference).not.toContain('asset://localhost');
     unmount();

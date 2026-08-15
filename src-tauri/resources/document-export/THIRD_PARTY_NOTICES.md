@@ -1,8 +1,8 @@
-# Madora document export runtime notices
+# Markune document export runtime notices
 
-Madora invokes the following unmodified command-line programs as isolated
+Markune invokes the following unmodified command-line programs as isolated
 sidecars for professional document conversion. They are separate programs and
-are not linked into the Madora process.
+are not linked into the Markune process.
 
 ## Pandoc 3.10.1
 

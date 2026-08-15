@@ -213,7 +213,7 @@ describe('DrawingWorkspacePage', () => {
 
   it('copies the canonical Markdown reference after creating a preview', async () => {
     const markdown =
-      `[![登录流程](madora-asset://${'b'.repeat(64)})](madora-drawing://${drawing.id})`;
+      `[![登录流程](markune-asset://${'b'.repeat(64)})](markune-drawing://${drawing.id})`;
     editorMocks.actions.createPreview.mockResolvedValue(
       Uint8Array.from([1, 2, 3]),
     );

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Madora AI 画图"
-  short_description: "理解当前图稿并创建经过预览检查的可编辑技术图稿"
-  default_prompt: "使用 $madora-diagram 检查相关图稿，并按我的要求分析或创建清晰、可编辑的新图稿。"

@@ -218,7 +218,7 @@ const SETTINGS_SECTIONS: Array<{
     id: 'version',
     icon: Info,
     label: '版本',
-    searchTerms: ['版本', '关于', 'madora', 'logo', '更新', '下载', '安装'],
+    searchTerms: ['版本', '关于', 'markune', 'logo', '更新', '下载', '安装'],
   },
 ];
 
@@ -503,8 +503,8 @@ export function WorkspaceSettingsPage({
     ? activeSection
     : visibleSections[0]?.id;
   const assetDirectory = workspaceRootPath
-    ? `${workspaceRootPath.replace(/[\\/]+$/, '')}/.madora/assets/files`
-    : '打开工作区后使用 .madora/assets/files';
+    ? `${workspaceRootPath.replace(/[\\/]+$/, '')}/.markune/assets/files`
+    : '打开工作区后使用 .markune/assets/files';
 
   return (
     <section
@@ -881,7 +881,7 @@ function AppearanceSection({
             description="侧边栏、工具栏、设置面板等编辑器以外的界面文本。"
             label="UI 字体"
             options={fonts.ui}
-            sample="Madora · 本地知识库"
+            sample="Markune · 本地知识库"
             value={settings.appearance.fonts.ui}
             onChange={(value) => onFontChange('ui', value)}
           />
@@ -1681,17 +1681,17 @@ function VersionSection({
   return (
     <div className="space-y-6 pb-8" data-testid="version-settings-shell">
       <SettingsSectionHeader
-        description="检查、下载并安装经过签名验证的 Madora 桌面更新。"
+        description="检查、下载并安装经过签名验证的 Markune 桌面更新。"
         title="版本"
       />
 
       <section
         className="overflow-hidden rounded-xl bg-muted/30"
-        data-testid="madora-version-card"
+        data-testid="markune-version-card"
       >
         <div className="flex flex-col items-center px-6 py-10 text-center">
           <div
-            aria-label="Madora Logo"
+            aria-label="Markune Logo"
             className="flex size-20 items-center justify-center rounded-2xl border border-border/60 bg-background/80 shadow-sm"
             role="img"
           >
@@ -1699,18 +1699,18 @@ function VersionSection({
               alt=""
               className="size-12 opacity-90 dark:hidden"
               height={48}
-              src="/brand/madora-logo-dark.svg"
+              src="/brand/markune-logo-dark.svg"
               width={48}
             />
             <Image
               alt=""
               className="hidden size-12 opacity-90 dark:block"
               height={48}
-              src="/brand/madora-logo-light.svg"
+              src="/brand/markune-logo-light.svg"
               width={48}
             />
           </div>
-          <h2 className="mt-5 text-xl font-semibold tracking-tight">Madora</h2>
+          <h2 className="mt-5 text-xl font-semibold tracking-tight">Markune</h2>
           <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">
             以 Markdown 为核心的本地知识库桌面应用。
           </p>
@@ -1721,7 +1721,7 @@ function VersionSection({
           <code
             aria-live="polite"
             className="font-mono text-sm text-foreground sm:text-right"
-            data-testid="madora-version"
+            data-testid="markune-version"
           >
             {appUpdate.currentVersion ?? '版本信息不可用'}
           </code>
@@ -1859,11 +1859,11 @@ function getAppUpdateStatus(appUpdate: AppUpdateController) {
     case 'installing':
       return '更新包校验通过，正在安装。';
     case 'ready-to-restart':
-      return '更新已安装，重启 Madora 后生效。';
+      return '更新已安装，重启 Markune 后生效。';
     case 'error':
       return '检查更新失败，可稍后手动重试。';
     default:
-      return 'Madora 会在启动后自动检查，也可立即手动检查。';
+      return 'Markune 会在启动后自动检查，也可立即手动检查。';
   }
 }
 
@@ -1955,7 +1955,7 @@ function GitSyncSection({
               }
             />
           }
-          description="允许 Madora 提交、拉取和推送当前工作区。"
+          description="允许 Markune 提交、拉取和推送当前工作区。"
           label="启用 Git 同步"
         />
       </section>
@@ -2750,7 +2750,7 @@ function normalizeFontSearchText(value: string) {
 }
 
 function buildPreviewFontStack(fontFamily: string) {
-  return `${quoteCssFontFamily(fontFamily)}, var(--madora-ui-font)`;
+  return `${quoteCssFontFamily(fontFamily)}, var(--markune-ui-font)`;
 }
 
 function quoteCssFontFamily(fontFamily: string) {
