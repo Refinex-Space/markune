@@ -5,9 +5,12 @@ import { AiDrawingPreviewCache } from '../ai-drawing-preview-cache';
 
 function drawing(title: string): CompiledAiDrawing {
   return {
+    contentBytes: new Uint8Array(),
     definition: 'flowchart TB\nA-->B',
     diagramType: 'flowchart',
     elementCount: 2,
+    itemCount: 2,
+    kind: 'whiteboard',
     previewBytes: new Uint8Array(),
     previewDataUrl: 'data:image/png;base64,',
     previewMediaType: 'image/png',

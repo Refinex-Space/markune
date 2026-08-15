@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 import type { DrawingController } from './use-drawing-controller';
+import type { DrawingExportFormat } from './drawing-editor-types';
 import type { DrawingSummary } from './workspace-types';
 
 interface DrawingActionProps {
@@ -47,9 +48,15 @@ export function DrawingDropdownActions(props: DrawingActionProps) {
         <Copy /> 复制 Markdown 引用
       </DropdownMenuItem>
       <DropdownMenuSeparator />
-      <DropdownMenuItem onSelect={() => requestExport(props, 'excalidraw')}>
-        <Download /> 导出 .excalidraw
-      </DropdownMenuItem>
+      {props.drawing.kind === 'mindmap' ? (
+        <DropdownMenuItem onSelect={() => requestExport(props, 'mindmap')}>
+          <Download /> 导出 .markune-mindmap.json
+        </DropdownMenuItem>
+      ) : (
+        <DropdownMenuItem onSelect={() => requestExport(props, 'excalidraw')}>
+          <Download /> 导出 .excalidraw
+        </DropdownMenuItem>
+      )}
       <DropdownMenuItem onSelect={() => requestExport(props, 'png')}>
         <Download /> 导出 PNG
       </DropdownMenuItem>
@@ -100,9 +107,15 @@ export function DrawingContextActions(props: DrawingActionProps) {
         <Copy /> 复制 Markdown 引用
       </ContextMenuItem>
       <ContextMenuSeparator />
-      <ContextMenuItem onSelect={() => requestExport(props, 'excalidraw')}>
-        <Download /> 导出 .excalidraw
-      </ContextMenuItem>
+      {props.drawing.kind === 'mindmap' ? (
+        <ContextMenuItem onSelect={() => requestExport(props, 'mindmap')}>
+          <Download /> 导出 .markune-mindmap.json
+        </ContextMenuItem>
+      ) : (
+        <ContextMenuItem onSelect={() => requestExport(props, 'excalidraw')}>
+          <Download /> 导出 .excalidraw
+        </ContextMenuItem>
+      )}
       <ContextMenuItem onSelect={() => requestExport(props, 'png')}>
         <Download /> 导出 PNG
       </ContextMenuItem>
@@ -134,7 +147,7 @@ function requestMarkdown({ controller, drawing }: DrawingActionProps) {
 
 function requestExport(
   { controller, drawing }: DrawingActionProps,
-  format: 'excalidraw' | 'png' | 'svg',
+  format: DrawingExportFormat,
 ) {
   void controller.requestDrawingAction(drawing.id, { format, kind: 'export' });
 }

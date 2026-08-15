@@ -12,6 +12,7 @@ import type {
   DocumentImportGrant,
   DocumentImportManifest,
   DrawingDocumentDescriptor,
+  DrawingKind,
   DrawingExportGrant,
   DrawingImportGrant,
   DrawingLibrarySnapshot,
@@ -451,12 +452,14 @@ export async function createDrawing(
   rootPath: string,
   albumPath: string,
   title: string,
+  kind: DrawingKind = 'whiteboard',
 ) {
   const { invoke } = await import('@tauri-apps/api/core');
 
   return invoke<DrawingDocumentDescriptor>('create_drawing', {
     rootPath,
     albumPath,
+    kind,
     title,
   });
 }
@@ -765,7 +768,7 @@ export async function releaseDrawingImportGrant(grantId: string) {
 
 export async function selectDrawingExportTarget(
   fileName: string,
-  format: 'excalidraw' | 'excalidrawlib' | 'png' | 'svg',
+  format: 'excalidraw' | 'excalidrawlib' | 'mindmap' | 'png' | 'svg',
 ) {
   const { invoke } = await import('@tauri-apps/api/core');
 

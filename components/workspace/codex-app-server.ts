@@ -31,7 +31,11 @@ export interface CodexDynamicToolRequest {
   callId: string;
   namespace: 'markune_drawing';
   threadId: string;
-  tool: 'create_from_preview' | 'inspect_drawing' | 'preview_mermaid';
+  tool:
+    | 'create_from_preview'
+    | 'inspect_drawing'
+    | 'preview_mermaid'
+    | 'preview_mindmap';
   turnId: string;
 }
 

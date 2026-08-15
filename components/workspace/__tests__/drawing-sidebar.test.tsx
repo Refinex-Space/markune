@@ -14,7 +14,7 @@ import type {
 const drawing: DrawingSummary = {
   albumPath: '产品',
   createdAt: '2026-07-01T00:00:00.000Z',
-  elementCount: 1,
+  contentSha256: 'a'.repeat(64),
   favorite: false,
   hasBackup: true,
   hasPreview: true,
@@ -22,8 +22,9 @@ const drawing: DrawingSummary = {
   issue: null,
   previewRevision: 1,
   revision: 1,
-  sceneSha256: 'a'.repeat(64),
-  schemaVersion: 1,
+  itemCount: 1,
+  kind: 'whiteboard',
+  schemaVersion: 2,
   searchText: '流程',
   tags: ['旧标签'],
   title: '登录流程',
@@ -36,6 +37,16 @@ const album: DrawingAlbumNode = {
   drawings: [drawing],
   name: '产品',
   path: '产品',
+};
+
+const mindmap: DrawingSummary = {
+  ...drawing,
+  albumPath: '',
+  contentSha256: 'b'.repeat(64),
+  id: '22222222-2222-4222-8222-222222222222',
+  kind: 'mindmap',
+  searchText: '中心主题 分支',
+  title: '未命名脑图1',
 };
 
 function snapshot(albums: DrawingAlbumNode[] = [album]): DrawingLibrarySnapshot {
@@ -105,6 +116,11 @@ describe('DrawingSidebar', () => {
 
     expect(screen.getByTestId('drawing-folder-open-产品')).toBeTruthy();
     expect(screen.getByTestId('drawing-tree-guide-产品')).toBeTruthy();
+    expect(
+      screen
+        .getByTestId(`drawing-kind-icon-${drawing.id}`)
+        .getAttribute('aria-label'),
+    ).toBe('白板');
   });
 
   it('opens every ancestor album for the active drawing', async () => {
@@ -147,14 +163,49 @@ describe('DrawingSidebar', () => {
     render(<DrawingSidebar controller={value} />);
 
     fireEvent.contextMenu(screen.getByTestId('drawing-album-row-产品'));
-    await user.click(screen.getByRole('menuitem', { name: '新建图稿' }));
+    await user.click(screen.getByRole('menuitem', { name: '新建脑图' }));
 
-    expect(value.createNewDrawing).toHaveBeenCalledWith('未命名图稿', '产品');
+    expect(value.createNewDrawing).toHaveBeenCalledWith(
+      '未命名脑图',
+      '产品',
+      'mindmap',
+    );
 
     await user.click(screen.getByLabelText('产品 操作'));
-    expect(screen.getByRole('menuitem', { name: '新建图稿' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: '新建白板' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: '新建脑图' })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: '新建子图集' })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: '重命名' })).toBeTruthy();
+  });
+
+  it('shows and manages an unfiled mindmap as a root-level tree leaf', () => {
+    const value = controller({
+      snapshot: {
+        ...snapshot(),
+        drawings: [mindmap, drawing],
+      },
+    });
+
+    render(<DrawingSidebar controller={value} />);
+
+    const row = screen.getByTestId(`drawing-row-${mindmap.id}`);
+    expect(row).toBeTruthy();
+    expect(
+      screen
+        .getByTestId(`drawing-kind-icon-${mindmap.id}`)
+        .getAttribute('aria-label'),
+    ).toBe('脑图');
+
+    fireEvent.click(screen.getByText(mindmap.title));
+    expect(value.openDrawing).toHaveBeenCalledWith(mindmap.id);
+
+    fireEvent.contextMenu(row);
+    expect(
+      screen.getByRole('menuitem', { name: '导出 .markune-mindmap.json' }),
+    ).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: '创建副本' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: '移动到…' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: '移到回收站' })).toBeTruthy();
   });
 
   it('creates an album first and then edits its name inline', async () => {

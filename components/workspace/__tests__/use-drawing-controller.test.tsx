@@ -45,13 +45,14 @@ function descriptor(revision: number): DrawingDocumentDescriptor {
     hasPreview: false,
     meta: {
       createdAt: '2026-07-19T00:00:00.000Z',
-      elementCount: 0,
+      contentSha256: String(revision).repeat(64).slice(0, 64),
       favorite: false,
       id: '11111111-1111-4111-8111-111111111111',
       previewRevision: null,
       revision,
-      sceneSha256: String(revision).repeat(64).slice(0, 64),
-      schemaVersion: 1,
+      itemCount: 0,
+      kind: 'whiteboard',
+      schemaVersion: 2,
       searchText: '',
       tags: [],
       title: '串行保存',
@@ -99,14 +100,15 @@ describe('useDrawingController', () => {
       try {
         await result.current.save({
           manifest: {
-            elementCount: 0,
+            itemCount: 0,
+            kind: 'whiteboard',
             favorite: false,
             searchText: '',
             tags: [],
             title: '串行保存',
           },
           preview: null,
-          scene: new TextEncoder().encode(
+          content: new TextEncoder().encode(
             '{"type":"excalidraw","version":2,"elements":[]}',
           ),
         });
@@ -214,14 +216,15 @@ describe('useDrawingController', () => {
 
     const payload = {
       manifest: {
-        elementCount: 0,
+        itemCount: 0,
+        kind: 'whiteboard',
         favorite: false,
         searchText: '',
         tags: [],
         title: '串行保存',
       },
       preview: null,
-      scene: new TextEncoder().encode(
+      content: new TextEncoder().encode(
         '{"type":"excalidraw","version":2,"elements":[]}',
       ),
     };

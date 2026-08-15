@@ -947,7 +947,8 @@ export function AiPanel({
       },
     ).map((drawing) => ({
       albumPath: drawing.albumPath,
-      elementCount: drawing.elementCount,
+      drawingKind: drawing.drawingKind,
+      itemCount: drawing.itemCount,
       hasPreview: drawing.hasPreview,
       id: drawing.id,
       revision: drawing.revision,
@@ -2055,6 +2056,54 @@ export function AiPanel({
       setComposerFocusRequest((current) => current + 1);
     })();
   }, [loadSkills, skillOptions, startNewChat]);
+
+  const startNewMindMap = React.useCallback(() => {
+    startNewChat();
+    setRuntimeError(null);
+    const requestId = composerSkillInsertRequestIdRef.current;
+    void (async () => {
+      let skill = skillOptions.find(
+        (candidate) => candidate.name === 'markune-mindmap',
+      );
+      if (!skill) {
+        try {
+          await runtimeReadyPromiseRef.current;
+        } catch (error) {
+          if (requestId === composerSkillInsertRequestIdRef.current) {
+            setRuntimeError(getErrorMessage(error));
+          }
+          return;
+        }
+        const options = await loadSkills(runtimeGenerationRef.current, true);
+        skill = options?.find(
+          (candidate) => candidate.name === 'markune-mindmap',
+        );
+      }
+      if (requestId !== composerSkillInsertRequestIdRef.current) return;
+      if (!skill) {
+        setRuntimeError('AI 脑图 Skill 加载失败，请重试或重启 Markune。');
+        return;
+      }
+      setComposerSkillInsertRequest({ id: requestId, skill });
+      setComposerFocusRequest((current) => current + 1);
+    })();
+  }, [loadSkills, skillOptions, startNewChat]);
+
+  React.useEffect(() => {
+    const startPendingMindMap = () => {
+      const targetAlbum = window.sessionStorage.getItem('markune:pending-ai-mindmap');
+      if (targetAlbum === null) {
+        return;
+      }
+      window.sessionStorage.removeItem('markune:pending-ai-mindmap');
+      window.sessionStorage.setItem('markune:ai-mindmap-target-album', targetAlbum);
+      startNewMindMap();
+    };
+    window.addEventListener('markune:start-ai-mindmap', startPendingMindMap);
+    startPendingMindMap();
+    return () =>
+      window.removeEventListener('markune:start-ai-mindmap', startPendingMindMap);
+  }, [startNewMindMap]);
 
   const openThread = React.useCallback(async (thread: CodexThread) => {
     void releaseCodexContextAttachments(
@@ -8150,7 +8199,8 @@ function createDrawingMentionElement(drawing: AiDrawingReference) {
   mention.className = composerMentionClassName;
   mention.contentEditable = 'false';
   mention.dataset.mentionAlbumPath = drawing.albumPath;
-  mention.dataset.mentionElementCount = String(drawing.elementCount);
+  mention.dataset.mentionDrawingKind = drawing.drawingKind;
+  mention.dataset.mentionItemCount = String(drawing.itemCount);
   mention.dataset.mentionHasPreview = String(drawing.hasPreview);
   mention.dataset.mentionId = drawing.id;
   mention.dataset.mentionKind = 'drawing';
@@ -8389,8 +8439,12 @@ function readComposerSnapshot(editor: HTMLElement) {
         if (drawingId) {
           mentions.push({
             albumPath: node.dataset.mentionAlbumPath ?? '',
+            drawingKind:
+              node.dataset.mentionDrawingKind === 'mindmap'
+                ? 'mindmap'
+                : 'whiteboard',
             drawingId,
-            elementCount: Number(node.dataset.mentionElementCount ?? 0),
+            itemCount: Number(node.dataset.mentionItemCount ?? 0),
             end: value.length,
             hasPreview: node.dataset.mentionHasPreview === 'true',
             id: drawingId,

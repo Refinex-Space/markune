@@ -1,11 +1,14 @@
 import type { CompiledAiDrawing } from './ai-drawing-compiler';
+import type { CompiledAiMindMap } from './ai-mindmap-compiler';
+
+export type CompiledAiDrawingPreview = CompiledAiDrawing | CompiledAiMindMap;
 
 const MAX_PREVIEWS = 3;
 const PREVIEW_TTL_MS = 10 * 60 * 1000;
 
 interface PreviewEntry {
   createdAt: number;
-  drawing: CompiledAiDrawing;
+  drawing: CompiledAiDrawingPreview;
   workspaceRootPath: string;
 }
 
@@ -38,7 +41,7 @@ export class AiDrawingPreviewCache {
     return drawing;
   }
 
-  put(drawing: CompiledAiDrawing, workspaceRootPath: string, now = Date.now()) {
+  put(drawing: CompiledAiDrawingPreview, workspaceRootPath: string, now = Date.now()) {
     this.prune(now);
     while (this.entries.size >= MAX_PREVIEWS) {
       const oldest = this.entries.keys().next().value as string | undefined;

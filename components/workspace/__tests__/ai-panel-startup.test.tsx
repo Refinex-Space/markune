@@ -57,9 +57,10 @@ const activeDocument = {
 
 const activeDrawing = {
   albumPath: '架构',
-  elementCount: 24,
+  drawingKind: 'whiteboard' as const,
   hasPreview: true,
   id: '11111111-1111-4111-8111-111111111111',
+  itemCount: 24,
   revision: 3,
   title: 'Spring Cloud 微服务架构',
 };
@@ -208,6 +209,7 @@ function renderPanel(
 }
 
 beforeEach(() => {
+  window.sessionStorage.clear();
   Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
     configurable: true,
     value: vi.fn(),
@@ -611,6 +613,53 @@ describe('AI panel startup lifecycle', () => {
     expect(screen.getByRole('button', { name: '整理知识结构' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '查找内容问题' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'AI 画图' })).toBeTruthy();
+  });
+
+  it('从图集触发 AI 脑图时新开任务、插入 Skill 并聚焦但不自动发送', async () => {
+    bridge.request.mockImplementation((method: string) => {
+      if (method === 'skills/list') {
+        return Promise.resolve({
+          data: [
+            {
+              cwd: '/workspace',
+              errors: [],
+              skills: [
+                {
+                  description: 'Create editable Markune mind maps',
+                  enabled: true,
+                  interface: {
+                    displayName: 'Markune AI 脑图',
+                    shortDescription: '创建可编辑脑图',
+                  },
+                  name: 'markune-mindmap',
+                  path: '/Applications/Markune.app/skills/markune-mindmap/SKILL.md',
+                  scope: 'user',
+                  shortDescription: null,
+                },
+              ],
+            },
+          ],
+        });
+      }
+      return Promise.resolve(defaultResponse(method));
+    });
+    window.sessionStorage.setItem('markune:pending-ai-mindmap', '架构');
+
+    renderPanel();
+
+    const skillMention = await screen.findByRole('note', {
+      name: 'Markune AI 脑图',
+    });
+    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+    expect(skillMention).toBeTruthy();
+    expect(document.activeElement).toBe(editor);
+    expect(window.sessionStorage.getItem('markune:pending-ai-mindmap')).toBeNull();
+    expect(window.sessionStorage.getItem('markune:ai-mindmap-target-album')).toBe(
+      '架构',
+    );
+    expect(
+      bridge.request.mock.calls.some(([method]) => method === 'turn/start'),
+    ).toBe(false);
   });
 
   it('启动后自动恢复最近更新的历史会话', async () => {

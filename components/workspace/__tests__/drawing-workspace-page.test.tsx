@@ -1,11 +1,33 @@
 import * as React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { DrawingWorkspacePage } from '../drawing-workspace-page';
 import type { DrawingController } from '../use-drawing-controller';
 import type { DrawingSummary } from '../workspace-types';
+
+const originalResizeObserver = globalThis.ResizeObserver;
+
+class TestResizeObserver implements ResizeObserver {
+  disconnect() {}
+  observe() {}
+  unobserve() {}
+}
+
+beforeAll(() => {
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    configurable: true,
+    value: TestResizeObserver,
+  });
+});
+
+afterAll(() => {
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    configurable: true,
+    value: originalResizeObserver,
+  });
+});
 
 const editorMocks = vi.hoisted(() => ({
   actions: {
@@ -47,6 +69,18 @@ vi.mock('../drawing-editor-dynamic', () => ({
   },
 }));
 
+vi.mock('../mindmap-editor-dynamic', () => ({
+  MindMapEditorDynamic: ({ onReady }: { onReady: (actions: unknown) => void }) => {
+    const onReadyRef = React.useRef(onReady);
+    React.useEffect(() => {
+      const handleReady = onReadyRef.current;
+      handleReady(editorMocks.actions);
+      return () => handleReady(null);
+    }, []);
+    return <div data-testid="mindmap-editor" />;
+  },
+}));
+
 vi.mock('../workspace-api', async (importOriginal) => {
   const original = await importOriginal<typeof import('../workspace-api')>();
   return {
@@ -58,7 +92,7 @@ vi.mock('../workspace-api', async (importOriginal) => {
 const drawing: DrawingSummary = {
   albumPath: '产品',
   createdAt: '2026-07-01T00:00:00.000Z',
-  elementCount: 1,
+  contentSha256: 'a'.repeat(64),
   favorite: true,
   hasBackup: true,
   hasPreview: false,
@@ -66,13 +100,23 @@ const drawing: DrawingSummary = {
   issue: null,
   previewRevision: null,
   revision: 1,
-  sceneSha256: 'a'.repeat(64),
-  schemaVersion: 1,
+  itemCount: 1,
+  kind: 'whiteboard',
+  schemaVersion: 2,
   searchText: '登录 流程',
   tags: ['旧标签'],
   title: '登录流程',
   trashed: false,
   updatedAt: '2026-07-02T00:00:00.000Z',
+};
+
+const mindmapDrawing: DrawingSummary = {
+  ...drawing,
+  contentSha256: 'b'.repeat(64),
+  id: '22222222-2222-4222-8222-222222222222',
+  kind: 'mindmap',
+  searchText: '中心主题 分支',
+  title: '产品脑图',
 };
 
 function controller(overrides: Partial<DrawingController> = {}) {
@@ -94,7 +138,7 @@ function controller(overrides: Partial<DrawingController> = {}) {
     requestDrawingAction: vi.fn().mockResolvedValue(undefined),
     save: vi.fn().mockResolvedValue(undefined),
     saveState: { revision: 1, status: 'saved' } as const,
-    scene: null,
+    content: null,
     selectCollection: vi.fn().mockResolvedValue(undefined),
     selection: { collection: 'all', kind: 'collection' } as const,
     setError: vi.fn(),
@@ -124,7 +168,7 @@ describe('DrawingWorkspacePage', () => {
         hasPreview: drawing.hasPreview,
         meta: drawing,
       },
-      scene: '{"type":"excalidraw","version":2,"elements":[]}',
+      content: '{"type":"excalidraw","version":2,"elements":[]}',
       selection: { id: drawing.id, kind: 'drawing' },
     });
 
@@ -152,7 +196,7 @@ describe('DrawingWorkspacePage', () => {
         hasPreview: drawing.hasPreview,
         meta: drawing,
       },
-      scene: '{"type":"excalidraw","version":2,"elements":[]}',
+      content: '{"type":"excalidraw","version":2,"elements":[]}',
       selection: { id: drawing.id, kind: 'drawing' },
     });
 
@@ -166,6 +210,56 @@ describe('DrawingWorkspacePage', () => {
     );
 
     expect(screen.getByTestId('drawing-editor-header').style.height).toBe('38px');
+  });
+
+  it('shows tooltips for every mindmap toolbar icon', async () => {
+    const value = controller({
+      descriptor: {
+        albumPath: mindmapDrawing.albumPath,
+        hasBackup: mindmapDrawing.hasBackup,
+        hasPreview: mindmapDrawing.hasPreview,
+        meta: mindmapDrawing,
+      },
+      content: JSON.stringify({
+        data: {
+          compact: false,
+          direction: 1,
+          nodeData: { children: [], id: 'root', topic: '中心主题' },
+        },
+        type: 'markune-mindmap',
+        version: 1,
+      }),
+      selection: { id: mindmapDrawing.id, kind: 'drawing' },
+    });
+
+    render(
+      <DrawingWorkspacePage
+        controller={value}
+        rootPath="/repo"
+        theme="light"
+      />,
+    );
+
+    const tooltips = [
+      ['脑图左向布局', '左向布局'],
+      ['脑图右向布局', '右向布局'],
+      ['脑图双向布局', '双向布局'],
+      ['脑图向下布局', '向下布局'],
+      ['适应窗口', '适应窗口'],
+      ['折叠脑图层级', '展开层级'],
+    ] as const;
+    for (const [accessibleName, tooltipText] of tooltips) {
+      const button = screen.getByRole('button', { name: accessibleName });
+      button.focus();
+      await waitFor(() =>
+        expect(
+          [...document.querySelectorAll('[data-slot="tooltip-content"]')].some(
+            (tooltip) => tooltip.textContent?.includes(tooltipText),
+          ),
+        ).toBe(true),
+      );
+      button.blur();
+    }
   });
 
   it('executes a queued export after the target editor becomes ready', async () => {
@@ -190,7 +284,7 @@ describe('DrawingWorkspacePage', () => {
         kind: 'export',
         requestId: 7,
       },
-      scene: '{"type":"excalidraw","version":2,"elements":[]}',
+      content: '{"type":"excalidraw","version":2,"elements":[]}',
       selection: { id: drawing.id, kind: 'drawing' },
     });
 
@@ -236,7 +330,7 @@ describe('DrawingWorkspacePage', () => {
         kind: 'copy-markdown',
         requestId: 8,
       },
-      scene: '{"type":"excalidraw","version":2,"elements":[]}',
+      content: '{"type":"excalidraw","version":2,"elements":[]}',
       selection: { id: drawing.id, kind: 'drawing' },
     });
 

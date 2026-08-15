@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-08-14
+updated: 2026-08-15
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -91,7 +91,7 @@ Markune 不在自身设置或 `.markune` 中复制 Codex 权限配置。权限�
 
 Inbox Capture 独立保存在 `.markune/inbox/cap_YYYYMMDD_HHMMSS_SSS_<uuid8>.md`，不写入 `workspace.json`，也不需要配置项或 schema 迁移。是否被 Git 跟踪完全遵循用户工作区自己的 ignore 规则，Markune 不改写 `.gitignore`。
 
-图稿独立保存在 `.markune/drawings`，不写入 `workspace.json`。场景上限为 100 MiB、预览 2 MiB、组件库 20 MiB；标题最多 120 字符，图集最多 8 层。历史 `meta.tags` 仅作存储兼容，仍按最多 10 个、每个 32 字符校验，但不提供产品入口。`ui-state.json` 只保存最近图稿和每图视口，缩放和平移不更新图稿内容时间。
+图稿独立保存在 `.markune/drawings`，不写入 `workspace.json`。白板场景上限为 100 MiB；脑图内容上限为 10 MiB、2,000 个节点和 32 层；预览上限为 2 MiB、组件库为 20 MiB；标题最多 120 字符，图集最多 8 层。脑图运行库精确锁定 `mind-elixir@5.15.1`，不使用 React 包装层。历史 `meta.tags` 仅作存储兼容，仍按最多 10 个、每个 32 字符校验，但不提供产品入口。`ui-state.json` 只保存最近图稿和每图视口，缩放和平移不更新图稿内容时间。
 
 `.markune` 不保存 AI 消息或 Codex 线程副本。旧 `.markune/ai-sessions` 路径已经停用，应在知识库中忽略；AI 会话的新建、恢复、命名、归档和删除完全由用户级 Codex Home 与 App Server 管理。
 

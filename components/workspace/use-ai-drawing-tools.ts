@@ -8,8 +8,13 @@ import type {
 } from './codex-app-server';
 import { compileMermaidDrawing } from './ai-drawing-compiler';
 import {
+  compileAiMindMap,
+  type AiMindMapNode,
+} from './ai-mindmap-compiler';
+import {
   drawingPreviewDataUrl,
   inspectDrawingScene,
+  inspectMindMap,
 } from './ai-drawing-inspector';
 import { AiDrawingPreviewCache } from './ai-drawing-preview-cache';
 import type { DrawingController } from './use-drawing-controller';
@@ -26,6 +31,7 @@ import {
 import type { DrawingDocumentDescriptor } from './workspace-types';
 
 const MAX_PREVIEW_ATTEMPTS_PER_TURN = 3;
+const AI_MINDMAP_TARGET_ALBUM_KEY = 'markune:ai-mindmap-target-album';
 
 function selectedAlbumPath(controller: DrawingController) {
   if (controller.selection.kind === 'album') return controller.selection.path;
@@ -49,6 +55,7 @@ export function useAiDrawingTools({
 }) {
   const cacheRef = React.useRef(new AiDrawingPreviewCache());
   const previewAttemptsRef = React.useRef(new Map<string, number>());
+  const targetAlbumsRef = React.useRef(new Map<string, string>());
 
   React.useEffect(() => {
     const cache = cacheRef.current;
@@ -56,6 +63,8 @@ export function useAiDrawingTools({
     const clear = () => {
       cache.clear();
       attempts.clear();
+      targetAlbumsRef.current.clear();
+      window.sessionStorage.removeItem(AI_MINDMAP_TARGET_ALBUM_KEY);
     };
     clear();
     window.addEventListener('markune:codex-runtime-stopped', clear);
@@ -83,10 +92,10 @@ export function useAiDrawingTools({
         try {
           const descriptor = await readDrawingMeta(workspaceRootPath, drawingId);
           const scene = await readDrawingScene(workspaceRootPath, drawingId);
-          let text = inspectDrawingScene(
-            descriptor,
-            new TextDecoder().decode(scene),
-          );
+          let text =
+            descriptor.meta.kind === 'mindmap'
+              ? inspectMindMap(descriptor, new TextDecoder().decode(scene))
+              : inspectDrawingScene(descriptor, new TextDecoder().decode(scene));
           let imageDataUrl: string | undefined;
           if (descriptor.hasPreview) {
             try {
@@ -116,6 +125,10 @@ export function useAiDrawingTools({
           };
         }
         previewAttemptsRef.current.set(request.turnId, attempts + 1);
+        targetAlbumsRef.current.set(
+          request.turnId,
+          targetAlbumsRef.current.get(request.turnId) ?? selectedAlbumPath(controller),
+        );
         const title = request.arguments.title;
         const definition = request.arguments.definition;
         const profile = request.arguments.profile;
@@ -156,6 +169,61 @@ export function useAiDrawingTools({
           };
         }
       }
+      if (request.tool === 'preview_mindmap') {
+        const attempts = previewAttemptsRef.current.get(request.turnId) ?? 0;
+        if (attempts >= MAX_PREVIEW_ATTEMPTS_PER_TURN) {
+          return {
+            success: false,
+            text: '本次脑图已达到 3 次预览上限。请说明仍存在的问题，不要继续重试。',
+          };
+        }
+        previewAttemptsRef.current.set(request.turnId, attempts + 1);
+        if (!targetAlbumsRef.current.has(request.turnId)) {
+          const pendingTarget = window.sessionStorage.getItem(
+            AI_MINDMAP_TARGET_ALBUM_KEY,
+          );
+          window.sessionStorage.removeItem(AI_MINDMAP_TARGET_ALBUM_KEY);
+          targetAlbumsRef.current.set(
+            request.turnId,
+            pendingTarget ?? selectedAlbumPath(controller),
+          );
+        }
+        const { direction, root, title } = request.arguments;
+        if (
+          typeof title !== 'string' ||
+          !['both', 'down', 'right'].includes(String(direction)) ||
+          !root ||
+          typeof root !== 'object' ||
+          Array.isArray(root)
+        ) {
+          return { success: false, text: 'preview_mindmap 参数无效。' };
+        }
+        try {
+          const drawing = await compileAiMindMap(
+            title,
+            direction as 'both' | 'down' | 'right',
+            root as AiMindMapNode,
+          );
+          const previewId = cacheRef.current.put(drawing, workspaceRootPath);
+          return {
+            imageDataUrl: drawing.previewDataUrl || undefined,
+            success: true,
+            text: JSON.stringify({
+              direction: drawing.direction,
+              itemCount: drawing.itemCount,
+              previewId,
+              quality: drawing.quality,
+              title: drawing.title,
+              warnings: drawing.warnings,
+            }),
+          };
+        } catch (error) {
+          return {
+            success: false,
+            text: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
       if (request.tool !== 'create_from_preview') {
         return { success: false, text: 'Markune 拒绝未知动态工具。' };
       }
@@ -168,9 +236,10 @@ export function useAiDrawingTools({
         const drawing = cacheRef.current.getForCreate(previewId, workspaceRootPath);
         const session = await beginGeneratedDrawingCreate(
           workspaceRootPath,
-          selectedAlbumPath(controller),
+          targetAlbumsRef.current.get(request.turnId) ?? selectedAlbumPath(controller),
           {
-            elementCount: drawing.elementCount,
+            kind: drawing.kind,
+            itemCount: drawing.itemCount,
             favorite: false,
             searchText: '',
             tags: [],
@@ -178,18 +247,20 @@ export function useAiDrawingTools({
           },
         );
         sessionId = session.sessionId;
-        await stageDrawingScene(session.sessionId, drawing.sceneBytes);
+        await stageDrawingScene(session.sessionId, drawing.contentBytes);
         await stageDrawingPreview(session.sessionId, drawing.previewBytes);
         const created = await commitGeneratedDrawingCreate(session.sessionId);
         sessionId = null;
         cacheRef.current.clear();
         previewAttemptsRef.current.delete(request.turnId);
+        targetAlbumsRef.current.delete(request.turnId);
         await onCreated(created);
         return {
           success: true,
           text: JSON.stringify({
             albumPath: created.albumPath,
             drawingId: created.meta.id,
+            kind: created.meta.kind,
             revision: created.meta.revision,
             title: created.meta.title,
           }),

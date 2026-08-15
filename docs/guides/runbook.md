@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-08-14
+updated: 2026-08-15
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -93,7 +93,8 @@ pnpm build:desktop:web
 构建后确认 `public/excalidraw-runtime/index.css` 与 `fonts/` 已生成，普通 `out/index.html` 没有预加载包含 Excalidraw 实现的动态 JS chunk，也没有静态引用 Excalidraw CSS。随后在真实桌面运行时验收：
 
 - 入口位于 Inbox 下方且不创建 Markdown 标签；切换图集、编辑器、AI 和终端面板不会重置其他面板状态。
-- 创建图稿后绘制中文文本、箭头、自由线、图片与框架；重启后场景、组件库、图集位置、最近列表和视口都能恢复。
+- 分别新建白板与脑图；白板绘制中文文本、箭头、自由线、图片与框架，脑图验证节点增删、拖放、左右/双向/向下布局、折叠、撤销重做与明暗主题；重启后内容、组件库、图集位置、最近列表和视口都能恢复。
+- 脑图分别导出 `.markune-mindmap.json`、PNG 与 SVG，并在 macOS WKWebView 和 Windows WebView2 检查 SVG 文本换行与 `foreignObject` 兼容性。验证“AI 生成脑图”只插入 `markune-mindmap` Skill、不自动发送，三次预览上限和 A 级门禁生效，基于当前脑图只生成副本。
 - 连续编辑显示未保存/保存中/已保存；`Cmd/Ctrl+S` 强制提交。外部修改 scene 或 meta 后自动保存进入冲突，只有“加载磁盘版本”或“用当前版本覆盖”能继续。
 - 导入 `.excalidraw` 与 `.excalidrawlib`，导出 JSON/PNG/SVG；导出同名时不得覆盖已有文件。回收站恢复遇到路径冲突时创建唯一名称。
 - 破坏单个 scene 或 meta 后，其余图稿仍能展示；元数据可读且存在 backup 时可进入恢复页加载上一有效场景。损坏预览只降级为占位图，不能阻塞保存。

@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-08-14
+updated: 2026-08-15
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -70,7 +70,7 @@ referenced_by: AGENTS.md#knowledge-map
 - `read_codex_plugin_icon(path) -> { mediaType, base64Data }` 只服务最近一次成功关联的 `plugin/installed` 响应。Rust 必须先按客户端请求 ID 关联响应，只登记其中 `composerIcon`、`logo`、`logoDark` 声明且可 canonicalize 的普通文件；命令仅接受与登记结果完全相同的 canonical path，限制 1 MiB，并按内容签名识别 PNG、JPEG、GIF、WebP 或 SVG。重新请求插件清单时先清空旧授权，运行时重启、停止或工作区切换后不得沿用。
 - 插件图标解析顺序固定为 `composerIcon` / `composerIconUrl`、当前主题 `logoDark` / `logo`、当前主题 `logoUrlDark` / `logoUrl`。本地资源读取失败后可以继续尝试下一候选；远程候选只接受 HTTPS，渲染时必须使用 `referrerPolicy="no-referrer"`，加载错误降级为通用插件图标且不得把整个插件清单标记为失败。
 - 核心运行时就绪后必须调用 `skills/list`，参数固定为当前工作区根目录的单元素 `cwds` 与 `forceReload: false`；收到 `skills/changed` 后使用相同 `cwds` 和 `forceReload: true` 刷新。只展示 enabled Skill，名称优先使用 `interface.displayName`，描述优先使用 `interface.shortDescription`，来源由 `scope` 映射。输入框选择结果必须把模型文本编码为 `$skill-name` 并带 UTF-8 `text_elements`，同时追加精确的 `{ type: "skill", name, path }` 原生输入。
-- `skills/extraRoots/set` 的客户端参数必须为空对象，由 Rust 替换为单个内置 Skill 根目录；`thread/start.dynamicTools` 同样只能由 Rust 注入固定的 `markune_drawing` namespace。`item/tool/call` 只接受 `preview_mermaid { title, definition, profile }` 与 `create_from_preview { previewId }`，其中 `profile` 只能是 `architecture | flow | default`。预览响应返回有界的质量 grade、creatable、metrics、blockers、warnings 与 suggestions；响应只允许最多 16 KiB 文本以及经过 PNG/WebP 签名校验、最多 2 MiB 的预览 Data URL。
+- `skills/extraRoots/set` 的客户端参数必须为空对象，由 Rust 替换为单个内置 Skill 根目录；`thread/start.dynamicTools` 同样只能由 Rust 注入固定的 `markune_drawing` namespace。`item/tool/call` 只接受 `inspect_drawing { drawingId }`、`preview_mermaid { title, definition, profile }`、`preview_mindmap { title, direction, root }` 与 `create_from_preview { previewId }`。脑图 `root` 只允许递归 `topic/children`，不得接受模型节点 ID、HTML、样式、链接、图片、主题或路径。预览响应返回有界的质量 grade、creatable、metrics、blockers、warnings 与 suggestions；响应只允许最多 16 KiB 文本以及经过 PNG/WebP 签名校验、最多 2 MiB 的预览 Data URL。
 - `select_codex_context_attachments(kind, remaining)` 通过原生选择器添加文件或目录；`paste_codex_context_attachments(remaining)` 只响应用户粘贴，优先返回系统剪贴板文件列表，否则把系统位图编码为内存 PNG。两者最多返回 20 个 opaque attachment ID，并携带名称、类型、媒体类型、大小和预览能力；`read_codex_context_attachment_preview(attachmentId)` 只接受有效 ID，并通过 Raw IPC 返回受限 PNG，`release_codex_context_attachments(ids)` 幂等释放未发送授权。前端只可在 `turn/start.markuneFileAttachments` 中提交 ID；Rust 必须移除私有字段、校验 15 分钟有效期、来源快照、图片签名、20 MiB 单图/40 MiB 单 turn/2500 万像素限制，再把图片转换为 App Server 原生内联 `image` Data URL，把其他文件或目录编码为 `# Files mentioned by the user` 文本头。直接提交 `image`、外部 URL、伪造 Data URL 或未授权 `localImage` 必须失败关闭。附件历史元数据只能放在受控 `text_elements.placeholder`，不得让渲染器提交原始绝对路径。
 - 当前文档与显式提及文档只可通过顶层 `markuneDocumentReferences` 传给 Tauri，每项分别标记 `role: "active" | "mention"`；缺少角色只按旧版 `mention` 兼容，每个 turn 最多一个 `active`。Rust 必须移除该私有字段、校验绝对路径与工作区边界，再生成 `markune_document_context_policy`（`application`）、`markune_active_document` 和 `markune_explicit_document_references`（后两者均为 `untrusted`）。即使当前无文档也必须写入 `null` 与空数组，以清除 App Server 上一 turn 的粘性上下文；渲染器直接提交原始 `additionalContext` 必须被拒绝。
 - “当前文档”“本文”“这篇文档”“current document”与“active file”只能解析为当前 turn 的 `markune_active_document`；不得根据日期、最近文件、线程历史或工作区惯例猜测。只有请求依赖正文时才读取活跃文档，普通问候不得强制产生无意义工具调用。
@@ -98,7 +98,7 @@ Inbox bridge 固定由 `workspace-api.ts` 调用以下命令：`list_inbox_captu
 
 画板 bridge 固定集中在 `workspace-api.ts`，并使用 `DrawingMeta`、`DrawingSummary`、`DrawingAlbumNode`、`DrawingLibrarySnapshot`、`DrawingDocumentDescriptor`、`DrawingSaveSession`、`DrawingSaveState` 与 `DrawingUiState` 契约。
 
-- 查询命令为 `load_drawing_library`、`read_drawing_meta`、`read_drawing_scene`、`read_drawing_preview`、`read_drawing_library`、`read_drawing_ui_state`；场景、预览和组件库返回 Raw IPC response，不得转成 JSON 数字数组或 base64。
+- 查询命令为 `load_drawing_library`、`read_drawing_meta`、`read_drawing_scene`、`read_drawing_preview`、`read_drawing_library`、`read_drawing_ui_state`；`read_drawing_scene` 是兼容命令名，按元数据 `kind` 返回白板 scene 或脑图 content。内容、预览和组件库返回 Raw IPC response，不得转成 JSON 数字数组或 base64。
 - 保存固定使用 `begin_drawing_save`、Raw `stage_drawing_scene`、可选 Raw `stage_drawing_preview`、`commit_drawing_save` 和 `cancel_drawing_save`。begin 只接收 Drawing ID、期望 revision、受限元数据和显式冲突覆盖标记；commit 只接收 opaque session ID。
 - AI 新建固定使用 `begin_generated_drawing_create`、既有 Raw scene/preview staging、`commit_generated_drawing_create` 与 `cancel_generated_drawing_create`。begin 的图集路径只能由宿主当前选择派生；commit 必须要求场景和有效预览同时存在，并原子创建 revision 1 bundle。
 - AI 只读检查固定复用 `read_drawing_meta`、Raw `read_drawing_scene` 和 Raw `read_drawing_preview`，但只能由已通过 Rust 当前 turn 授权的 `markune_drawing.inspect_drawing` 调度。模型只取得有界场景投影，不取得 raw scene、files/blob 或 bundle 物理路径。

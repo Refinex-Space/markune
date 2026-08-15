@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     fs,
     path::{Component, Path, PathBuf},
     sync::{Arc, Mutex},
@@ -17,8 +17,14 @@ use tauri::{
 use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
-const DRAWING_SCHEMA_VERSION: u32 = 1;
+const DRAWING_META_SCHEMA_VERSION: u32 = 2;
+const LEGACY_DRAWING_META_SCHEMA_VERSION: u32 = 1;
+const DRAWING_UI_SCHEMA_VERSION: u32 = 1;
+const TRASHED_ALBUM_SCHEMA_VERSION: u32 = 1;
 const MAX_SCENE_BYTES: usize = 100 * 1024 * 1024;
+const MAX_MINDMAP_BYTES: usize = 10 * 1024 * 1024;
+const MAX_MINDMAP_NODES: usize = 2_000;
+const MAX_MINDMAP_DEPTH: usize = 32;
 const MAX_PREVIEW_BYTES: usize = 2 * 1024 * 1024;
 const MAX_LIBRARY_BYTES: usize = 20 * 1024 * 1024;
 const MAX_TITLE_CHARS: usize = 120;
@@ -49,12 +55,43 @@ struct DrawingStateInner {
 #[derive(Clone)]
 struct SaveSessionEntry {
     drawing_id: String,
-    expected_scene_sha256: String,
+    expected_content_sha256: String,
     expected_revision: u64,
     expires_at: Instant,
     manifest: DrawingSaveManifest,
     root_path: String,
     staging_dir: PathBuf,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DrawingKind {
+    Mindmap,
+    #[default]
+    Whiteboard,
+}
+
+impl DrawingKind {
+    fn content_file_name(self) -> &'static str {
+        match self {
+            Self::Mindmap => "mindmap.json",
+            Self::Whiteboard => "scene.excalidraw",
+        }
+    }
+
+    fn backup_file_name(self) -> &'static str {
+        match self {
+            Self::Mindmap => "mindmap.backup.json",
+            Self::Whiteboard => "scene.backup.excalidraw",
+        }
+    }
+
+    fn content_limit(self) -> usize {
+        match self {
+            Self::Mindmap => MAX_MINDMAP_BYTES,
+            Self::Whiteboard => MAX_SCENE_BYTES,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -139,6 +176,8 @@ impl DrawingPreviewFormat {
 #[serde(rename_all = "camelCase")]
 pub struct DrawingMeta {
     schema_version: u32,
+    #[serde(default)]
+    kind: DrawingKind,
     id: String,
     title: String,
     tags: Vec<String>,
@@ -146,8 +185,10 @@ pub struct DrawingMeta {
     created_at: String,
     updated_at: String,
     revision: u64,
-    scene_sha256: String,
-    element_count: usize,
+    #[serde(alias = "sceneSha256")]
+    content_sha256: String,
+    #[serde(alias = "elementCount")]
+    item_count: usize,
     search_text: String,
     preview_revision: Option<u64>,
 }
@@ -155,11 +196,14 @@ pub struct DrawingMeta {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DrawingSaveManifest {
+    #[serde(default)]
+    kind: DrawingKind,
     title: String,
     #[serde(default)]
     tags: Vec<String>,
     favorite: bool,
-    element_count: usize,
+    #[serde(alias = "elementCount")]
+    item_count: usize,
     #[serde(default)]
     search_text: String,
 }
@@ -257,7 +301,8 @@ pub(crate) struct AiDrawingReferenceMetadata {
     title: String,
     album_path: String,
     revision: u64,
-    element_count: usize,
+    kind: DrawingKind,
+    item_count: usize,
     has_preview: bool,
 }
 
@@ -343,7 +388,8 @@ pub(crate) fn resolve_ai_drawing_reference(
         title: descriptor.meta.title,
         album_path: descriptor.album_path,
         revision: descriptor.meta.revision,
-        element_count: descriptor.meta.element_count,
+        kind: descriptor.meta.kind,
+        item_count: descriptor.meta.item_count,
         has_preview: descriptor.has_preview,
     })
 }
@@ -356,13 +402,18 @@ pub fn read_drawing_scene(
 ) -> Result<Response, String> {
     let root = canonical_workspace_root(&root_path)?;
     let bundle = locate_active_bundle(&root, &drawing_id)?;
+    let meta = read_meta(&bundle)?;
     let file_name = if backup.unwrap_or(false) {
-        "scene.backup.excalidraw"
+        meta.kind.backup_file_name()
     } else {
-        "scene.excalidraw"
+        meta.kind.content_file_name()
     };
-    let bytes = read_limited_file(&bundle.join(file_name), MAX_SCENE_BYTES, "图稿场景")?;
-    validate_scene(&bytes)?;
+    let bytes = read_limited_file(
+        &bundle.join(file_name),
+        meta.kind.content_limit(),
+        "图稿内容",
+    )?;
+    validate_drawing_content(meta.kind, &bytes)?;
     Ok(Response::new(bytes))
 }
 
@@ -431,10 +482,12 @@ pub fn create_drawing(
     root_path: String,
     album_path: String,
     title: String,
+    kind: Option<DrawingKind>,
 ) -> Result<DrawingDocumentDescriptor, String> {
     let root = canonical_workspace_root(&root_path)?;
-    let scene = default_scene_bytes();
-    create_drawing_from_scene(&root, &album_path, &title, &scene)
+    let kind = kind.unwrap_or_default();
+    let content = default_content_bytes(kind);
+    create_drawing_from_content(&root, &album_path, &title, kind, &content)
 }
 
 #[tauri::command]
@@ -451,6 +504,9 @@ pub fn begin_drawing_save(
     let root = canonical_workspace_root(&root_path)?;
     let bundle = locate_active_bundle(&root, &drawing_id)?;
     let current = read_meta(&bundle)?;
+    if manifest.kind != current.kind {
+        return Err("图稿类型与保存内容不一致。".to_string());
+    }
     let force = force.unwrap_or(false);
     if !force && current.revision != expected_revision {
         return Err(format!(
@@ -458,16 +514,16 @@ pub fn begin_drawing_save(
             current.revision, expected_revision
         ));
     }
-    let current_scene = read_limited_file(
-        &bundle.join("scene.excalidraw"),
-        MAX_SCENE_BYTES,
-        "图稿场景",
+    let current_content = read_limited_file(
+        &bundle.join(current.kind.content_file_name()),
+        current.kind.content_limit(),
+        "图稿内容",
     )?;
-    let current_scene_sha256 = hex::encode(Sha256::digest(&current_scene));
+    let current_content_sha256 = hex::encode(Sha256::digest(&current_content));
     if !force {
-        validate_scene(&current_scene)?;
-        if current_scene_sha256 != current.scene_sha256 {
-            return Err("DRAWING_CONFLICT:磁盘场景已在 Markune 外部修改。".to_string());
+        validate_drawing_content(current.kind, &current_content)?;
+        if current_content_sha256 != current.content_sha256 {
+            return Err("DRAWING_CONFLICT:磁盘内容已在 Markune 外部修改。".to_string());
         }
     }
     let next_revision = current.revision.saturating_add(1);
@@ -478,7 +534,7 @@ pub fn begin_drawing_save(
     fs::create_dir_all(&staging_dir).map_err(|error| format!("无法创建图稿暂存目录：{error}"))?;
     let entry = SaveSessionEntry {
         drawing_id,
-        expected_scene_sha256: current_scene_sha256,
+        expected_content_sha256: current_content_sha256,
         expected_revision: current.revision,
         expires_at: Instant::now() + SESSION_TTL,
         manifest,
@@ -537,14 +593,11 @@ pub fn stage_drawing_scene(
     request: Request<'_>,
 ) -> Result<(), String> {
     let session_id = read_header(&request, "x-markune-drawing-session")?;
-    let staging_dir = get_staging_dir(&state, &session_id)?;
-    let bytes = raw_body(&request, "图稿场景")?;
-    if bytes.len() > MAX_SCENE_BYTES {
-        return Err("图稿场景超过 100 MiB 限制。".to_string());
-    }
-    validate_scene(&bytes)?;
-    fs::write(staging_dir.join("scene.excalidraw"), bytes)
-        .map_err(|error| format!("无法暂存图稿场景：{error}"))
+    let (staging_dir, kind) = get_staging_context(&state, &session_id)?;
+    let bytes = raw_body(&request, "图稿内容")?;
+    validate_drawing_content(kind, &bytes)?;
+    fs::write(staging_dir.join("content.bin"), bytes)
+        .map_err(|error| format!("无法暂存图稿内容：{error}"))
 }
 
 #[tauri::command]
@@ -697,23 +750,25 @@ pub fn duplicate_drawing(
     let root = canonical_workspace_root(&root_path)?;
     let source = locate_active_bundle(&root, &drawing_id)?;
     let source_meta = read_meta(&source)?;
-    let scene = read_limited_file(
-        &source.join("scene.excalidraw"),
-        MAX_SCENE_BYTES,
-        "图稿场景",
+    let content = read_limited_file(
+        &source.join(source_meta.kind.content_file_name()),
+        source_meta.kind.content_limit(),
+        "图稿内容",
     )?;
     let target_album = album_path.unwrap_or_else(|| album_path_for_bundle(&root, &source));
-    let descriptor = create_drawing_from_scene(
+    let descriptor = create_drawing_from_content(
         &root,
         &target_album,
         &format!("{} 副本", source_meta.title),
-        &scene,
+        source_meta.kind,
+        &content,
     )?;
     if drawing_preview_path(&source).is_some() {
         let target = locate_active_bundle(&root, &descriptor.meta.id)?;
         let _ = copy_drawing_preview(&source, &target);
     }
-    Ok(descriptor)
+    let target = locate_active_bundle(&root, &descriptor.meta.id)?;
+    descriptor_for_bundle(&root, &target)
 }
 
 #[tauri::command]
@@ -874,7 +929,7 @@ pub fn trash_drawing_album(
     let container = trash_root.join(&trash_id);
     fs::create_dir(&container).map_err(|error| format!("无法创建图集回收记录：{error}"))?;
     let meta = TrashedAlbumMeta {
-        schema_version: DRAWING_SCHEMA_VERSION,
+        schema_version: TRASHED_ALBUM_SCHEMA_VERSION,
         trash_id: trash_id.clone(),
         name: name.clone(),
         original_path: album_path_for_dir(&root, &source),
@@ -1288,28 +1343,34 @@ fn commit_save_session(session: &SaveSessionEntry) -> Result<DrawingDocumentDesc
     let root = canonical_workspace_root(&session.root_path)?;
     let bundle = locate_active_bundle(&root, &session.drawing_id)?;
     let current = read_meta(&bundle)?;
-    let current_scene = read_limited_file(
-        &bundle.join("scene.excalidraw"),
-        MAX_SCENE_BYTES,
-        "图稿场景",
+    if current.kind != session.manifest.kind {
+        return Err("图稿类型与保存会话不一致。".to_string());
+    }
+    let current_content = read_limited_file(
+        &bundle.join(current.kind.content_file_name()),
+        current.kind.content_limit(),
+        "图稿内容",
     )?;
-    let current_scene_sha256 = hex::encode(Sha256::digest(&current_scene));
+    let current_content_sha256 = hex::encode(Sha256::digest(&current_content));
     if current.revision != session.expected_revision
-        || current_scene_sha256 != session.expected_scene_sha256
+        || current_content_sha256 != session.expected_content_sha256
     {
         return Err(format!(
             "DRAWING_CONFLICT:提交前磁盘内容已变化（当前 revision {}）。",
             current.revision
         ));
     }
-    let scene_path = session.staging_dir.join("scene.excalidraw");
-    let scene = read_limited_file(&scene_path, MAX_SCENE_BYTES, "暂存图稿场景")?;
-    let scene_value = validate_scene(&scene)?;
-    let scene_sha256 = hex::encode(Sha256::digest(&scene));
-    let scene_text = extract_scene_text(&scene_value);
-    let actual_element_count = count_scene_elements(&scene_value);
-    if session.manifest.element_count != actual_element_count {
-        return Err("图稿元素数量与场景内容不一致。".to_string());
+    let content = read_limited_file(
+        &session.staging_dir.join("content.bin"),
+        current.kind.content_limit(),
+        "暂存图稿内容",
+    )?;
+    let content_value = validate_drawing_content(current.kind, &content)?;
+    let content_sha256 = hex::encode(Sha256::digest(&content));
+    let content_text = extract_drawing_text(current.kind, &content_value);
+    let actual_item_count = count_drawing_items(current.kind, &content_value);
+    if session.manifest.item_count != actual_item_count {
+        return Err("图稿项目数量与内容不一致。".to_string());
     }
 
     backup_bundle(&bundle)?;
@@ -1333,7 +1394,8 @@ fn commit_save_session(session: &SaveSessionEntry) -> Result<DrawingDocumentDesc
     }
 
     let meta = DrawingMeta {
-        schema_version: DRAWING_SCHEMA_VERSION,
+        schema_version: DRAWING_META_SCHEMA_VERSION,
+        kind: current.kind,
         id: current.id,
         title: session.manifest.title.trim().to_string(),
         tags: normalized_tags(&session.manifest.tags)?,
@@ -1341,20 +1403,22 @@ fn commit_save_session(session: &SaveSessionEntry) -> Result<DrawingDocumentDesc
         created_at: current.created_at,
         updated_at: now_iso(),
         revision: next_revision,
-        scene_sha256,
-        element_count: actual_element_count,
+        content_sha256,
+        item_count: actual_item_count,
         search_text: build_search_text(
             &session.manifest.title,
             &session.manifest.tags,
-            &format!("{} {}", scene_text, session.manifest.search_text),
+            &format!("{} {}", content_text, session.manifest.search_text),
         ),
         preview_revision,
     };
 
-    write_bytes_atomic(&bundle.join("scene.excalidraw"), &scene).map_err(|error| {
-        let _ = restore_backup(&bundle);
-        error
-    })?;
+    write_bytes_atomic(&bundle.join(current.kind.content_file_name()), &content).map_err(
+        |error| {
+            let _ = restore_backup(&bundle);
+            error
+        },
+    )?;
     if let Err(error) = write_meta_atomic(&bundle, &meta) {
         let restored = restore_backup(&bundle).is_ok();
         return Err(if restored {
@@ -1371,15 +1435,16 @@ fn commit_generated_create_session(
 ) -> Result<DrawingDocumentDescriptor, String> {
     let root = canonical_workspace_root(&session.root_path)?;
     let album = resolve_album_dir(&root, &session.album_path, true)?;
-    let scene = read_limited_file(
-        &session.staging_dir.join("scene.excalidraw"),
-        MAX_SCENE_BYTES,
-        "暂存 AI 图稿场景",
+    let kind = session.manifest.kind;
+    let content = read_limited_file(
+        &session.staging_dir.join("content.bin"),
+        kind.content_limit(),
+        "暂存 AI 图稿内容",
     )?;
-    let scene_value = validate_scene(&scene)?;
-    let element_count = count_scene_elements(&scene_value);
-    if session.manifest.element_count != element_count {
-        return Err("AI 图稿元素数量与场景内容不一致。".to_string());
+    let content_value = validate_drawing_content(kind, &content)?;
+    let item_count = count_drawing_items(kind, &content_value);
+    if session.manifest.item_count != item_count {
+        return Err("AI 图稿项目数量与内容不一致。".to_string());
     }
     let preview_path = drawing_preview_path(&session.staging_dir)
         .ok_or_else(|| "AI 图稿预览尚未完整暂存。".to_string())?;
@@ -1396,7 +1461,8 @@ fn commit_generated_create_session(
         .map_err(|error| format!("无法创建 AI 图稿 bundle 暂存目录：{error}"))?;
     let timestamp = now_iso();
     let meta = DrawingMeta {
-        schema_version: DRAWING_SCHEMA_VERSION,
+        schema_version: DRAWING_META_SCHEMA_VERSION,
+        kind,
         id,
         title: session.manifest.title.trim().to_string(),
         tags: normalized_tags(&session.manifest.tags)?,
@@ -1404,22 +1470,22 @@ fn commit_generated_create_session(
         created_at: timestamp.clone(),
         updated_at: timestamp,
         revision: 1,
-        scene_sha256: hex::encode(Sha256::digest(&scene)),
-        element_count,
+        content_sha256: hex::encode(Sha256::digest(&content)),
+        item_count,
         search_text: build_search_text(
             &session.manifest.title,
             &session.manifest.tags,
             &format!(
                 "{} {}",
-                extract_scene_text(&scene_value),
+                extract_drawing_text(kind, &content_value),
                 session.manifest.search_text
             ),
         ),
         preview_revision: Some(1),
     };
     let result = (|| {
-        fs::write(staged_bundle.join("scene.excalidraw"), &scene)
-            .map_err(|error| format!("无法暂存 AI 图稿场景：{error}"))?;
+        fs::write(staged_bundle.join(kind.content_file_name()), &content)
+            .map_err(|error| format!("无法暂存 AI 图稿内容：{error}"))?;
         fs::write(staged_bundle.join(preview_format.file_name()), &preview)
             .map_err(|error| format!("无法暂存 AI 图稿预览：{error}"))?;
         write_meta_atomic(&staged_bundle, &meta)?;
@@ -1440,15 +1506,26 @@ fn create_drawing_from_scene(
     title: &str,
     scene: &[u8],
 ) -> Result<DrawingDocumentDescriptor, String> {
+    create_drawing_from_content(root, album_path, title, DrawingKind::Whiteboard, scene)
+}
+
+fn create_drawing_from_content(
+    root: &Path,
+    album_path: &str,
+    title: &str,
+    kind: DrawingKind,
+    content: &[u8],
+) -> Result<DrawingDocumentDescriptor, String> {
     validate_title(title)?;
-    let scene_value = validate_scene(scene)?;
+    let content_value = validate_drawing_content(kind, content)?;
     let album = resolve_album_dir(root, album_path, true)?;
     let id = Uuid::new_v4().to_string();
     let bundle = album.join(&id);
     fs::create_dir(&bundle).map_err(|error| format!("无法创建图稿目录：{error}"))?;
     let timestamp = now_iso();
     let meta = DrawingMeta {
-        schema_version: DRAWING_SCHEMA_VERSION,
+        schema_version: DRAWING_META_SCHEMA_VERSION,
+        kind,
         id,
         title: title.trim().to_string(),
         tags: Vec::new(),
@@ -1456,13 +1533,13 @@ fn create_drawing_from_scene(
         created_at: timestamp.clone(),
         updated_at: timestamp,
         revision: 1,
-        scene_sha256: hex::encode(Sha256::digest(scene)),
-        element_count: count_scene_elements(&scene_value),
-        search_text: build_search_text(title, &[], &extract_scene_text(&scene_value)),
+        content_sha256: hex::encode(Sha256::digest(content)),
+        item_count: count_drawing_items(kind, &content_value),
+        search_text: build_search_text(title, &[], &extract_drawing_text(kind, &content_value)),
         preview_revision: None,
     };
     let result = (|| {
-        write_bytes_atomic(&bundle.join("scene.excalidraw"), scene)?;
+        write_bytes_atomic(&bundle.join(kind.content_file_name()), content)?;
         write_meta_atomic(&bundle, &meta)?;
         descriptor_for_bundle(root, &bundle)
     })();
@@ -1678,9 +1755,18 @@ fn duplicate_album_contents(
             .to_string();
         if validate_drawing_id(&name).is_ok() {
             let source_meta = read_meta(&entry)?;
-            let scene =
-                read_limited_file(&entry.join("scene.excalidraw"), MAX_SCENE_BYTES, "图稿场景")?;
-            let created = create_drawing_from_scene(root, target_path, &source_meta.title, &scene)?;
+            let content = read_limited_file(
+                &entry.join(source_meta.kind.content_file_name()),
+                source_meta.kind.content_limit(),
+                "图稿内容",
+            )?;
+            let created = create_drawing_from_content(
+                root,
+                target_path,
+                &source_meta.title,
+                source_meta.kind,
+                &content,
+            )?;
             let bundle = locate_active_bundle(root, &created.meta.id)?;
             let mut meta = read_meta(&bundle)?;
             meta.tags = source_meta.tags;
@@ -1711,20 +1797,21 @@ fn summary_for_bundle(
 ) -> Result<DrawingSummary, String> {
     reject_symlink(bundle)?;
     let meta = read_meta(bundle)?;
-    let scene = read_limited_file(
-        &bundle.join("scene.excalidraw"),
-        MAX_SCENE_BYTES,
-        "图稿场景",
+    let content = read_limited_file(
+        &bundle.join(meta.kind.content_file_name()),
+        meta.kind.content_limit(),
+        "图稿内容",
     )?;
-    validate_scene(&scene)?;
-    let actual_hash = hex::encode(Sha256::digest(&scene));
+    validate_drawing_content(meta.kind, &content)?;
+    let actual_hash = hex::encode(Sha256::digest(&content));
     let issue =
-        (actual_hash != meta.scene_sha256).then(|| "场景校验和与元数据不一致。".to_string());
+        (actual_hash != meta.content_sha256).then(|| "内容校验和与元数据不一致。".to_string());
+    let has_backup = bundle.join(meta.kind.backup_file_name()).is_file()
+        && bundle.join("meta.backup.json").is_file();
     Ok(DrawingSummary {
         meta,
         album_path: album_path.to_string(),
-        has_backup: bundle.join("scene.backup.excalidraw").is_file()
-            && bundle.join("meta.backup.json").is_file(),
+        has_backup,
         has_preview: drawing_preview_path(bundle).is_some(),
         trashed,
         issue,
@@ -1733,11 +1820,12 @@ fn summary_for_bundle(
 
 fn descriptor_for_bundle(root: &Path, bundle: &Path) -> Result<DrawingDocumentDescriptor, String> {
     let meta = read_meta(bundle)?;
+    let has_backup = bundle.join(meta.kind.backup_file_name()).is_file()
+        && bundle.join("meta.backup.json").is_file();
     Ok(DrawingDocumentDescriptor {
         meta,
         album_path: album_path_for_bundle(root, bundle),
-        has_backup: bundle.join("scene.backup.excalidraw").is_file()
-            && bundle.join("meta.backup.json").is_file(),
+        has_backup,
         has_preview: drawing_preview_path(bundle).is_some(),
     })
 }
@@ -1927,6 +2015,230 @@ fn validate_scene(bytes: &[u8]) -> Result<Value, String> {
     Ok(value)
 }
 
+fn validate_drawing_content(kind: DrawingKind, bytes: &[u8]) -> Result<Value, String> {
+    match kind {
+        DrawingKind::Mindmap => validate_mindmap(bytes),
+        DrawingKind::Whiteboard => validate_scene(bytes),
+    }
+}
+
+fn validate_mindmap(bytes: &[u8]) -> Result<Value, String> {
+    if bytes.is_empty() || bytes.len() > MAX_MINDMAP_BYTES {
+        return Err("脑图内容为空或超过 10 MiB 限制。".to_string());
+    }
+    let value: Value =
+        serde_json::from_slice(bytes).map_err(|_| "脑图内容不是有效 JSON。".to_string())?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| "脑图根节点必须是对象。".to_string())?;
+    reject_unknown_fields(object.keys(), &["type", "version", "data"], "脑图根节点")?;
+    if object.get("type").and_then(Value::as_str) != Some("markune-mindmap")
+        || object.get("version").and_then(Value::as_u64) != Some(1)
+    {
+        return Err("脑图包装格式不受支持。".to_string());
+    }
+    let data = object
+        .get("data")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "脑图 data 必须是对象。".to_string())?;
+    reject_unknown_fields(
+        data.keys(),
+        &["nodeData", "direction", "compact", "arrows", "summaries"],
+        "脑图 data",
+    )?;
+    let direction = data.get("direction").and_then(Value::as_u64).unwrap_or(1);
+    if direction > 3 {
+        return Err("脑图布局方向无效。".to_string());
+    }
+    if data.get("compact").is_some_and(|value| !value.is_boolean()) {
+        return Err("脑图 compact 必须是布尔值。".to_string());
+    }
+    let root = data
+        .get("nodeData")
+        .ok_or_else(|| "脑图缺少 nodeData。".to_string())?;
+    let mut node_ids = HashSet::new();
+    let mut node_count = 0usize;
+    validate_mindmap_node(root, 1, &mut node_count, &mut node_ids)?;
+    validate_mindmap_arrows(data.get("arrows"), &node_ids)?;
+    validate_mindmap_summaries(data.get("summaries"), &node_ids)?;
+    Ok(value)
+}
+
+fn validate_mindmap_node(
+    value: &Value,
+    depth: usize,
+    count: &mut usize,
+    ids: &mut HashSet<String>,
+) -> Result<(), String> {
+    if depth > MAX_MINDMAP_DEPTH {
+        return Err("脑图层级超过 32 层限制。".to_string());
+    }
+    *count = count.saturating_add(1);
+    if *count > MAX_MINDMAP_NODES {
+        return Err("脑图节点超过 2,000 个限制。".to_string());
+    }
+    let node = value
+        .as_object()
+        .ok_or_else(|| "脑图节点必须是对象。".to_string())?;
+    reject_unknown_fields(
+        node.keys(),
+        &["topic", "id", "children", "expanded", "direction", "note"],
+        "脑图节点",
+    )?;
+    let topic = node
+        .get("topic")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|topic| !topic.is_empty() && topic.chars().count() <= 1_000)
+        .ok_or_else(|| "脑图节点标题必须为 1–1,000 个字符。".to_string())?;
+    if topic.chars().any(char::is_control) {
+        return Err("脑图节点标题包含控制字符。".to_string());
+    }
+    let id = node
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty() && id.len() <= 128)
+        .ok_or_else(|| "脑图节点 ID 无效。".to_string())?;
+    if !ids.insert(id.to_string()) {
+        return Err("脑图节点 ID 必须唯一。".to_string());
+    }
+    if node
+        .get("expanded")
+        .is_some_and(|value| !value.is_boolean())
+    {
+        return Err("脑图节点 expanded 必须是布尔值。".to_string());
+    }
+    if node
+        .get("direction")
+        .is_some_and(|value| !matches!(value.as_u64(), Some(0 | 1)))
+    {
+        return Err("脑图节点 direction 无效。".to_string());
+    }
+    if node.get("note").is_some_and(|value| !value.is_string()) {
+        return Err("脑图节点 note 必须是文本。".to_string());
+    }
+    if let Some(children) = node.get("children") {
+        let children = children
+            .as_array()
+            .ok_or_else(|| "脑图 children 必须是数组。".to_string())?;
+        for child in children {
+            validate_mindmap_node(child, depth + 1, count, ids)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_mindmap_arrows(
+    value: Option<&Value>,
+    node_ids: &HashSet<String>,
+) -> Result<(), String> {
+    let Some(value) = value else { return Ok(()) };
+    let arrows = value
+        .as_array()
+        .ok_or_else(|| "脑图 arrows 必须是数组。".to_string())?;
+    let mut ids = HashSet::new();
+    for arrow in arrows {
+        let arrow = arrow
+            .as_object()
+            .ok_or_else(|| "脑图关联箭头必须是对象。".to_string())?;
+        reject_unknown_fields(
+            arrow.keys(),
+            &[
+                "id",
+                "label",
+                "from",
+                "to",
+                "delta1",
+                "delta2",
+                "bidirectional",
+            ],
+            "脑图关联箭头",
+        )?;
+        let id = required_short_string(arrow.get("id"), "脑图关联箭头 ID")?;
+        if !ids.insert(id.to_string()) {
+            return Err("脑图关联箭头 ID 必须唯一。".to_string());
+        }
+        let from = required_short_string(arrow.get("from"), "脑图关联箭头起点")?;
+        let to = required_short_string(arrow.get("to"), "脑图关联箭头终点")?;
+        if !node_ids.contains(from) || !node_ids.contains(to) {
+            return Err("脑图关联箭头引用了不存在的节点。".to_string());
+        }
+        if arrow.get("label").is_some_and(|value| !value.is_string())
+            || arrow
+                .get("bidirectional")
+                .is_some_and(|value| !value.is_boolean())
+        {
+            return Err("脑图关联箭头字段无效。".to_string());
+        }
+        for key in ["delta1", "delta2"] {
+            if let Some(delta) = arrow.get(key) {
+                let delta = delta
+                    .as_object()
+                    .ok_or_else(|| "脑图关联箭头控制点无效。".to_string())?;
+                reject_unknown_fields(delta.keys(), &["x", "y"], "脑图关联箭头控制点")?;
+                if !delta.get("x").is_some_and(Value::is_number)
+                    || !delta.get("y").is_some_and(Value::is_number)
+                {
+                    return Err("脑图关联箭头控制点无效。".to_string());
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_mindmap_summaries(
+    value: Option<&Value>,
+    node_ids: &HashSet<String>,
+) -> Result<(), String> {
+    let Some(value) = value else { return Ok(()) };
+    let summaries = value
+        .as_array()
+        .ok_or_else(|| "脑图 summaries 必须是数组。".to_string())?;
+    let mut ids = HashSet::new();
+    for summary in summaries {
+        let summary = summary
+            .as_object()
+            .ok_or_else(|| "脑图摘要必须是对象。".to_string())?;
+        reject_unknown_fields(
+            summary.keys(),
+            &["id", "label", "parent", "start", "end"],
+            "脑图摘要",
+        )?;
+        let id = required_short_string(summary.get("id"), "脑图摘要 ID")?;
+        if !ids.insert(id.to_string()) {
+            return Err("脑图摘要 ID 必须唯一。".to_string());
+        }
+        let parent = required_short_string(summary.get("parent"), "脑图摘要父节点")?;
+        if !node_ids.contains(parent)
+            || summary.get("label").is_some_and(|value| !value.is_string())
+            || !summary.get("start").is_some_and(Value::is_u64)
+            || !summary.get("end").is_some_and(Value::is_u64)
+        {
+            return Err("脑图摘要字段无效。".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn required_short_string<'a>(value: Option<&'a Value>, label: &str) -> Result<&'a str, String> {
+    value
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty() && value.len() <= 128)
+        .ok_or_else(|| format!("{label}无效。"))
+}
+
+fn reject_unknown_fields<'a>(
+    keys: impl Iterator<Item = &'a String>,
+    allowed: &[&str],
+    label: &str,
+) -> Result<(), String> {
+    if let Some(key) = keys.filter(|key| !allowed.contains(&key.as_str())).next() {
+        return Err(format!("{label}包含不允许的字段：{key}。"));
+    }
+    Ok(())
+}
+
 fn validate_library(bytes: &[u8]) -> Result<Value, String> {
     if bytes.is_empty() || bytes.len() > MAX_LIBRARY_BYTES {
         return Err("组件库为空或超过 20 MiB 限制。".to_string());
@@ -1992,7 +2304,7 @@ fn copy_drawing_preview(source_bundle: &Path, target_bundle: &Path) -> Result<()
 }
 
 fn validate_ui_state(state: &DrawingUiState) -> Result<(), String> {
-    if state.schema_version != DRAWING_SCHEMA_VERSION {
+    if state.schema_version != DRAWING_UI_SCHEMA_VERSION {
         return Err("不支持的图稿界面状态版本。".to_string());
     }
     if state.recent_drawing_ids.len() > 50 || state.viewports.len() > 500 {
@@ -2034,6 +2346,21 @@ fn count_scene_elements(scene: &Value) -> usize {
         .unwrap_or(0)
 }
 
+fn count_drawing_items(kind: DrawingKind, content: &Value) -> usize {
+    match kind {
+        DrawingKind::Mindmap => count_mindmap_nodes(&content["data"]["nodeData"]),
+        DrawingKind::Whiteboard => count_scene_elements(content),
+    }
+}
+
+fn count_mindmap_nodes(node: &Value) -> usize {
+    1 + node
+        .get("children")
+        .and_then(Value::as_array)
+        .map(|children| children.iter().map(count_mindmap_nodes).sum::<usize>())
+        .unwrap_or(0)
+}
+
 fn extract_scene_text(scene: &Value) -> String {
     scene["elements"]
         .as_array()
@@ -2054,6 +2381,28 @@ fn extract_scene_text(scene: &Value) -> String {
         .join(" ")
 }
 
+fn extract_drawing_text(kind: DrawingKind, content: &Value) -> String {
+    match kind {
+        DrawingKind::Mindmap => {
+            let mut topics = Vec::new();
+            collect_mindmap_topics(&content["data"]["nodeData"], &mut topics);
+            topics.join(" ")
+        }
+        DrawingKind::Whiteboard => extract_scene_text(content),
+    }
+}
+
+fn collect_mindmap_topics(node: &Value, topics: &mut Vec<String>) {
+    if let Some(topic) = node.get("topic").and_then(Value::as_str) {
+        topics.push(topic.to_string());
+    }
+    if let Some(children) = node.get("children").and_then(Value::as_array) {
+        for child in children {
+            collect_mindmap_topics(child, topics);
+        }
+    }
+}
+
 fn build_search_text(title: &str, tags: &[String], scene_text: &str) -> String {
     format!("{} {} {}", title.trim(), tags.join(" "), scene_text.trim())
         .split_whitespace()
@@ -2063,13 +2412,20 @@ fn build_search_text(title: &str, tags: &[String], scene_text: &str) -> String {
 
 fn read_meta(bundle: &Path) -> Result<DrawingMeta, String> {
     let bytes = read_limited_file(&bundle.join("meta.json"), 1024 * 1024, "图稿元数据")?;
-    let meta: DrawingMeta =
+    let mut meta: DrawingMeta =
         serde_json::from_slice(&bytes).map_err(|_| "图稿元数据损坏。".to_string())?;
     validate_drawing_id(&meta.id)?;
     validate_title(&meta.title)?;
     normalized_tags(&meta.tags)?;
-    if meta.schema_version != DRAWING_SCHEMA_VERSION {
+    if !matches!(
+        meta.schema_version,
+        LEGACY_DRAWING_META_SCHEMA_VERSION | DRAWING_META_SCHEMA_VERSION
+    ) {
         return Err(format!("不支持图稿 schema v{}。", meta.schema_version));
+    }
+    if meta.schema_version == LEGACY_DRAWING_META_SCHEMA_VERSION {
+        meta.kind = DrawingKind::Whiteboard;
+        meta.schema_version = DRAWING_META_SCHEMA_VERSION;
     }
     let directory_id = bundle
         .file_name()
@@ -2089,34 +2445,35 @@ fn write_meta_atomic(bundle: &Path, meta: &DrawingMeta) -> Result<(), String> {
 }
 
 fn backup_bundle(bundle: &Path) -> Result<(), String> {
-    let scene = read_limited_file(
-        &bundle.join("scene.excalidraw"),
-        MAX_SCENE_BYTES,
-        "图稿场景",
+    let parsed_meta = read_meta(bundle)?;
+    let content = read_limited_file(
+        &bundle.join(parsed_meta.kind.content_file_name()),
+        parsed_meta.kind.content_limit(),
+        "图稿内容",
     )?;
     let meta = read_limited_file(&bundle.join("meta.json"), 1024 * 1024, "图稿元数据")?;
-    validate_scene(&scene)?;
+    validate_drawing_content(parsed_meta.kind, &content)?;
     let _: DrawingMeta = serde_json::from_slice(&meta)
         .map_err(|_| "当前图稿元数据损坏，无法建立备份。".to_string())?;
-    write_bytes_atomic(&bundle.join("scene.backup.excalidraw"), &scene)?;
+    write_bytes_atomic(&bundle.join(parsed_meta.kind.backup_file_name()), &content)?;
     write_bytes_atomic(&bundle.join("meta.backup.json"), &meta)
 }
 
 fn restore_backup(bundle: &Path) -> Result<(), String> {
-    let scene = read_limited_file(
-        &bundle.join("scene.backup.excalidraw"),
-        MAX_SCENE_BYTES,
-        "图稿备份",
-    )?;
     let meta = read_limited_file(
         &bundle.join("meta.backup.json"),
         1024 * 1024,
         "图稿备份元数据",
     )?;
-    validate_scene(&scene)?;
-    let _: DrawingMeta =
+    let parsed_meta: DrawingMeta =
         serde_json::from_slice(&meta).map_err(|_| "图稿备份元数据损坏。".to_string())?;
-    write_bytes_atomic(&bundle.join("scene.excalidraw"), &scene)?;
+    let content = read_limited_file(
+        &bundle.join(parsed_meta.kind.backup_file_name()),
+        parsed_meta.kind.content_limit(),
+        "图稿备份",
+    )?;
+    validate_drawing_content(parsed_meta.kind, &content)?;
+    write_bytes_atomic(&bundle.join(parsed_meta.kind.content_file_name()), &content)?;
     write_bytes_atomic(&bundle.join("meta.json"), &meta)
 }
 
@@ -2260,7 +2617,7 @@ fn read_trashed_album_meta(path: &Path) -> Result<TrashedAlbumMeta, String> {
     let bytes = read_limited_file(&path.join("trash.json"), 64 * 1024, "图集回收记录")?;
     let meta: TrashedAlbumMeta =
         serde_json::from_slice(&bytes).map_err(|_| "图集回收记录损坏。".to_string())?;
-    if meta.schema_version != DRAWING_SCHEMA_VERSION {
+    if meta.schema_version != TRASHED_ALBUM_SCHEMA_VERSION {
         return Err("不支持的图集回收记录版本。".to_string());
     }
     validate_uuid(&meta.trash_id, "图集回收站 ID")?;
@@ -2318,13 +2675,26 @@ fn default_scene_bytes() -> Vec<u8> {
     b"{\n  \"type\": \"excalidraw\",\n  \"version\": 2,\n  \"source\": \"https://excalidraw.com\",\n  \"elements\": [],\n  \"appState\": {},\n  \"files\": {}\n}\n".to_vec()
 }
 
+fn default_mindmap_bytes() -> Vec<u8> {
+    "{\n  \"type\": \"markune-mindmap\",\n  \"version\": 1,\n  \"data\": {\n    \"nodeData\": {\n      \"topic\": \"中心主题\",\n      \"id\": \"root\",\n      \"children\": []\n    },\n    \"direction\": 1,\n    \"compact\": false,\n    \"arrows\": [],\n    \"summaries\": []\n  }\n}\n"
+        .as_bytes()
+        .to_vec()
+}
+
+fn default_content_bytes(kind: DrawingKind) -> Vec<u8> {
+    match kind {
+        DrawingKind::Mindmap => default_mindmap_bytes(),
+        DrawingKind::Whiteboard => default_scene_bytes(),
+    }
+}
+
 fn default_library_bytes() -> Vec<u8> {
     b"{\n  \"type\": \"excalidrawlib\",\n  \"version\": 2,\n  \"source\": \"markune\",\n  \"libraryItems\": []\n}\n".to_vec()
 }
 
 fn default_ui_state() -> DrawingUiState {
     DrawingUiState {
-        schema_version: DRAWING_SCHEMA_VERSION,
+        schema_version: DRAWING_UI_SCHEMA_VERSION,
         recent_drawing_ids: Vec::new(),
         viewports: BTreeMap::new(),
     }
@@ -2366,9 +2736,16 @@ fn get_save_session(state: &DrawingState, session_id: &str) -> Result<SaveSessio
 }
 
 fn get_staging_dir(state: &DrawingState, session_id: &str) -> Result<PathBuf, String> {
+    get_staging_context(state, session_id).map(|(directory, _)| directory)
+}
+
+fn get_staging_context(
+    state: &DrawingState,
+    session_id: &str,
+) -> Result<(PathBuf, DrawingKind), String> {
     validate_uuid(session_id, "图稿暂存会话 ID")?;
     if let Ok(session) = get_save_session(state, session_id) {
-        return Ok(session.staging_dir);
+        return Ok((session.staging_dir, session.manifest.kind));
     }
     let mut sessions = state
         .inner
@@ -2378,7 +2755,7 @@ fn get_staging_dir(state: &DrawingState, session_id: &str) -> Result<PathBuf, St
     cleanup_generated_create_sessions(&mut sessions);
     sessions
         .get(session_id)
-        .map(|session| session.staging_dir.clone())
+        .map(|session| (session.staging_dir.clone(), session.manifest.kind))
         .ok_or_else(|| "图稿暂存会话已过期或不存在。".to_string())
 }
 
@@ -2429,6 +2806,7 @@ fn get_import_source(
 fn validate_export_format(value: &str) -> Result<&'static str, String> {
     match value {
         "excalidraw" => Ok("excalidraw"),
+        "mindmap" => Ok("markune-mindmap.json"),
         "png" => Ok("png"),
         "svg" => Ok("svg"),
         "excalidrawlib" => Ok("excalidrawlib"),
@@ -2497,6 +2875,7 @@ mod tests {
             root.path().to_string_lossy().into_owned(),
             "项目/架构".to_string(),
             "系统图".to_string(),
+            None,
         )
         .expect("创建图稿失败");
         let snapshot =
@@ -2552,29 +2931,208 @@ mod tests {
     }
 
     #[test]
+    fn validates_mindmap_boundaries_and_rejects_runtime_or_style_fields() {
+        assert!(validate_mindmap(&default_mindmap_bytes()).is_ok());
+        let mut unsafe_map: Value =
+            serde_json::from_slice(&default_mindmap_bytes()).expect("parse mindmap");
+        unsafe_map["data"]["nodeData"]["dangerouslySetInnerHTML"] =
+            serde_json::json!("<b>unsafe</b>");
+        assert!(validate_mindmap(&serde_json::to_vec(&unsafe_map).expect("encode")).is_err());
+
+        let mut duplicate_ids: Value =
+            serde_json::from_slice(&default_mindmap_bytes()).expect("parse mindmap");
+        duplicate_ids["data"]["nodeData"]["children"] = serde_json::json!([
+            { "topic": "A", "id": "same" },
+            { "topic": "B", "id": "same" }
+        ]);
+        assert!(validate_mindmap(&serde_json::to_vec(&duplicate_ids).expect("encode")).is_err());
+    }
+
+    #[test]
+    fn reads_v1_whiteboard_and_lazily_upgrades_on_save() {
+        let root = workspace();
+        let descriptor = create_drawing(
+            root.path().to_string_lossy().into_owned(),
+            String::new(),
+            "旧白板".to_string(),
+            None,
+        )
+        .expect("create whiteboard");
+        let bundle = locate_active_bundle(root.path(), &descriptor.meta.id).expect("locate bundle");
+        let mut legacy = serde_json::to_value(&descriptor.meta).expect("serialize meta");
+        legacy["schemaVersion"] = serde_json::json!(1);
+        legacy["sceneSha256"] = legacy["contentSha256"].take();
+        legacy["elementCount"] = legacy["itemCount"].take();
+        legacy.as_object_mut().expect("meta object").remove("kind");
+        legacy
+            .as_object_mut()
+            .expect("meta object")
+            .remove("contentSha256");
+        legacy
+            .as_object_mut()
+            .expect("meta object")
+            .remove("itemCount");
+        write_bytes_atomic(
+            &bundle.join("meta.json"),
+            &serde_json::to_vec_pretty(&legacy).expect("encode legacy meta"),
+        )
+        .expect("write legacy meta");
+
+        let normalized = read_meta(&bundle).expect("read legacy meta");
+        assert_eq!(normalized.schema_version, DRAWING_META_SCHEMA_VERSION);
+        assert_eq!(normalized.kind, DrawingKind::Whiteboard);
+
+        let staging_dir = ensure_drawings_root(root.path())
+            .expect("drawings root")
+            .join(".staging/test-v1-upgrade");
+        fs::create_dir_all(&staging_dir).expect("staging");
+        fs::write(staging_dir.join("content.bin"), default_scene_bytes()).expect("stage content");
+        let session = SaveSessionEntry {
+            drawing_id: descriptor.meta.id,
+            expected_content_sha256: normalized.content_sha256.clone(),
+            expected_revision: normalized.revision,
+            expires_at: Instant::now() + SESSION_TTL,
+            manifest: DrawingSaveManifest {
+                favorite: false,
+                item_count: 0,
+                kind: DrawingKind::Whiteboard,
+                search_text: String::new(),
+                tags: Vec::new(),
+                title: normalized.title,
+            },
+            root_path: root.path().to_string_lossy().into_owned(),
+            staging_dir,
+        };
+        let upgraded = commit_save_session(&session).expect("save legacy whiteboard");
+        assert_eq!(upgraded.meta.schema_version, DRAWING_META_SCHEMA_VERSION);
+        assert!(bundle.join("scene.backup.excalidraw").is_file());
+    }
+
+    #[test]
+    fn mindmap_bundle_supports_backup_duplicate_move_trash_restore_search_and_preview() {
+        let root = workspace();
+        let descriptor = create_drawing(
+            root.path().to_string_lossy().into_owned(),
+            "知识".to_string(),
+            "学习脑图".to_string(),
+            Some(DrawingKind::Mindmap),
+        )
+        .expect("create mindmap");
+        assert_eq!(descriptor.meta.kind, DrawingKind::Mindmap);
+        assert_eq!(descriptor.meta.item_count, 1);
+        let bundle =
+            locate_active_bundle(root.path(), &descriptor.meta.id).expect("locate mindmap");
+        assert!(bundle.join("mindmap.json").is_file());
+        assert!(!bundle.join("scene.excalidraw").exists());
+        backup_bundle(&bundle).expect("backup mindmap");
+        assert!(bundle.join("mindmap.backup.json").is_file());
+        fs::write(bundle.join(PREVIEW_PNG_FILE), b"\x89PNG\r\n\x1a\n")
+            .expect("write mindmap preview");
+
+        let duplicated = duplicate_drawing(
+            root.path().to_string_lossy().into_owned(),
+            descriptor.meta.id.clone(),
+            Some("副本".to_string()),
+        )
+        .expect("duplicate mindmap");
+        assert_eq!(duplicated.meta.kind, DrawingKind::Mindmap);
+        assert!(duplicated.has_preview);
+        assert!(duplicated.meta.search_text.contains("中心主题"));
+        let duplicated_bundle =
+            locate_active_bundle(root.path(), &duplicated.meta.id).expect("locate duplicate");
+        assert!(duplicated_bundle.join("mindmap.json").is_file());
+
+        let moved = move_drawing(
+            root.path().to_string_lossy().into_owned(),
+            duplicated.meta.id,
+            "移动后".to_string(),
+        )
+        .expect("move mindmap");
+        assert_eq!(moved.album_path, "移动后");
+        assert_eq!(moved.meta.kind, DrawingKind::Mindmap);
+
+        trash_drawing(
+            root.path().to_string_lossy().into_owned(),
+            descriptor.meta.id.clone(),
+        )
+        .expect("trash mindmap");
+        let restored = restore_drawing(
+            root.path().to_string_lossy().into_owned(),
+            descriptor.meta.id,
+            Some("恢复后".to_string()),
+        )
+        .expect("restore mindmap");
+        assert_eq!(restored.album_path, "恢复后");
+        assert_eq!(restored.meta.kind, DrawingKind::Mindmap);
+    }
+
+    #[test]
+    fn generated_mindmap_create_commits_exact_typed_bundle_atomically() {
+        let root = workspace();
+        let staging_dir = ensure_drawings_root(root.path())
+            .expect("create drawings root")
+            .join(".staging")
+            .join(Uuid::new_v4().to_string());
+        fs::create_dir_all(&staging_dir).expect("create generated staging");
+        fs::write(staging_dir.join("content.bin"), default_mindmap_bytes()).expect("stage mindmap");
+        fs::write(
+            staging_dir.join(PREVIEW_PNG_FILE),
+            b"\x89PNG\r\n\x1a\npreview",
+        )
+        .expect("stage preview");
+        let session = GeneratedCreateSessionEntry {
+            album_path: "AI".to_string(),
+            expires_at: Instant::now() + SESSION_TTL,
+            manifest: DrawingSaveManifest {
+                kind: DrawingKind::Mindmap,
+                item_count: 1,
+                favorite: false,
+                search_text: String::new(),
+                tags: Vec::new(),
+                title: "AI 学习脑图".to_string(),
+            },
+            root_path: root.path().to_string_lossy().into_owned(),
+            staging_dir,
+        };
+
+        let created = commit_generated_create_session(&session).expect("commit generated mindmap");
+        assert_eq!(created.meta.kind, DrawingKind::Mindmap);
+        assert_eq!(created.meta.item_count, 1);
+        assert_eq!(created.meta.revision, 1);
+        assert_eq!(created.meta.preview_revision, Some(1));
+        assert!(created.meta.search_text.contains("中心主题"));
+        let bundle = locate_active_bundle(root.path(), &created.meta.id).expect("locate mindmap");
+        assert!(bundle.join("mindmap.json").is_file());
+        assert!(!bundle.join("scene.excalidraw").exists());
+        assert!(bundle.join(PREVIEW_PNG_FILE).is_file());
+    }
+
+    #[test]
     fn commits_png_preview_when_webp_encoding_is_unavailable() {
         let root = workspace();
         let descriptor = create_drawing(
             root.path().to_string_lossy().into_owned(),
             "兼容".to_string(),
             "PNG 预览".to_string(),
+            None,
         )
         .expect("创建图稿失败");
         let staging_dir = ensure_drawings_root(root.path())
             .expect("读取图稿根目录失败")
             .join(".staging/test-png-preview");
         fs::create_dir_all(&staging_dir).expect("创建预览暂存目录失败");
-        fs::write(staging_dir.join("scene.excalidraw"), default_scene_bytes())
+        fs::write(staging_dir.join("content.bin"), default_scene_bytes())
             .expect("写入暂存场景失败");
         fs::write(staging_dir.join(PREVIEW_PNG_FILE), b"\x89PNG\r\n\x1a\n")
             .expect("写入 PNG 预览失败");
         let session = SaveSessionEntry {
             drawing_id: descriptor.meta.id.clone(),
-            expected_scene_sha256: descriptor.meta.scene_sha256,
+            expected_content_sha256: descriptor.meta.content_sha256,
             expected_revision: descriptor.meta.revision,
             expires_at: Instant::now() + SESSION_TTL,
             manifest: DrawingSaveManifest {
-                element_count: 0,
+                kind: DrawingKind::Whiteboard,
+                item_count: 0,
                 favorite: false,
                 search_text: String::new(),
                 tags: Vec::new(),
@@ -2600,6 +3158,7 @@ mod tests {
             root.path().to_string_lossy().into_owned(),
             String::new(),
             "版本测试".to_string(),
+            None,
         )
         .expect("创建图稿失败");
         let bundle = locate_active_bundle(root.path(), &descriptor.meta.id).expect("查找图稿失败");
@@ -2611,18 +3170,19 @@ mod tests {
             .expect("读取图稿根目录失败")
             .join(".staging/test-stale");
         fs::create_dir_all(&staging_dir).expect("创建暂存目录失败");
-        fs::write(staging_dir.join("scene.excalidraw"), default_scene_bytes())
+        fs::write(staging_dir.join("content.bin"), default_scene_bytes())
             .expect("写入暂存场景失败");
         let mut changed = read_meta(&bundle).expect("读取元数据失败");
         changed.revision += 1;
         write_meta_atomic(&bundle, &changed).expect("模拟外部 revision 失败");
         let session = SaveSessionEntry {
             drawing_id: descriptor.meta.id,
-            expected_scene_sha256: descriptor.meta.scene_sha256,
+            expected_content_sha256: descriptor.meta.content_sha256,
             expected_revision: 1,
             expires_at: Instant::now() + SESSION_TTL,
             manifest: DrawingSaveManifest {
-                element_count: 0,
+                kind: DrawingKind::Whiteboard,
+                item_count: 0,
                 favorite: false,
                 search_text: String::new(),
                 tags: Vec::new(),
@@ -2643,6 +3203,7 @@ mod tests {
             root.path().to_string_lossy().into_owned(),
             "工作".to_string(),
             "待删除".to_string(),
+            None,
         )
         .expect("创建图稿失败");
         let id = descriptor.meta.id;
@@ -2667,7 +3228,7 @@ mod tests {
             .join(Uuid::new_v4().to_string());
         fs::create_dir_all(&staging_dir).expect("create generated staging");
         let scene = default_scene_bytes();
-        fs::write(staging_dir.join("scene.excalidraw"), &scene).expect("stage scene");
+        fs::write(staging_dir.join("content.bin"), &scene).expect("stage scene");
         fs::write(
             staging_dir.join(PREVIEW_PNG_FILE),
             b"\x89PNG\r\n\x1a\npreview",
@@ -2677,7 +3238,8 @@ mod tests {
             album_path: "AI".to_string(),
             expires_at: Instant::now() + SESSION_TTL,
             manifest: DrawingSaveManifest {
-                element_count: 0,
+                kind: DrawingKind::Whiteboard,
+                item_count: 0,
                 favorite: false,
                 search_text: String::new(),
                 tags: Vec::new(),
@@ -2705,13 +3267,13 @@ mod tests {
             .join(".staging")
             .join(Uuid::new_v4().to_string());
         fs::create_dir_all(&staging_dir).expect("create generated staging");
-        fs::write(staging_dir.join("scene.excalidraw"), default_scene_bytes())
-            .expect("stage scene");
+        fs::write(staging_dir.join("content.bin"), default_scene_bytes()).expect("stage scene");
         let session = GeneratedCreateSessionEntry {
             album_path: String::new(),
             expires_at: Instant::now() + SESSION_TTL,
             manifest: DrawingSaveManifest {
-                element_count: 0,
+                kind: DrawingKind::Whiteboard,
+                item_count: 0,
                 favorite: false,
                 search_text: String::new(),
                 tags: Vec::new(),
@@ -2733,6 +3295,7 @@ mod tests {
             root.path().to_string_lossy().into_owned(),
             "项目/架构".to_string(),
             "系统图".to_string(),
+            None,
         )
         .expect("创建图稿失败");
         let source_bundle =

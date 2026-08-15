@@ -26,9 +26,12 @@ export type AiDiagramType =
   | 'state';
 
 export interface CompiledAiDrawing {
+  contentBytes: Uint8Array;
   definition: string;
   diagramType: AiDiagramType;
   elementCount: number;
+  itemCount: number;
+  kind: 'whiteboard';
   previewBytes: Uint8Array;
   previewDataUrl: string;
   previewMediaType: 'image/png' | 'image/webp';
@@ -412,9 +415,12 @@ export async function compileMermaidDrawing(
     throw new Error('图稿预览超过 2 MiB，请减少节点或标签密度。');
   }
   return {
+    contentBytes: sceneBytes,
     definition,
     diagramType,
     elementCount: drawable.length,
+    itemCount: drawable.length,
+    kind: 'whiteboard',
     previewBytes,
     previewDataUrl: dataUrl(previewBytes, previewMediaType),
     previewMediaType,
