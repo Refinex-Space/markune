@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
+  applyExcalidrawNativeTheme,
   evaluateAiDrawingQuality,
   validateMermaidDrawingInput,
 } from '../ai-drawing-compiler';
@@ -91,6 +92,87 @@ describe('validateMermaidDrawingInput', () => {
     });
     expect(result.elements.length).toBeGreaterThan(0);
     expect(result.files ?? {}).toEqual({});
+  });
+});
+
+describe('applyExcalidrawNativeTheme', () => {
+  const theme = {
+    adaptiveRadius: 3,
+    fontFamily: 5,
+    proportionalRadius: 2,
+  };
+
+  it('matches native Excalidraw defaults for nodes, labels, and connectors', () => {
+    const rectangle = applyExcalidrawNativeTheme(
+      {
+        backgroundColor: '#ececff',
+        label: { fontSize: 18, text: '服务', verticalAlign: 'middle' },
+        strokeColor: '#2563eb',
+        type: 'rectangle',
+      },
+      theme,
+    );
+    const arrow = applyExcalidrawNativeTheme(
+      {
+        roundness: null,
+        strokeColor: '#64748b',
+        type: 'arrow',
+      },
+      theme,
+    );
+    const text = applyExcalidrawNativeTheme(
+      {
+        fontFamily: 2,
+        fontSize: 18,
+        strokeColor: '#0f172a',
+        text: '标题',
+        type: 'text',
+      },
+      theme,
+    );
+
+    expect(rectangle).toMatchObject({
+      backgroundColor: 'transparent',
+      fillStyle: 'solid',
+      label: { fontFamily: 5, fontSize: 20, strokeColor: '#1e1e1e' },
+      roughness: 1,
+      roundness: { type: 3 },
+      strokeColor: '#1e1e1e',
+      strokeWidth: 2,
+    });
+    expect(arrow).toMatchObject({
+      backgroundColor: 'transparent',
+      roughness: 1,
+      roundness: { type: 2 },
+      strokeColor: '#1e1e1e',
+      strokeWidth: 2,
+    });
+    expect(text).toMatchObject({
+      fontFamily: 5,
+      fontSize: 20,
+      roughness: 1,
+      strokeColor: '#1e1e1e',
+      strokeWidth: 2,
+    });
+  });
+
+  it('preserves explicit semantic fills while normalizing the native stroke', () => {
+    const rectangle = applyExcalidrawNativeTheme(
+      {
+        backgroundColor: '#ffd8a8',
+        strokeColor: '#e8590c',
+        type: 'rectangle',
+      },
+      theme,
+    );
+
+    expect(rectangle).toMatchObject({
+      backgroundColor: '#ffd8a8',
+      roughness: 1,
+      roundness: { type: 3 },
+      strokeColor: '#1e1e1e',
+      strokeWidth: 2,
+    });
   });
 });
 
