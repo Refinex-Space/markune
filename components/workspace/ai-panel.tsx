@@ -2023,40 +2023,6 @@ export function AiPanel({
     setView('chat');
   }, [resetActiveConversation]);
 
-  const startNewDiagram = React.useCallback(() => {
-    startNewChat();
-    setRuntimeError(null);
-    const requestId = composerSkillInsertRequestIdRef.current;
-    void (async () => {
-      let skill = skillOptions.find(
-        (candidate) => candidate.name === 'markune-diagram',
-      );
-      if (!skill) {
-        try {
-          await runtimeReadyPromiseRef.current;
-        } catch (error) {
-          if (requestId === composerSkillInsertRequestIdRef.current) {
-            setRuntimeError(getErrorMessage(error));
-          }
-          return;
-        }
-        const options = await loadSkills(runtimeGenerationRef.current, true);
-        skill = options?.find(
-          (candidate) => candidate.name === 'markune-diagram',
-        );
-      }
-      if (requestId !== composerSkillInsertRequestIdRef.current) {
-        return;
-      }
-      if (!skill) {
-        setRuntimeError('AI 画图 Skill 加载失败，请重试或重启 Markune。');
-        return;
-      }
-      setComposerSkillInsertRequest({ id: requestId, skill });
-      setComposerFocusRequest((current) => current + 1);
-    })();
-  }, [loadSkills, skillOptions, startNewChat]);
-
   const startNewMindMap = React.useCallback(() => {
     startNewChat();
     setRuntimeError(null);
@@ -2892,7 +2858,6 @@ export function AiPanel({
         presentation={presentation}
         view={view}
         onHistory={() => setView('history')}
-        onNewDiagram={startNewDiagram}
         onNewChat={startNewChat}
       />
 
@@ -2913,9 +2878,9 @@ export function AiPanel({
             <button
               className="mx-3 mb-1 rounded-lg border border-border/70 bg-muted/25 px-3 py-2 text-left text-[11px] text-muted-foreground hover:bg-muted/40 hover:text-foreground"
               type="button"
-              onClick={startNewDiagram}
+              onClick={startNewChat}
             >
-              该历史任务可能没有 Markune 画图工具。在新任务中使用 AI 画图
+              该历史任务可能没有 Markune 画图工具。请在新任务中重试
             </button>
           ) : null}
           <AiConversationViewport
@@ -3208,14 +3173,12 @@ export function AiPanelHeader({
   presentation = 'panel',
   view,
   onHistory,
-  onNewDiagram,
   onNewChat,
 }: {
   activeThread: CodexThread | null;
   presentation?: 'panel' | 'workspace';
   view: PanelView;
   onHistory: () => void;
-  onNewDiagram?: () => void;
   onNewChat: () => void;
 }) {
   return (
@@ -3239,11 +3202,6 @@ export function AiPanelHeader({
         data-testid="ai-header-actions"
       >
         <TooltipProvider delayDuration={250}>
-          {onNewDiagram ? (
-            <HeaderButton label="AI 画图" onClick={onNewDiagram}>
-              <Blocks size={16} />
-            </HeaderButton>
-          ) : null}
           <HeaderButton label="新任务" onClick={onNewChat}>
             <SquarePen size={16} />
           </HeaderButton>

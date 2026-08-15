@@ -1,0 +1,4 @@
+interface:
+  display_name: "Markune AI 脑图"
+  short_description: "检查、创建或改写经过预览质量验证的清晰可编辑结构化脑图"
+  default_prompt: "使用 $markune-mindmap 检查相关脑图，并按我的要求创建或改写当前可编辑结构化脑图。"

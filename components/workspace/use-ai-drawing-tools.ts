@@ -148,6 +148,7 @@ export function useAiDrawingTools({
           const previewId = cacheRef.current.put(
             drawing,
             workspaceRootPath,
+            request.turnId,
           );
           return {
             imageDataUrl: drawing.previewDataUrl,
@@ -204,7 +205,11 @@ export function useAiDrawingTools({
             direction as 'both' | 'down' | 'right',
             root as AiMindMapNode,
           );
-          const previewId = cacheRef.current.put(drawing, workspaceRootPath);
+          const previewId = cacheRef.current.put(
+            drawing,
+            workspaceRootPath,
+            request.turnId,
+          );
           return {
             imageDataUrl: drawing.previewDataUrl || undefined,
             success: true,
@@ -224,6 +229,62 @@ export function useAiDrawingTools({
           };
         }
       }
+      if (request.tool === 'apply_preview_to_active') {
+        const { drawingId, expectedRevision, kind, previewId } =
+          request.arguments;
+        if (
+          typeof previewId !== 'string' ||
+          typeof drawingId !== 'string' ||
+          typeof expectedRevision !== 'number' ||
+          !Number.isSafeInteger(expectedRevision) ||
+          !['mindmap', 'whiteboard'].includes(String(kind))
+        ) {
+          return {
+            success: false,
+            text: 'apply_preview_to_active 参数无效。',
+          };
+        }
+        try {
+          const drawing = cacheRef.current.getForCreate(
+            previewId,
+            workspaceRootPath,
+            request.turnId,
+          );
+          if (drawing.kind !== kind) {
+            return {
+              success: false,
+              text: 'AI 预览类型与活动图稿类型不一致，未应用。',
+            };
+          }
+          const updated = await controller.applyAiPreview({
+            content: drawing.contentBytes,
+            drawingId,
+            expectedRevision,
+            itemCount: drawing.itemCount,
+            kind: drawing.kind,
+            preview: drawing.previewBytes,
+            searchText: drawing.searchText,
+            title: drawing.title,
+          });
+          cacheRef.current.clear();
+          previewAttemptsRef.current.delete(request.turnId);
+          targetAlbumsRef.current.delete(request.turnId);
+          return {
+            success: true,
+            text: JSON.stringify({
+              drawingId: updated.meta.id,
+              kind: updated.meta.kind,
+              revision: updated.meta.revision,
+              title: updated.meta.title,
+            }),
+          };
+        } catch (error) {
+          return {
+            success: false,
+            text: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
       if (request.tool !== 'create_from_preview') {
         return { success: false, text: 'Markune 拒绝未知动态工具。' };
       }
@@ -233,7 +294,11 @@ export function useAiDrawingTools({
       }
       let sessionId: string | null = null;
       try {
-        const drawing = cacheRef.current.getForCreate(previewId, workspaceRootPath);
+        const drawing = cacheRef.current.getForCreate(
+          previewId,
+          workspaceRootPath,
+          request.turnId,
+        );
         const session = await beginGeneratedDrawingCreate(
           workspaceRootPath,
           targetAlbumsRef.current.get(request.turnId) ?? selectedAlbumPath(controller),
@@ -241,7 +306,7 @@ export function useAiDrawingTools({
             kind: drawing.kind,
             itemCount: drawing.itemCount,
             favorite: false,
-            searchText: '',
+            searchText: drawing.searchText,
             tags: [],
             title: drawing.title,
           },

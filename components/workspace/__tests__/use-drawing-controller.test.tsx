@@ -242,6 +242,109 @@ describe('useDrawingController', () => {
     unmount();
   });
 
+  it('atomically applies an AI preview to the same active revision and reloads the editor', async () => {
+    const initial = descriptor(1);
+    initial.meta.favorite = true;
+    initial.meta.tags = ['架构'];
+    const committed = descriptor(2);
+    committed.meta.title = 'Spring Boot 知识点大纲';
+    committed.meta.itemCount = 12;
+    committed.hasPreview = true;
+    apiMocks.loadDrawingLibrary.mockResolvedValue(emptySnapshot);
+    apiMocks.readDrawingMeta
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce(committed);
+    apiMocks.readDrawingScene.mockResolvedValue(
+      new TextEncoder().encode('{"type":"excalidraw","version":2,"elements":[]}'),
+    );
+    apiMocks.readDrawingLibrary.mockResolvedValue(new Uint8Array());
+    apiMocks.beginDrawingSave.mockResolvedValue({
+      nextRevision: 2,
+      sessionId: 'session-ai',
+    });
+    apiMocks.stageDrawingScene.mockResolvedValue(undefined);
+    apiMocks.stageDrawingPreview.mockResolvedValue(undefined);
+    apiMocks.commitDrawingSave.mockResolvedValue(committed);
+    const { result, unmount } = renderHook(() =>
+      useDrawingController({ active: false, rootPath: '/workspace' }),
+    );
+
+    await settleRootReset();
+    await act(async () => result.current.openDrawing(initial.meta.id));
+    const flushEditor = vi.fn().mockResolvedValue(undefined);
+    act(() => result.current.registerFlush(flushEditor));
+    let updated: DrawingDocumentDescriptor | undefined;
+    await act(async () => {
+      updated = await result.current.applyAiPreview({
+        content: Uint8Array.from([1, 2, 3]),
+        drawingId: initial.meta.id,
+        expectedRevision: 1,
+        itemCount: 12,
+        kind: 'whiteboard',
+        preview: Uint8Array.from([4, 5, 6]),
+        searchText: 'Spring Boot\n自动配置',
+        title: 'Spring Boot 知识点大纲',
+      });
+    });
+
+    expect(updated).toEqual(committed);
+    expect(apiMocks.beginDrawingSave).toHaveBeenCalledWith(
+      '/workspace',
+      initial.meta.id,
+      1,
+      {
+        favorite: true,
+        itemCount: 12,
+        kind: 'whiteboard',
+        searchText: 'Spring Boot\n自动配置',
+        tags: ['架构'],
+        title: 'Spring Boot 知识点大纲',
+      },
+      false,
+    );
+    expect(apiMocks.stageDrawingScene).toHaveBeenCalledWith(
+      'session-ai',
+      Uint8Array.from([1, 2, 3]),
+    );
+    expect(apiMocks.stageDrawingPreview).toHaveBeenCalledWith(
+      'session-ai',
+      Uint8Array.from([4, 5, 6]),
+    );
+    expect(apiMocks.readDrawingMeta).toHaveBeenCalledTimes(2);
+    expect(flushEditor).toHaveBeenCalledTimes(2);
+    unmount();
+  });
+
+  it('refuses an AI preview when the active revision changed after the turn started', async () => {
+    apiMocks.loadDrawingLibrary.mockResolvedValue(emptySnapshot);
+    apiMocks.readDrawingMeta.mockResolvedValue(descriptor(2));
+    apiMocks.readDrawingScene.mockResolvedValue(
+      new TextEncoder().encode('{"type":"excalidraw","version":2,"elements":[]}'),
+    );
+    apiMocks.readDrawingLibrary.mockResolvedValue(new Uint8Array());
+    const { result, unmount } = renderHook(() =>
+      useDrawingController({ active: false, rootPath: '/workspace' }),
+    );
+
+    await settleRootReset();
+    await act(async () => result.current.openDrawing(descriptor(2).meta.id));
+    await expect(
+      result.current.applyAiPreview({
+        content: new Uint8Array(),
+        drawingId: descriptor(2).meta.id,
+        expectedRevision: 1,
+        itemCount: 0,
+        kind: 'whiteboard',
+        preview: new Uint8Array(),
+        searchText: '',
+        title: '过期预览',
+      }),
+    ).rejects.toThrow('DRAWING_CONFLICT');
+
+    expect(apiMocks.beginDrawingSave).not.toHaveBeenCalled();
+    unmount();
+  });
+
   it('creates Markdown references from stable snapshot and drawing IDs', async () => {
     const assetId = 'd0f45cd65e487641a2bed39aaf81f718b7bc6969ac49520911230b69fe219156';
     apiMocks.readDrawingMeta.mockResolvedValue(descriptor(1));

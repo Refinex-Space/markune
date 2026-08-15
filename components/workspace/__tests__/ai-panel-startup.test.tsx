@@ -612,7 +612,7 @@ describe('AI panel startup lifecycle', () => {
     expect(screen.getByRole('button', { name: '起草新文档' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '整理知识结构' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '查找内容问题' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'AI 画图' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'AI 画图' })).toBeNull();
   });
 
   it('从图集触发 AI 脑图时新开任务、插入 Skill 并聚焦但不自动发送', async () => {
@@ -921,7 +921,6 @@ describe('AI panel startup lifecycle', () => {
   });
 
   it('注册内置 Skill 触发 skills/changed 时不会形成重复注册循环', async () => {
-    const user = userEvent.setup();
     let extraRootsCalls = 0;
     bridge.request.mockImplementation((method: string) => {
       if (method === 'skills/extraRoots/set') {
@@ -971,39 +970,7 @@ describe('AI panel startup lifecycle', () => {
         ([method]) => method === 'skills/extraRoots/set',
       ),
     ).toHaveLength(1);
-
-    await user.click(screen.getByRole('button', { name: 'AI 画图' }));
-    const diagramSkillMention = await screen.findByRole('note', {
-      name: 'Markune AI 画图',
-    });
-    expect(diagramSkillMention.classList.contains('inline-flex')).toBe(true);
-    expect(diagramSkillMention.classList.contains('whitespace-nowrap')).toBe(true);
-    expect(
-      screen.queryByText('AI 画图 Skill 加载失败，请重试或重启 Markune。'),
-    ).toBeNull();
-
-    const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
-    await user.click(editor);
-    await user.type(editor, '画 Spring Cloud 架构');
-    await user.click(screen.getByRole('button', { name: '发送' }));
-    await waitFor(() =>
-      expect(bridge.request).toHaveBeenCalledWith(
-        'turn/start',
-        expect.objectContaining({
-          input: [
-            expect.objectContaining({
-              type: 'text',
-              text: '$markune-diagram 画 Spring Cloud 架构',
-            }),
-            {
-              type: 'skill',
-              name: 'markune-diagram',
-              path: '/Applications/Markune.app/skills/markune-diagram/SKILL.md',
-            },
-          ],
-        }),
-      ),
-    );
+    expect(screen.queryByRole('button', { name: 'AI 画图' })).toBeNull();
   });
 
   it('从斜杠面板选择 Skill 后发送协议要求的文本令牌和原生输入', async () => {

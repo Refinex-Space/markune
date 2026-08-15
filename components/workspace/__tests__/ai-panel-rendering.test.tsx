@@ -764,7 +764,7 @@ describe('AI message rendering', () => {
   it('为标题栏动作展示一致的悬停提示', async () => {
     const user = userEvent.setup();
 
-    for (const label of ['AI 画图', '新任务', '历史记录']) {
+    for (const label of ['新任务', '历史记录']) {
       const { unmount } = render(
         <AiPanelHeader
           activeThread={null}
@@ -772,7 +772,6 @@ describe('AI message rendering', () => {
           view="chat"
           onHistory={vi.fn()}
           onNewChat={vi.fn()}
-          onNewDiagram={vi.fn()}
         />,
       );
       const button = screen.getByRole('button', { name: label });

@@ -38,6 +38,7 @@ export interface CompiledAiDrawing {
   profile: AiDrawingProfile;
   quality: AiDrawingQualityReport;
   sceneBytes: Uint8Array;
+  searchText: string;
   title: string;
   warnings: string[];
 }
@@ -427,6 +428,15 @@ export async function compileMermaidDrawing(
     profile,
     quality,
     sceneBytes,
+    searchText: drawable
+      .flatMap((element) => {
+        const candidate = element as unknown as Record<string, unknown>;
+        return [candidate.text, candidate.originalText, candidate.link].filter(
+          (value): value is string =>
+            typeof value === 'string' && value.trim().length > 0,
+        );
+      })
+      .join('\n'),
     title,
     warnings: [...new Set([...warnings, ...quality.warnings])],
   };

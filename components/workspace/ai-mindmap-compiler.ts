@@ -35,6 +35,7 @@ export interface CompiledAiMindMap {
   previewDataUrl: string;
   previewMediaType: 'image/png';
   quality: AiMindMapQualityReport;
+  searchText: string;
   title: string;
   warnings: string[];
 }
@@ -69,6 +70,7 @@ export async function compileAiMindMap(
     version: 1,
   } as const;
   const contentBytes = new TextEncoder().encode(`${JSON.stringify(document, null, 2)}\n`);
+  const searchText = collectTopics(draft.root).join('\n');
   return {
     contentBytes,
     direction: draft.direction,
@@ -78,6 +80,7 @@ export async function compileAiMindMap(
     previewDataUrl: dataUrl(previewBytes, 'image/png'),
     previewMediaType: 'image/png',
     quality,
+    searchText,
     title: draft.title,
     warnings: quality.warnings,
   };
@@ -252,9 +255,20 @@ async function compileBlockedMindMap(
     previewDataUrl: '',
     previewMediaType: 'image/png',
     quality,
+    searchText: collectTopics(draft.root).join('\n'),
     title: draft.title,
     warnings: quality.warnings,
   };
+}
+
+function collectTopics(root: AiMindMapNode) {
+  const topics: string[] = [];
+  const visit = (node: AiMindMapNode) => {
+    topics.push(node.topic);
+    for (const child of node.children ?? []) visit(child);
+  };
+  visit(root);
+  return topics;
 }
 
 function dataUrl(bytes: Uint8Array, mediaType: string) {

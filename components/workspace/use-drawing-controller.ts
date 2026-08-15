@@ -62,6 +62,17 @@ export interface DrawingSavePayload {
   content: Uint8Array;
 }
 
+export interface ApplyAiDrawingPreviewInput {
+  content: Uint8Array;
+  drawingId: string;
+  expectedRevision: number;
+  itemCount: number;
+  kind: DrawingKind;
+  preview: Uint8Array;
+  searchText: string;
+  title: string;
+}
+
 export type DrawingActionCommand =
   | { kind: 'copy-markdown' }
   | { format: 'excalidraw' | 'mindmap' | 'png' | 'svg'; kind: 'export' };
@@ -584,6 +595,46 @@ export function useDrawingController({
     await saveQueueRef.current;
   }, [saveState]);
 
+  const applyAiPreview = React.useCallback(
+    async (input: ApplyAiDrawingPreviewInput) => {
+      await flush();
+      const current = descriptorRef.current;
+      if (!current || current.meta.id !== input.drawingId) {
+        throw new Error('活动图稿已切换，未应用 AI 预览。');
+      }
+      if (current.meta.kind !== input.kind) {
+        throw new Error('AI 预览类型与活动图稿类型不一致，未应用。');
+      }
+      if (current.meta.revision !== input.expectedRevision) {
+        throw new Error(
+          `DRAWING_CONFLICT：活动图稿已从 revision ${input.expectedRevision} 更新到 ${current.meta.revision}，未应用 AI 预览。`,
+        );
+      }
+      await save({
+        content: input.content,
+        manifest: {
+          favorite: current.meta.favorite,
+          itemCount: input.itemCount,
+          kind: input.kind,
+          searchText: input.searchText,
+          tags: current.meta.tags,
+          title: input.title,
+        },
+        preview: input.preview,
+      });
+      const committed = descriptorRef.current;
+      if (!committed || committed.meta.id !== input.drawingId) {
+        throw new Error('AI 预览已保存，但无法重新载入活动图稿。');
+      }
+      const opened = await openDrawing(input.drawingId);
+      if (!opened) {
+        throw new Error('AI 预览已保存，但活动编辑器重新载入失败。');
+      }
+      return committed;
+    },
+    [flush, openDrawing, save],
+  );
+
   const recordViewport = React.useCallback(
     (viewport: DrawingViewport) => {
       if (!descriptor) return;
@@ -620,6 +671,7 @@ export function useDrawingController({
   );
 
   return {
+    applyAiPreview,
     completeDrawingAction,
     createAlbum,
     createMarkdownReference,

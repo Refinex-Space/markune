@@ -74,6 +74,7 @@ const compiled = {
     warnings: [],
   },
   sceneBytes: new Uint8Array([1, 2, 3]),
+  searchText: 'Spring Cloud\nAPI Gateway',
   title: 'Spring Cloud 架构',
   warnings: [],
 };
@@ -111,6 +112,7 @@ const compiledMindMap = {
     suggestions: [],
     warnings: [],
   },
+  searchText: '学习路径\n第一步',
   title: '学习路径',
   warnings: [],
 };
@@ -247,6 +249,62 @@ describe('useAiDrawingTools', () => {
       expect(creation.text).toContain('质量门禁');
     });
 
+    expect(mocks.begin).not.toHaveBeenCalled();
+  });
+
+  it('applies the exact cached preview to the turn-bound active drawing', async () => {
+    const applyAiPreview = vi.fn().mockResolvedValue({
+      ...created,
+      meta: {
+        ...created.meta,
+        kind: 'whiteboard',
+        revision: 8,
+      },
+    });
+    const controller = {
+      applyAiPreview,
+      descriptor: {
+        ...created,
+        meta: { ...created.meta, kind: 'whiteboard', revision: 7 },
+      },
+      selection: { id: 'drawing-1', kind: 'drawing' },
+    } as unknown as DrawingController;
+    const { result } = renderHook(() =>
+      useAiDrawingTools({
+        controller,
+        onCreated: vi.fn(),
+        workspaceRootPath: '/workspace',
+      }),
+    );
+
+    let previewId = '';
+    await act(async () => {
+      const preview = await result.current(previewRequest());
+      previewId = JSON.parse(preview.text).previewId;
+      const response = await result.current({
+        ...previewRequest(),
+        arguments: {
+          drawingId: 'drawing-1',
+          expectedRevision: 7,
+          kind: 'whiteboard',
+          previewId,
+        },
+        tool: 'apply_preview_to_active',
+      });
+      expect(response.success).toBe(true);
+      expect(JSON.parse(response.text).revision).toBe(8);
+    });
+
+    expect(applyAiPreview).toHaveBeenCalledWith({
+      content: compiled.contentBytes,
+      drawingId: 'drawing-1',
+      expectedRevision: 7,
+      itemCount: compiled.itemCount,
+      kind: 'whiteboard',
+      preview: compiled.previewBytes,
+      searchText: compiled.searchText,
+      title: compiled.title,
+    });
     expect(mocks.begin).not.toHaveBeenCalled();
   });
 
