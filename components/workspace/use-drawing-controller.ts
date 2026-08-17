@@ -42,6 +42,7 @@ import {
 import type {
   DrawingCollection,
   DrawingDocumentDescriptor,
+  DrawingKind,
   DrawingLibrarySnapshot,
   DrawingSaveManifest,
   DrawingSaveState,
@@ -58,12 +59,23 @@ export type DrawingSelection =
 export interface DrawingSavePayload {
   manifest: DrawingSaveManifest;
   preview: Uint8Array | null;
-  scene: Uint8Array;
+  content: Uint8Array;
+}
+
+export interface ApplyAiDrawingPreviewInput {
+  content: Uint8Array;
+  drawingId: string;
+  expectedRevision: number;
+  itemCount: number;
+  kind: DrawingKind;
+  preview: Uint8Array;
+  searchText: string;
+  title: string;
 }
 
 export type DrawingActionCommand =
   | { kind: 'copy-markdown' }
-  | { format: 'excalidraw' | 'png' | 'svg'; kind: 'export' };
+  | { format: 'excalidraw' | 'mindmap' | 'png' | 'svg'; kind: 'export' };
 
 export type DrawingActionRequest = DrawingActionCommand & {
   drawingId: string;
@@ -100,7 +112,7 @@ export function useDrawingController({
     React.useState<DrawingActionRequest | null>(null);
   const [descriptor, setDescriptor] =
     React.useState<DrawingDocumentDescriptor | null>(null);
-  const [scene, setScene] = React.useState<string | null>(null);
+  const [content, setContent] = React.useState<string | null>(null);
   const [library, setLibrary] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -162,7 +174,7 @@ export function useDrawingController({
       setSelection({ collection: 'all', kind: 'collection' });
       descriptorRef.current = null;
       setDescriptor(null);
-      setScene(null);
+      setContent(null);
       setLibrary(null);
       setRequestedAction(null);
       setUiState(EMPTY_UI_STATE);
@@ -205,7 +217,7 @@ export function useDrawingController({
       const requestId = ++loadRequestRef.current;
       setLoading(true);
       setError(null);
-      setScene(null);
+      setContent(null);
       try {
         const nextDescriptor = await readDrawingMeta(rootPath, drawingId);
         if (requestId !== loadRequestRef.current) return false;
@@ -237,7 +249,7 @@ export function useDrawingController({
           setLibrary(null);
         }
         if (sceneResult.status === 'rejected') throw sceneResult.reason;
-        setScene(new TextDecoder().decode(sceneResult.value));
+        setContent(new TextDecoder().decode(sceneResult.value));
         if (libraryResult.status === 'rejected') {
           setError(`组件库读取失败：${formatError(libraryResult.reason)}`);
         }
@@ -277,7 +289,7 @@ export function useDrawingController({
     setError(null);
     try {
       const bytes = await readDrawingScene(rootPath, descriptor.meta.id, true);
-      setScene(new TextDecoder().decode(bytes));
+      setContent(new TextDecoder().decode(bytes));
       setSaveState({
         revision: descriptor.meta.revision,
         status: 'dirty',
@@ -295,7 +307,7 @@ export function useDrawingController({
       setSelection({ collection, kind: 'collection' });
       descriptorRef.current = null;
       setDescriptor(null);
-      setScene(null);
+      setContent(null);
     },
     [],
   );
@@ -305,15 +317,15 @@ export function useDrawingController({
     setSelection({ kind: 'album', path });
     descriptorRef.current = null;
     setDescriptor(null);
-    setScene(null);
+    setContent(null);
   }, []);
 
   const createNewDrawing = React.useCallback(
-    async (title: string, albumPath = '') => {
+    async (title: string, albumPath = '', kind: DrawingKind = 'whiteboard') => {
       if (!rootPath) return null;
       setError(null);
       try {
-        const created = await createDrawing(rootPath, albumPath, title);
+        const created = await createDrawing(rootPath, albumPath, title, kind);
         await refresh();
         await openDrawing(created.meta.id);
         return created;
@@ -361,7 +373,7 @@ export function useDrawingController({
             force,
           );
           sessionId = session.sessionId;
-          await stageDrawingScene(session.sessionId, payload.scene);
+          await stageDrawingScene(session.sessionId, payload.content);
           if (payload.preview) {
             try {
               await stageDrawingPreview(session.sessionId, payload.preview);
@@ -469,7 +481,7 @@ export function useDrawingController({
         if (descriptorRef.current?.meta.id === drawingId) {
           descriptorRef.current = null;
           setDescriptor(null);
-          setScene(null);
+          setContent(null);
           setSelection({ collection: 'trash', kind: 'collection' });
         }
         await refresh();
@@ -583,6 +595,46 @@ export function useDrawingController({
     await saveQueueRef.current;
   }, [saveState]);
 
+  const applyAiPreview = React.useCallback(
+    async (input: ApplyAiDrawingPreviewInput) => {
+      await flush();
+      const current = descriptorRef.current;
+      if (!current || current.meta.id !== input.drawingId) {
+        throw new Error('活动图稿已切换，未应用 AI 预览。');
+      }
+      if (current.meta.kind !== input.kind) {
+        throw new Error('AI 预览类型与活动图稿类型不一致，未应用。');
+      }
+      if (current.meta.revision !== input.expectedRevision) {
+        throw new Error(
+          `DRAWING_CONFLICT：活动图稿已从 revision ${input.expectedRevision} 更新到 ${current.meta.revision}，未应用 AI 预览。`,
+        );
+      }
+      await save({
+        content: input.content,
+        manifest: {
+          favorite: current.meta.favorite,
+          itemCount: input.itemCount,
+          kind: input.kind,
+          searchText: input.searchText,
+          tags: current.meta.tags,
+          title: input.title,
+        },
+        preview: input.preview,
+      });
+      const committed = descriptorRef.current;
+      if (!committed || committed.meta.id !== input.drawingId) {
+        throw new Error('AI 预览已保存，但无法重新载入活动图稿。');
+      }
+      const opened = await openDrawing(input.drawingId);
+      if (!opened) {
+        throw new Error('AI 预览已保存，但活动编辑器重新载入失败。');
+      }
+      return committed;
+    },
+    [flush, openDrawing, save],
+  );
+
   const recordViewport = React.useCallback(
     (viewport: DrawingViewport) => {
       if (!descriptor) return;
@@ -619,6 +671,7 @@ export function useDrawingController({
   );
 
   return {
+    applyAiPreview,
     completeDrawingAction,
     createAlbum,
     createMarkdownReference,
@@ -691,7 +744,7 @@ export function useDrawingController({
         await trashDrawingAlbum(rootPath, path);
         descriptorRef.current = null;
         setDescriptor(null);
-        setScene(null);
+        setContent(null);
         setSelection({ collection: 'trash', kind: 'collection' });
         await refresh();
       } catch (nextError) {
@@ -720,7 +773,7 @@ export function useDrawingController({
     restore,
     save,
     saveState,
-    scene,
+    content,
     selectAlbum,
     selectCollection,
     selection,

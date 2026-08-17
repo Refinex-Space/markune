@@ -4,13 +4,20 @@ import * as React from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
+  ArrowDownToLine,
+  ArrowLeftToLine,
+  ArrowRightToLine,
+  BrainCircuit,
+  ChevronsLeftRight,
   Check,
   ChevronDown,
   Clock3,
   FileImage,
+  FilePlus2,
   Grid2X2,
   List,
   MoreHorizontal,
+  Scan,
   RefreshCw,
   Star,
   Trash2,
@@ -39,6 +46,12 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
 import {
@@ -46,6 +59,7 @@ import {
   DrawingDropdownActions,
 } from './drawing-action-menu';
 import { DrawingEditorDynamic } from './drawing-editor-dynamic';
+import { MindMapEditorDynamic } from './mindmap-editor-dynamic';
 import type {
   DrawingEditorActions,
   DrawingExportFormat,
@@ -60,6 +74,7 @@ import type {
 
 type GalleryViewMode = 'grid' | 'list';
 type GallerySort = 'created' | 'name' | 'updated';
+type GalleryKindFilter = 'all' | 'mindmap' | 'whiteboard';
 
 export function DrawingWorkspacePage({
   controller,
@@ -75,7 +90,7 @@ export function DrawingWorkspacePage({
   if (
     controller.selection.kind === 'drawing' &&
     controller.descriptor &&
-    controller.scene
+    controller.content
   ) {
     return (
       <DrawingEditorSurface
@@ -125,7 +140,7 @@ function DrawingRecoverySurface({
       <div className="flex min-h-0 flex-1 items-center justify-center p-6">
         <div className="w-full max-w-lg rounded-xl border border-amber-500/30 bg-amber-500/5 p-6">
           <AlertTriangle className="mb-4 text-amber-600" size={28} />
-          <h2 className="text-base font-semibold">主场景无法打开</h2>
+          <h2 className="text-base font-semibold">图稿内容无法打开</h2>
           <p className="mt-2 break-words text-sm text-muted-foreground">
             {controller.error || '图稿文件可能已损坏，可以尝试加载上一份有效备份。'}
           </p>
@@ -155,7 +170,7 @@ function DrawingRecoverySurface({
             </p>
           ) : (
             <p className="mt-3 text-xs text-muted-foreground">
-              当前 bundle 没有可用备份，请重新导入原始 .excalidraw 文件。
+              当前 bundle 没有可用备份，请从原始文件重新创建该图稿。
             </p>
           )}
         </div>
@@ -173,10 +188,17 @@ function DrawingGallery({
 }) {
   const [viewMode, setViewMode] = React.useState<GalleryViewMode>('grid');
   const [sort, setSort] = React.useState<GallerySort>('updated');
+  const [kindFilter, setKindFilter] = React.useState<GalleryKindFilter>('all');
   const [moveTarget, setMoveTarget] = React.useState<DrawingSummary | null>(null);
   const drawings = React.useMemo(
-    () => sortDrawings(controller.visibleDrawings, sort),
-    [controller.visibleDrawings, sort],
+    () =>
+      sortDrawings(
+        controller.visibleDrawings.filter(
+          (drawing) => kindFilter === 'all' || drawing.kind === kindFilter,
+        ),
+        sort,
+      ),
+    [controller.visibleDrawings, kindFilter, sort],
   );
   const trash =
     controller.selection.kind === 'collection' &&
@@ -197,6 +219,82 @@ function DrawingGallery({
           className="ml-auto flex items-center gap-1"
           data-testid="drawing-gallery-toolbar"
         >
+          {!trash ? (
+            <div className="mr-1 flex h-7 overflow-hidden rounded-md border border-border/70 bg-background">
+              <button
+                className="inline-flex items-center gap-1.5 px-2 text-xs hover:bg-muted"
+                type="button"
+                onClick={() =>
+                  void controller.createNewDrawing(
+                    '未命名白板',
+                    selectedAlbum(controller),
+                    'whiteboard',
+                  )
+                }
+              >
+                <FilePlus2 size={13} /> 新建
+              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    aria-label="选择新建图稿类型"
+                    className="flex w-7 items-center justify-center border-l hover:bg-muted"
+                    type="button"
+                  >
+                    <ChevronDown size={13} />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      void controller.createNewDrawing(
+                        '未命名白板',
+                        selectedAlbum(controller),
+                        'whiteboard',
+                      )
+                    }
+                  >
+                    <FilePlus2 /> 新建白板
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      void controller.createNewDrawing(
+                        '未命名脑图',
+                        selectedAlbum(controller),
+                        'mindmap',
+                      )
+                    }
+                  >
+                    <BrainCircuit /> 新建脑图
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          ) : null}
+          {!trash ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  aria-label="图稿类型筛选"
+                  className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/70 bg-background px-2 text-xs text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-1 focus-visible:ring-ring"
+                  type="button"
+                >
+                  {galleryKindFilterLabel(kindFilter)}
+                  <ChevronDown className="text-muted-foreground" size={13} />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-32">
+                <DropdownMenuRadioGroup
+                  value={kindFilter}
+                  onValueChange={(value) => setKindFilter(value as GalleryKindFilter)}
+                >
+                  <DropdownMenuRadioItem value="all">全部类型</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="whiteboard">白板</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="mindmap">脑图</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -295,8 +393,9 @@ function DrawingGallery({
                 ? undefined
                 : () =>
                     void controller.createNewDrawing(
-                      '未命名图稿',
+                      '未命名白板',
                       selectedAlbum(controller),
+                      'whiteboard',
                     )
             }
           />
@@ -528,6 +627,19 @@ function DrawingCard({
                 size={12}
               />
             ) : null}
+            {drawing.kind === 'mindmap' ? (
+              <BrainCircuit
+                aria-label="脑图"
+                className="shrink-0 text-muted-foreground"
+                size={12}
+              />
+            ) : (
+              <FileImage
+                aria-label="白板"
+                className="shrink-0 text-muted-foreground"
+                size={12}
+              />
+            )}
             {drawing.issue ? (
               <AlertTriangle className="shrink-0 text-amber-500" size={12} />
             ) : null}
@@ -723,6 +835,87 @@ function DrawingEditorSurface({
           />
         </Button>
         <SaveStatus state={controller.saveState.status} />
+        {descriptor.meta.kind === 'mindmap' ? (
+          <TooltipProvider delayDuration={300}>
+            <div className="ml-auto flex items-center gap-0.5">
+              <MindMapToolbarTooltip label="左向布局">
+                <Button
+                  aria-label="脑图左向布局"
+                  size="icon-sm"
+                  variant="ghost"
+                  onClick={() => actionsRef.current?.mindmap?.setDirection('left')}
+                >
+                  <ArrowLeftToLine />
+                </Button>
+              </MindMapToolbarTooltip>
+              <MindMapToolbarTooltip label="右向布局">
+                <Button
+                  aria-label="脑图右向布局"
+                  size="icon-sm"
+                  variant="ghost"
+                  onClick={() => actionsRef.current?.mindmap?.setDirection('right')}
+                >
+                  <ArrowRightToLine />
+                </Button>
+              </MindMapToolbarTooltip>
+              <MindMapToolbarTooltip label="双向布局">
+                <Button
+                  aria-label="脑图双向布局"
+                  size="icon-sm"
+                  variant="ghost"
+                  onClick={() => actionsRef.current?.mindmap?.setDirection('both')}
+                >
+                  <ChevronsLeftRight />
+                </Button>
+              </MindMapToolbarTooltip>
+              <MindMapToolbarTooltip label="向下布局">
+                <Button
+                  aria-label="脑图向下布局"
+                  size="icon-sm"
+                  variant="ghost"
+                  onClick={() => actionsRef.current?.mindmap?.setDirection('down')}
+                >
+                  <ArrowDownToLine />
+                </Button>
+              </MindMapToolbarTooltip>
+              <MindMapToolbarTooltip label="适应窗口">
+                <Button
+                  aria-label="适应窗口"
+                  size="icon-sm"
+                  variant="ghost"
+                  onClick={() => actionsRef.current?.mindmap?.fit()}
+                >
+                  <Scan />
+                </Button>
+              </MindMapToolbarTooltip>
+              <DropdownMenu>
+                <MindMapToolbarTooltip label="展开层级">
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      aria-label="折叠脑图层级"
+                      size="icon-sm"
+                      variant="ghost"
+                    >
+                      <MoreHorizontal />
+                    </Button>
+                  </DropdownMenuTrigger>
+                </MindMapToolbarTooltip>
+                <DropdownMenuContent align="end">
+                  {[1, 2, 3, 4].map((level) => (
+                    <DropdownMenuItem
+                      key={level}
+                      onSelect={() =>
+                        actionsRef.current?.mindmap?.collapseToLevel(level)
+                      }
+                    >
+                      展开到第 {level} 层
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </TooltipProvider>
+        ) : null}
       </header>
 
       {controller.saveState.status === 'conflict' ? (
@@ -745,28 +938,66 @@ function DrawingEditorSurface({
         </div>
       ) : null}
       <div className="min-h-0 flex-1">
-        <DrawingEditorDynamic
-          autoSaveBlocked={controller.saveState.status === 'conflict'}
-          favorite={favorite}
-          initialLibrary={controller.library}
-          initialScene={controller.scene!}
-          key={descriptor.meta.id}
-          tags={descriptor.meta.tags}
-          theme={theme}
-          title={title.trim() || '未命名图稿'}
-          viewport={controller.viewport}
-          onDirty={controller.markDirty}
-          onLibraryChange={controller.persistLibrary}
-          onReady={(actions) => {
-            actionsRef.current = actions;
-            setActionsReady((current) => current + 1);
-            controller.registerFlush(actions ? () => actions.flush() : null);
-          }}
-          onSave={controller.save}
-          onViewportChange={controller.recordViewport}
-        />
+        {descriptor.meta.kind === 'mindmap' ? (
+          <MindMapEditorDynamic
+            autoSaveBlocked={controller.saveState.status === 'conflict'}
+            favorite={favorite}
+            initialContent={controller.content!}
+            key={descriptor.meta.id}
+            tags={descriptor.meta.tags}
+            theme={theme}
+            title={title.trim() || '未命名脑图'}
+            viewport={controller.viewport}
+            onDirty={controller.markDirty}
+            onReady={(actions) => {
+              actionsRef.current = actions;
+              setActionsReady((current) => current + 1);
+              controller.registerFlush(actions ? () => actions.flush() : null);
+            }}
+            onSave={controller.save}
+            onViewportChange={controller.recordViewport}
+          />
+        ) : (
+          <DrawingEditorDynamic
+            autoSaveBlocked={controller.saveState.status === 'conflict'}
+            favorite={favorite}
+            initialLibrary={controller.library}
+            initialScene={controller.content!}
+            key={descriptor.meta.id}
+            tags={descriptor.meta.tags}
+            theme={theme}
+            title={title.trim() || '未命名白板'}
+            viewport={controller.viewport}
+            onDirty={controller.markDirty}
+            onLibraryChange={controller.persistLibrary}
+            onReady={(actions) => {
+              actionsRef.current = actions;
+              setActionsReady((current) => current + 1);
+              controller.registerFlush(actions ? () => actions.flush() : null);
+            }}
+            onSave={controller.save}
+            onViewportChange={controller.recordViewport}
+          />
+        )}
       </div>
     </section>
+  );
+}
+
+function MindMapToolbarTooltip({
+  children,
+  label,
+}: {
+  children: React.ReactElement;
+  label: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side="bottom" sideOffset={6}>
+        {label}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -922,6 +1153,12 @@ function gallerySortLabel(sort: GallerySort) {
     name: '名称',
     updated: '最近更新',
   }[sort];
+}
+
+function galleryKindFilterLabel(filter: GalleryKindFilter) {
+  if (filter === 'mindmap') return '脑图';
+  if (filter === 'whiteboard') return '白板';
+  return '全部类型';
 }
 
 function sortDrawings(drawings: DrawingSummary[], sort: GallerySort) {

@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   cancel: vi.fn(),
   commit: vi.fn(),
   compile: vi.fn(),
+  compileMindMap: vi.fn(),
   readMeta: vi.fn(),
   readPreview: vi.fn(),
   readScene: vi.fn(),
@@ -18,6 +19,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../ai-drawing-compiler', () => ({
   compileMermaidDrawing: mocks.compile,
+}));
+
+vi.mock('../ai-mindmap-compiler', () => ({
+  compileAiMindMap: mocks.compileMindMap,
 }));
 
 vi.mock('../workspace-api', () => ({
@@ -32,9 +37,12 @@ vi.mock('../workspace-api', () => ({
 }));
 
 const compiled = {
+  contentBytes: new Uint8Array([1, 2, 3]),
   definition: 'flowchart TB\nA-->B',
   diagramType: 'flowchart',
   elementCount: 3,
+  itemCount: 3,
+  kind: 'whiteboard' as const,
   previewBytes: new Uint8Array([4, 5]),
   previewDataUrl: 'data:image/webp;base64,UklGRgAAAABXRUJQ',
   previewMediaType: 'image/webp',
@@ -66,6 +74,7 @@ const compiled = {
     warnings: [],
   },
   sceneBytes: new Uint8Array([1, 2, 3]),
+  searchText: 'Spring Cloud\nAPI Gateway',
   title: 'Spring Cloud 架构',
   warnings: [],
 };
@@ -79,6 +88,33 @@ const created = {
     revision: 1,
     title: 'Spring Cloud 架构',
   },
+};
+
+const compiledMindMap = {
+  contentBytes: new Uint8Array([7, 8, 9]),
+  direction: 'right' as const,
+  itemCount: 2,
+  kind: 'mindmap' as const,
+  previewBytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+  previewDataUrl: 'data:image/png;base64,iVBORw==',
+  previewMediaType: 'image/png' as const,
+  quality: {
+    blockers: [],
+    creatable: true,
+    grade: 'A' as const,
+    metrics: {
+      estimatedAspectRatio: 1,
+      maxChildren: 1,
+      maxDepth: 2,
+      nodeCount: 2,
+    },
+    score: 100,
+    suggestions: [],
+    warnings: [],
+  },
+  searchText: '学习路径\n第一步',
+  title: '学习路径',
+  warnings: [],
 };
 
 function previewRequest() {
@@ -98,10 +134,12 @@ function previewRequest() {
 
 describe('useAiDrawingTools', () => {
   beforeEach(() => {
+    window.sessionStorage.clear();
     vi.stubGlobal('crypto', {
       randomUUID: () => '00000000-0000-4000-8000-000000000001',
     });
     mocks.compile.mockResolvedValue(compiled);
+    mocks.compileMindMap.mockResolvedValue(compiledMindMap);
     mocks.begin.mockResolvedValue({ sessionId: 'session-1' });
     mocks.commit.mockResolvedValue(created);
     mocks.stagePreview.mockResolvedValue(undefined);
@@ -148,11 +186,15 @@ describe('useAiDrawingTools', () => {
     expect(mocks.begin).toHaveBeenCalledWith(
       '/workspace',
       '架构',
-      expect.objectContaining({ elementCount: 3, title: compiled.title }),
+      expect.objectContaining({
+        itemCount: 3,
+        kind: 'whiteboard',
+        title: compiled.title,
+      }),
     );
     expect(mocks.stageScene).toHaveBeenCalledWith(
       'session-1',
-      compiled.sceneBytes,
+      compiled.contentBytes,
     );
     expect(mocks.stagePreview).toHaveBeenCalledWith(
       'session-1',
@@ -210,17 +252,132 @@ describe('useAiDrawingTools', () => {
     expect(mocks.begin).not.toHaveBeenCalled();
   });
 
+  it('applies the exact cached preview to the turn-bound active drawing', async () => {
+    const applyAiPreview = vi.fn().mockResolvedValue({
+      ...created,
+      meta: {
+        ...created.meta,
+        kind: 'whiteboard',
+        revision: 8,
+      },
+    });
+    const controller = {
+      applyAiPreview,
+      descriptor: {
+        ...created,
+        meta: { ...created.meta, kind: 'whiteboard', revision: 7 },
+      },
+      selection: { id: 'drawing-1', kind: 'drawing' },
+    } as unknown as DrawingController;
+    const { result } = renderHook(() =>
+      useAiDrawingTools({
+        controller,
+        onCreated: vi.fn(),
+        workspaceRootPath: '/workspace',
+      }),
+    );
+
+    let previewId = '';
+    await act(async () => {
+      const preview = await result.current(previewRequest());
+      previewId = JSON.parse(preview.text).previewId;
+      const response = await result.current({
+        ...previewRequest(),
+        arguments: {
+          drawingId: 'drawing-1',
+          expectedRevision: 7,
+          kind: 'whiteboard',
+          previewId,
+        },
+        tool: 'apply_preview_to_active',
+      });
+      expect(response.success).toBe(true);
+      expect(JSON.parse(response.text).revision).toBe(8);
+    });
+
+    expect(applyAiPreview).toHaveBeenCalledWith({
+      content: compiled.contentBytes,
+      drawingId: 'drawing-1',
+      expectedRevision: 7,
+      itemCount: compiled.itemCount,
+      kind: 'whiteboard',
+      preview: compiled.previewBytes,
+      searchText: compiled.searchText,
+      title: compiled.title,
+    });
+    expect(mocks.begin).not.toHaveBeenCalled();
+  });
+
+  it('locks the AI mindmap target album from the gallery trigger for the whole turn', async () => {
+    const controller = {
+      descriptor: null,
+      selection: { kind: 'album', path: '后来切换的图集' },
+    } as unknown as DrawingController;
+    const { result } = renderHook(() =>
+      useAiDrawingTools({
+        controller,
+        onCreated: vi.fn(),
+        workspaceRootPath: '/workspace',
+      }),
+    );
+    window.sessionStorage.setItem('markune:ai-mindmap-target-album', '触发图集');
+    let previewId = '';
+
+    await act(async () => {
+      const preview = await result.current({
+        arguments: {
+          direction: 'right',
+          root: { children: [{ topic: '第一步' }], topic: '学习路径' },
+          title: '学习路径',
+        },
+        callId: 'call-mindmap-preview',
+        namespace: 'markune_drawing',
+        threadId: 'thread-1',
+        tool: 'preview_mindmap',
+        turnId: 'turn-mindmap',
+      });
+      expect(preview.success).toBe(true);
+      previewId = JSON.parse(preview.text).previewId;
+
+      const creation = await result.current({
+        arguments: { previewId },
+        callId: 'call-mindmap-create',
+        namespace: 'markune_drawing',
+        threadId: 'thread-1',
+        tool: 'create_from_preview',
+        turnId: 'turn-mindmap',
+      });
+      expect(creation.success).toBe(true);
+    });
+
+    expect(mocks.compileMindMap).toHaveBeenCalledWith(
+      '学习路径',
+      'right',
+      expect.objectContaining({ topic: '学习路径' }),
+    );
+    expect(mocks.begin).toHaveBeenCalledWith(
+      '/workspace',
+      '触发图集',
+      expect.objectContaining({ kind: 'mindmap', itemCount: 2 }),
+    );
+    expect(mocks.stageScene).toHaveBeenCalledWith(
+      'session-1',
+      compiledMindMap.contentBytes,
+    );
+  });
+
   it('returns a bounded editable scene projection and preview for an inspected drawing', async () => {
     const descriptor = {
       ...created,
       meta: {
         ...created.meta,
         createdAt: '2026-07-20T00:00:00.000Z',
-        elementCount: 2,
+        contentSha256: '1'.repeat(64),
         favorite: false,
         previewRevision: 1,
-        sceneSha256: '1'.repeat(64),
-        schemaVersion: 1,
+        itemCount: 2,
+        kind: 'whiteboard',
+        schemaVersion: 2,
         searchText: '网关',
         tags: [],
         updatedAt: '2026-07-20T00:00:00.000Z',

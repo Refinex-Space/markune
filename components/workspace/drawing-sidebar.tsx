@@ -2,8 +2,10 @@
 
 import * as React from 'react';
 import {
+  BrainCircuit,
   Clock3,
   Copy,
+  FileImage,
   FilePlus2,
   Folder,
   FolderPlus,
@@ -12,6 +14,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Sparkles,
   Star,
   Trash2,
   Upload,
@@ -50,7 +53,11 @@ import {
 } from './drawing-action-menu';
 import type { DrawingController } from './use-drawing-controller';
 import { WorkspaceTreeFolderIcon } from './workspace-tree-folder-icon';
-import type { DrawingAlbumNode, DrawingSummary } from './workspace-types';
+import type {
+  DrawingAlbumNode,
+  DrawingKind,
+  DrawingSummary,
+} from './workspace-types';
 
 interface DrawingTextRequest {
   allowEmpty?: boolean;
@@ -78,6 +85,12 @@ export function DrawingSidebar({
   const selectedAlbum =
     controller.selection.kind === 'album' ? controller.selection.path : null;
   const drawingSelection = controller.selection;
+  const unfiledDrawings = React.useMemo(
+    () => controller.snapshot.drawings.filter((drawing) => !drawing.albumPath),
+    [controller.snapshot.drawings],
+  );
+  const drawingTreeEmpty =
+    controller.snapshot.albums.length === 0 && unfiledDrawings.length === 0;
   const activeDrawingAlbumPath = React.useMemo(() => {
     if (drawingSelection.kind !== 'drawing') {
       return null;
@@ -107,8 +120,22 @@ export function DrawingSidebar({
     return new Set([...expandedAlbums, ...ancestorPaths]);
   }, [activeDrawingAlbumPath, controller.snapshot.albums, expandedAlbums]);
 
-  const createDrawing = (albumPath = selectedAlbum ?? '') => {
-    void controller.createNewDrawing('未命名图稿', albumPath);
+  const createDrawing = (
+    albumPath = selectedAlbum ?? '',
+    kind: DrawingKind = 'whiteboard',
+  ) => {
+    void controller.createNewDrawing(
+      kind === 'mindmap' ? '未命名脑图' : '未命名白板',
+      albumPath,
+      kind,
+    );
+  };
+
+  const createAiMindMap = (albumPath = selectedAlbum ?? '') => {
+    window.sessionStorage.setItem('markune:pending-ai-mindmap', albumPath);
+    window.dispatchEvent(
+      new CustomEvent('markune:start-ai-mindmap', { detail: { albumPath } }),
+    );
   };
 
   const createAlbum = async (parentPath = selectedAlbum ?? '') => {
@@ -151,10 +178,17 @@ export function DrawingSidebar({
                 <Plus size={15} />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuItem onSelect={() => createDrawing()}>
-                <FilePlus2 /> 新建图稿
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuItem onSelect={() => createDrawing(selectedAlbum ?? '', 'whiteboard')}>
+                <FilePlus2 /> 新建白板
               </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => createDrawing(selectedAlbum ?? '', 'mindmap')}>
+                <BrainCircuit /> 新建脑图
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => createAiMindMap()}>
+                <Sparkles /> AI 生成脑图
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => void createAlbum()}>
                 <FolderPlus /> 新建图集
               </DropdownMenuItem>
@@ -217,23 +251,31 @@ export function DrawingSidebar({
             图集目录
           </div>
           <div className="mt-1 space-y-0.5">
-            {controller.snapshot.albums.length > 0 ? (
-              controller.snapshot.albums.map((album) => (
-                <AlbumRow
-                  album={album}
-                  controller={controller}
-                  editingAlbumPath={editingAlbumPath}
-                  expandedAlbums={expandedDrawingAlbums}
-                  key={album.path}
-                  onCreateAlbum={createAlbum}
-                  onCreateDrawing={createDrawing}
-                  onEditAlbum={setEditingAlbumPath}
-                  onExpandedAlbumsChange={setExpandedAlbums}
-                  onRenameAlbum={renameAlbum}
-                  onRequestText={requestText}
-                />
-              ))
-            ) : (
+            {unfiledDrawings.map((drawing) => (
+              <DrawingLeaf
+                controller={controller}
+                depth={0}
+                drawing={drawing}
+                key={drawing.id}
+                onRequestText={requestText}
+              />
+            ))}
+            {controller.snapshot.albums.map((album) => (
+              <AlbumRow
+                album={album}
+                controller={controller}
+                editingAlbumPath={editingAlbumPath}
+                expandedAlbums={expandedDrawingAlbums}
+                key={album.path}
+                onCreateAlbum={createAlbum}
+                onCreateDrawing={createDrawing}
+                onEditAlbum={setEditingAlbumPath}
+                onExpandedAlbumsChange={setExpandedAlbums}
+                onRenameAlbum={renameAlbum}
+                onRequestText={requestText}
+              />
+            ))}
+            {drawingTreeEmpty ? (
               <button
                 className="w-full rounded-md px-2 py-4 text-center text-xs text-muted-foreground hover:bg-sidebar-accent/50"
                 type="button"
@@ -241,7 +283,7 @@ export function DrawingSidebar({
               >
                 新建第一个图集
               </button>
-            )}
+            ) : null}
           </div>
         </div>
 
@@ -315,7 +357,7 @@ interface AlbumRowProps {
   editingAlbumPath: string | null;
   expandedAlbums: Set<string>;
   onCreateAlbum: (parentPath?: string) => Promise<void>;
-  onCreateDrawing: (albumPath?: string) => void;
+  onCreateDrawing: (albumPath?: string, kind?: DrawingKind) => void;
   onEditAlbum: (path: string | null) => void;
   onExpandedAlbumsChange: React.Dispatch<React.SetStateAction<Set<string>>>;
   onRenameAlbum: (album: DrawingAlbumNode, value: string) => Promise<void>;
@@ -537,7 +579,7 @@ function DrawingLeaf({
               type="button"
               onClick={() => void controller.openDrawing(drawing.id)}
             >
-              <span aria-hidden="true" className="size-[13px] shrink-0" />
+              <DrawingKindIcon drawing={drawing} />
               <span className="truncate">{drawing.title}</span>
             </button>
             <DropdownMenu>
@@ -576,7 +618,7 @@ interface AlbumActionProps {
   album: DrawingAlbumNode;
   controller: DrawingController;
   onCreateAlbum: (parentPath?: string) => Promise<void>;
-  onCreateDrawing: (albumPath?: string) => void;
+  onCreateDrawing: (albumPath?: string, kind?: DrawingKind) => void;
   onEditAlbum: (path: string | null) => void;
   onRequestText: (request: DrawingTextRequest) => void;
 }
@@ -608,10 +650,19 @@ function AlbumMenu(props: AlbumActionProps) {
 function AlbumDropdownActions(props: AlbumActionProps) {
   return (
     <>
-      <DropdownMenuItem onSelect={() => props.onCreateDrawing(props.album.path)}>
-        <FilePlus2 /> 新建图稿
+      <DropdownMenuItem
+        onSelect={() => props.onCreateDrawing(props.album.path, 'whiteboard')}
+      >
+        <FilePlus2 /> 新建白板
       </DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => void props.onCreateAlbum(props.album.path)}>
+      <DropdownMenuItem
+        onSelect={() => props.onCreateDrawing(props.album.path, 'mindmap')}
+      >
+        <BrainCircuit /> 新建脑图
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onSelect={() => void props.onCreateAlbum(props.album.path)}
+      >
         <FolderPlus /> 新建子图集
       </DropdownMenuItem>
       <DropdownMenuItem onSelect={() => props.onEditAlbum(props.album.path)}>
@@ -644,10 +695,19 @@ function AlbumDropdownActions(props: AlbumActionProps) {
 function AlbumContextActions(props: AlbumActionProps) {
   return (
     <>
-      <ContextMenuItem onSelect={() => props.onCreateDrawing(props.album.path)}>
-        <FilePlus2 /> 新建图稿
+      <ContextMenuItem
+        onSelect={() => props.onCreateDrawing(props.album.path, 'whiteboard')}
+      >
+        <FilePlus2 /> 新建白板
       </ContextMenuItem>
-      <ContextMenuItem onSelect={() => void props.onCreateAlbum(props.album.path)}>
+      <ContextMenuItem
+        onSelect={() => props.onCreateDrawing(props.album.path, 'mindmap')}
+      >
+        <BrainCircuit /> 新建脑图
+      </ContextMenuItem>
+      <ContextMenuItem
+        onSelect={() => void props.onCreateAlbum(props.album.path)}
+      >
         <FolderPlus /> 新建子图集
       </ContextMenuItem>
       <ContextMenuItem onSelect={() => props.onEditAlbum(props.album.path)}>
@@ -674,6 +734,23 @@ function AlbumContextActions(props: AlbumActionProps) {
         <Trash2 /> 图集移到回收站
       </ContextMenuItem>
     </>
+  );
+}
+
+function DrawingKindIcon({ drawing }: { drawing: DrawingSummary }) {
+  return (
+    <span
+      aria-label={drawing.kind === 'mindmap' ? '脑图' : '白板'}
+      className="flex size-[13px] shrink-0 items-center justify-center text-muted-foreground"
+      data-testid={`drawing-kind-icon-${drawing.id}`}
+      title={drawing.kind === 'mindmap' ? '脑图' : '白板'}
+    >
+      {drawing.kind === 'mindmap' ? (
+        <BrainCircuit aria-hidden="true" size={13} />
+      ) : (
+        <FileImage aria-hidden="true" size={13} />
+      )}
+    </span>
   );
 }
 

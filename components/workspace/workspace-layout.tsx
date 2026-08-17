@@ -920,7 +920,8 @@ export function WorkspaceLayout({
     () =>
       drawings.snapshot.drawings.map((drawing) => ({
         albumPath: drawing.albumPath,
-        elementCount: drawing.elementCount,
+        drawingKind: drawing.kind,
+        itemCount: drawing.itemCount,
         hasPreview: drawing.hasPreview,
         id: drawing.id,
         revision: drawing.revision,
@@ -2715,6 +2716,13 @@ export function WorkspaceLayout({
     setSystemPage('codex');
     showWorkspaceSidebar(false);
   }, [showWorkspaceSidebar]);
+
+  React.useEffect(() => {
+    const openAiMindMapTask = () => handleOpenCodexPage();
+    window.addEventListener('markune:start-ai-mindmap', openAiMindMapTask);
+    return () =>
+      window.removeEventListener('markune:start-ai-mindmap', openAiMindMapTask);
+  }, [handleOpenCodexPage]);
 
   const handleRightPanelModeChange = React.useCallback(
     (mode: RightPanelMode) => {

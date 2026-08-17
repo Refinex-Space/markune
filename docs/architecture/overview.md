@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-08-14
+updated: 2026-08-15
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -66,11 +66,11 @@ Git Sync 由 `useGitAutoSync`（`components/workspace/use-git-auto-sync.ts`）�
 
 ## Drawing Workspace Boundary
 
-画板是独立于 Markdown 文档标签的工作区级 `systemPage`。入口固定在 Inbox 下方；激活后 `drawing-sidebar.tsx` 接管左侧目录区并展示系统集合、嵌套图集和图稿叶节点，`drawing-workspace-page.tsx` 在右侧切换图集总览、损坏恢复页或全尺寸 Excalidraw 编辑器。图稿和图集的省略号菜单与右键菜单共用操作集合；图集创建和重命名使用与文档树一致的行内输入。现有 AI、终端和元信息面板保持用户原有开关状态，不因打开画板而强制关闭。
+画板是独立于 Markdown 文档标签的工作区级 `systemPage`，“图稿”是 `whiteboard | mindmap` 的统一容器。入口固定在 Inbox 下方；激活后 `drawing-sidebar.tsx` 接管左侧目录区并展示系统集合、嵌套图集和图稿叶节点，`drawing-workspace-page.tsx` 在右侧切换图集总览、损坏恢复页、Excalidraw 白板或 Mind Elixir 脑图编辑器。图稿和图集的省略号菜单与右键菜单共用操作集合；图集创建和重命名使用与文档树一致的行内输入。现有 AI、终端和元信息面板保持用户原有开关状态，不因打开画板而强制关闭。
 
-`use-drawing-controller.ts` 是图稿生命周期与串行保存的唯一前端控制器，`workspace-api.ts` 是唯一 Tauri bridge。Excalidraw 只在进入单幅图稿时通过 `next/dynamic` 客户端加载；自托管样式与字体由 `scripts/stage-excalidraw-runtime.mjs` 复制到忽略版本控制的 `public/excalidraw-runtime`，普通 Markdown 首屏不加载其运行时代码或样式。画布固定 `zh-CN`，跟随应用主题；远程 embeddable 禁用，HTTP(S) 外链经 Tauri opener 打开。
+`use-drawing-controller.ts` 是图稿生命周期与串行保存的唯一前端控制器，内部只处理通用 `content`，`workspace-api.ts` 是唯一 Tauri bridge。Excalidraw 和精确锁定的 `mind-elixir@5.15.1` 分别通过 `next/dynamic` 按类型加载；普通 Markdown 与图库页面不加载编辑器运行时代码。Excalidraw 自托管样式与字体由 `scripts/stage-excalidraw-runtime.mjs` 复制到忽略版本控制的 `public/excalidraw-runtime`。脑图禁用第三方工具栏，保留节点编辑和受控右键菜单，由 Markune 显式同步明暗主题并在卸载时销毁实例。白板固定 `zh-CN`、禁用远程 embeddable，HTTP(S) 外链经 Tauri opener 打开；脑图不接受 HTML、链接、图片或任意节点样式。
 
-权威图稿保存在 `.markune/drawings/albums/<album>/<drawing-id>` bundle，包含官方 `scene.excalidraw`、单份有效备份、`meta.json`、元数据备份和可选预览；预览优先保存为 `preview.webp`，macOS WebView 无法编码 WebP 时兼容保存为 `preview.png`，同一 bundle 只保留当前格式。单幅图稿回收站位于 `.markune/drawings/.trash/<drawing-id>`，整图集回收记录位于 `.markune/drawings/.trash/albums/<trash-id>`。组件库与视口/最近图稿分别保存在 `library.excalidrawlib` 和 `ui-state.json`。图集路径由物理位置推导，稳定 Drawing UUID 是移动、重命名、搜索和 Markdown 回链的身份；复制整图集时所有图稿生成新 UUID。该目录不进入 `.markune/workspace.json`，也不会被伪装为 Markdown。
+权威图稿保存在 `.markune/drawings/albums/<album>/<drawing-id>` bundle。白板内容为 `scene.excalidraw` / `scene.backup.excalidraw`，脑图内容为 `mindmap.json` / `mindmap.backup.json`，两者共用 schema-v2 `meta.json`、元数据备份和可选预览；schema-v1 白板只读归一化为 `whiteboard`，下一次成功保存建立备份后惰性升级，不批量改写工作区。预览优先保存为 `preview.webp`，macOS WebView 无法编码 WebP 时兼容保存为 `preview.png`，同一 bundle 只保留当前格式。单幅图稿回收站位于 `.markune/drawings/.trash/<drawing-id>`，整图集回收记录位于 `.markune/drawings/.trash/albums/<trash-id>`。组件库与视口/最近图稿分别保存在 `library.excalidrawlib` 和 `ui-state.json`。图集路径由物理位置推导，稳定 Drawing UUID 是移动、重命名、搜索和 Markdown 回链的身份；复制整图集时所有图稿生成新 UUID。该目录不进入 `.markune/workspace.json`，也不会被伪装为 Markdown。
 
 保存使用 800 ms debounce、最长 5 秒等待的串行事务：渲染器先取得 opaque save session，再通过 Raw IPC 暂存场景和可选 WebP/PNG 预览，Rust 在提交前重新校验 revision、场景结构和 SHA-256，并以原子替换保留上一份有效备份。预览失败不阻塞场景提交；冲突会暂停自动保存，只允许重新加载磁盘版本或显式覆盖。损坏 bundle 以独立异常卡展示，元数据仍可读时允许加载备份，不阻塞其余图稿。
 
@@ -102,7 +102,9 @@ Markweave 0.5.2 的 AI 预编辑由两条互补路径组成。可编辑的活动
 
 `components/workspace/codex-inline-ai.ts` 为每次预编辑创建独立的 Codex `ephemeral` 线程，使用当前模型和非 Plan 推理强度，固定 `:read-only + on-request + user`、禁用 Web Search 与 Environment。请求只包含用户指令和 Markweave 提供的目标 Markdown/表格结构，不附加当前会话、整篇文档、文档/图稿引用、附件、mention、Plugin、Skill 或 Goal。runner 只消费自己 thread/turn 的 `final_answer` 增量；AI 面板拒绝归约 ephemeral 或非当前可见线程事件。目标中止、冲突、文档/工作区切换和运行时退出会中断 turn，终态后 best-effort 删除线程；Rust 对 `ephemeral: true` 的 thread 不注入 Markune Drawing 动态工具。
 
-AI 画图是宿主内的受控 Codex 能力，不接入远程 Excalidraw MCP UI。随应用打包的 `markune-diagram` Skill 负责检查当前或显式提及图稿、收敛单一视角、选择图型和质量 profile、编排 Mermaid，并根据预览最多修复两轮；Rust 在新线程中固定注入 `markune_drawing.inspect_drawing`、`markune_drawing.preview_mermaid` 与 `markune_drawing.create_from_preview`，渲染器不能提供其他 dynamic tools。`inspect_drawing` 只接受当前 turn 已授权的 Drawing UUID，返回去除 files/blob 的有界元素结构和可选 PNG/WebP 预览。Mermaid 编译器只在工具调用时动态加载，成功结果必须是可编辑 Excalidraw 元素，SVG/image fallback 会作为失败返回；编译后按 `architecture | flow | default` profile 计算交叉、穿越节点、关系和分组预算、扇出、转折、逆向关系、重叠、标签裁切与画布比例，返回确定性的 grade、blockers 和 repair suggestions。预览按工作区保存在前端内存中，最多 3 个且 10 分钟有效；未达 A 级或存在 blocker 的预览保留供模型检查，但 `create_from_preview` 必须失败关闭。创建只能提交对应 opaque `previewId` 的已编译场景，不能替换定义。
+AI 画图是宿主内的受控 Codex 能力，不接入远程 Excalidraw MCP UI。随应用打包的 `markune-diagram` Skill 负责检查当前或显式提及图稿、收敛单一视角、选择图型和质量 profile、编排 Mermaid，并根据预览最多修复两轮；Rust 在新线程中固定注入 `markune_drawing.inspect_drawing`、两类 preview 工具、`markune_drawing.apply_preview_to_active` 与 `markune_drawing.create_from_preview`，渲染器不能提供其他 dynamic tools。`inspect_drawing` 只接受当前 turn 已授权的 Drawing UUID，返回去除 files/blob 的有界元素结构和可选 PNG/WebP 预览。Mermaid 编译器只在工具调用时动态加载，成功结果必须是可编辑 Excalidraw 元素，SVG/image fallback 会作为失败返回；编译后按 `architecture | flow | default` profile 计算交叉、穿越节点、关系和分组预算、扇出、转折、逆向关系、重叠、标签裁切与画布比例，返回确定性的 grade、blockers 和 repair suggestions。预览按工作区和 turn 保存在前端内存中，最多 3 个且 10 分钟有效；未达 A 级或存在 blocker 的预览保留供模型检查，但应用和创建都必须失败关闭。模型只能提交 opaque `previewId`：活动图稿改写由 Rust 注入本 turn 绑定的 Drawing ID、kind 与 revision，前端再次校验后复用普通原子保存、备份和冲突机制；显式提及图稿始终只读。用户明确要求新建或副本、或没有活动图稿时才走 generated-create。
+
+随应用打包的 `markune-mindmap` Skill 通过同一命名空间调用 `preview_mindmap { title, direction, root }`。`markune-diagram` 与 `markune-mindmap` 依靠互斥且有界的 description 参与 Codex 隐式 Skill 选择；AI 面板标题栏不固定插入任一绘图 Skill，用户仍可通过 `/` 显式选择。模型只提供递归 `topic/children`，编译器生成稳定节点 ID、Markune 主题和规范 Mind Elixir 数据；模型不能控制 ID、主题、样式、链接、图片、存储路径或目标图集。脑图 A 级门禁限制 80 个节点、6 层、每节点 8 个直接子节点和 48 字符标题，并拒绝重复内容与极端横向比例。每个 turn 与白板共用三次预览上限；活动脑图的改写应用到原图并重新载入编辑器，没有活动图稿或用户明确要求副本时才锁定宿主派生的目标图集并新建。
 
 生成图稿继续复用 Drawing Raw IPC，但使用独立 generated-create session。场景与 PNG/WebP 预览完整暂存并通过 Rust 校验后，revision 1 bundle 才从 `.staging` 原子 rename 到当前普通图集或未归类根目录；任何失败都不创建空白 bundle。成功后前端刷新图稿库、切换到 Drawings system page 并打开结果，后续保存、备份、冲突和导出完全复用普通图稿流程。
 

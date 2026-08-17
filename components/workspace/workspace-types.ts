@@ -21,8 +21,11 @@ export type WorkspaceImportFormat = 'html' | 'markdown' | 'pdf' | 'word';
 
 export type DrawingCollection = 'all' | 'recent' | 'favorites' | 'trash';
 
+export type DrawingKind = 'mindmap' | 'whiteboard';
+
 export interface DrawingMeta {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
+  kind: DrawingKind;
   id: string;
   title: string;
   tags: string[];
@@ -30,8 +33,8 @@ export interface DrawingMeta {
   createdAt: string;
   updatedAt: string;
   revision: number;
-  sceneSha256: string;
-  elementCount: number;
+  contentSha256: string;
+  itemCount: number;
   searchText: string;
   previewRevision: number | null;
 }
@@ -94,9 +97,10 @@ export interface DrawingDocumentDescriptor {
 
 export interface AiDrawingReference {
   albumPath: string;
-  elementCount: number;
+  itemCount: number;
   hasPreview: boolean;
   id: string;
+  drawingKind: DrawingKind;
   revision: number;
   title: string;
 }
@@ -121,7 +125,8 @@ export interface DrawingSaveManifest {
   title: string;
   tags: string[];
   favorite: boolean;
-  elementCount: number;
+  itemCount: number;
+  kind: DrawingKind;
   searchText: string;
 }
 

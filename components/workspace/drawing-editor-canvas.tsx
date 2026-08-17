@@ -190,14 +190,15 @@ export function DrawingEditorCanvas({
     const current = propsRef.current;
     return {
       manifest: {
-        elementCount,
+        itemCount: elementCount,
         favorite: current.favorite,
+        kind: 'whiteboard' as const,
         searchText,
         tags: current.tags,
         title: current.title,
       },
       preview: await createPreview(),
-      scene: new TextEncoder().encode(scene),
+      content: new TextEncoder().encode(scene),
     };
   }, [createPreview]);
 

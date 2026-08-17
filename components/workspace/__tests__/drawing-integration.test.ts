@@ -13,7 +13,7 @@ const snapshot: DrawingLibrarySnapshot = {
     {
       albumPath: '产品/流程',
       createdAt: '2026-07-01T00:00:00.000Z',
-      elementCount: 2,
+      contentSha256: 'a'.repeat(64),
       favorite: true,
       hasBackup: true,
       hasPreview: true,
@@ -21,8 +21,9 @@ const snapshot: DrawingLibrarySnapshot = {
       issue: null,
       previewRevision: 2,
       revision: 2,
-      sceneSha256: 'a'.repeat(64),
-      schemaVersion: 1,
+      itemCount: 2,
+      kind: 'whiteboard',
+      schemaVersion: 2,
       searchText: '登录 用户 流程',
       tags: ['产品'],
       title: '登录流程',
@@ -32,7 +33,7 @@ const snapshot: DrawingLibrarySnapshot = {
     {
       albumPath: '技术',
       createdAt: '2026-07-03T00:00:00.000Z',
-      elementCount: 1,
+      contentSha256: 'b'.repeat(64),
       favorite: false,
       hasBackup: false,
       hasPreview: false,
@@ -40,8 +41,9 @@ const snapshot: DrawingLibrarySnapshot = {
       issue: null,
       previewRevision: null,
       revision: 1,
-      sceneSha256: 'b'.repeat(64),
-      schemaVersion: 1,
+      itemCount: 1,
+      kind: 'whiteboard',
+      schemaVersion: 2,
       searchText: 'deployment topology',
       tags: ['架构'],
       title: '部署拓扑',
@@ -141,7 +143,7 @@ describe('drawing integration', () => {
     );
 
     expect(sidebar).toContain('<Dialog');
-    expect(sidebar).toContain("createNewDrawing('未命名图稿'");
+    expect(sidebar).toContain("kind === 'mindmap' ? '未命名脑图' : '未命名白板'");
     expect(sidebar).toContain('重命名图集');
     expect(sidebar).not.toContain('window.prompt');
     expect(gallery).not.toContain('window.prompt');

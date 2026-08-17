@@ -76,6 +76,59 @@ export function inspectDrawingScene(
   return JSON.stringify(inspection);
 }
 
+export function inspectMindMap(
+  descriptor: DrawingDocumentDescriptor,
+  contentText: string,
+) {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(contentText);
+  } catch {
+    throw new Error('脑图 JSON 无法解析。');
+  }
+  if (!isRecord(parsed) || parsed.type !== 'markune-mindmap' || !isRecord(parsed.data)) {
+    throw new Error('脑图包装格式无效。');
+  }
+  const root = parsed.data.nodeData;
+  if (!isRecord(root)) throw new Error('脑图缺少根节点。');
+  const outline: Array<{
+    childCount: number;
+    depth: number;
+    id: string;
+    topic: string;
+  }> = [];
+  let totalNodes = 0;
+  const visit = (node: Record<string, unknown>, depth: number) => {
+    totalNodes += 1;
+    const children = Array.isArray(node.children)
+      ? node.children.filter(isRecord)
+      : [];
+    if (outline.length < MAX_PROJECTED_ELEMENTS) {
+      outline.push({
+        childCount: children.length,
+        depth,
+        id: boundedString(node.id, 128),
+        topic: boundedString(node.topic, MAX_TEXT_CHARS),
+      });
+    }
+    for (const child of children) visit(child, depth + 1);
+  };
+  visit(root, 1);
+  return JSON.stringify({
+    drawing: drawingReferenceFromDescriptor(descriptor),
+    mindmap: {
+      compact: parsed.data.compact === true,
+      direction: Number(parsed.data.direction ?? 1),
+      outline,
+      totalNodes,
+    },
+    warnings:
+      totalNodes > MAX_PROJECTED_ELEMENTS
+        ? [`脑图包含 ${totalNodes} 个节点，仅返回前 ${MAX_PROJECTED_ELEMENTS} 个结构摘要。`]
+        : [],
+  });
+}
+
 function inspectionByteLength(inspection: DrawingInspection) {
   return new TextEncoder().encode(JSON.stringify(inspection)).length;
 }
@@ -98,7 +151,8 @@ export function drawingReferenceFromDescriptor(
 ): AiDrawingReference {
   return {
     albumPath: descriptor.albumPath,
-    elementCount: descriptor.meta.elementCount,
+    drawingKind: descriptor.meta.kind,
+    itemCount: descriptor.meta.itemCount,
     hasPreview: descriptor.hasPreview,
     id: descriptor.meta.id,
     revision: descriptor.meta.revision,

@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-08-14
+updated: 2026-08-15
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -57,7 +57,7 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 - 专业 Word/PDF 模板和第三方通知位于 `src-tauri/resources/document-export`。PDF 启用前必须由 Typst 字体清单确认平台存在受支持的中文字体；否则只降级 PDF，不影响专业 Word。兼容 PDF 注册内部 `markune-export://` 协议，但不扩大 `capabilities/default.json` 或 `assetProtocol.scope`。
 - 多格式导入不新增文件协议或 capability。源文件访问只通过 `src-tauri/src/import.rs` 的限时授权与 Raw IPC；`assetProtocol.scope` 保持不变。
 - 画板不新增文件协议或 capability。图稿场景、预览和组件库只通过 `src-tauri/src/drawings.rs` 的受限 Raw IPC 传输；缩略图以可撤销 Blob URL 展示，`assetProtocol.scope` 保持不变。
-- `src-tauri/resources/skills/` 作为只读 Tauri bundle resource 随应用发布。运行时只解析其中的 `markune-diagram/SKILL.md` 根目录，不读取渲染器提供的 Skill 物理路径。
+- `src-tauri/resources/skills/` 作为只读 Tauri bundle resource 随应用发布。运行时只接受同时包含 `markune-diagram` 与 `markune-mindmap` 的完整内置 Skill 根目录，并要求两者同时具有 `SKILL.md` 与 `agents/openai.yaml`；开发态暂存资源不完整时回退到源码资源目录，不读取渲染器提供的 Skill 物理路径。
 - 基础 `src-tauri/tauri.conf.json` 使用 `endpoints: []` 与空 `pubkey` 保留结构有效但不可用的 updater 配置。Tag 发布时生成的 release override 注入 `https://github.com/Refinex-Space/markune/releases/latest/download/latest.json`、公钥、updater artifacts、macOS ad-hoc identity `-` 和 Windows passive 模式。渲染器不能覆盖 endpoint。
 - Rust 侧 Tauri 依赖固定在 `2.11.x`，以约束 `with_webview` 平台类型；Windows 直接使用与当前 Wry 对齐的 `webview2-com 0.38.2`，macOS 使用 `objc2 0.6.4` 与 `objc2-*-kit 0.3.2`。Word 生成依赖精确锁定为 `docx 9.7.1`。
 
@@ -91,7 +91,7 @@ Markune 不在自身设置或 `.markune` 中复制 Codex 权限配置。权限�
 
 Inbox Capture 独立保存在 `.markune/inbox/cap_YYYYMMDD_HHMMSS_SSS_<uuid8>.md`，不写入 `workspace.json`，也不需要配置项或 schema 迁移。是否被 Git 跟踪完全遵循用户工作区自己的 ignore 规则，Markune 不改写 `.gitignore`。
 
-图稿独立保存在 `.markune/drawings`，不写入 `workspace.json`。场景上限为 100 MiB、预览 2 MiB、组件库 20 MiB；标题最多 120 字符，图集最多 8 层。历史 `meta.tags` 仅作存储兼容，仍按最多 10 个、每个 32 字符校验，但不提供产品入口。`ui-state.json` 只保存最近图稿和每图视口，缩放和平移不更新图稿内容时间。
+图稿独立保存在 `.markune/drawings`，不写入 `workspace.json`。白板场景上限为 100 MiB；脑图内容上限为 10 MiB、2,000 个节点和 32 层；预览上限为 2 MiB、组件库为 20 MiB；标题最多 120 字符，图集最多 8 层。脑图运行库精确锁定 `mind-elixir@5.15.1`，不使用 React 包装层。历史 `meta.tags` 仅作存储兼容，仍按最多 10 个、每个 32 字符校验，但不提供产品入口。`ui-state.json` 只保存最近图稿和每图视口，缩放和平移不更新图稿内容时间。
 
 `.markune` 不保存 AI 消息或 Codex 线程副本。旧 `.markune/ai-sessions` 路径已经停用，应在知识库中忽略；AI 会话的新建、恢复、命名、归档和删除完全由用户级 Codex Home 与 App Server 管理。
 

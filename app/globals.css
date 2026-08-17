@@ -923,3 +923,25 @@
 .terminal-surface .xterm-scrollable-element > .scrollbar.vertical > .slider:hover {
   background: color-mix(in oklab, var(--muted-foreground) 34%, transparent) !important;
 }
+
+.markune-mindmap .map-container {
+  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+}
+
+.markune-mindmap .map-container me-tpc {
+  line-height: 1.45;
+}
+
+.markune-mindmap .map-container .context-menu .menu-list {
+  border: 1px solid var(--panel-border-color);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 16%);
+}
+
+.markune-mindmap .map-container .context-menu .menu-list li {
+  min-width: 180px;
+  border-bottom-color: color-mix(in srgb, var(--panel-border-color) 70%, transparent);
+  padding: 7px 10px;
+  font-size: 13px;
+}
