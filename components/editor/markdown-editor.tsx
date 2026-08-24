@@ -755,6 +755,14 @@ export const MarkdownEditor = React.forwardRef<
         const effectiveHref = cardHref || linkHref;
         if (!effectiveHref) return;
 
+        // WKWebView can begin native HTTP(S) navigation before Markweave's
+        // bubbling handler runs. Cancel only that browser default here while
+        // leaving propagation and all editor interaction semantics upstream.
+        if (/^https?:\/\//iu.test(effectiveHref)) {
+          event.preventDefault();
+          return;
+        }
+
         const { isWorkspaceDocument, target: documentTarget } =
           resolveWorkspaceDocumentLink(effectiveHref);
         if (!isWorkspaceDocument) return;

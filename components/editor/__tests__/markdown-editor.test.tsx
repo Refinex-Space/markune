@@ -436,7 +436,7 @@ describe('MarkdownEditor', () => {
     expect(fireEvent.click(link, { ctrlKey: true })).toBe(false);
   });
 
-  it('不拦截外部链接和普通附件链接', () => {
+  it('阻止外部链接原生导航但保留 Markweave 事件和普通附件链接', () => {
     render(
       <MarkdownEditor
         documentPath="/vault/plans/2026.md"
@@ -449,11 +449,15 @@ describe('MarkdownEditor', () => {
     const externalLink = document.createElement('a');
     externalLink.href = 'https://www.superdoc.dev/';
     editor.append(externalLink);
+    const externalClick = vi.fn();
+    externalLink.addEventListener('click', externalClick);
     const attachmentLink = document.createElement('a');
     attachmentLink.href = '../assets/guide.pdf';
     editor.append(attachmentLink);
 
-    expect(fireEvent.click(externalLink)).toBe(true);
+    expect(fireEvent.click(externalLink)).toBe(false);
+    expect(fireEvent.click(externalLink, { metaKey: true })).toBe(false);
+    expect(externalClick).toHaveBeenCalledTimes(2);
     expect(fireEvent.click(attachmentLink)).toBe(true);
   });
 

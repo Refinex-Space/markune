@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-07-21
+updated: 2026-08-24
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -25,7 +25,7 @@ referenced_by: AGENTS.md#knowledge-map
 - Keep only the three most recently selected document EditorViews mounted. Inactive instances must be non-interactive and hidden without changing the active editor ref; keep their document revision key stable when the same draft moves between the live workspace state and the tab session cache.
 - Pass the effective `next-themes` value to every rendered `MarkweaveEditor` as `theme` and `canvasColor="var(--background)"`; do not rely on shell CSS alone for Markweave overlays, Mermaid, link cards or canvas background.
 - Route Markweave link-card metadata only through `markweave-link-card-resolver.ts`. Keep its desktop and Web branches bounded and cancellation-aware; a failed lookup must return `null` so editing retains a normal Markdown link.
-- In live mode, leave Markweave's Ctrl/Cmd-click link-opening behavior intact; do not install a shell-level link click handler that competes with editor selection or link-card editing.
+- Keep link interaction semantics in Markweave. The existing editor-root capture boundary may only call `preventDefault()` for HTTP(S) anchors to stop WKWebView native navigation before bubbling; it must not stop propagation, call an opener, or compete with selection, link-source, composer, View-mode, or Ctrl/Cmd-click behavior.
 - Keep the workspace editor TOC on `innerTocPlacement="container"`; page-width behavior is owned by the editor frame, not browser-viewport positioning.
 - Avoid broad UI rewrites when a narrow component-level change is enough.
 
