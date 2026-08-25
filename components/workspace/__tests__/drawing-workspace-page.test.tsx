@@ -212,6 +212,40 @@ describe('DrawingWorkspacePage', () => {
     expect(screen.getByTestId('drawing-editor-header').style.height).toBe('38px');
   });
 
+  it('reserves Windows chrome tools space on the mindmap toolbar', () => {
+    const value = controller({
+      descriptor: {
+        albumPath: mindmapDrawing.albumPath,
+        hasBackup: mindmapDrawing.hasBackup,
+        hasPreview: mindmapDrawing.hasPreview,
+        meta: mindmapDrawing,
+      },
+      content: JSON.stringify({
+        data: {
+          compact: false,
+          direction: 1,
+          nodeData: { children: [], id: 'root', topic: '中心主题' },
+        },
+        type: 'markune-mindmap',
+        version: 1,
+      }),
+      selection: { id: mindmapDrawing.id, kind: 'drawing' },
+    });
+
+    render(
+      <DrawingWorkspacePage
+        controller={value}
+        headerToolsReservePx={190}
+        rootPath="/repo"
+        theme="light"
+      />,
+    );
+
+    expect(screen.getByTestId('mindmap-editor-toolbar').style.marginRight).toBe(
+      '190px',
+    );
+  });
+
   it('shows tooltips for every mindmap toolbar icon', async () => {
     const value = controller({
       descriptor: {
@@ -238,6 +272,10 @@ describe('DrawingWorkspacePage', () => {
         rootPath="/repo"
         theme="light"
       />,
+    );
+
+    expect(screen.getByTestId('mindmap-editor-toolbar').style.marginRight).toBe(
+      '',
     );
 
     const tooltips = [

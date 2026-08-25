@@ -313,6 +313,9 @@ const RECENT_DOCUMENT_LIMIT = 5;
 const WORKSPACE_PANEL_MARGIN = 8;
 const WORKSPACE_SIDEBAR_HEADER_HEIGHT = 44;
 const WEB_SIDEBAR_TITLEBAR_SPACER = 40;
+const HEADER_TOOL_BUTTON_PX = 28;
+const HEADER_TOOL_GAP_PX = 2;
+const DRAWING_OVERLAY_TOOLS_EXTRA_PX = 12;
 const UI_FONT_FALLBACK =
   "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 const DOCUMENT_FONT_FALLBACK =
@@ -865,6 +868,11 @@ export function WorkspaceLayout({
       : (isTauriRuntime && isMacRuntime
           ? macChromeContentTop
           : WEB_SIDEBAR_TITLEBAR_SPACER) - WORKSPACE_PANEL_MARGIN;
+  const drawingHeaderToolsReservePx = getDrawingOverlayToolsReservePx({
+    enabled: drawingDetailOpen && isTauriRuntime && isWindowsRuntime,
+    showGitLogEntry: appSettings.appearance.showGitLogEntry,
+    showGitPanelEntry: appSettings.appearance.showGitPanelEntry,
+  });
   const flushActiveDrawing = drawings.flush;
   const prepareForAppUpdateInstall = React.useCallback(async () => {
     const confirmed = await confirmAction({
@@ -3815,6 +3823,7 @@ export function WorkspaceLayout({
                       <DrawingWorkspacePage
                         controller={drawings}
                         editorHeaderHeight={drawingEditorHeaderHeight}
+                        headerToolsReservePx={drawingHeaderToolsReservePx}
                         rootPath={workspace.snapshot.rootPath}
                         theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
                       />
@@ -4378,20 +4387,25 @@ function WorkspaceMainHeader({
       className={cn(
         'relative flex shrink-0 items-center gap-1 pr-3',
         overlayContent
-          ? 'absolute inset-x-0 top-0 z-10 h-11'
+          ? 'absolute right-0 top-0 z-10 h-11'
           : windowsChromeInset
             ? 'h-8'
             : 'h-11',
-        macChromeInset ? 'pl-44' : 'pl-3',
+        !overlayContent && (macChromeInset ? 'pl-44' : 'pl-3'),
       )}
       data-tauri-drag-region="deep"
       data-testid="workspace-main-header"
       style={overlayContent ? undefined : { height: headerHeight }}
     >
-      <div className="min-w-0 flex-1">{documentTabs}</div>
+      {overlayContent ? null : (
+        <div className="min-w-0 flex-1">{documentTabs}</div>
+      )}
       <TooltipProvider>
         <div
-          className="z-10 ml-auto flex items-center gap-0.5"
+          className={cn(
+            'z-10 flex items-center gap-0.5',
+            !overlayContent && 'ml-auto',
+          )}
           data-testid="right-header-tools"
         >
           <ThemeQuickMenu />
@@ -4535,6 +4549,26 @@ function headerToolButtonClassName(active: boolean) {
   return cn(
     'inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
     active && 'bg-accent text-foreground',
+  );
+}
+
+function getDrawingOverlayToolsReservePx({
+  enabled,
+  showGitLogEntry,
+  showGitPanelEntry,
+}: {
+  enabled: boolean;
+  showGitLogEntry: boolean;
+  showGitPanelEntry: boolean;
+}) {
+  if (!enabled) return 0;
+
+  const toolCount =
+    4 + Number(showGitLogEntry) + Number(showGitPanelEntry);
+  return (
+    toolCount * HEADER_TOOL_BUTTON_PX +
+    Math.max(0, toolCount - 1) * HEADER_TOOL_GAP_PX +
+    DRAWING_OVERLAY_TOOLS_EXTRA_PX
   );
 }
 
