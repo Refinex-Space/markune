@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-08-24
+updated: 2026-08-29
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -67,9 +67,9 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 
 ## Editor Dependency Integration
 
-Markweave 0.9.1 将所有 `@tiptap/*` 运行时固定为 `3.29.2`；`pnpm-workspace.yaml` 的 `@tiptap/markdown` override 必须同步为 `3.29.2`，不得把 Markdown 扩展降级到旧 minor 后再与新版 Core/PM 混装。
+Markweave 0.9.2 将所有 `@tiptap/*` 运行时固定为 `3.29.2`；`pnpm-workspace.yaml` 的 `@tiptap/markdown` override 必须同步为 `3.29.2`，不得把 Markdown 扩展降级到旧 minor 后再与新版 Core/PM 混装。
 
-`markweave@0.9.1` 与 `@markweave/react@0.9.1` 必须保持同版本。该版本继续包含 Markune 图片剪贴板桥接：只解析受控 `markune-asset://` 地址，并识别严格匹配 64 位资产 ID 与 UUID Drawing ID 的规范图稿引用；不得借此接受 `asset://`、`file://` 或任意自定义协议。Slash 附件经统一 `onSlashCommandUpload`（`kind: "attachment"`）写入工作区资产，文档持久化为不透明 `markune-asset://` 定位符与 `name`/`mimeType`/`size`；激活下载走宿主 `onAttachmentDownload`，不依赖 `http(s)` fallback。0.9.1 在 Live 模式由 Markweave 核心统一处理链接点击：普通链接不再渲染原生 `target="_blank"`，普通点击只保留在编辑器中并显示行内 Markdown 源码或链接菜单；同一次鼠标手势经过 ProseMirror `handleClick` 与 DOM `click` 时只允许一次安全 opener，`Ctrl/Cmd + 点击` 只打开一次浏览器且不同时打开整行链接 composer。View 模式仍直接打开安全链接，宿主不得重复拦截同一点击。该版本同时提供内置 `askAi` 文本/表格请求和宿主驱动 `MarkweaveAiEditController`，保留大文档轻量图片能力。Markune 只在活动、可编辑的 Live 正式文档上接入 AI 预编辑；该能力不增加环境变量、持久化 schema、HTTP API 或 Tauri capability。Markune 不应用历史 `markweave@0.2.6` 本地补丁。升级 Markweave 时必须核对 npm tarball 与上游源码一致，并执行链接点击、AI 文本/表格、图稿富文本、附件上传下载和纯文本粘贴回归测试。
+`markweave@0.9.2` 与 `@markweave/react@0.9.2` 必须保持同版本。该版本继续包含 Markune 图片剪贴板桥接：只解析受控 `markune-asset://` 地址，并识别严格匹配 64 位资产 ID 与 UUID Drawing ID 的规范图稿引用；不得借此接受 `asset://`、`file://` 或任意自定义协议。Slash 附件经统一 `onSlashCommandUpload`（`kind: "attachment"`）写入工作区资产，文档持久化为不透明 `markune-asset://` 定位符与 `name`/`mimeType`/`size`；激活下载走宿主 `onAttachmentDownload`，不依赖 `http(s)` fallback。0.9.2 在 Live 模式由 Markweave 核心统一处理链接点击：普通链接不再渲染原生 `target="_blank"`，普通点击只保留在编辑器中并显示行内 Markdown 源码或链接菜单；同一次鼠标手势经过 ProseMirror `handleClick` 与 DOM `click` 时只允许一次安全 opener，`Ctrl/Cmd + 点击` 只打开一次浏览器且不同时打开整行链接 composer。View 模式仍直接打开安全链接，宿主不得重复拦截同一点击。该版本新增内置可折叠块：Slash `/details` 或 `/折叠` 插入 `:::details` fence，标题与开关状态随 Markdown 往返；Markune 不为此增加宿主 props、环境变量、持久化 schema、HTTP API 或 Tauri capability。该版本同时提供内置 `askAi` 文本/表格请求和宿主驱动 `MarkweaveAiEditController`，保留大文档轻量图片能力。Markune 只在活动、可编辑的 Live 正式文档上接入 AI 预编辑；该能力不增加环境变量、持久化 schema、HTTP API 或 Tauri capability。Markune 不应用历史 `markweave@0.2.6` 本地补丁。升级 Markweave 时必须核对 npm tarball 与上游源码一致，并执行链接点击、AI 文本/表格、图稿富文本、附件上传下载、折叠块往返和纯文本粘贴回归测试。
 
 `MarkdownEditor` 根级 capture 只对 HTTP(S) anchor 提前执行 `preventDefault()`，用于阻止 WKWebView 在 Markweave 冒泡处理前启动原生导航；事件必须继续传播，浏览器打开、链接源码、整行 composer 与 View 模式仍由 Markweave 决定。
 
