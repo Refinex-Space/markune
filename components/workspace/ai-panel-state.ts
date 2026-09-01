@@ -266,6 +266,26 @@ export function createEmptyConversation(): AiConversationState {
   };
 }
 
+export function isPaginatedThreadsUnsupportedError(error: unknown) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : '';
+  return message.toLowerCase().includes('paginated_threads is not supported yet');
+}
+
+export function paginatedThreadUnsupportedMessage() {
+  return '当前 Codex 还不支持该会话的分页历史，无法打开。请新建任务，或更新 Codex 后重试。';
+}
+
+export function isPaginatedCodexThread(
+  thread: Pick<CodexThread, 'historyMode'> | null | undefined,
+) {
+  return thread?.historyMode === 'paginated';
+}
+
 export function conversationFromThread(
   thread: CodexThread,
   workspaceRootPath: string = thread.cwd,

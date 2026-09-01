@@ -153,6 +153,9 @@ import {
 } from './codex-inline-ai';
 import {
   conversationFromThread,
+  isPaginatedCodexThread,
+  isPaginatedThreadsUnsupportedError,
+  paginatedThreadUnsupportedMessage,
   buildConversationBlocks,
   createComposerAwareUserInput,
   createDrawingMentionPath,
@@ -308,6 +311,40 @@ interface ThreadReadResponse {
 }
 
 type ThreadResumeResponse = ThreadStartResponse;
+
+async function readCodexThreadForPanel(threadId: string) {
+  try {
+    return await codexAppServerClient.request<ThreadReadResponse>('thread/read', {
+      threadId,
+      includeTurns: true,
+    });
+  } catch (error) {
+    if (!isPaginatedThreadsUnsupportedError(error)) {
+      throw error;
+    }
+    return await codexAppServerClient.request<ThreadReadResponse>('thread/read', {
+      threadId,
+      includeTurns: false,
+    });
+  }
+}
+
+async function resumeCodexThreadForPanel(threadId: string) {
+  try {
+    return await codexAppServerClient.request<ThreadResumeResponse>(
+      'thread/resume',
+      { threadId },
+    );
+  } catch (error) {
+    if (!isPaginatedThreadsUnsupportedError(error)) {
+      throw error;
+    }
+    return await codexAppServerClient.request<ThreadResumeResponse>(
+      'thread/resume',
+      { excludeTurns: true, threadId },
+    );
+  }
+}
 
 interface TurnStartResponse {
   turn: { id: string };
@@ -2071,7 +2108,10 @@ export function AiPanel({
       window.removeEventListener('markune:start-ai-mindmap', startPendingMindMap);
   }, [startNewMindMap]);
 
-  const openThread = React.useCallback(async (thread: CodexThread) => {
+  const openThread = React.useCallback(async (
+    thread: CodexThread,
+    options: { auto?: boolean } = {},
+  ) => {
     void releaseCodexContextAttachments(
       selectedAttachmentsRef.current.map(
         (attachment) => attachment.attachmentId,
@@ -2092,10 +2132,7 @@ export function AiPanel({
     setView('chat');
     try {
       const [response, goalResponse] = await Promise.all([
-        codexAppServerClient.request<ThreadReadResponse>('thread/read', {
-          threadId: thread.id,
-          includeTurns: true,
-        }),
+        readCodexThreadForPanel(thread.id),
         goalFeatureAvailable
           ? codexAppServerClient
               .request<CodexThreadGoalGetResponse>('thread/goal/get', {
@@ -2105,10 +2142,7 @@ export function AiPanel({
           : Promise.resolve({ goal: null }),
       ]);
       updateThreadGoal(thread.id, goalResponse.goal);
-      const resumed = await codexAppServerClient.request<ThreadResumeResponse>(
-        'thread/resume',
-        { threadId: thread.id },
-      );
+      const resumed = await resumeCodexThreadForPanel(thread.id);
       setActiveThread(response.thread);
       setActiveThreadSupportsDrawing(false);
       activeThreadIdRef.current = response.thread.id;
@@ -2118,8 +2152,17 @@ export function AiPanel({
       setConversation(
         conversationFromThread(response.thread, workspaceRootPath ?? undefined),
       );
+      return 'opened';
     } catch (error) {
-      setRuntimeError(getErrorMessage(error));
+      if (options.auto && isPaginatedThreadsUnsupportedError(error)) {
+        return 'unsupported';
+      }
+      setRuntimeError(
+        isPaginatedThreadsUnsupportedError(error)
+          ? paginatedThreadUnsupportedMessage()
+          : getErrorMessage(error),
+      );
+      return 'failed';
     }
   }, [goalFeatureAvailable, resetToDefaultMode, updateThreadGoal, workspaceRootPath]);
 
@@ -2133,16 +2176,31 @@ export function AiPanel({
     if (autoResumeInFlightRef.current) {
       return;
     }
-    const latestThread = threads[0];
+    const queue = [
+      ...threads.filter((thread) => !isPaginatedCodexThread(thread)),
+      ...threads.filter((thread) => isPaginatedCodexThread(thread)),
+    ];
+    const latestThread = queue[0];
     if (!latestThread) {
       return;
     }
 
-    // Resume the most recently updated workspace thread on panel/workspace boot.
+    // Resume the most recently updated compatible workspace thread on boot.
+    // Paginated threads that the pinned sidecar cannot hydrate are skipped.
     // author: refinex
     const timer = window.setTimeout(() => {
       autoResumeInFlightRef.current = true;
-      void openThread(latestThread).finally(() => {
+      void (async () => {
+        for (const thread of queue) {
+          const result = await openThread(thread, { auto: true });
+          if (result === 'opened' || activeThreadIdRef.current) {
+            return;
+          }
+          if (result === 'failed') {
+            return;
+          }
+        }
+      })().finally(() => {
         autoResumeInFlightRef.current = false;
       });
     }, 0);
@@ -8852,6 +8910,9 @@ function formatEffort(effort: CodexReasoningEffort) {
 }
 
 function getErrorMessage(error: unknown) {
+  if (isPaginatedThreadsUnsupportedError(error)) {
+    return paginatedThreadUnsupportedMessage();
+  }
   if (error instanceof Error) {
     return error.message;
   }

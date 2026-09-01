@@ -233,6 +233,19 @@ describe('CodexAppServerClient', () => {
     expect(subscriber).toHaveBeenCalledWith(message);
   });
 
+  it('把 App Server 错误异步拒绝给调用方，避免事件回调同步抛出', async () => {
+    const client = new CodexAppServerClient();
+    vi.mocked(invoke).mockResolvedValue(undefined);
+    const pending = client.request('thread/read', { threadId: 'thread-1' });
+
+    client.handleMessage({
+      id: 1000,
+      error: { message: 'paginated_threads is not supported yet' },
+    });
+
+    await expect(pending).rejects.toThrow('paginated_threads is not supported yet');
+  });
+
   it('通过独立 Tauri 命令提交 opaque 用户问题答案', async () => {
     vi.mocked(invoke).mockResolvedValue(undefined);
 

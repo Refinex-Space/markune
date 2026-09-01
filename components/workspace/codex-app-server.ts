@@ -71,6 +71,8 @@ export type CodexReasoningEffort =
   | 'max'
   | 'ultra';
 
+export type CodexThreadHistoryMode = 'legacy' | 'paginated';
+
 export interface CodexThread {
   id: string;
   name: string | null;
@@ -78,6 +80,7 @@ export interface CodexThread {
   createdAt: number;
   updatedAt: number;
   cwd: string;
+  historyMode?: CodexThreadHistoryMode;
   status: unknown;
   turns: CodexTurn[];
 }
@@ -379,9 +382,13 @@ export class CodexAppServerClient {
         this.pending.delete(message.id);
 
         if (message.error) {
-          pending.reject(
-            new Error(message.error.message || 'Codex App Server 请求失败'),
+          const error = new Error(
+            message.error.message || 'Codex App Server 请求失败',
           );
+          // Defer rejection so Next.js overlay does not treat protocol
+          // errors as uncaught event-handler exceptions.
+          // author: refinex
+          queueMicrotask(() => pending.reject(error));
         } else {
           pending.resolve(message.result);
         }

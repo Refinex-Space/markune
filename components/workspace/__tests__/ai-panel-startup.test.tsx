@@ -774,6 +774,214 @@ describe('AI panel startup lifecycle', () => {
     ).toHaveLength(0);
   });
 
+  it('自动恢复时跳过无法打开的分页历史会话', async () => {
+    bridge.request.mockImplementation(
+      (method: string, params?: Record<string, unknown>) => {
+        if (method === 'thread/list') {
+          return Promise.resolve({
+            data: [
+              {
+                id: 'thread-paginated',
+                name: '分页会话',
+                preview: '新格式',
+                createdAt: 3,
+                updatedAt: 30,
+                cwd: '/workspace',
+                historyMode: 'paginated',
+                status: 'idle',
+                turns: [],
+              },
+              {
+                id: 'thread-legacy',
+                name: '兼容会话',
+                preview: '可恢复',
+                createdAt: 2,
+                updatedAt: 20,
+                cwd: '/workspace',
+                historyMode: 'legacy',
+                status: 'idle',
+                turns: [],
+              },
+            ],
+            nextCursor: null,
+          });
+        }
+        if (method === 'thread/read') {
+          if (params?.threadId === 'thread-paginated') {
+            return Promise.reject(
+              new Error('paginated_threads is not supported yet'),
+            );
+          }
+          return Promise.resolve({
+            thread: {
+              id: params?.threadId,
+              name: '兼容会话',
+              preview: '可恢复',
+              createdAt: 2,
+              updatedAt: 20,
+              cwd: '/workspace',
+              status: 'idle',
+              turns: [
+                {
+                  id: 'turn-legacy',
+                  status: 'completed',
+                  items: [
+                    {
+                      id: 'msg-legacy',
+                      type: 'agentMessage',
+                      phase: 'final_answer',
+                      text: '这是兼容会话内容',
+                    },
+                  ],
+                },
+              ],
+            },
+          });
+        }
+        if (method === 'thread/resume') {
+          if (params?.threadId === 'thread-paginated') {
+            return Promise.reject(
+              new Error('paginated_threads is not supported yet'),
+            );
+          }
+          return Promise.resolve({
+            activePermissionProfile: { extends: null, id: ':workspace' },
+            approvalPolicy: 'on-request',
+            approvalsReviewer: 'user',
+            model: 'gpt-5.4',
+            reasoningEffort: 'medium',
+            thread: {
+              id: params?.threadId,
+              name: '兼容会话',
+              preview: '可恢复',
+              createdAt: 2,
+              updatedAt: 20,
+              cwd: '/workspace',
+              status: 'idle',
+              turns: [],
+            },
+          });
+        }
+        if (method === 'thread/goal/get') {
+          return Promise.resolve({ goal: null });
+        }
+        return Promise.resolve(defaultResponse(method));
+      },
+    );
+
+    renderPanel();
+
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith(
+        'thread/read',
+        expect.objectContaining({ threadId: 'thread-legacy' }),
+      ),
+    );
+    expect(
+      await screen.findByText('这是兼容会话内容'),
+    ).toBeTruthy();
+    expect(screen.queryByText('paginated_threads is not supported yet')).toBeNull();
+    expect(
+      bridge.request.mock.calls.filter(
+        ([method, params]) =>
+          method === 'thread/read' &&
+          (params as { threadId?: string } | undefined)?.threadId ===
+            'thread-paginated',
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('分页会话在 includeTurns 失败后降级恢复元数据', async () => {
+    bridge.request.mockImplementation(
+      (method: string, params?: Record<string, unknown>) => {
+        if (method === 'thread/list') {
+          return Promise.resolve({
+            data: [
+              {
+                id: 'thread-paginated',
+                name: '分页会话',
+                preview: '新格式',
+                createdAt: 3,
+                updatedAt: 30,
+                cwd: '/workspace',
+                historyMode: 'paginated',
+                status: 'idle',
+                turns: [],
+              },
+            ],
+            nextCursor: null,
+          });
+        }
+        if (method === 'thread/read') {
+          if (params?.includeTurns === true) {
+            return Promise.reject(
+              new Error('paginated_threads is not supported yet'),
+            );
+          }
+          return Promise.resolve({
+            thread: {
+              id: 'thread-paginated',
+              name: '分页会话',
+              preview: '新格式',
+              createdAt: 3,
+              updatedAt: 30,
+              cwd: '/workspace',
+              historyMode: 'paginated',
+              status: 'idle',
+              turns: [],
+            },
+          });
+        }
+        if (method === 'thread/resume') {
+          if (params?.excludeTurns !== true) {
+            return Promise.reject(
+              new Error('paginated_threads is not supported yet'),
+            );
+          }
+          return Promise.resolve({
+            activePermissionProfile: { extends: null, id: ':workspace' },
+            approvalPolicy: 'on-request',
+            approvalsReviewer: 'user',
+            model: 'gpt-5.4',
+            reasoningEffort: 'medium',
+            thread: {
+              id: 'thread-paginated',
+              name: '分页会话',
+              preview: '新格式',
+              createdAt: 3,
+              updatedAt: 30,
+              cwd: '/workspace',
+              historyMode: 'paginated',
+              status: 'idle',
+              turns: [],
+            },
+          });
+        }
+        if (method === 'thread/goal/get') {
+          return Promise.resolve({ goal: null });
+        }
+        return Promise.resolve(defaultResponse(method));
+      },
+    );
+
+    renderPanel();
+
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith('thread/resume', {
+        excludeTurns: true,
+        threadId: 'thread-paginated',
+      }),
+    );
+    expect(bridge.request).toHaveBeenCalledWith(
+      'thread/read',
+      expect.objectContaining({
+        includeTurns: false,
+        threadId: 'thread-paginated',
+      }),
+    );
+    expect(screen.queryByText('paginated_threads is not supported yet')).toBeNull();
+  });
+
   it('点击新任务后保持空会话，不会再次自动恢复历史', async () => {
     const user = userEvent.setup();
     bridge.request.mockImplementation(

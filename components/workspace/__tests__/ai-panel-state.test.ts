@@ -11,6 +11,8 @@ import {
   createThreadTitle,
   createEmptyConversation,
   getOutputPreviewLines,
+  isPaginatedThreadsUnsupportedError,
+  paginatedThreadUnsupportedMessage,
   reduceCodexProtocolMessage,
   selectActiveTaskProgress,
   stripShellWrapper,
@@ -1935,6 +1937,18 @@ describe('AI panel event reducer', () => {
         detail: '风险：高 · 目标路径超出工作区',
       }),
     );
+  });
+
+  it('识别分页历史尚未支持的 App Server 错误', () => {
+    expect(
+      isPaginatedThreadsUnsupportedError(
+        new Error('paginated_threads is not supported yet'),
+      ),
+    ).toBe(true);
+    expect(isPaginatedThreadsUnsupportedError(new Error('thread missing'))).toBe(
+      false,
+    );
+    expect(paginatedThreadUnsupportedMessage()).toContain('分页历史');
   });
 });
 
