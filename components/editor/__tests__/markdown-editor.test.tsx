@@ -21,6 +21,7 @@ const {
   cancelAnimationFrameMock,
   markweaveEditorMock,
   markweaveUnmountMock,
+  prepareMarkweaveEditorForOutputMock,
   payloadFieldReadMock,
   requestAnimationFrameMock,
   scrollToMock,
@@ -30,6 +31,7 @@ const {
   searchControllerMock,
   searchListeners,
   searchState,
+  viewportCoordinatorForElementMock,
 } = vi.hoisted(() => ({
   aiEditControllerMock: {
     discard: vi.fn(),
@@ -40,6 +42,7 @@ const {
   cancelAnimationFrameMock: vi.fn(),
   markweaveEditorMock: vi.fn(),
   markweaveUnmountMock: vi.fn(),
+  prepareMarkweaveEditorForOutputMock: vi.fn(),
   payloadFieldReadMock: vi.fn(),
   requestAnimationFrameMock: vi.fn((callback: FrameRequestCallback) => {
     callback(1000);
@@ -79,12 +82,14 @@ const {
     subscribe: vi.fn(),
   },
   searchListeners: new Set<(state: unknown) => void>(),
+  viewportCoordinatorForElementMock: vi.fn(),
 }));
 
 vi.mock('@markweave/react', async () => {
   const React = await import('react');
 
   return {
+    prepareMarkweaveEditorForOutput: prepareMarkweaveEditorForOutputMock,
     MarkweaveEditor: vi.fn((props: Record<string, unknown>) => {
       const [content, setContent] = React.useState(() =>
         String(props.defaultContent ?? props.content ?? ''),
@@ -109,6 +114,7 @@ vi.mock('@markweave/react', async () => {
 
       return (
         <div
+          className="markweave-editor-surface"
           data-editable={String(props.editable)}
           data-inner-toc={String(props.innerToc)}
           data-inner-toc-placement={String(props.innerTocPlacement)}
@@ -155,6 +161,11 @@ vi.mock('@markweave/react', async () => {
     }),
   };
 });
+
+vi.mock('markweave', () => ({
+  getMarkweaveDocumentViewportCoordinatorForElement:
+    viewportCoordinatorForElementMock,
+}));
 
 vi.mock('next/dynamic', async () => {
   const React = await import('react');
@@ -235,6 +246,8 @@ describe('MarkdownEditor', () => {
     });
     markweaveEditorMock.mockClear();
     markweaveUnmountMock.mockClear();
+    prepareMarkweaveEditorForOutputMock.mockReset();
+    viewportCoordinatorForElementMock.mockReset();
     payloadFieldReadMock.mockClear();
     requestAnimationFrameMock.mockClear();
     requestAnimationFrameMock.mockImplementation(
@@ -369,6 +382,69 @@ describe('MarkdownEditor', () => {
     expect(
       screen.getByTestId('markweave-editor').getAttribute('data-editable'),
     ).toBe('false');
+  });
+
+  it('透传加载状态并仅通过受限 handle 调用官方输出屏障', async () => {
+    const ref = React.createRef<MarkdownEditorHandle>();
+    const onDocumentLoadStateChange = vi.fn();
+    const editor = { id: 'private-editor' };
+    const signal = new AbortController().signal;
+    const report = {
+      durationMs: 12,
+      kind: 'dom-snapshot' as const,
+      missing: 0,
+      resolved: 1,
+      status: 'ready' as const,
+      timedOut: 0,
+      unreadable: 0,
+    };
+    viewportCoordinatorForElementMock.mockReturnValue({ editor });
+    prepareMarkweaveEditorForOutputMock.mockResolvedValue(report);
+
+    render(
+      <MarkdownEditor
+        markdown="# 输出"
+        onDocumentLoadStateChange={onDocumentLoadStateChange}
+        readOnly
+        ref={ref}
+      />,
+    );
+
+    const loadState = {
+      error: null,
+      phase: 'ready' as const,
+      profile: null,
+      progress: 1,
+      tier: 'standard' as const,
+    };
+    const markweaveProps = markweaveEditorMock.mock.calls.at(-1)?.[0] as {
+      onDocumentLoadStateChange?: (state: typeof loadState) => void;
+    };
+    act(() => markweaveProps.onDocumentLoadStateChange?.(loadState));
+    expect(onDocumentLoadStateChange).toHaveBeenCalledWith(loadState);
+
+    let resolvedReport: typeof report | null = null;
+    await act(async () => {
+      resolvedReport = await ref.current!.prepareForOutput({
+        kind: 'dom-snapshot',
+        signal,
+        timeoutMs: 1_000,
+      });
+    });
+
+    expect(viewportCoordinatorForElementMock).toHaveBeenCalledWith(
+      screen.getByTestId('markweave-editor'),
+    );
+    expect(prepareMarkweaveEditorForOutputMock).toHaveBeenCalledWith(
+      editor,
+      {
+        kind: 'dom-snapshot',
+        signal,
+        timeoutMs: expect.any(Number),
+      },
+    );
+    expect(resolvedReport).toEqual(report);
+    expect(ref.current).not.toHaveProperty('editor');
   });
 
   it('普通点击段落内工作区文档链接时阻止浏览器导航并交给 Markweave 编辑', () => {

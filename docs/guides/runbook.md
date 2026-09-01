@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-08-15
+updated: 2026-09-01
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -39,14 +39,20 @@ cargo test --manifest-path src-tauri/Cargo.toml
 聚焦自动化先执行：
 
 ```bash
-pnpm exec vitest run components/editor/__tests__/markdown-editor.test.tsx components/editor/__tests__/use-workspace-asset-uploader.test.ts components/editor/__tests__/markweave-image-paste.test.tsx components/workspace/__tests__/use-workspace-ai-sync.test.tsx components/workspace/__tests__/workspace-performance.test.ts
+pnpm exec vitest run components/editor/__tests__/markdown-editor.test.tsx components/editor/__tests__/use-workspace-asset-uploader.test.ts components/editor/__tests__/markweave-image-paste.test.tsx components/editor/__tests__/markweave-video-media-bridge.test.ts components/workspace/__tests__/document-export-core.test.ts components/workspace/__tests__/use-workspace-ai-sync.test.tsx components/workspace/__tests__/workspace-performance.test.ts
 cargo test --manifest-path src-tauri/Cargo.toml assets::tests
 pnpm exec tsc --noEmit
 ```
 
-使用 Markweave 共享的 250 KB 文本、250 KB 有效媒体、250 KB 缺失媒体和 1 MB 压力夹具；不要提交用户手册原文或真实资产。浏览器前置基准在 Markweave 仓库运行 `pnpm benchmark:large-document`。最终门禁必须在真实 macOS WKWebView 与 Windows WebView2 各执行至少五轮冷/热测试，记录首屏、可编辑、逐键/IME paint、长任务、滚动帧率、序列化、保存、IPC、DOM/轻量 NodeView 和内存，并与同机 Typora 相对比较。
+使用 Markweave 共享的 250 KB 文本、250 KB 有效媒体、250 KB 缺失媒体和 1 MB 压力夹具；不要提交用户手册原文或真实资产。浏览器前置基准在 Markweave 仓库运行 `pnpm benchmark:large-document`。先确认 canonical whole-document parse 后的 PM 文档与直接完整解析等价，加载阶段不发出中间保存，只有 Markweave `ready` 后才允许输入、搜索、TOC 与导出。最终门禁必须在真实 macOS WKWebView 与 Windows WebView2 各执行至少五轮冷/热测试，记录首屏、可编辑、逐键/IME paint、长任务、滚动帧率、序列化、保存、IPC、DOM/轻量 NodeView 和内存，并与同机 Typora 相对比较。
 
-在 Markune URL 加 `?markunePerf=1` 后，可从开发者控制台调用 `window.__MarkunePerformanceReport()` 导出脱敏 JSON。验证 100 次连续输入期间序列化计数为 0，500 ms idle 后只增加 1；普通输入资产 IPC 为 0，打开含 421 个唯一资源的文档最多增加 1。另需人工覆盖中文 IME、撤销重做、列表回车、跨块/全选复制、搜索替换、TOC 跳转、快速滚动后编辑、Live/Source 往返、导出、AI 发送和应用关闭 flush。任何保存失败都必须阻止切换/发送/退出并保留草稿。
+在 Markune URL 加 `?markunePerf=1` 后，可从开发者控制台调用 `window.__MarkunePerformanceReport()` 导出脱敏 JSON。验证 100 次连续输入期间序列化计数为 0，500 ms idle 后只增加 1；普通输入资产 IPC 为 0，打开含 421 个唯一资源的文档最多增加 1。对 2,049、4,097 和超过 8,192 个唯一 ID 的合成文档，确认每个 `resolve_workspace_assets` 调用都不超过 2,048 项、调用数为 `ceil(uniqueIds / 2048)`，当次返回覆盖全部 ID；让任一分片首次 reject 后，其他分片必须继续可用，下一次只补请求失败集合。
+
+媒体恢复需要分别覆盖：resolver reject/超时、`missing`、`unreadable`、候选 URL 的真实 image/video error、工作区切换、Abort、output 和同一文档并发重试。确认普通请求在 5 秒内复用负结果，TTL 到期后可恢复；`retry`、`image-error`、`output` 或 `attempt > 1` 立即绕过旧候选，同一文档 750 ms 内只形成一轮恢复 IPC。图片只有真实 `load` 后进入 `resolved`；本地视频只改变 DOM `src` / `data-media-state`，PM 文档、Markdown 输出和 Undo 保持不变。
+
+Warm Tab 验收应打开至少 4 篇含本地图片和视频的文档，在最近 3 个 EditorView 间反复切换：已成功资源复用有界正缓存，失败资源仍能在重新可见、选择或 output 时恢复，旧 Tab 的晚到结果不能写入当前工作区。导出前确认 editor 已 `ready`，官方 output barrier 能唤醒未访问过的末尾媒体并返回缺失、不可读、超时报告；DOM snapshot/打印只在 barrier 结束后克隆，输出完成后编辑器仍可继续滚动和输入。
+
+另需人工覆盖中文 IME、撤销重做、列表回车、跨块/全选复制、搜索替换、TOC 跳转、快速滚动后编辑、Live/Source 往返、导出、AI 发送和应用关闭 flush。任何保存失败都必须阻止切换/发送/退出并保留草稿。
 
 For single-document export changes, run the focused suites first:
 
@@ -59,7 +65,7 @@ cargo test --manifest-path src-tauri/Cargo.toml staged_runtime_generates_real_wo
 
 Then use a Markdown acceptance document containing Chinese and English text, H1-H6, nested/task lists, quotes, callouts, highlighted code, merged tables, formulas, Mermaid, local/remote images, link cards and enough content for multiple A4 pages. Verify:
 
-- HTML follows the active Markweave theme, uses 64 rem standard width, contains no editor TOC/runtime script/large-document placeholder attributes, and opens with local images and attachment sidecars intact.
+- HTML waits for Markweave `ready` and the official output barrier, follows the active theme, uses 64 rem standard width, contains no editor TOC/runtime script/large-document placeholder attributes, and opens with local images, local videos and attachment sidecars intact. Missing, unreadable or timed-out visual resources must be reported rather than silently omitted.
 - 专业 PDF 由 Pandoc→Typst 生成多页 A4 可选文本，正文和中文字体完整，图片、公式、代码、表格及 Mermaid 静态图不出现灰色占位；设置 `MARKUNE_DOCUMENT_EXPORT_ENGINE=legacy` 后兼容 WebView PDF 仍可完成且不阻塞 UI。
 - 专业 DOCX 能在 Microsoft Word 打开，保留标题层级、列表、表格、代码、引用、公式和嵌入图片；样式来自固定 `reference.docx`，Mermaid 使用 2× PNG，不要求可编辑。
 - Existing names are never overwritten. Markdown/HTML sidecars use the same suffixed stem; professional PDF/DOCX embed their assets and do not leave a sidecar directory.

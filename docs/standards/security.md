@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-08-15
+updated: 2026-09-01
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -72,7 +72,7 @@ referenced_by: AGENTS.md#knowledge-map
 
 ## Uploads And Links
 
-- 上传资源必须保留在工作区资源目录内，Markdown 新写入只存储 `markune-asset://{assetId}`，不得把绝对路径、Windows 盘符或文档层级相关路径作为资产身份。批量协议解析最多接受 2,048 个经格式校验并去重的 ID，只能复用一次工作区 canonicalize/索引读取；每个命中仍必须逐文件 canonicalize、拒绝符号链接/目录/边界逃逸，并且只有校验成功的单个物理文件可以动态加入当前进程的资源协议范围，不得授权整个工作区、磁盘或卷。缺失和不可读结果可以负缓存，但不得包含正文或扩大权限。旧 `.markune/assets/files/...` 引用只读兼容。
+- 上传资源必须保留在工作区资源目录内，Markdown 新写入只存储 `markune-asset://{assetId}`，不得把绝对路径、Windows 盘符或文档层级相关路径作为资产身份。单次批量协议解析最多接受 2,048 个经格式校验并去重的 ID；宿主处理更大文档时只能按此上限分片并合并，不能放宽 Rust 校验。每次 IPC 只能复用一次工作区 canonicalize/索引读取；每个命中仍必须逐文件 canonicalize、拒绝符号链接/目录/边界逃逸，并且只有校验成功的单个物理文件可以动态加入当前进程的资源协议范围，不得授权整个工作区、磁盘或卷。`missing` / `unreadable` 只允许 5 秒有界负缓存，恢复请求可以重新校验但不得跳过路径、索引、签名或协议授权；缓存仍限制为 8 个工作区、每个 8,192 个结果。图片或视频 DOM bridge 只消费已经授权的候选 URL，不得扩大 capability、文件系统权限或 `assetProtocol.scope`，也不得把 display URL 写入 Markdown。旧 `.markune/assets/files/...` 引用只读兼容。
 - 目录本地图标只能由原生文件选择器导入 SVG、PNG 或 WebP，单文件不超过 2 MiB，栅格边长不超过 4096 px，并拒绝 APNG/动画 WebP、签名与扩展名不一致的内容。SVG 必须是 UTF-8 单根静态文档，只允许受控图形元素和属性，拒绝脚本、事件处理器、CDATA、DOCTYPE、处理指令、外部 URL、Data URL 与非内部片段 `url()`。渲染器只取得资产 ID、媒体类型和显示名称，不取得源绝对路径；导入不扩大 capability 或资产协议 scope。
 - 目录外观引用必须计入工作区资产回收扫描。更换图标、恢复默认或删除目录时，只能删除已经不被 Markdown、Inbox 或其他目录外观引用的候选资产；损坏或伪造的 `local` 资产 ID 必须在写入节点状态前失败关闭。
 - 图稿引用的剪贴板兼容只允许 64 位十六进制 `markune-asset://{assetId}` 和合法 UUID `markune-drawing://{drawingId}` 的精确组合；富剪贴板中的 `https://clipboard.markune.invalid/asset/{assetId}` 只能作为编辑器瞬时桥接值，由本地 resolver 解析并在保存前恢复，禁止网络请求或持久化。这些规则不得扩大浏览器导航协议、Tauri capability 或 `assetProtocol.scope`。

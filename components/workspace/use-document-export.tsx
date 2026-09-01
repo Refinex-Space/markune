@@ -2,8 +2,16 @@
 
 import * as React from 'react';
 import { toast } from 'sonner';
+import type {
+  MarkweaveDocumentLoadState,
+  MarkweaveOutputKind,
+  MarkweaveOutputPreparationReport,
+} from '@markweave/react';
 
-import { MarkdownEditor } from '@/components/editor/markdown-editor';
+import {
+  MarkdownEditor,
+  type MarkdownEditorHandle,
+} from '@/components/editor/markdown-editor';
 
 import {
   createPrimaryExportFile,
@@ -49,14 +57,23 @@ interface ExportDocumentRequest {
 interface RenderRequest {
   id: number;
   markdown: string;
+  outputKind: MarkweaveOutputKind;
   pageWidthMode: PageWidthMode;
   theme: 'dark' | 'light';
 }
 
+interface PreparedRender {
+  outputReport: MarkweaveOutputPreparationReport;
+  postBarrierTimedOut: boolean;
+  root: HTMLElement;
+}
+
 interface PendingRender {
   reject: (error: Error) => void;
-  resolve: (root: HTMLElement) => void;
+  resolve: (render: PreparedRender) => void;
 }
+
+const EXPORT_RENDER_TIMEOUT_MS = 15_000;
 
 const FORMAT_LABEL: Record<WorkspaceExportFormat, string> = {
   html: 'HTML',
@@ -90,15 +107,20 @@ export function useDocumentExport({
   );
 
   const renderMarkdown = React.useCallback(
-    (markdown: string, renderTheme: 'dark' | 'light') => {
+    (
+      markdown: string,
+      renderTheme: 'dark' | 'light',
+      outputKind: MarkweaveOutputKind,
+    ) => {
       pendingRenderRef.current?.reject(new Error('已有导出渲染任务被替换。'));
       renderRequestIdRef.current += 1;
 
-      return new Promise<HTMLElement>((resolve, reject) => {
+      return new Promise<PreparedRender>((resolve, reject) => {
         pendingRenderRef.current = { resolve, reject };
         setRenderRequest({
           id: renderRequestIdRef.current,
           markdown,
+          outputKind,
           pageWidthMode,
           theme: renderTheme,
         });
@@ -113,12 +135,12 @@ export function useDocumentExport({
   }, []);
 
   const onRendererReady = React.useCallback(
-    (id: number, root: HTMLElement) => {
+    (id: number, render: PreparedRender) => {
       if (id !== renderRequestIdRef.current || !pendingRenderRef.current) {
         return;
       }
 
-      pendingRenderRef.current.resolve(root);
+      pendingRenderRef.current.resolve(render);
       pendingRenderRef.current = null;
     },
     [],
@@ -193,16 +215,13 @@ export function useDocumentExport({
           );
         } else {
           phase = '等待 Markweave 高保真渲染';
-          const renderRoot = await renderMarkdown(
+          const render = await renderMarkdown(
             prepared.renderMarkdown,
             format === 'html' ? theme : 'light',
+            format === 'pdf' ? 'print' : 'dom-snapshot',
           );
-          const timedOut = renderRoot.dataset.exportTimedOut === 'true';
-          const snapshot = sanitizeMarkweaveSnapshot(renderRoot);
-
-          if (timedOut) {
-            warnings.push('渲染稳定等待超过 15 秒，已按当前可见内容继续导出。');
-          }
+          const snapshot = sanitizeMarkweaveSnapshot(render.root);
+          warnings.push(...getMarkweaveOutputWarnings(render));
 
           if (format === 'word') {
             if (professionalRuntime?.professionalWord) {
@@ -371,17 +390,74 @@ function DocumentExportRenderer({
 }: {
   request: RenderRequest;
   onError: (id: number, error: Error) => void;
-  onReady: (id: number, root: HTMLElement) => void;
+  onReady: (id: number, render: PreparedRender) => void;
 }) {
+  const editorRef = React.useRef<MarkdownEditorHandle | null>(null);
   const hostRef = React.useRef<HTMLDivElement | null>(null);
+  const startedAtRef = React.useRef<number | null>(null);
+  const [loadOutcome, setLoadOutcome] =
+    React.useState<MarkweaveDocumentLoadState | null>(null);
+
+  const handleDocumentLoadStateChange = React.useCallback(
+    (state: MarkweaveDocumentLoadState) => {
+      if (
+        state.phase === 'ready' ||
+        state.phase === 'error' ||
+        state.phase === 'cancelled'
+      ) {
+        setLoadOutcome((current) => current ?? state);
+      }
+    },
+    [],
+  );
 
   React.useEffect(() => {
+    startedAtRef.current = performance.now();
+  }, []);
+
+  React.useEffect(() => {
+    if (loadOutcome) {
+      return;
+    }
+
+    const startedAt = startedAtRef.current ?? performance.now();
+    const timeout = window.setTimeout(() => {
+      onError(
+        request.id,
+        new Error('Markweave 文档加载未在 15 秒内完成。'),
+      );
+    }, Math.max(0, startedAt + EXPORT_RENDER_TIMEOUT_MS - performance.now()));
+
+    return () => window.clearTimeout(timeout);
+  }, [loadOutcome, onError, request.id]);
+
+  React.useEffect(() => {
+    if (!loadOutcome) {
+      return;
+    }
+
+    if (loadOutcome.phase === 'error') {
+      onError(
+        request.id,
+        new Error(
+          `Markweave 文档加载失败${
+            loadOutcome.error ? `：${loadOutcome.error}` : '。'
+          }`,
+        ),
+      );
+      return;
+    }
+    if (loadOutcome.phase === 'cancelled') {
+      onError(request.id, new Error('Markweave 文档加载已取消。'));
+      return;
+    }
+
     let cancelled = false;
+    const controller = new AbortController();
 
     async function prepareSnapshot() {
-      await new Promise<void>((resolve) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-      );
+      const deadline =
+        (startedAtRef.current ?? performance.now()) + EXPORT_RENDER_TIMEOUT_MS;
 
       const root = hostRef.current?.querySelector<HTMLElement>(
         '.markune-markweave-editor',
@@ -391,10 +467,39 @@ function DocumentExportRenderer({
         throw new Error('未找到 Markweave 导出渲染结果。');
       }
 
-      const timedOut = await waitForExportRender(root);
+      const editor = editorRef.current;
+      if (!editor) {
+        throw new Error('Markweave 导出控制器尚未就绪。');
+      }
+
+      const barrierRemainingMs = Math.max(0, deadline - performance.now());
+      if (barrierRemainingMs === 0) {
+        throw new Error('Markweave 文档加载耗尽了 15 秒输出准备预算。');
+      }
+
+      const outputReport = await editor.prepareForOutput({
+        kind: request.outputKind,
+        signal: controller.signal,
+        timeoutMs: barrierRemainingMs,
+      });
+
+      if (cancelled || controller.signal.aborted) {
+        return;
+      }
+      if (outputReport.status === 'cancelled') {
+        throw new Error('Markweave 输出准备已取消。');
+      }
+
+      const postBarrierTimedOut = await waitForExportRender(
+        root,
+        Math.max(0, deadline - performance.now()),
+      );
       if (!cancelled) {
-        root.dataset.exportTimedOut = String(timedOut);
-        onReady(request.id, root);
+        onReady(request.id, {
+          outputReport,
+          postBarrierTimedOut,
+          root,
+        });
       }
     }
 
@@ -409,8 +514,9 @@ function DocumentExportRenderer({
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [onError, onReady, request.id]);
+  }, [loadOutcome, onError, onReady, request.id, request.outputKind]);
 
   return (
     <div
@@ -432,12 +538,39 @@ function DocumentExportRenderer({
         <MarkdownEditor
           documentKey={`export:${request.id}`}
           markdown={request.markdown}
+          onDocumentLoadStateChange={handleDocumentLoadStateChange}
           pageWidthMode={request.pageWidthMode}
           readOnly
+          ref={editorRef}
           themeOverride={request.theme}
           workspaceRootPath={null}
         />
       </div>
     </div>
   );
+}
+
+function getMarkweaveOutputWarnings(render: PreparedRender) {
+  const warnings: string[] = [];
+  const report = render.outputReport;
+
+  if (
+    report.status === 'timed-out' ||
+    report.timedOut > 0 ||
+    render.postBarrierTimedOut
+  ) {
+    warnings.push(
+      report.timedOut > 0
+        ? `${report.timedOut} 个视觉资源未在 15 秒输出准备预算内完成，已按当前稳定结果继续导出。`
+        : '图片解码或布局稳定检查未在 15 秒输出准备预算内完成，已按当前稳定结果继续导出。',
+    );
+  }
+  if (report.missing > 0) {
+    warnings.push(`${report.missing} 个视觉资源缺失，已保留可识别的占位或原始引用。`);
+  }
+  if (report.unreadable > 0) {
+    warnings.push(`${report.unreadable} 个视觉资源不可读，已保留可识别的占位或原始引用。`);
+  }
+
+  return warnings;
 }
