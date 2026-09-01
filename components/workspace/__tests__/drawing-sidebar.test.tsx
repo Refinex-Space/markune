@@ -102,6 +102,9 @@ describe('DrawingSidebar', () => {
     const count = screen.getByTestId('drawing-collection-count-全部图稿');
     expect(count.className).toContain('size-7');
     expect(count.className).toContain('justify-center');
+    expect(screen.getByTestId('drawing-trash-section').className).not.toContain(
+      'border-t',
+    );
   });
 
   it('uses the document-tree folder states and guide line', async () => {

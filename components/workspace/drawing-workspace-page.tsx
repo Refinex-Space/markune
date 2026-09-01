@@ -802,7 +802,7 @@ function DrawingEditorSurface({
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       <header
-        className="flex shrink-0 items-center gap-2 border-b px-2"
+        className="flex shrink-0 items-center gap-2 px-2"
         data-testid="drawing-editor-header"
         style={{ height: headerHeight }}
       >

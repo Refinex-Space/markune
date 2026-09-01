@@ -182,6 +182,9 @@ describe('DrawingWorkspacePage', () => {
 
     expect(screen.queryByLabelText('图稿标签')).toBeNull();
     expect(screen.queryByLabelText('图稿操作')).toBeNull();
+    expect(screen.getByTestId('drawing-editor-header').className).not.toContain(
+      'border-b',
+    );
     expect(screen.getByTestId('drawing-editor-header').style.height).toBe('32px');
     expect(screen.getByLabelText('图稿标题').className).toContain('bg-muted/45');
     expect(screen.getByLabelText('取消星标').querySelector('svg')?.className.baseVal)
@@ -276,6 +279,9 @@ describe('DrawingWorkspacePage', () => {
 
     expect(screen.getByTestId('mindmap-editor-toolbar').style.marginRight).toBe(
       '',
+    );
+    expect(screen.getByTestId('drawing-editor-header').className).not.toContain(
+      'border-b',
     );
 
     const tooltips = [

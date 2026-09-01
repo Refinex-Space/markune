@@ -924,6 +924,37 @@
   background: color-mix(in oklab, var(--muted-foreground) 34%, transparent) !important;
 }
 
+.markune-document-preview-excerpt {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 42%, transparent 92%);
+  mask-image: linear-gradient(to bottom, #000 42%, transparent 92%);
+}
+
+.markune-document-preview-fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  height: 7rem;
+  pointer-events: none;
+  background-image: linear-gradient(
+    to top,
+    #fff 10%,
+    rgba(255, 255, 255, 0.86) 38%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+
+.dark .markune-document-preview-fade {
+  background-image: linear-gradient(
+    to top,
+    #242424 10%,
+    rgba(36, 36, 36, 0.86) 38%,
+    rgba(36, 36, 36, 0) 100%
+  );
+}
+
 .markune-mindmap .map-container {
   font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 14px;

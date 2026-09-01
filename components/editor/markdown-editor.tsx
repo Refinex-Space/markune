@@ -5,14 +5,19 @@ import { ArrowUp } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import {
   MarkweaveEditor,
+  prepareMarkweaveEditorForOutput,
   type MarkweaveAiEditController,
   type MarkweaveAskAiHandler,
+  type MarkweaveDocumentLoadState,
   type MarkweaveEditorUpdatePayload,
+  type MarkweaveOutputPreparationReport,
+  type MarkweavePrepareOutputOptions,
   type MarkweaveSearchController,
 } from '@markweave/react';
-import type {
-  MarkweaveInternalLinkCardConfig,
-  MarkweaveReferenceSuggestionConfig,
+import {
+  getMarkweaveDocumentViewportCoordinatorForElement,
+  type MarkweaveInternalLinkCardConfig,
+  type MarkweaveReferenceSuggestionConfig,
 } from 'markweave';
 import { useTheme } from 'next-themes';
 
@@ -32,6 +37,7 @@ import {
   serializeFrontmatter,
 } from '@/components/editor/markdown-frontmatter';
 import { resolveMarkweaveLinkCard } from '@/components/editor/markweave-link-card-resolver';
+import { installMarkweaveVideoMediaBridge } from '@/components/editor/markweave-video-media-bridge';
 import type { MarkdownSourceEditorHandle } from '@/components/editor/markdown-source-editor';
 import {
   buildWorkspaceDocumentHref,
@@ -69,6 +75,9 @@ export type MarkdownEditorFlushReason =
 export interface MarkdownEditorHandle {
   flushDraft: (reason: MarkdownEditorFlushReason) => Promise<boolean>;
   getAiEditController: () => MarkweaveAiEditController | null;
+  prepareForOutput: (
+    options: MarkweavePrepareOutputOptions,
+  ) => Promise<MarkweaveOutputPreparationReport>;
 }
 
 interface MarkdownEditorProps {
@@ -84,6 +93,7 @@ interface MarkdownEditorProps {
     origin?: MarkdownEditorChangeOrigin,
     reason?: MarkdownEditorFlushReason,
   ) => boolean | void | Promise<boolean | void>;
+  onDocumentLoadStateChange?: (state: MarkweaveDocumentLoadState) => void;
   onSourceModeChange?: (sourceMode: boolean) => void;
   readOnly?: boolean;
   themeOverride?: 'dark' | 'light';
@@ -121,6 +131,7 @@ export const MarkdownEditor = React.forwardRef<
   pageWidthMode = 'wide',
   onSaveRequested,
   onMarkdownChange,
+  onDocumentLoadStateChange,
   onSourceModeChange,
   readOnly = false,
   themeOverride,
@@ -211,6 +222,18 @@ export const MarkdownEditor = React.forwardRef<
     workspaceRootPath ?? null,
     projectedEditorBody,
   );
+  React.useLayoutEffect(() => {
+    const editorRoot = markweaveModeRef.current;
+
+    if (!editorRoot || !resolveMediaSource) {
+      return;
+    }
+
+    return installMarkweaveVideoMediaBridge(
+      editorRoot,
+      resolveMediaSource,
+    );
+  }, [resolveMediaSource]);
 
   const workspaceDocumentIndex = useWorkspaceDocumentIndex();
   const currentDocumentRelativePath = React.useMemo(
@@ -543,6 +566,60 @@ export const MarkdownEditor = React.forwardRef<
     [],
   );
 
+  const prepareForOutput = React.useCallback(
+    async (
+      options: MarkweavePrepareOutputOptions,
+    ): Promise<MarkweaveOutputPreparationReport> => {
+      const container = markweaveModeRef.current;
+      const ownerWindow = container?.ownerDocument.defaultView;
+
+      if (!container || !ownerWindow) {
+        throw new Error('Markweave 输出容器尚未就绪。');
+      }
+
+      const timeoutMs = Number.isFinite(options.timeoutMs)
+        ? Math.max(0, options.timeoutMs ?? 5_000)
+        : 5_000;
+      const startedAt = ownerWindow.performance?.now() ?? Date.now();
+
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        if (options.signal?.aborted) {
+          throw new DOMException('Markweave 输出准备已取消。', 'AbortError');
+        }
+
+        const surface = container.querySelector<HTMLElement>(
+          '.markweave-editor-surface',
+        );
+        const coordinator = surface
+          ? getMarkweaveDocumentViewportCoordinatorForElement(surface)
+          : null;
+
+        if (coordinator) {
+          const elapsed =
+            (ownerWindow.performance?.now() ?? Date.now()) - startedAt;
+
+          return prepareMarkweaveEditorForOutput(coordinator.editor, {
+            ...options,
+            timeoutMs: Math.max(0, timeoutMs - elapsed),
+          });
+        }
+
+        const elapsed =
+          (ownerWindow.performance?.now() ?? Date.now()) - startedAt;
+        if (elapsed >= timeoutMs) {
+          break;
+        }
+
+        await new Promise<void>((resolve) => {
+          ownerWindow.requestAnimationFrame(() => resolve());
+        });
+      }
+
+      throw new Error('Markweave 输出协调器尚未就绪。');
+    },
+    [],
+  );
+
   React.useImperativeHandle(
     forwardedRef,
     () => ({
@@ -551,8 +628,9 @@ export const MarkdownEditor = React.forwardRef<
         aiEnabled && !readOnly && !sourceMode
           ? aiEditControllerRef.current
           : null,
+      prepareForOutput,
     }),
-    [aiEnabled, flushDraft, readOnly, sourceMode],
+    [aiEnabled, flushDraft, prepareForOutput, readOnly, sourceMode],
   );
 
   React.useEffect(() => {
@@ -888,6 +966,7 @@ export const MarkdownEditor = React.forwardRef<
             mode={readOnly ? 'view' : 'live'}
             onAiEditControllerChange={handleAiEditControllerChange}
             onAttachmentDownload={onAttachmentDownload}
+            onDocumentLoadStateChange={onDocumentLoadStateChange}
             onSlashCommandUpload={onSlashCommandUpload}
             {...{ resolveMediaSource }}
             onSearchControllerChange={handleSearchControllerChange}

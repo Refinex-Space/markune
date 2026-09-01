@@ -40,4 +40,28 @@ describe('WorkspaceViewsPage', () => {
     expect(titleGroup?.className).toContain('h-9');
     expect(toolbar?.className).toContain('h-9');
   });
+
+  it('hides markdown bold markers in the name column', () => {
+    render(
+      <WorkspaceViewsPage
+        nodes={[
+          {
+            ...documentNode,
+            title: '**通用 PDF 与 Word 转 Markdown 设计方案**',
+          },
+        ]}
+        onOpenNode={vi.fn()}
+        onRefresh={vi.fn()}
+        onToggleLocked={vi.fn()}
+        onTogglePinned={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole('button', {
+        name: '通用 PDF 与 Word 转 Markdown 设计方案',
+      }),
+    ).toBeTruthy();
+    expect(screen.queryByText('**通用 PDF 与 Word 转 Markdown 设计方案**')).toBeNull();
+  });
 });

@@ -5,6 +5,7 @@ import {
   type MarkweaveEditorUpdatePayload,
   type MarkweaveSlashCommandUploadHandler,
 } from '@markweave/react';
+import { getMarkweaveDocumentViewportCoordinatorForElement } from 'markweave';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createDrawingMarkdownReferenceHtml } from '@/components/editor/drawing-markdown-reference';
@@ -84,10 +85,8 @@ function DrawingReferenceEditor({ markdown }: { markdown: string }) {
 
 function ControlledWorkspaceAssetEditor({
   markdown,
-  onEditor,
 }: {
   markdown: string;
-  onEditor?: (editor: MarkweaveEditorUpdatePayload['editor']) => void;
 }) {
   const [value, setValue] = React.useState(markdown);
   const { editorMarkdown, onSlashCommandUpload, toStorageMarkdown } =
@@ -100,7 +99,6 @@ function ControlledWorkspaceAssetEditor({
         contentFormat="markdown"
         onSlashCommandUpload={onSlashCommandUpload}
         onUpdate={(payload) => {
-          onEditor?.(payload.editor);
           setValue(toStorageMarkdown(payload.markdown));
         }}
       />
@@ -184,15 +182,13 @@ describe('Markweave image integration', () => {
     let editor: MarkweaveEditorUpdatePayload['editor'] | null = null;
 
     render(
-      <ControlledWorkspaceAssetEditor
-        markdown={existingMarkdown}
-        onEditor={(nextEditor) => {
-          editor = nextEditor;
-        }}
-      />,
+      <ControlledWorkspaceAssetEditor markdown={existingMarkdown} />,
     );
     const surface = await screen.findByTestId('markweave-editor-surface');
     await waitFor(() => {
+      editor =
+        getMarkweaveDocumentViewportCoordinatorForElement(surface)?.editor ??
+        null;
       expect(surface.querySelectorAll('img')).toHaveLength(1);
       expect(editor).not.toBeNull();
     });
@@ -219,6 +215,62 @@ describe('Markweave image integration', () => {
     ).toContain(`markune-asset://${uploadedAssetId}`);
   });
 
+  it('本地图片首次缺失后可由节点选择强制重新解析并以真实 load 确认成功', async () => {
+    const assetId = 'd'.repeat(64);
+    let available = false;
+    vi.mocked(resolveWorkspaceAsset).mockImplementation(async () =>
+      available
+        ? {
+            absolutePath: `/ws/.markune/assets/files/dd/${assetId}.png`,
+            id: assetId,
+            mediaType: 'image/png',
+            name: 'recovered.png',
+            size: 10,
+          }
+        : null,
+    );
+
+    render(
+      <WorkspaceAssetEditor
+        documentKey="recover-image.md"
+        markdown={`![恢复图片](markune-asset://${assetId})`}
+      />,
+    );
+
+    await screen.findByTestId('markweave-editor-surface');
+    const imageNode = await waitFor(() => {
+      const node = document.querySelector<HTMLElement>(
+        '[data-markweave-lightweight-image="true"]',
+      );
+
+      expect(node).not.toBeNull();
+      expect(resolveWorkspaceAsset).toHaveBeenCalled();
+      return node!;
+    });
+    available = true;
+    vi.mocked(resolveWorkspaceAsset).mockClear();
+
+    fireEvent.mouseDown(imageNode, { button: 0 });
+
+    await waitFor(() => {
+      expect(resolveWorkspaceAsset).toHaveBeenCalled();
+      expect(
+        imageNode.querySelector('img')?.getAttribute('src'),
+      ).toContain(assetId);
+    });
+    const image = imageNode.querySelector<HTMLImageElement>('img');
+    expect(image).not.toBeNull();
+    Object.defineProperties(image!, {
+      naturalHeight: { configurable: true, value: 36 },
+      naturalWidth: { configurable: true, value: 64 },
+    });
+    fireEvent.load(image!);
+
+    await waitFor(() => {
+      expect(imageNode.dataset.mediaState).toBe('resolved');
+    });
+  });
+
   it('含本地图片的有序列表连续回车只新增一项并正常退出', async () => {
     const assetId = 'c'.repeat(64);
     const markdown =
@@ -234,15 +286,13 @@ describe('Markweave image integration', () => {
     let editor: MarkweaveEditorUpdatePayload['editor'] | null = null;
 
     render(
-      <ControlledWorkspaceAssetEditor
-        markdown={markdown}
-        onEditor={(nextEditor) => {
-          editor = nextEditor;
-        }}
-      />,
+      <ControlledWorkspaceAssetEditor markdown={markdown} />,
     );
     const surface = await screen.findByTestId('markweave-editor-surface');
     await waitFor(() => {
+      editor =
+        getMarkweaveDocumentViewportCoordinatorForElement(surface)?.editor ??
+        null;
       expect(surface.querySelector('img')?.getAttribute('src')).toContain(
         assetId,
       );

@@ -703,4 +703,473 @@ describe('useWorkspaceAssetUploader', () => {
     expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(2);
     warn.mockRestore();
   });
+
+  it('missing 与 unreadable 负缓存过期后自动重新解析', async () => {
+    let now = 1_000;
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    vi.mocked(resolveWorkspaceAssets)
+      .mockResolvedValueOnce({
+        items: [
+          { id: 'missing', status: 'missing' },
+          { id: 'unreadable', status: 'unreadable' },
+        ],
+      })
+      .mockImplementation(async (_rootPath, assetIds) => ({
+        items: assetIds.map((assetId) => ({
+          asset: {
+            absolutePath: `/ws/.markune/assets/files/aa/${assetId}.png`,
+            id: assetId,
+            mediaType: 'image/png',
+            name: `${assetId}.png`,
+            size: 10,
+          },
+          id: assetId,
+          status: 'resolved' as const,
+        })),
+      }));
+    const markdown = [
+      '![缺失](markune-asset://missing)',
+      '![不可读](markune-asset://unreadable)',
+    ].join('\n');
+    const { result } = renderHook(() =>
+      useWorkspaceAssetUploader('/ws/root', markdown),
+    );
+    const request = (src: string) => ({
+      kind: 'image' as const,
+      priority: 'visible' as const,
+      signal: new AbortController().signal,
+      src,
+    });
+
+    await waitFor(() => {
+      expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(1);
+    });
+    await expect(
+      result.current.resolveMediaSource(request('markune-asset://missing')),
+    ).resolves.toBeNull();
+    await expect(
+      result.current.resolveMediaSource(request('markune-asset://unreadable')),
+    ).resolves.toBeNull();
+    expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(1);
+
+    now = 7_000;
+    await expect(
+      result.current.resolveMediaSource(request('markune-asset://missing')),
+    ).resolves.toMatchObject({
+      src: 'asset:///ws/.markune/assets/files/aa/missing.png',
+    });
+    await expect(
+      result.current.resolveMediaSource(request('markune-asset://unreadable')),
+    ).resolves.toMatchObject({
+      src: 'asset:///ws/.markune/assets/files/aa/unreadable.png',
+    });
+    expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(2);
+    nowSpy.mockRestore();
+  });
+
+  it.each(['retry', 'image-error', 'output'] as const)(
+    '%s 恢复请求强制刷新已缓存的 resolver 候选',
+    async (reason) => {
+      vi.mocked(resolveWorkspaceAssets)
+        .mockResolvedValueOnce({
+          items: [
+            {
+              asset: {
+                absolutePath: '/ws/.markune/assets/files/aa/old.png',
+                id: 'recover',
+                mediaType: 'image/png',
+                name: 'old.png',
+                size: 10,
+              },
+              id: 'recover',
+              status: 'resolved',
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          items: [
+            {
+              asset: {
+                absolutePath: '/ws/.markune/assets/files/aa/new.png',
+                id: 'recover',
+                mediaType: 'image/png',
+                name: 'new.png',
+                size: 10,
+              },
+              id: 'recover',
+              status: 'resolved',
+            },
+          ],
+        });
+      const { result } = renderHook(() =>
+        useWorkspaceAssetUploader(
+          '/ws/root',
+          '![图](markune-asset://recover)',
+        ),
+      );
+      const baseRequest = {
+        kind: 'image' as const,
+        priority: 'visible' as const,
+        signal: new AbortController().signal,
+        src: 'markune-asset://recover',
+      };
+
+      await expect(
+        result.current.resolveMediaSource(baseRequest),
+      ).resolves.toMatchObject({
+        src: 'asset:///ws/.markune/assets/files/aa/old.png',
+      });
+      await expect(
+        result.current.resolveMediaSource({
+          ...baseRequest,
+          reason,
+        }),
+      ).resolves.toMatchObject({
+        src: 'asset:///ws/.markune/assets/files/aa/new.png',
+      });
+      expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('attempt 大于一时绕过负缓存，并合并同一文档的并发恢复波', async () => {
+    let finishRecovery:
+      | ((value: {
+          items: Array<{
+            asset: {
+              absolutePath: string;
+              id: string;
+              mediaType: string;
+              name: string;
+              size: number;
+            };
+            id: string;
+            status: 'resolved';
+          }>;
+        }) => void)
+      | undefined;
+    vi.mocked(resolveWorkspaceAssets)
+      .mockResolvedValueOnce({
+        items: [{ id: 'recover', status: 'missing' }],
+      })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishRecovery = resolve;
+          }),
+      );
+    const { result } = renderHook(() =>
+      useWorkspaceAssetUploader(
+        '/ws/root',
+        '![图](markune-asset://recover)',
+      ),
+    );
+
+    await waitFor(() => {
+      expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(1);
+    });
+    const createRequest = () => ({
+      attempt: 2,
+      kind: 'image' as const,
+      priority: 'visible' as const,
+      reason: 'viewport' as const,
+      signal: new AbortController().signal,
+      src: 'markune-asset://recover',
+    });
+    const first = result.current.resolveMediaSource(createRequest());
+    const second = result.current.resolveMediaSource(createRequest());
+
+    expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      finishRecovery?.({
+        items: [
+          {
+            asset: {
+              absolutePath: '/ws/.markune/assets/files/aa/recovered.png',
+              id: 'recover',
+              mediaType: 'image/png',
+              name: 'recovered.png',
+              size: 10,
+            },
+            id: 'recover',
+            status: 'resolved',
+          },
+        ],
+      });
+    });
+
+    await expect(first).resolves.toMatchObject({
+      src: 'asset:///ws/.markune/assets/files/aa/recovered.png',
+    });
+    await expect(second).resolves.toMatchObject({
+      src: 'asset:///ws/.markune/assets/files/aa/recovered.png',
+    });
+    expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(2);
+  });
+
+  it('超过原生与宿主缓存上限的唯一资产 ID 按 2048 分片且完整合并', async () => {
+    vi.mocked(resolveWorkspaceAssets).mockImplementation(
+      async (_rootPath, assetIds) => ({
+        items: assetIds.map((assetId) => ({
+          asset: {
+            absolutePath: `/ws/.markune/assets/files/aa/${assetId}.png`,
+            id: assetId,
+            mediaType: 'image/png',
+            name: `${assetId}.png`,
+            size: 10,
+          },
+          id: assetId,
+          status: 'resolved' as const,
+        })),
+      }),
+    );
+    const assetIds = Array.from(
+      { length: 8_193 },
+      (_, index) => `asset-${index}`,
+    );
+    const markdown = assetIds
+      .map((assetId) => `![图](markune-asset://${assetId})`)
+      .join('\n');
+    const { result } = renderHook(() =>
+      useWorkspaceAssetUploader('/ws/root', markdown),
+    );
+
+    expect(result.current.editorMarkdown).toBe(markdown);
+    const firstAssetResolution = result.current.resolveMediaSource({
+      kind: 'video',
+      priority: 'visible',
+      signal: new AbortController().signal,
+      src: 'markune-asset://asset-0',
+    });
+    await expect(firstAssetResolution).resolves.toMatchObject({
+      src: 'asset:///ws/.markune/assets/files/aa/asset-0.png',
+    });
+    await waitFor(() => {
+      expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(5);
+    });
+    const batches = vi.mocked(resolveWorkspaceAssets).mock.calls.map(
+      ([, requestedAssetIds]) => requestedAssetIds,
+    );
+    expect(batches.every((batch) => batch.length <= 2_048)).toBe(true);
+    expect(batches.flat()).toEqual(assetIds);
+  });
+
+  it('单个分片失败不会覆盖其他分片，并只重试失败的资产集合', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let firstChunkFailed = false;
+    vi.mocked(resolveWorkspaceAssets).mockImplementation(
+      async (_rootPath, assetIds) => {
+        if (!firstChunkFailed && assetIds[0] === 'asset-0') {
+          firstChunkFailed = true;
+          throw new Error('temporary chunk failure');
+        }
+
+        return {
+          items: assetIds.map((assetId) => ({
+            asset: {
+              absolutePath: `/ws/.markune/assets/files/aa/${assetId}.png`,
+              id: assetId,
+              mediaType: 'image/png',
+              name: `${assetId}.png`,
+              size: 10,
+            },
+            id: assetId,
+            status: 'resolved' as const,
+          })),
+        };
+      },
+    );
+    const assetIds = Array.from(
+      { length: 2_049 },
+      (_, index) => `asset-${index}`,
+    );
+    const markdown = assetIds
+      .map((assetId) => `![图](markune-asset://${assetId})`)
+      .join('\n');
+    const { result } = renderHook(() =>
+      useWorkspaceAssetUploader('/ws/root', markdown),
+    );
+    const request = (assetId: string) => ({
+      kind: 'image' as const,
+      priority: 'visible' as const,
+      signal: new AbortController().signal,
+      src: `markune-asset://${assetId}`,
+    });
+
+    await waitFor(() => {
+      expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(2);
+      expect(warn).toHaveBeenCalled();
+    });
+    await expect(
+      result.current.resolveMediaSource(request('asset-2048')),
+    ).resolves.toMatchObject({
+      src: 'asset:///ws/.markune/assets/files/aa/asset-2048.png',
+    });
+    expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(2);
+
+    await expect(
+      result.current.resolveMediaSource(request('asset-0')),
+    ).resolves.toMatchObject({
+      src: 'asset:///ws/.markune/assets/files/aa/asset-0.png',
+    });
+    expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(3);
+    expect(resolveWorkspaceAssets).toHaveBeenLastCalledWith(
+      '/ws/root',
+      assetIds.slice(0, 2_048),
+    );
+    warn.mockRestore();
+  });
+
+  it('取消中的媒体请求立即返回 null，后台共享解析仍可完成', async () => {
+    let finishResolution:
+      | ((value: {
+          items: Array<{
+            asset: {
+              absolutePath: string;
+              id: string;
+              mediaType: string;
+              name: string;
+              size: number;
+            };
+            id: string;
+            status: 'resolved';
+          }>;
+        }) => void)
+      | undefined;
+    vi.mocked(resolveWorkspaceAssets).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishResolution = resolve;
+        }),
+    );
+    const { result } = renderHook(() =>
+      useWorkspaceAssetUploader(
+        '/ws/root',
+        '![图](markune-asset://pending)',
+      ),
+    );
+    const controller = new AbortController();
+    const resolution = result.current.resolveMediaSource({
+      kind: 'image',
+      priority: 'visible',
+      signal: controller.signal,
+      src: 'markune-asset://pending',
+    });
+
+    controller.abort();
+    await expect(resolution).resolves.toBeNull();
+
+    await act(async () => {
+      finishResolution?.({
+        items: [
+          {
+            asset: {
+              absolutePath: '/ws/.markune/assets/files/aa/pending.png',
+              id: 'pending',
+              mediaType: 'image/png',
+              name: 'pending.png',
+              size: 10,
+            },
+            id: 'pending',
+            status: 'resolved',
+          },
+        ],
+      });
+    });
+    await expect(
+      result.current.resolveMediaSource({
+        kind: 'image',
+        priority: 'visible',
+        signal: new AbortController().signal,
+        src: 'markune-asset://pending',
+      }),
+    ).resolves.toMatchObject({
+      src: 'asset:///ws/.markune/assets/files/aa/pending.png',
+    });
+    expect(resolveWorkspaceAssets).toHaveBeenCalledTimes(1);
+  });
+
+  it('工作区切换后忽略旧 resolver generation 的晚到结果', async () => {
+    const finishByRoot = new Map<
+      string,
+      (value: {
+        items: Array<{
+          asset: {
+            absolutePath: string;
+            id: string;
+            mediaType: string;
+            name: string;
+            size: number;
+          };
+          id: string;
+          status: 'resolved';
+        }>;
+      }) => void
+    >();
+    vi.mocked(resolveWorkspaceAssets).mockImplementation(
+      (rootPath) =>
+        new Promise((resolve) => {
+          finishByRoot.set(rootPath, resolve);
+        }),
+    );
+    const markdown = '![图](markune-asset://shared)';
+    const { result, rerender } = renderHook(
+      ({ rootPath }) => useWorkspaceAssetUploader(rootPath, markdown),
+      { initialProps: { rootPath: '/ws/one' } },
+    );
+    const oldResolver = result.current.resolveMediaSource;
+    const oldResolution = oldResolver({
+      kind: 'image',
+      priority: 'visible',
+      signal: new AbortController().signal,
+      src: 'markune-asset://shared',
+    });
+
+    rerender({ rootPath: '/ws/two' });
+    await act(async () => {
+      finishByRoot.get('/ws/one')?.({
+        items: [
+          {
+            asset: {
+              absolutePath: '/ws/one/.markune/assets/files/aa/shared.png',
+              id: 'shared',
+              mediaType: 'image/png',
+              name: 'shared.png',
+              size: 10,
+            },
+            id: 'shared',
+            status: 'resolved',
+          },
+        ],
+      });
+    });
+    await expect(oldResolution).resolves.toBeNull();
+
+    await act(async () => {
+      finishByRoot.get('/ws/two')?.({
+        items: [
+          {
+            asset: {
+              absolutePath: '/ws/two/.markune/assets/files/aa/shared.png',
+              id: 'shared',
+              mediaType: 'image/png',
+              name: 'shared.png',
+              size: 10,
+            },
+            id: 'shared',
+            status: 'resolved',
+          },
+        ],
+      });
+    });
+    await expect(
+      result.current.resolveMediaSource({
+        kind: 'image',
+        priority: 'visible',
+        signal: new AbortController().signal,
+        src: 'markune-asset://shared',
+      }),
+    ).resolves.toMatchObject({
+      src: 'asset:///ws/two/.markune/assets/files/aa/shared.png',
+    });
+  });
 });
