@@ -1,3 +1,17 @@
+export function toUserAbsolutePath(path: string) {
+  const uncMatch = path.match(/^\\\\\?\\UNC\\(.*)$/i);
+  if (uncMatch) {
+    return `\\\\${uncMatch[1]}`;
+  }
+
+  const driveMatch = path.match(/^\\\\\?\\([A-Za-z]:)([\\/].*)?$/);
+  if (driveMatch) {
+    return `${driveMatch[1]}${driveMatch[2] ?? ''}`;
+  }
+
+  return path;
+}
+
 export function getParentPath(path: string) {
   const lastSeparatorIndex = getLastSeparatorIndex(path);
 

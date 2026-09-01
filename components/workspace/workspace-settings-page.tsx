@@ -79,6 +79,7 @@ import type {
   WorkspaceSettingsSessionCache,
 } from './workspace-settings-cache';
 import { WorkspaceResizeHandle } from './workspace-resize-handle';
+import { toUserAbsolutePath } from './workspace-paths';
 import {
   MAX_WINDOW_OPACITY,
   MIN_WINDOW_OPACITY,
@@ -503,7 +504,9 @@ export function WorkspaceSettingsPage({
     ? activeSection
     : visibleSections[0]?.id;
   const assetDirectory = workspaceRootPath
-    ? `${workspaceRootPath.replace(/[\\/]+$/, '')}/.markune/assets/files`
+    ? toUserAbsolutePath(
+        `${workspaceRootPath.replace(/[\\/]+$/, '')}/.markune/assets/files`,
+      )
     : '打开工作区后使用 .markune/assets/files';
 
   return (

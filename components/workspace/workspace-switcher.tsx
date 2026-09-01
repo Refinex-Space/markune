@@ -22,6 +22,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
+import { toUserAbsolutePath } from './workspace-paths';
 import type { WorkspaceHistoryItem, WorkspaceSnapshot } from './workspace-types';
 
 interface WorkspaceSwitcherProps {
@@ -60,7 +61,9 @@ export function WorkspaceSwitcher({
   const parentPathId = React.useId();
   const rootRef = React.useRef<HTMLDivElement>(null);
   const title = currentWorkspace?.rootName ?? '打开工作区';
-  const subtitle = currentWorkspace?.rootPath ?? '选择目录开始';
+  const subtitle = currentWorkspace
+    ? toUserAbsolutePath(currentWorkspace.rootPath)
+    : '选择目录开始';
 
   React.useEffect(() => {
     if (!isOpen) {
@@ -93,7 +96,7 @@ export function WorkspaceSwitcher({
     const selected = await onChooseWorkspaceParent();
 
     if (selected) {
-      setParentPath(selected);
+      setParentPath(toUserAbsolutePath(selected));
       setCreateError(null);
     }
   }

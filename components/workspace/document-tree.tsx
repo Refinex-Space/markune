@@ -65,7 +65,7 @@ import {
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
-import { isDescendantPath } from './workspace-paths';
+import { isDescendantPath, toUserAbsolutePath } from './workspace-paths';
 import { hasTreeNodeAppearance, TreeNodeIconRenderer } from './tree-node-icon';
 import { filterWorkspaceNodes } from './workspace-tree';
 import type {
@@ -1645,7 +1645,7 @@ function CopyPathContextMenu({ node }: { node: WorkspaceNode }) {
           相对路径
         </ContextMenuItem>
         <ContextMenuItem
-          onSelect={() => void copyNodePath(node.absolutePath)}
+          onSelect={() => void copyNodePath(toUserAbsolutePath(node.absolutePath))}
         >
           绝对路径
         </ContextMenuItem>

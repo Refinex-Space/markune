@@ -587,6 +587,27 @@ describe('WorkspaceSettingsPage', () => {
     );
   });
 
+  it('strips the Windows extended-length prefix from the local asset directory', async () => {
+    const user = userEvent.setup();
+    render(
+      <WorkspaceSettingsPage
+        appUpdate={appUpdateController}
+        initialSettings={initialSettings}
+        sessionCache={createWorkspaceSettingsSessionCache()}
+        workspaceRootPath={String.raw`\\?\D:\refinex-vault`}
+        onBack={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '存储' }));
+
+    expect(
+      screen.getByDisplayValue(
+        String.raw`D:\refinex-vault/.markune/assets/files`,
+      ),
+    ).toBeTruthy();
+  });
+
   it('persists the Git panel and log entry visibility independently', async () => {
     const user = userEvent.setup();
     const onSettingsSaved = vi.fn();
