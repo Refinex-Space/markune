@@ -104,6 +104,16 @@ describe('parseMarkdownMetadata', () => {
     ).toBe('F');
     expect(parseMarkdownMetadata('# H1', 'file.md').metadata.title).toBe('H1');
     expect(parseMarkdownMetadata('正文', 'file.md').metadata.title).toBe('file');
+    expect(
+      parseMarkdownMetadata('# doc\\_review\\_agent', 'file.md').metadata
+        .title,
+    ).toBe('doc_review_agent');
+    expect(
+      parseMarkdownMetadata(
+        '---\ntitle: v260817\\\\\\\\_1\n---\n\n# Body',
+        'file.md',
+      ).metadata.title,
+    ).toBe('v260817_1');
   });
 
   it('refinexDialect 默认为 1', () => {
@@ -152,6 +162,14 @@ describe('extractH1FromMarkdown', () => {
     expect(
       extractH1FromMarkdown('~~~\n# code\n~~~\n\n# 真实'),
     ).toBe('真实');
+  });
+
+  it('收起词中被转义的下划线', () => {
+    expect(extractH1FromMarkdown('# doc\\_review\\_agent')).toBe(
+      'doc_review_agent',
+    );
+    expect(extractH1FromMarkdown('# v260817\\\\\\\\_1')).toBe('v260817_1');
+    expect(extractH1FromMarkdown('# \\_emphasis\\_')).toBe('\\_emphasis\\_');
   });
 });
 

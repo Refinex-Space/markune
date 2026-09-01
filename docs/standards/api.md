@@ -85,7 +85,7 @@ referenced_by: AGENTS.md#knowledge-map
 
 工作区文档 API 必须保留 Markdown 源文件。`upload_workspace_asset` 返回的 `markune-asset://{assetId}` 是新资源唯一的 Markdown 持久化引用；`.markune/assets/files/...` 只描述索引中的平台无关物理文件相对位置。`resolve_workspace_assets(rootPath, assetIds)` 单次最多接收 2,048 个合法资源 ID，只 canonicalize 工作区并读取一次索引，按输入唯一 ID 返回 `resolved | missing | unreadable`、既有资产信息和可读取图片的固有尺寸；旧 `resolve_workspace_asset` 保留一个兼容周期。前端必须对超过 2,048 个唯一 ID 的文档分片调用并合并，单片失败只能使该片保持可重试，不能把其他片结果降级为缺失，也不能提交超过原生上限的请求。
 
-`resolveMediaSource` 遵循 Markweave 0.10.0 request：`attempt` 与 `reason` 均为可选，旧调用仍有效。普通请求可以复用有界正缓存；`missing` / `unreadable` 负结果最多保留 5 秒；`reason` 为 `retry | image-error | output` 或 `attempt > 1` 时必须重新调用受校验的资产解析，同一文档 750 ms 内共享恢复波。Abort 或工作区 generation 变化后，前端必须向调用方返回 `null` 并忽略晚到投影；底层共享 IPC 可以完成并写入仍有效的当前工作区缓存。resolver 返回 URL 只表示候选，真实图片/视频 load 才能提交视觉成功。
+`resolveMediaSource` 遵循 Markweave 0.10.1 request：`attempt` 与 `reason` 均为可选，旧调用仍有效。普通请求可以复用有界正缓存；`missing` / `unreadable` 负结果最多保留 5 秒；`reason` 为 `retry | image-error | output` 或 `attempt > 1` 时必须重新调用受校验的资产解析，同一文档 750 ms 内共享恢复波。Abort 或工作区 generation 变化后，前端必须向调用方返回 `null` 并忽略晚到投影；底层共享 IPC 可以完成并写入仍有效的当前工作区缓存。resolver 返回 URL 只表示候选，真实图片/视频 load 才能提交视觉成功。
 
 上传与单/批量解析都只能在索引、canonicalize 和资源目录边界校验成功后，将最终解析出的单个文件加入当前进程的资源协议范围，以支持用户目录外、Windows 非系统盘和 macOS 外置卷上的工作区。预览、引用扫描和清理必须兼容旧相对路径引用，成功解析后可在下一次文档保存时规范化为协议引用，解析失败时不得改写原文。本地视频桥接只在 DOM 上替换展示 `src` 并响应 Markweave output barrier，不新增 Tauri 命令、协议、持久化字段或权限。
 

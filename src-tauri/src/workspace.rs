@@ -2961,8 +2961,8 @@ fn parse_markdown_node_metadata(raw: &str) -> MarkdownNodeMetadata {
 }
 
 fn parse_markdown_title_from_raw(raw: &str) -> Option<String> {
-    if let Some(title) = read_frontmatter_title(&raw) {
-        return Some(title);
+    if let Some(title) = read_frontmatter_title(raw) {
+        return Some(collapse_intra_word_escaped_underscores(&title));
     }
 
     raw.lines()
@@ -2973,7 +2973,44 @@ fn parse_markdown_title_from_raw(raw: &str) -> Option<String> {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
         })
-        .map(ToString::to_string)
+        .map(collapse_intra_word_escaped_underscores)
+}
+
+fn collapse_intra_word_escaped_underscores(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut index = 0;
+
+    while index < chars.len() {
+        if chars[index] == '\\' {
+            let mut escape_end = index;
+            while escape_end < chars.len() && chars[escape_end] == '\\' {
+                escape_end += 1;
+            }
+
+            if escape_end < chars.len() && chars[escape_end] == '_' {
+                let previous = index.checked_sub(1).and_then(|offset| chars.get(offset));
+                let next = chars.get(escape_end + 1);
+
+                if previous.is_some_and(|character| is_markdown_word_char(*character))
+                    && next.is_some_and(|character| is_markdown_word_char(*character))
+                {
+                    out.push('_');
+                    index = escape_end + 1;
+                    continue;
+                }
+            }
+        }
+
+        out.push(chars[index]);
+        index += 1;
+    }
+
+    out
+}
+
+fn is_markdown_word_char(character: char) -> bool {
+    character.is_alphanumeric()
 }
 
 fn document_title_from_path(path: &Path) -> String {
@@ -3777,6 +3814,23 @@ mod tests {
         assert!(metadata.created_at.is_some());
         assert!(metadata.updated_at.is_some());
         assert!(metadata.updated_at > metadata.created_at);
+    }
+
+    #[test]
+    fn collapses_intra_word_escaped_underscores_in_document_titles() {
+        assert_eq!(
+            parse_markdown_title_from_raw("---\ntitle: doc\\_review\\_agent\n---\n\n# Body\n")
+                .as_deref(),
+            Some("doc_review_agent"),
+        );
+        assert_eq!(
+            parse_markdown_title_from_raw("# v260817\\\\\\\\_1\n").as_deref(),
+            Some("v260817_1"),
+        );
+        assert_eq!(
+            parse_markdown_title_from_raw("# \\_emphasis\\_\n").as_deref(),
+            Some("\\_emphasis\\_"),
+        );
     }
 
     #[test]

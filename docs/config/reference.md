@@ -67,9 +67,9 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 
 ## Editor Dependency Integration
 
-Markweave 0.10.0 将所有 `@tiptap/*` 运行时固定为 `3.29.2`；`pnpm-workspace.yaml` 的 `@tiptap/markdown` override 必须同步为 `3.29.2`，不得把 Markdown 扩展降级到旧 minor 后再与新版 Core/PM 混装。
+Markweave 0.10.1 将所有 `@tiptap/*` 运行时固定为 `3.29.2`；`pnpm-workspace.yaml` 的 `@tiptap/markdown` override 必须同步为 `3.29.2`，不得把 Markdown 扩展降级到旧 minor 后再与新版 Core/PM 混装。
 
-`markweave@0.10.0` 与 `@markweave/react@0.10.0` 必须保持同版本。0.10.0 对 Markdown 执行 canonical whole-document parse，并在文本、选择、撤销、搜索和 TOC 完整 `ready` 后开放编辑；DOM 导出必须在 `ready` 后调用官方 `prepareMarkweaveEditorForOutput`，不能以固定等待或直接克隆未补齐 DOM 代替。媒体 resolver request 新增可选 `attempt` / `reason`；Markune 以 5 秒负缓存、恢复原因强制刷新、750 ms 文档恢复波合并、每批最多 2,048 个资产和 8 root / 8,192 entry 缓存边界接入。resolver URL 只是候选，图片只有真实 `load` 才确认成功；本地视频的 DOM-only bridge 复用同一 resolver 和 output 事件，但不得修改 PM 文档或持久化 Markdown。
+`markweave@0.10.1` 与 `@markweave/react@0.10.1` 必须保持同版本。0.10.1 对 Markdown 执行 canonical whole-document parse，并在文本、选择、撤销、搜索和 TOC 完整 `ready` 后开放编辑；序列化遵循 GFM 词中下划线规则，已写入磁盘的 `doc\_review\_agent` 会在重新保存时收成 `doc_review_agent`。DOM 导出必须在 `ready` 后调用官方 `prepareMarkweaveEditorForOutput`，不能以固定等待或直接克隆未补齐 DOM 代替。媒体 resolver request 新增可选 `attempt` / `reason`；Markune 以 5 秒负缓存、恢复原因强制刷新、750 ms 文档恢复波合并、每批最多 2,048 个资产和 8 root / 8,192 entry 缓存边界接入。resolver URL 只是候选，图片只有真实 `load` 才确认成功；本地视频的 DOM-only bridge 复用同一 resolver 和 output 事件，但不得修改 PM 文档或持久化 Markdown。
 
 Markune 图片剪贴板桥接只解析受控 `markune-asset://` 地址，并识别严格匹配 64 位资产 ID 与 UUID Drawing ID 的规范图稿引用；不得借此接受 `asset://`、`file://` 或任意自定义协议。Slash 附件经统一 `onSlashCommandUpload`（`kind: "attachment"`）写入工作区资产，文档持久化为不透明 `markune-asset://` 定位符与 `name`/`mimeType`/`size`；激活下载走宿主 `onAttachmentDownload`，不依赖 `http(s)` fallback。Live 模式由 Markweave 核心统一处理链接点击：普通链接不渲染原生 `target="_blank"`，同一次鼠标手势只允许一次安全 opener，`Ctrl/Cmd + 点击` 不得同时打开整行链接 composer；View 模式仍直接打开安全链接。内置 `/details` 折叠块、`askAi` 文本/表格请求和宿主驱动 `MarkweaveAiEditController` 保持原契约，均不增加环境变量、持久化 schema、HTTP API 或 Tauri capability。Markune 不应用历史本地补丁。升级 Markweave 时必须核对 npm tarball 与上游源码一致，并执行 canonical parse、ready、output barrier、图片/视频失败恢复、链接点击、AI 文本/表格、图稿富文本、附件上传下载、折叠块往返和纯文本粘贴回归测试。
 

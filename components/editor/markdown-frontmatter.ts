@@ -28,6 +28,7 @@ export interface SerializeFrontmatterInput {
 const FRONTMATTER_DELIMITER = '---';
 const FRONTMATTER_OPENING_PATTERN = /^---\r?\n/;
 const FRONTMATTER_CLOSING_PATTERN = /\r?\n---(?:\r?\n|$)/;
+const MARKDOWN_WORD_CHAR_PATTERN = /[\p{L}\p{N}]/u;
 
 export function parseFrontmatter(raw: string): ParsedFrontmatter {
   const openingMatch = FRONTMATTER_OPENING_PATTERN.exec(raw);
@@ -88,9 +89,11 @@ export function parseMarkdownMetadata(
 ): ParsedMarkdownDocument {
   const { body, metadata: frontmatter } = parseFrontmatter(markdown);
   const title =
-    readString(frontmatter.title) ??
-    extractH1FromMarkdown(body) ??
-    fileStem(fileName);
+    collapseIntraWordEscapedUnderscores(
+      readString(frontmatter.title) ??
+        extractH1FromMarkdown(body) ??
+        fileStem(fileName),
+    );
 
   return {
     body,
@@ -124,7 +127,7 @@ export function extractH1FromMarkdown(markdown: string): string | null {
     const match = /^#\s+(.+?)\s*$/u.exec(line);
 
     if (match) {
-      return match[1].trim();
+      return collapseIntraWordEscapedUnderscores(match[1].trim());
     }
   }
 
@@ -149,6 +152,20 @@ function parseFrontmatterBlock(block: string): Record<string, string> {
       .filter((match): match is RegExpMatchArray => match !== null)
       .map((match) => [match[1], unquote(match[2].trim())]),
   );
+}
+
+function collapseIntraWordEscapedUnderscores(text: string) {
+  return text.replace(/\\+_/g, (match, offset: number) => {
+    const previous = text[offset - 1];
+    const next = text[offset + match.length];
+    return isMarkdownWordChar(previous) && isMarkdownWordChar(next)
+      ? '_'
+      : match;
+  });
+}
+
+function isMarkdownWordChar(value: string | undefined) {
+  return value != null && MARKDOWN_WORD_CHAR_PATTERN.test(value);
 }
 
 function fileStem(fileName: string) {
