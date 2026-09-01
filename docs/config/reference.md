@@ -27,7 +27,7 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 
 `pnpm-workspace.yaml` 的 `minimumReleaseAgeExclude` 只豁免 Markune 已完成源码、发布包和真实桌面验收的 Markweave 版本。升级 `markweave` 与 `@markweave/react` 时必须同步更新两个版本范围，并保持二者版本一致，避免刚发布的受控版本在全新安装中被 pnpm 发布年龄策略拒绝。
 
-`.github/workflows/release.yml` 的 verify 和 publish job 固定使用 Node.js 24、pnpm 11.16.0 与当前锁定 Actions major。release 关键文件推送到 `dev` 时只运行 verify；`v*` Tag 在当前仓库生成 9 资产 GitHub Draft，不会自动转为正式 Release。维护者检查 Draft 后手工触发 `.github/workflows/publish-release.yml`，该工作流核对 9 个资产、6 个 updater target、当前 Tag commit、下载 URL 与签名内容，再正式发布 Draft。完整 Cargo 测试仍是本机 Tag 前门禁，不加入 Linux release verify。
+`.github/workflows/release.yml` 的 verify 和 publish job 固定使用 Node.js 24、pnpm 11.16.0 与当前锁定 Actions major。release 关键文件推送到 `dev` 时只运行 verify；`v*` Tag 在当前仓库生成 9 资产 GitHub Draft，不会自动转为正式 Release。维护者检查 Draft 后手工触发 `.github/workflows/publish-release.yml`，该工作流核对 9 个资产、6 个 updater target、当前 Tag commit、签名内容，以及每个 target 是否精确引用同名资产的浏览器下载 URL 或 GitHub Assets API URL，再正式发布 Draft。完整 Cargo 测试仍是本机 Tag 前门禁，不加入 Linux release verify。
 
 ## Environment Variables
 

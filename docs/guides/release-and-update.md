@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-08-14
+updated: 2026-09-01
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -109,6 +109,7 @@ Tag 与人工发布工作流按以下顺序执行：
 
 - 文件名精确为 `Markune_aarch64.dmg`、`Markune_aarch64.app.tar.gz`、`Markune_aarch64.app.tar.gz.sig`、`Markune_x64.dmg`、`Markune_x64.app.tar.gz`、`Markune_x64.app.tar.gz.sig`、`Markune_x64-setup.exe`、`Markune_x64-setup.exe.sig`、`latest.json`；
 - `latest.json` 版本与 Tag 一致，六个平台 URL 都指向本次 Release 的对应资产，签名与 `.sig` 内容一致；
+- `tauri-action` 可能把平台 URL 写成对应资产的 GitHub Assets API URL。校验器只接受该命名资产的 `browser_download_url`，或 GitHub API 返回且资产 ID 精确匹配的 `url`；Tauri updater 下载资产时会发送 `Accept: application/octet-stream`，不得放宽为任意域名、重定向或其他资产 ID；
 - Release Notes 是面向用户的实际内容，系统签名限制描述准确；
 - 没有额外、重复或空资产。
 
