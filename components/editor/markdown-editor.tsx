@@ -1,7 +1,13 @@
 'use client';
 
 import * as React from 'react';
-import { ArrowUp } from 'lucide-react';
+import {
+  ArrowUp,
+  FileCode2,
+  LoaderCircle,
+  RefreshCw,
+  TriangleAlert,
+} from 'lucide-react';
 import dynamic from 'next/dynamic';
 import {
   MarkweaveEditor,
@@ -53,6 +59,7 @@ import {
   type WorkspaceReferenceItem,
 } from '@/components/editor/workspace-reference-suggestion';
 import { useWorkspaceAssetUploader } from '@/components/editor/use-workspace-asset-uploader';
+import { Button } from '@/components/ui/button';
 import { readMarkdownDocument } from '@/components/workspace/workspace-api';
 import type { PageWidthMode } from '@/components/workspace/workspace-types';
 import {
@@ -171,6 +178,10 @@ export const MarkdownEditor = React.forwardRef<
     React.useState<MarkweaveSearchController | null>(null);
   const [sourceMode, setSourceMode] = React.useState(false);
   const [sourceFindText, setSourceFindText] = React.useState(markdown);
+  const [documentLoadState, setDocumentLoadState] =
+    React.useState<MarkweaveDocumentLoadState | null>(null);
+  const [documentLoadRetryRevision, setDocumentLoadRetryRevision] =
+    React.useState(0);
   const loadedDocumentRef = React.useRef({ documentKey, markdown });
 
   if (loadedDocumentRef.current.documentKey !== documentKey) {
@@ -369,6 +380,7 @@ export const MarkdownEditor = React.forwardRef<
     setSourceFindText(normalizedMarkdown);
     setFindRequest(null);
     setSourceMode(false);
+    setDocumentLoadState(null);
   }, [documentKey, normalizedMarkdown]);
 
   const serializeBody = React.useCallback(
@@ -676,6 +688,25 @@ export const MarkdownEditor = React.forwardRef<
     [],
   );
 
+  const handleDocumentLoadStateChange = React.useCallback(
+    (state: MarkweaveDocumentLoadState) => {
+      setDocumentLoadState(state);
+      onDocumentLoadStateChange?.(state);
+    },
+    [onDocumentLoadStateChange],
+  );
+
+  const retryDocumentLoad = React.useCallback(() => {
+    setDocumentLoadState(null);
+    setDocumentLoadRetryRevision((revision) => revision + 1);
+  }, []);
+
+  const enterSourceMode = React.useCallback(() => {
+    sourceModeToggledRef.current = true;
+    setSourceFindText(sourceDraftMarkdownRef.current);
+    setSourceMode(true);
+  }, []);
+
   const getSelectedText = React.useCallback(() => {
     if (sourceMode) {
       return sourceEditorRef.current?.getSelectedText() ?? '';
@@ -917,8 +948,7 @@ export const MarkdownEditor = React.forwardRef<
               }
             });
           } else {
-            setSourceFindText(sourceDraftMarkdownRef.current);
-            setSourceMode(true);
+            enterSourceMode();
           }
           return;
         }
@@ -947,7 +977,10 @@ export const MarkdownEditor = React.forwardRef<
       >
         <div
           aria-hidden={sourceMode}
-          className={cn('min-h-full w-full flex-1', sourceMode && 'hidden')}
+          className={cn(
+            'relative min-h-full w-full flex-1',
+            sourceMode && 'hidden',
+          )}
           data-testid="markweave-editor-mode"
           ref={markweaveModeRef}
         >
@@ -961,12 +994,12 @@ export const MarkdownEditor = React.forwardRef<
             editable={!readOnly}
             innerToc
             innerTocPlacement="container"
-            key={`${documentKey ?? 'document'}:${liveEditorRevisionRef.current}`}
+            key={`${documentKey ?? 'document'}:${liveEditorRevisionRef.current}:${documentLoadRetryRevision}`}
             lang="zh"
             mode={readOnly ? 'view' : 'live'}
             onAiEditControllerChange={handleAiEditControllerChange}
             onAttachmentDownload={onAttachmentDownload}
-            onDocumentLoadStateChange={onDocumentLoadStateChange}
+            onDocumentLoadStateChange={handleDocumentLoadStateChange}
             onSlashCommandUpload={onSlashCommandUpload}
             {...{ resolveMediaSource }}
             onSearchControllerChange={handleSearchControllerChange}
@@ -979,6 +1012,65 @@ export const MarkdownEditor = React.forwardRef<
               themeOverride ?? (resolvedTheme === 'dark' ? 'dark' : 'light')
             }
           />
+          {isDocumentLoadInProgress(documentLoadState) ? (
+            <section
+              aria-live="polite"
+              className="absolute inset-0 z-20 flex min-h-full items-center justify-center bg-background px-6 text-center"
+              data-document-load-phase={documentLoadState.phase}
+              data-testid="markweave-document-load-progress"
+              role="status"
+            >
+              <div className="flex max-w-sm flex-col items-center">
+                <LoaderCircle
+                  aria-hidden="true"
+                  className="animate-spin text-muted-foreground"
+                  size={20}
+                />
+                <p className="mt-3 text-sm text-muted-foreground">
+                  {formatDocumentLoadProgress(documentLoadState)}
+                </p>
+              </div>
+            </section>
+          ) : documentLoadState?.phase === 'error' ? (
+            <section
+              aria-live="assertive"
+              className="absolute inset-0 z-30 flex min-h-full items-center justify-center bg-background px-6 text-center"
+              data-testid="markweave-document-load-error"
+              role="alert"
+            >
+              <div className="flex max-w-md flex-col items-center">
+                <span className="flex size-10 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+                  <TriangleAlert aria-hidden="true" size={20} />
+                </span>
+                <h2 className="mt-4 text-lg font-semibold">
+                  文档编辑器加载失败
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  文档内容仍保留在本地。你可以重新加载编辑器，或切换到源码模式继续查看和编辑。
+                </p>
+                <p
+                  className="mt-3 max-w-full break-words rounded-md bg-muted/60 px-3 py-2 text-left font-mono text-xs leading-5 text-muted-foreground"
+                  data-testid="markweave-document-load-error-detail"
+                >
+                  {formatDocumentLoadError(documentLoadState.error)}
+                </p>
+                <div className="mt-5 flex flex-wrap justify-center gap-2">
+                  <Button type="button" onClick={retryDocumentLoad}>
+                    <RefreshCw size={16} />
+                    重新加载
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={enterSourceMode}
+                  >
+                    <FileCode2 size={16} />
+                    {readOnly ? '查看源码' : '使用源码模式'}
+                  </Button>
+                </div>
+              </div>
+            </section>
+          ) : null}
         </div>
 
         {sourceMode ? (
@@ -1043,6 +1135,42 @@ function normalizeFindSeed(selection: string) {
   const normalized = selection.replace(/\s+/g, ' ').trim();
 
   return normalized.length <= 200 ? normalized : '';
+}
+
+function formatDocumentLoadError(error: string | null) {
+  const fallback = 'Markdown 文档解析失败，请重试或使用源码模式。';
+  const normalized = error?.replace(/\s+/g, ' ').trim();
+
+  if (!normalized) {
+    return fallback;
+  }
+
+  return normalized.length <= 320
+    ? normalized
+    : `${normalized.slice(0, 317)}...`;
+}
+
+function isDocumentLoadInProgress(
+  state: MarkweaveDocumentLoadState | null,
+): state is MarkweaveDocumentLoadState & {
+  phase: 'finalizing' | 'mounting' | 'parsing';
+} {
+  return Boolean(
+    state &&
+      (state.phase === 'parsing' ||
+        state.phase === 'mounting' ||
+        state.phase === 'finalizing'),
+  );
+}
+
+function formatDocumentLoadProgress(state: MarkweaveDocumentLoadState) {
+  if (state.phase === 'mounting' && state.progress !== null) {
+    return `正在构建大文档… ${Math.round(state.progress * 100)}%`;
+  }
+
+  return state.phase === 'finalizing'
+    ? '正在准备文档编辑器…'
+    : '正在解析文档…';
 }
 
 function animateScrollToTop(scroller: HTMLElement, onComplete: () => void) {

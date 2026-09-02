@@ -25,8 +25,8 @@ importers:
         specifier: 2.2.2
         version: 2.2.2
       '@markweave/react':
-        specifier: ^0.10.1
-        version: 0.10.1(@floating-ui/dom@1.8.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(emojibase@17.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+        specifier: ^0.10.3
+        version: 0.10.3(@floating-ui/dom@1.8.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(emojibase@17.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@radix-ui/react-dropdown-menu':
         specifier: 2.1.16
         version: 2.1.16(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -127,8 +127,8 @@ importers:
         specifier: 1.12.0
         version: 1.12.0
       markweave:
-        specifier: ^0.10.1
-        version: 0.10.1(@floating-ui/dom@1.8.0)(emojibase@17.0.0)
+        specifier: ^0.10.3
+        version: 0.10.3(@floating-ui/dom@1.8.0)(emojibase@17.0.0)
       mermaid:
         specifier: 11.15.0
         version: 11.15.0
@@ -949,8 +949,8 @@ packages:
   '@marijn/find-cluster-break@1.0.3':
     resolution: {integrity: sha512-FY+MKLBoTsLNJF/eLWaOsXGdz6uh3Iu1axjPf6TUq92IYumcTcXWHoS747JARLkcdlJ/Waiaxc5wQfFO8jC6NA==}
 
-  '@markweave/react@0.10.1':
-    resolution: {integrity: sha512-cDQ/u8HuDpOH96s/Wcwp7fE7kBRkF2Uk6uqr4OgTUobPootDX0bC6PsCVqErtpwwwpKqr8YmPLs9IOq713kdjw==}
+  '@markweave/react@0.10.3':
+    resolution: {integrity: sha512-TXScy/oM5OgMfjPKClNYWUMarJ+xb/NpGR5tHWxPegD6XeUIXpE+F6iKwQrkLQBHfdDogAjAqg+aRVszYL56aw==}
     peerDependencies:
       react: ^18.2.0 || ^19.0.0
       react-dom: ^18.2.0 || ^19.0.0
@@ -5284,8 +5284,8 @@ packages:
     engines: {node: '>= 20'}
     hasBin: true
 
-  markweave@0.10.1:
-    resolution: {integrity: sha512-DdfOXDxy/E5EcG4Ht/ptz7gEo/htNvoK2UUrqTVP3Pk/Dbu4Av1sk7RQMlC+B5qfY6AlBLZ9LFF8S4dyNbL0SA==}
+  markweave@0.10.3:
+    resolution: {integrity: sha512-sUeei/c/EKRGnmINrJ63ONPfD1mz4hla7JyUaPq2No1O+RJNvCKdJra7lzzSCE3nXZ19BnqDNLCCuYz6oysd8A==}
 
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
@@ -7850,7 +7850,7 @@ snapshots:
 
   '@marijn/find-cluster-break@1.0.3': {}
 
-  '@markweave/react@0.10.1(@floating-ui/dom@1.8.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(emojibase@17.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
+  '@markweave/react@0.10.3(@floating-ui/dom@1.8.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(emojibase@17.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)':
     dependencies:
       '@tiptap/core': 3.29.2(@tiptap/pm@3.29.2)
       '@tiptap/extension-bubble-menu': 3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2)
@@ -7859,7 +7859,7 @@ snapshots:
       '@tiptap/pm': 3.29.2
       '@tiptap/react': 3.29.2(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       lucide-react: 0.547.0(react@19.2.4)
-      markweave: 0.10.1(@floating-ui/dom@1.8.0)(emojibase@17.0.0)
+      markweave: 0.10.3(@floating-ui/dom@1.8.0)(emojibase@17.0.0)
       react: 19.2.4
       react-dom: 19.2.4(react@19.2.4)
     transitivePeerDependencies:
@@ -12319,7 +12319,7 @@ snapshots:
 
   marked@17.0.6: {}
 
-  markweave@0.10.1(@floating-ui/dom@1.8.0)(emojibase@17.0.0):
+  markweave@0.10.3(@floating-ui/dom@1.8.0)(emojibase@17.0.0):
     dependencies:
       '@tiptap/core': 3.29.2(@tiptap/pm@3.29.2)
       '@tiptap/extension-blockquote': 3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2)

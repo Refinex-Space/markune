@@ -2,6 +2,7 @@ import * as React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {
   MarkweaveEditor,
+  type MarkweaveDocumentLoadState,
   type MarkweaveEditorUpdatePayload,
   type MarkweaveSlashCommandUploadHandler,
 } from '@markweave/react';
@@ -112,6 +113,43 @@ describe('Markweave image integration', () => {
     vi.clearAllMocks();
     clearWorkspaceAssetResolverCache();
   });
+
+  it('0.10.3 可加载超过 20 万字符的混合块图片文档并保持可编辑', async () => {
+    const assetIds = ['a', 'b', 'c'].map((value) => value.repeat(64));
+    const states: MarkweaveDocumentLoadState[] = [];
+    const markdown = [
+      `![第一张图](markune-asset://${assetIds[0]})`,
+      '图片后的正文仍需保留。',
+      '',
+      `![第二张图](markune-asset://${assetIds[1]}) ![第三张图](markune-asset://${assetIds[2]})`,
+      '',
+      'large document padding '.repeat(12_000),
+    ].join('\n');
+
+    render(
+      <MarkweaveEditor
+        defaultContent={markdown}
+        defaultContentFormat="markdown"
+        onDocumentLoadStateChange={(state) => states.push(state)}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(states.at(-1)?.phase).toBe('ready');
+    }, { timeout: 15_000 });
+
+    const surface = screen.getByTestId('markweave-editor-surface');
+    expect(states.some((state) => state.phase === 'error')).toBe(false);
+    expect(states.at(-1)?.tier).toBe('large');
+    expect(
+      surface.querySelectorAll('[data-testid="markweave-image-node"]'),
+    ).toHaveLength(3);
+    expect(surface.textContent).toContain('图片后的正文仍需保留。');
+    expect(
+      getMarkweaveDocumentViewportCoordinatorForElement(surface)?.editor
+        .isEditable,
+    ).toBe(true);
+  }, 20_000);
 
   it('把剪贴板图片交给 Markune 提供的上传处理器并展示返回地址', async () => {
     const file = new File([new Uint8Array([1, 2, 3])], 'screenshot.png', {

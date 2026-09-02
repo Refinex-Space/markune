@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import * as React from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import type { MarkweaveDocumentLoadState } from '@markweave/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -445,6 +446,91 @@ describe('MarkdownEditor', () => {
     );
     expect(resolvedReport).toEqual(report);
     expect(ref.current).not.toHaveProperty('editor');
+  });
+
+  it('加载失败时显示可诊断兜底并支持重新加载与源码恢复', () => {
+    const onDocumentLoadStateChange = vi.fn();
+
+    render(
+      <MarkdownEditor
+        documentKey="large-document.md"
+        markdown="# 原始正文"
+        onDocumentLoadStateChange={onDocumentLoadStateChange}
+        onMarkdownChange={() => {}}
+      />,
+    );
+
+    const emitLoadState = (state: MarkweaveDocumentLoadState) => {
+      const markweaveProps = markweaveEditorMock.mock.calls.at(-1)?.[0] as {
+        onDocumentLoadStateChange?: (
+          nextState: MarkweaveDocumentLoadState,
+        ) => void;
+      };
+      act(() => {
+        markweaveProps.onDocumentLoadStateChange?.(state);
+      });
+    };
+
+    emitLoadState({
+      error: null,
+      phase: 'parsing',
+      profile: null,
+      progress: null,
+      tier: 'large',
+    });
+    expect(screen.getByRole('status').textContent).toContain('正在解析文档');
+
+    emitLoadState({
+      error: null,
+      phase: 'mounting',
+      profile: null,
+      progress: 0.42,
+      tier: 'large',
+    });
+    expect(screen.getByRole('status').textContent).toContain('42%');
+
+    emitLoadState({
+      error: `Invalid document ${'content '.repeat(80)}`,
+      phase: 'error',
+      profile: null,
+      progress: null,
+      tier: 'large',
+    });
+
+    expect(screen.getByRole('alert').textContent).toContain(
+      '文档编辑器加载失败',
+    );
+    expect(
+      screen.getByTestId('markweave-document-load-error-detail').textContent
+        ?.length,
+    ).toBeLessThanOrEqual(320);
+    expect(onDocumentLoadStateChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ phase: 'error', tier: 'large' }),
+    );
+
+    const renderCountBeforeRetry = markweaveEditorMock.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: '重新加载' }));
+    expect(
+      screen.queryByTestId('markweave-document-load-error'),
+    ).toBeNull();
+    expect(markweaveEditorMock.mock.calls.length).toBeGreaterThan(
+      renderCountBeforeRetry,
+    );
+
+    emitLoadState({
+      error: 'Invalid content for node paragraph',
+      phase: 'error',
+      profile: null,
+      progress: null,
+      tier: 'large',
+    });
+    fireEvent.click(screen.getByRole('button', { name: '使用源码模式' }));
+
+    expect(screen.getByTestId('markdown-source-mode')).toBeTruthy();
+    expect(screen.getByLabelText('Markdown 文档源码')).toHaveProperty(
+      'value',
+      '# 原始正文',
+    );
   });
 
   it('普通点击段落内工作区文档链接时阻止浏览器导航并交给 Markweave 编辑', () => {

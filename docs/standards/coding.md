@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-01
+updated: 2026-09-02
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -21,6 +21,7 @@ referenced_by: AGENTS.md#knowledge-map
 - Use existing component tests under `components/**/__tests__` as the first verification target for UI behavior.
 - Keep Markweave editor page-width behavior aligned across `settings.rs`, frontend default settings, editor wrapper classes, and settings UI.
 - Keep `MarkdownEditor` as a Markdown string boundary at load/flush, not at every transaction: parse frontmatter before initial Markweave content, let Markweave perform one canonical whole-document parse, and do not treat the editor as usable until its load state is `ready`. Keep `onUpdate` payloads lazy, and read `payload.markdown` only in the shared 500 ms/manual/navigation/AI/exit flush path. Preserve supported HTML fallback and abort the caller when flush/save fails.
+- Surface Markweave `parsing`, `mounting`, and `finalizing` phases inside `MarkdownEditor`, including bounded mounting progress. Failures require bounded diagnostics and explicit retry/source-mode recovery. Never replace the persisted Markdown, silently expose an empty editor, or require a successful rich-editor parse before the user can inspect the source.
 - Large-document media resolution must use the editor-level `resolveMediaSource` bridge. Mount the canonical Markdown body before visual resources complete; de-duplicate unique IDs, split native calls into batches of at most 2,048, and merge all results. Share positive, finite negative and in-flight results across Tab remounts within the 8-root/8,192-entry bounds. `missing` / `unreadable` expire after 5 seconds; `retry`, `image-error`, `output` or `attempt > 1` must force recovery while requests from the same document are coalesced for 750 ms.
 - A resolver return value is only a display candidate; media success requires the real element load event. Keep image resolution in Markweave and local-video resolution in the DOM-only bridge. Neither path may write display URLs to ProseMirror, Markdown, undo history or a whole-document string replacement, and stale work must be rejected by Abort, source and workspace-generation checks.
 - DOM snapshot and print export must wait for Markweave `ready`, call the official output barrier, inspect its missing/unreadable/timed-out report, and only then clone or sanitize the DOM. Markdown serialization continues to read the complete PM document and does not wait for visual work.
