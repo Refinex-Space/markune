@@ -7,6 +7,12 @@ referenced_by: AGENTS.md#knowledge-map
 
 # API Standards
 
+## Workspace Graph
+
+`load_workspace_graph({ rootPath })` 返回只读图谱：`nodes`、`edges`、`documentCount`、有限 `warnings` 和内容投影 `fingerprint`。节点新增 `unresolved` 类型、`inDegree` / `outDegree`、`contentIndexed`；`relativePath` 仅文件节点有值。节点/边 ID 为稳定且带命名空间的不透明身份，渲染器不得把 ID 当文件路径。边 `source → target` 保留方向，`weight` 为同方向引用次数，`degree` 计唯一邻居，不等于权重和。标签与属性边是归属关系。
+
+没有目标、目标歧义和未被扫描的引用统一标为未解析，不能仅据此断言磁盘文件不存在；文件存在但内容不可读/超限时保留节点并标记 `contentIndexed: false`。刷新失败不应清空上一快照；根目录切换后旧请求结果必须丢弃。同一指纹可复用现有投影和布局。
+
 ## Next.js API Routes
 
 - `app/api/link-preview/route.ts` 为 Web/dev 环境解析链接元数据，必须保留 SSRF 防护、重定向验证、超时和响应大小上限。

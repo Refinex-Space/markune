@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
-import { loadWorkspaceGraph } from './workspace-api';
+import { useWorkspaceGraph } from './use-workspace-graph';
 import {
   WorkspaceGraphCanvas,
   type WorkspaceGraphCanvasHandle,
@@ -33,6 +33,7 @@ import {
 } from './workspace-graph-canvas';
 import {
   DEFAULT_GRAPH_VISIBILITY,
+  getGraphRelationshipDescriptions,
   filterWorkspaceGraph,
   findWorkspaceGraphMatches,
   getWorkspaceGraphNeighbors,
@@ -41,13 +42,14 @@ import {
 import type {
   WorkspaceGraphNode,
   WorkspaceGraphNodeKind,
-  WorkspaceGraphSnapshot,
+  WorkspaceGraphEdge,
   WorkspaceNode,
 } from './workspace-types';
 
 interface WorkspaceGraphPageProps {
   nodes: WorkspaceNode[];
   rootPath: string;
+  revision?: number;
   sidebarHeaderOffset?: number;
   onOpenNode: (node: WorkspaceNode) => void;
 }
@@ -64,30 +66,34 @@ const DEFAULT_SETTINGS: PersistedGraphSettings = {
   labelThreshold: 0.8,
   linkDistance: 80,
   nodeScale: 1,
+  showArrows: true,
   visibility: DEFAULT_GRAPH_VISIBILITY,
 };
 
 const NODE_KIND_LABELS: Record<WorkspaceGraphNodeKind, string> = {
   daily: '日记',
   note: '笔记',
-  property: '属性',
+  property: '属性字段',
+  unresolved: '未解析',
   tag: '标签',
   weekly: '周记',
 };
 
-export function WorkspaceGraphPage({
+export function WorkspaceGraphPage(props: WorkspaceGraphPageProps) {
+  return <WorkspaceGraphPageContent key={props.rootPath} {...props} />;
+}
+
+function WorkspaceGraphPageContent({
   nodes,
   rootPath,
+  revision = 0,
   sidebarHeaderOffset,
   onOpenNode,
 }: WorkspaceGraphPageProps) {
   const alignWithMacSidebar = sidebarHeaderOffset !== undefined;
   const canvasRef = React.useRef<WorkspaceGraphCanvasHandle | null>(null);
   const searchInputRef = React.useRef<HTMLInputElement | null>(null);
-  const [snapshot, setSnapshot] = React.useState<WorkspaceGraphSnapshot | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
-  const [isLoading, setIsLoading] = React.useState(true);
-  const [isRefreshing, setIsRefreshing] = React.useState(false);
+  const { snapshot, error, isLoading, isRefreshing, refresh } = useWorkspaceGraph(rootPath, revision);
   const [query, setQuery] = React.useState('');
   const [selectedNodeId, setSelectedNodeId] = React.useState<string | null>(null);
   const [settings, setSettings] = React.useState<PersistedGraphSettings>(() =>
@@ -99,55 +105,8 @@ export function WorkspaceGraphPage({
     [nodes],
   );
 
-  const loadGraph = React.useCallback(
-    async (refresh = false) => {
-      if (refresh) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
-      }
-      setError(null);
-      try {
-        const next = await loadWorkspaceGraph(rootPath);
-        setSnapshot(next);
-        setSelectedNodeId((current) =>
-          current && next.nodes.some((node) => node.id === current) ? current : null,
-        );
-      } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause));
-      } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }
-    },
-    [rootPath],
-  );
-
   React.useEffect(() => {
-    let cancelled = false;
-    loadWorkspaceGraph(rootPath)
-      .then((next) => {
-        if (!cancelled) {
-          setSnapshot(next);
-        }
-      })
-      .catch((cause) => {
-        if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : String(cause));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [rootPath]);
-
-  React.useEffect(() => {
-    window.localStorage.setItem(settingsStorageKey, JSON.stringify(settings));
+    try { window.localStorage.setItem(settingsStorageKey, JSON.stringify(settings)); } catch { /* Optional preference storage. author: refinex */ }
   }, [settings, settingsStorageKey]);
 
   React.useEffect(() => {
@@ -286,7 +245,7 @@ export function WorkspaceGraphPage({
                   aria-label="刷新图谱"
                   className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
                   type="button"
-                  onClick={() => void loadGraph(true)}
+                  onClick={() => refresh()}
                 >
                   <RefreshCw className={cn(isRefreshing && 'animate-spin')} size={15} />
                 </button>
@@ -302,12 +261,12 @@ export function WorkspaceGraphPage({
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {isLoading ? (
           <GraphStatus icon={<RefreshCw className="animate-spin" size={18} />} label="正在构建工作区图谱…" />
-        ) : error ? (
+        ) : error && !snapshot ? (
           <GraphStatus
             icon={<AlertTriangle size={18} />}
             label={error}
             action="重新加载"
-            onAction={() => void loadGraph()}
+            onAction={() => refresh()}
           />
         ) : visibleGraph.nodes.length === 0 ? (
           <GraphStatus icon={<Filter size={18} />} label="当前筛选条件下没有可显示的节点" />
@@ -351,6 +310,8 @@ export function WorkspaceGraphPage({
 
         {selectedNode ? (
           <GraphInspector
+            key={selectedNode.id}
+            edges={visibleGraph.edges}
             neighbors={selectedNeighbors}
             node={selectedNode}
             onClose={() => setSelectedNodeId(null)}
@@ -362,7 +323,9 @@ export function WorkspaceGraphPage({
           />
         ) : null}
 
-        {snapshot?.warnings.length ? (
+        {error && snapshot ? (
+          <div role="alert" className="absolute bottom-3 left-3 max-w-lg rounded-md border border-amber-500/25 bg-background px-3 py-2 text-xs">刷新失败，当前显示上次图谱：{error}</div>
+        ) : snapshot?.warnings.length ? (
           <div className="absolute bottom-3 left-3 flex max-w-lg items-start gap-2 rounded-md border border-amber-500/25 bg-amber-50/95 px-3 py-2 text-[11px] text-amber-900 shadow-sm dark:bg-amber-950/90 dark:text-amber-100">
             <AlertTriangle className="mt-0.5 shrink-0" size={13} />
             <span>{snapshot.warnings.join('；')}</span>
@@ -430,6 +393,11 @@ function GraphSettingsPopover({
             ))}
           </div>
         </div>
+        <p className="text-[11px] leading-relaxed text-muted-foreground">连线表示文档引用或标签归属。属性字段仅按同名字段聚合，默认隐藏；未解析节点表示目标缺失、重名或尚未索引。</p>
+        <label className="flex items-center justify-between text-xs">
+          显示引用方向
+          <input checked={settings.showArrows} className="accent-primary" type="checkbox" onChange={(event) => update('showArrows', event.target.checked)} />
+        </label>
         <label className="flex items-center justify-between text-xs">
           隐藏孤立节点
           <input
@@ -525,18 +493,22 @@ function GraphRange({
 }
 
 function GraphInspector({
+  edges,
   neighbors,
   node,
   onClose,
   onOpen,
   onSelect,
 }: {
+  edges: WorkspaceGraphEdge[];
   neighbors: WorkspaceGraphNode[];
   node: WorkspaceGraphNode;
   onClose: () => void;
   onOpen: () => void;
   onSelect: (node: WorkspaceGraphNode) => void;
 }) {
+  const relationships = React.useMemo(() => getGraphRelationshipDescriptions(edges, node.id), [edges, node.id]);
+  const [neighborLimit, setNeighborLimit] = React.useState(100);
   return (
     <aside className="absolute inset-y-0 right-0 z-20 flex w-80 flex-col border-l border-border/60 bg-background/96 backdrop-blur">
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border/50 px-3">
@@ -555,8 +527,12 @@ function GraphInspector({
         <dl className="grid grid-cols-[64px_1fr] gap-x-3 gap-y-2">
           <dt className="text-muted-foreground">类型</dt>
           <dd>{NODE_KIND_LABELS[node.kind]}</dd>
-          <dt className="text-muted-foreground">关系</dt>
+          <dt className="text-muted-foreground">相邻节点</dt>
           <dd>{node.degree}</dd>
+          {node.relativePath || node.kind === 'unresolved' ? <>
+            <dt className="text-muted-foreground">入链节点</dt><dd>{node.inDegree ?? 0}</dd>
+            <dt className="text-muted-foreground">出链节点</dt><dd>{node.outDegree ?? 0}</dd>
+          </> : null}
           {node.relativePath ? (
             <>
               <dt className="text-muted-foreground">位置</dt>
@@ -564,6 +540,8 @@ function GraphInspector({
             </>
           ) : null}
         </dl>
+        {node.kind === 'unresolved' ? <p className="mt-3 text-muted-foreground">目标缺失、重名或尚未索引。请从相邻文档检查原始引用。</p> : null}
+        {node.contentIndexed === false ? <p className="mt-3 text-muted-foreground">此文档内容未完整索引，出链和标签可能不完整。</p> : null}
         {node.relativePath ? (
           <button
             className="mt-4 flex h-8 w-full items-center justify-center gap-2 rounded-md bg-primary text-xs text-primary-foreground hover:bg-primary/90"
@@ -576,7 +554,7 @@ function GraphInspector({
         ) : null}
         <div className="mb-2 mt-5 font-medium">相邻节点 ({neighbors.length})</div>
         <div className="space-y-1">
-          {neighbors.map((neighbor) => (
+          {neighbors.slice(0, neighborLimit).map((neighbor) => (
             <button
               key={neighbor.id}
               className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent"
@@ -584,10 +562,11 @@ function GraphInspector({
               onClick={() => onSelect(neighbor)}
             >
               <GraphNodeDot kind={neighbor.kind} />
-              <span className="min-w-0 flex-1 truncate">{neighbor.label}</span>
+              <span className="min-w-0 flex-1"><span className="block truncate">{neighbor.label}</span><span className="block text-[10px] text-muted-foreground">{relationships.get(neighbor.id)}</span></span>
               <span className="text-[10px] text-muted-foreground tabular-nums">{neighbor.degree}</span>
             </button>
           ))}
+          {neighbors.length > neighborLimit ? <button className="w-full rounded-md px-2 py-2 text-muted-foreground hover:bg-accent" type="button" onClick={() => setNeighborLimit((value) => value + 100)}>显示更多相邻节点</button> : null}
         </div>
       </div>
     </aside>
@@ -605,6 +584,7 @@ function GraphNodeDot({ kind }: { kind: WorkspaceGraphNodeKind }) {
         kind === 'weekly' && 'bg-cyan-600',
         kind === 'tag' && 'bg-violet-600',
         kind === 'property' && 'bg-red-700',
+        kind === 'unresolved' && 'bg-zinc-400',
       )}
     />
   );
@@ -659,11 +639,9 @@ function readPersistedGraphSettings(rootPath: string) {
   if (typeof window === 'undefined') {
     return DEFAULT_SETTINGS;
   }
-  const raw = window.localStorage.getItem(graphSettingsKey(rootPath));
-  if (!raw) {
-    return DEFAULT_SETTINGS;
-  }
   try {
+    const raw = window.localStorage.getItem(graphSettingsKey(rootPath));
+    if (!raw) return DEFAULT_SETTINGS;
     return validatePersistedSettings(JSON.parse(raw));
   } catch {
     return DEFAULT_SETTINGS;
@@ -696,12 +674,14 @@ function validatePersistedSettings(value: unknown): PersistedGraphSettings {
       DEFAULT_SETTINGS.linkDistance,
     ),
     nodeScale: validNumber(candidate.nodeScale, 0.5, 2, DEFAULT_SETTINGS.nodeScale),
+    showArrows: typeof candidate.showArrows === 'boolean' ? candidate.showArrows : true,
     visibility: {
-      daily: visibility?.daily ?? true,
-      note: visibility?.note ?? true,
-      property: visibility?.property ?? true,
-      tag: visibility?.tag ?? true,
-      weekly: visibility?.weekly ?? true,
+      unresolved: typeof visibility?.unresolved === 'boolean' ? visibility.unresolved : true,
+      daily: typeof visibility?.daily === 'boolean' ? visibility.daily : true,
+      note: typeof visibility?.note === 'boolean' ? visibility.note : true,
+      property: typeof visibility?.property === 'boolean' ? visibility.property : false,
+      tag: typeof visibility?.tag === 'boolean' ? visibility.tag : true,
+      weekly: typeof visibility?.weekly === 'boolean' ? visibility.weekly : true,
     },
   };
 }

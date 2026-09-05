@@ -5,6 +5,7 @@ import {
   filterWorkspaceGraph,
   findWorkspaceGraphMatches,
   getWorkspaceGraphNeighbors,
+  describeGraphRelationship,
 } from '../workspace-graph-model';
 import type { WorkspaceGraphSnapshot } from '../workspace-types';
 
@@ -34,6 +35,19 @@ describe('workspace graph model', () => {
     expect(graph.nodes.map((node) => node.id)).not.toContain('tag:rust');
     expect(graph.edges).toHaveLength(1);
     expect(graph.edges[0].kind).toBe('link');
+    expect(graph.nodes.find((node) => node.id === 'a.md')).toMatchObject({ degree: 1, inDegree: 0, outDegree: 1 });
+  });
+
+  it('keeps unique neighbors separate from repeated and reciprocal references', () => {
+    const edges = [
+      { ...snapshot.edges[0], weight: 3 },
+      { ...snapshot.edges[0], id: 'reverse', source: 'b.md', target: 'a.md', weight: 2 },
+    ];
+    const graph = filterWorkspaceGraph({ ...snapshot, edges }, DEFAULT_GRAPH_VISIBILITY, false);
+    expect(graph.nodes.find((node) => node.id === 'a.md')).toMatchObject({ degree: 1, inDegree: 1, outDegree: 1 });
+    expect(describeGraphRelationship(edges, 'a.md', 'b.md')).toBe('双向引用 · 发出 3 次 / 引入 2 次');
+    expect(DEFAULT_GRAPH_VISIBILITY.property).toBe(false);
+    expect(DEFAULT_GRAPH_VISIBILITY.unresolved).toBe(true);
   });
 
   it('hides isolated nodes after kind filtering', () => {

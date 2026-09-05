@@ -84,9 +84,17 @@ Git Sync 由 `useGitAutoSync`（`components/workspace/use-git-auto-sync.ts`）�
 
 ## Knowledge Graph Boundary
 
-图谱是工作区级只读 `systemPage`，入口位于左侧顶部导航。它不建立数据库、不修改 Markdown，也不把图布局写回工作区。`src-tauri/src/graph.rs` 在有界后台任务中一次扫描工作区 Markdown/MDX，跳过 `.markune`、`.git`、依赖和构建目录，只向渲染器返回相对文档路径、显示标题、节点类型、聚合边与有限警告；单篇文件、文档总数和关系总数都有硬上限。标准 Markdown `.md/.mdx` 链接与 `[[Wiki Link]]` 只在图谱读取层解析，后者不改变编辑器或持久化格式。节点包含普通笔记、`Daily/`、`Weekly/`、标签和 frontmatter 属性字段；`title`、`tags`、时间戳、`refinexDialect`、`aliases` 等系统字段不会生成属性中心节点。
+图谱是工作区级只读 `systemPage`，不建立数据库、不修改 Markdown、不持久化布局。`graph.rs` 负责有界扫描与关系投影，`graph_parse.rs` 复用 pulldown-cmark 解析正文，`graph_metadata.rs` 在 YAML 展开成本检查后读取 frontmatter，`graph_resolve.rs` 负责文件身份解析。原生读取任务全局串行，单篇 4 MiB、每次读取总量 128 MiB、文档 50,000、目录条目 200,000、深度 64、关系 200,000、辅助节点 20,000、关系投影 32 MiB；解析完单篇即释放全文。跳过隐藏目录/文件、依赖/构建目录、符号链接及非普通文件。不可读或超限文档保留文件节点并标为内容未完整索引，警告最多 20 条。
 
-`workspace-graph-page.tsx` 通过 `workspace-api.ts` 的单次 Tauri 调用取得快照，继续复用现有工作区树节点完成“打开文档”，不接受原生层返回的绝对路径或全文。`workspace-graph-canvas.tsx` 使用 D3 force/zoom/drag/quadtree 与单个高 DPI Canvas：物理模拟在数据或力参数改变时重启并自然停止，绘制由 `requestAnimationFrame` 合并，边按类型批量描画，标签只在缩放阈值以上且节点位于视口内时显示，命中检测使用四叉树。搜索只高亮并聚焦匹配节点；类型筛选和隐藏孤立节点只投影可见数组，不重新读取工作区。力参数、显示类型和标签阈值仅以工作区路径散列后的 key 保存在浏览器 local storage，不保存原始路径。
+关系以文件为身份，`file:<relativePath>` 与 `tag:`、`property:`、`unresolved:` 分开。标准 Markdown 行内/引用式链接按文档目录解析，`/` 开头按工作区根解析；Wiki 带目录路径从根解析，显式 `./`、`../` 按当前目录解析，裸文件名先同目录再查全局唯一文件名。Markdown URL 严格百分号解码，Wiki 保留字面百分号；标题和别名只供显示，`[[文件|显示名]]` 的目标始终是文件部分。支持无扩展名、标题/块锚点、Wiki 文档嵌入及编辑器保存的 `markweave://doc/…` 相对引用。路径越界和附件/目录引用不生成文档关系，限定目录查找失败不回退同名文件；不确定目标保留为“未解析”，不会提供打开操作。Wiki 允许唯一的不区分大小写匹配，标准 Markdown 路径采用精确大小写。
+
+图谱先执行严格 YAML 解析。仅在语法解析失败且文档明确含 `refinexDialect: 1` 时，允许在内存中为单个未加引号的 `title` 补上字符串引号，再重新执行全部解析与资源限制；不写回文件、不改写其他字段、不覆盖有效 YAML 别名语义。无法恢复的语法错误报告 frontmatter 行、列；递归与展开超限不能因兼容处理而绕过。
+
+代码、数学内容、HTML 注释/块和 `%%` 注释不建立关系。正文标签与 YAML 标签合并并按大小写去重，保留 `topic/sub` 层级；YAML 标量标签继续兼容已有 Markune 数据。非系统 frontmatter 字段中的显式链接参与引用，属性辅助层仅聚合同名字段，不投影任意属性值；属性字段默认隐藏。普通笔记、`Daily/`、`Weekly/` 是文件节点分类。双向引用保留为两条有向边，`weight` 表示单方向出现次数；`degree` 是唯一邻居数，`inDegree` / `outDegree` 是文档引用的唯一来源/目标数，过滤后重新计算。
+
+`workspace-graph-page.tsx` 复用完整工作区树打开文档（包含 Daily），不接受原生绝对路径或全文。工作区统一刷新队列完成树同步后更新图谱版本，当前图谱页合并 300 ms 内变化并串行读取；过期请求不覆盖新工作区，失败保留上次快照。原生 `fingerprint` 只反映图谱事实变化，相同快照不重启 Canvas。当前仍是有界全量扫描，不是常驻增量索引。
+
+Canvas 继续使用 D3 force/zoom/drag/quadtree、高 DPI 与合并绘制；更新时复用存活节点坐标和缩放/平移，双向边共用一条物理约束。文档节点大小随唯一入链数变化，引用可显示方向箭头，暗色节点使用独立颜色。详情分批显示邻居并区分引用方向、次数和归属；筛选不读取磁盘。显示偏好仍按工作区路径散列后的 local storage key 保存，既有显式偏好保留，恢复默认关闭属性字段、启用未解析节点和方向箭头。
 
 ## Drawing Workspace Boundary
 
@@ -189,6 +197,8 @@ Codex App Server 是 AI 会话持久化的唯一所有者。Markune 默认把 si
 ## Storage And Editor Boundary
 
 持久化文档始终为 Markdown 文件。磁盘格式、内存草稿和编辑器输入/输出必须保持 Markdown 字符串边界，禁止重新引入富文本投影层。文档树标题来自文件头 frontmatter 或 H1，读取时收起词中 `\_`，与 Markweave 0.10.3 的 GFM 序列化规则对齐。
+
+受控 `title` 写入必须按 YAML 字符串转义，前端 `markdown-frontmatter.ts` 与原生 `document_frontmatter.rs` 保持同一规则；加粗标记、冒号、引号、反斜杠、换行、数字或布尔样式标题不能直接插值进 YAML。重新读取时解码 JSON 兼容双引号和 YAML 单引号，避免转义字符泄漏到树标题。普通标题保持原有简洁表示，未知字段不因标题修复被整体重写。
 
 Markweave 只接收 frontmatter 解析后的正文；保存时必须重新序列化受保护的 frontmatter。停止输入 500 ms、手动保存、切换标签/模式、导出、AI 发送和应用退出统一调用 `flushDraft(reason)`；flush 才读取一次 `payload.markdown`、恢复图稿引用、更新 `updatedAt` 并进入原子保存，失败会中止后续动作并保留草稿。新上传资源的物理文件写入工作区根目录下的 `.markune/assets/files/{shard}/{hash}.{ext}`，Markdown 持久化引用统一使用 `markune-asset://{assetId}`。
 

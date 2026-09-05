@@ -911,8 +911,9 @@ pub fn create_markdown_document(
         let safe_title = normalize_document_title(&title);
         let document_path = unique_markdown_document_path(&parent, &safe_title);
         let now = current_iso_timestamp();
+        let frontmatter_title = crate::document_frontmatter::encode_string(&safe_title);
         let content = format!(
-            "---\ntitle: {safe_title}\ncreatedAt: {now}\nupdatedAt: {now}\nrefinexDialect: 1\n---\n\n# {safe_title}\n"
+            "---\ntitle: {frontmatter_title}\ncreatedAt: {now}\nupdatedAt: {now}\nrefinexDialect: 1\n---\n\n# {safe_title}\n"
         );
 
         write_text_atomic(&document_path, &content)
@@ -2847,7 +2848,7 @@ fn migrate_one_plate_document(
     let target = unique_path(parent, &sanitize_file_stem(&envelope.title), ".md");
     let markdown = format!(
         "---\ntitle: {}\ncreatedAt: {}\nupdatedAt: {}\nrefinexDialect: 1\n---\n\n{}\n",
-        envelope.title,
+        crate::document_frontmatter::encode_string(&envelope.title),
         envelope.created_at,
         envelope.updated_at,
         plate_value_to_basic_markdown(&envelope.content),
@@ -3215,7 +3216,8 @@ fn read_frontmatter_title(raw: &str) -> Option<String> {
         }
 
         if let Some(value) = line.strip_prefix("title:") {
-            let title = value.trim().trim_matches('"').trim_matches('\'').trim();
+            let decoded = crate::document_frontmatter::decode_string(value);
+            let title = decoded.trim();
             if !title.is_empty() {
                 return Some(title.to_string());
             }
@@ -3300,7 +3302,10 @@ fn update_existing_markdown_frontmatter_title(raw: &str, title: &str) -> String 
 
     for line in frontmatter.lines() {
         if line.trim_start().starts_with("title:") {
-            lines.push(format!("title: {title}"));
+            lines.push(format!(
+                "title: {}",
+                crate::document_frontmatter::encode_string(title)
+            ));
             title_replaced = true;
         } else {
             lines.push(line.to_string());
@@ -4351,6 +4356,32 @@ mod tests {
         );
         assert!(document.content.contains("title: 指南"));
         assert!(document.modified_at > 0);
+    }
+
+    #[test]
+    fn creates_and_renames_titles_with_yaml_safe_frontmatter() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = temp_dir
+            .path()
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        let created = create_markdown_document(root, String::new(), "[计划]".into()).unwrap();
+        assert_eq!(created.node.title.as_deref(), Some("[计划]"));
+        let metadata = read_markdown_frontmatter(&created.content.content).unwrap();
+        let yaml = yaml_rust2::YamlLoader::load_from_str(metadata).unwrap();
+        assert_eq!(yaml[0]["title"].as_str(), Some("[计划]"));
+
+        let new_title = r#"Plan: **review** "quoted""#;
+        let renamed = markdown_document_with_title(&created.content.content, new_title);
+        let metadata = read_markdown_frontmatter(&renamed).unwrap();
+        let yaml = yaml_rust2::YamlLoader::load_from_str(metadata).unwrap();
+        assert_eq!(yaml[0]["title"].as_str(), Some(new_title));
+        assert_eq!(
+            read_frontmatter_title(&renamed).as_deref(),
+            yaml[0]["title"].as_str()
+        );
     }
 
     #[test]

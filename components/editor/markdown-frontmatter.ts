@@ -68,7 +68,7 @@ export function serializeFrontmatter(
 
   const lines = [
     FRONTMATTER_DELIMITER,
-    ...entries.map(([key, value]) => `${key}: ${value}`),
+    ...entries.map(([key, value]) => `${key}: ${key === 'title' && typeof value === 'string' ? encodeFrontmatterString(value) : value}`),
     FRONTMATTER_DELIMITER,
   ];
 
@@ -150,7 +150,7 @@ function parseFrontmatterBlock(block: string): Record<string, string> {
       .split(/\r?\n/)
       .map((line) => line.match(/^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/))
       .filter((match): match is RegExpMatchArray => match !== null)
-      .map((match) => [match[1], unquote(match[2].trim())]),
+      .map((match) => [match[1], match[1] === 'title' ? decodeFrontmatterString(match[2].trim()) : unquote(match[2].trim())]),
   );
 }
 
@@ -184,4 +184,35 @@ function readNumber(value: unknown) {
 
 function unquote(value: string) {
   return value.replace(/^["']|["']$/g, '');
+}
+
+// Mirror native document_frontmatter so a title always remains a string. author: refinex
+function encodeFrontmatterString(value: string) {
+  const first = value[0] ?? '';
+  const needsQuotes = !value || value.trim() !== value || /[:#\\"']/u.test(value)
+    || [...value].some((character) => {
+      const code = character.charCodeAt(0);
+      return code < 32 || (code >= 127 && code <= 159) || code === 0x2028 || code === 0x2029;
+    })
+    || /[0-9]/.test(first) || "!&*{}[],#|>@`\"'%?:+-.".includes(first)
+    || /^(?:null|true|false|yes|no|on|off|~)$/i.test(value);
+  if (!needsQuotes) return value;
+  return [...JSON.stringify(value)].map((character) => {
+    const code = character.charCodeAt(0);
+    return (code >= 127 && code <= 159) || code === 0x2028 || code === 0x2029
+      ? `\\u${code.toString(16).padStart(4, '0')}` : character;
+  }).join('');
+}
+
+function decodeFrontmatterString(value: string): string {
+  if (value.startsWith('"') && value.endsWith('"')) {
+    try {
+      const decoded: unknown = JSON.parse(value);
+      if (typeof decoded === 'string') return decoded;
+    } catch { /* Preserve malformed legacy text. author: refinex */ }
+  }
+  if (value.startsWith("'") && value.endsWith("'") && value.length >= 2) {
+    return value.slice(1, -1).replace(/''/g, "'");
+  }
+  return value;
 }

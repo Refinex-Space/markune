@@ -15,8 +15,9 @@ export interface WorkspaceVisibleGraph {
 export const DEFAULT_GRAPH_VISIBILITY: WorkspaceGraphVisibility = {
   daily: true,
   note: true,
-  property: true,
+  property: false,
   tag: true,
+  unresolved: true,
   weekly: true,
 };
 
@@ -50,10 +51,56 @@ export function filterWorkspaceGraph(
     );
   }
 
+  const neighbors = new Map<string, Set<string>>();
+  const incoming = new Map<string, Set<string>>();
+  const outgoing = new Map<string, Set<string>>();
+  const add = (map: Map<string, Set<string>>, source: string, target: string) => {
+    const ids = map.get(source) ?? new Set<string>();
+    ids.add(target);
+    map.set(source, ids);
+  };
+  for (const edge of edges) {
+    add(neighbors, edge.source, edge.target);
+    add(neighbors, edge.target, edge.source);
+    if (edge.kind === 'link') {
+      add(outgoing, edge.source, edge.target);
+      add(incoming, edge.target, edge.source);
+    }
+  }
   return {
-    nodes: snapshot.nodes.filter((node) => visibleIds.has(node.id)),
+    nodes: snapshot.nodes.filter((node) => visibleIds.has(node.id)).map((node) => ({
+      ...node,
+      degree: neighbors.get(node.id)?.size ?? 0,
+      inDegree: incoming.get(node.id)?.size ?? 0,
+      outDegree: outgoing.get(node.id)?.size ?? 0,
+    })),
     edges,
   };
+}
+
+export function getGraphRelationshipDescriptions(edges: WorkspaceGraphEdge[], nodeId: string) {
+  const groups = new Map<string, WorkspaceGraphEdge[]>();
+  for (const edge of edges) {
+    const neighbor = edge.source === nodeId ? edge.target : edge.target === nodeId ? edge.source : null;
+    if (!neighbor) continue;
+    const group = groups.get(neighbor) ?? [];
+    group.push(edge);
+    groups.set(neighbor, group);
+  }
+  return new Map([...groups].map(([neighbor, related]) => [neighbor, describeGraphRelationship(related, nodeId, neighbor)]));
+}
+
+export function describeGraphRelationship(edges: WorkspaceGraphEdge[], nodeId: string, neighborId: string) {
+  const related = edges.filter((edge) =>
+    (edge.source === nodeId && edge.target === neighborId) ||
+    (edge.target === nodeId && edge.source === neighborId),
+  );
+  const outgoing = related.find((edge) => edge.kind === 'link' && edge.source === nodeId);
+  const incoming = related.find((edge) => edge.kind === 'link' && edge.target === nodeId);
+  if (outgoing && incoming) return `双向引用 · 发出 ${outgoing.weight} 次 / 引入 ${incoming.weight} 次`;
+  if (outgoing) return `引用此节点 · ${outgoing.weight} 次`;
+  if (incoming) return `被此节点引用 · ${incoming.weight} 次`;
+  return related.some((edge) => edge.kind === 'tag') ? '标签归属' : '属性字段归属';
 }
 
 export function findWorkspaceGraphMatches(

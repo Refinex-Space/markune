@@ -263,6 +263,7 @@ export type WorkspaceGraphNodeKind =
   | 'note'
   | 'property'
   | 'tag'
+  | 'unresolved'
   | 'weekly';
 
 export type WorkspaceGraphEdgeKind = 'link' | 'property' | 'tag';
@@ -273,6 +274,9 @@ export interface WorkspaceGraphNode {
   kind: WorkspaceGraphNodeKind;
   relativePath: string | null;
   degree: number;
+  inDegree?: number;
+  outDegree?: number;
+  contentIndexed?: boolean;
 }
 
 export interface WorkspaceGraphEdge {
@@ -288,6 +292,7 @@ export interface WorkspaceGraphSnapshot {
   edges: WorkspaceGraphEdge[];
   documentCount: number;
   warnings: string[];
+  fingerprint?: string;
 }
 
 export interface WorkspaceHistoryItem {

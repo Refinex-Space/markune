@@ -54,6 +54,18 @@ describe('parseFrontmatter', () => {
 });
 
 describe('serializeFrontmatter', () => {
+  it('为特殊标题添加合法引号并在重新读取时还原内容', () => {
+    for (const title of ['**PDF 与 Word**', 'Plan: review', '# Heading', '[plan]', '*alias', 'null', 'TRUE', '123', '2026-09-05', 'path\\note', '他说"可以"', "'quoted'", 'one\ntags: [injected]', 'unicode\u0085line\u2028\u009f']) {
+      const markdown = serializeFrontmatter({ body: '# Body', metadata: { title, refinexDialect: 1, tags: '[pdf, word]' } });
+      const titleValue = /^title: (.*)$/m.exec(markdown)?.[1];
+      expect(titleValue?.startsWith('"')).toBe(true);
+      expect(JSON.parse(titleValue!)).toBe(title);
+      expect(parseFrontmatter(markdown).metadata.title).toBe(title);
+      expect(markdown).toContain('\ntags: [pdf, word]\n');
+      expect(markdown).not.toContain('\ntags: [injected]');
+    }
+  });
+
   it('序列化带 metadata 的文档', () => {
     const out = serializeFrontmatter({
       body: '# 正文',

@@ -32,6 +32,7 @@ export interface WorkspaceGraphPhysicsSettings {
   labelThreshold: number;
   linkDistance: number;
   nodeScale: number;
+  showArrows?: boolean;
 }
 
 export interface WorkspaceGraphCanvasHandle {
@@ -67,6 +68,7 @@ const NODE_COLORS: Record<WorkspaceGraphNodeKind, string> = {
   daily: '#2563eb',
   note: '#3f3f46',
   property: '#b42318',
+  unresolved: '#a1a1aa',
   tag: '#7c3aed',
   weekly: '#0891b2',
 };
@@ -75,6 +77,11 @@ const EDGE_COLORS: Record<WorkspaceGraphEdge['kind'], string> = {
   link: '#71717a',
   property: '#dc6b5f',
   tag: '#9b87d7',
+};
+
+const DARK_NODE_COLORS: Record<WorkspaceGraphNodeKind, string> = {
+  note: '#d4d4d8', daily: '#60a5fa', weekly: '#22d3ee',
+  tag: '#a78bfa', property: '#fb7185', unresolved: '#a1a1aa',
 };
 
 export const WorkspaceGraphCanvas = React.forwardRef<
@@ -95,6 +102,8 @@ export const WorkspaceGraphCanvas = React.forwardRef<
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const runtimeRef = React.useRef<CanvasRuntime | null>(null);
+  const positionsRef = React.useRef(new Map<string, Pick<SimulationGraphNode, 'x' | 'y' | 'fx' | 'fy'>>());
+  const transformRef = React.useRef<ZoomTransform | null>(null);
   const selectedNodeIdRef = React.useRef(selectedNodeId);
   const matchesRef = React.useRef(matches);
   const onOpenNodeRef = React.useRef(onOpenNode);
@@ -144,17 +153,24 @@ export const WorkspaceGraphCanvas = React.forwardRef<
     let width = Math.max(container.clientWidth, 1);
     let height = Math.max(container.clientHeight, 1);
     let pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-    let transform = zoomIdentity;
+    let transform = transformRef.current ?? zoomIdentity;
     let animationFrame = 0;
     let tickCount = 0;
-    let hasFit = false;
+    let hasFit = transformRef.current !== null;
     let pointerDragged = false;
     const dragOffsets = new Map<string | number, [number, number]>();
-    const simulationNodes = createSimulationNodes(nodes, width, height);
+    const simulationNodes = createSimulationNodes(nodes, width, height).map((node) => ({ ...node, ...positionsRef.current.get(node.id) }));
     const nodeById = new Map(simulationNodes.map((node) => [node.id, node]));
     const simulationEdges: SimulationGraphEdge[] = edges
       .filter((edge) => nodeById.has(edge.source) && nodeById.has(edge.target))
-      .map((edge) => ({ ...edge }));
+      .map((edge) => ({ ...edge, source: nodeById.get(edge.source)!, target: nodeById.get(edge.target)! }));
+    const physicalPairs = new Set<string>();
+    const physicalEdges = simulationEdges.filter((edge) => {
+      const pair = JSON.stringify([linkNode(edge.source)!.id, linkNode(edge.target)!.id].sort());
+      if (physicalPairs.has(pair)) return false;
+      physicalPairs.add(pair);
+      return true;
+    });
     let spatialIndex = buildSpatialIndex(simulationNodes);
 
     const simulation = forceSimulation(simulationNodes)
@@ -163,7 +179,7 @@ export const WorkspaceGraphCanvas = React.forwardRef<
       .velocityDecay(0.4)
       .force(
         'link',
-        forceLink<SimulationGraphNode, SimulationGraphEdge>(simulationEdges)
+        forceLink<SimulationGraphNode, SimulationGraphEdge>(physicalEdges)
           .id((node) => node.id)
           .distance(linkDistance)
           .strength(0.7),
@@ -226,6 +242,8 @@ export const WorkspaceGraphCanvas = React.forwardRef<
         selectedId,
         selectedNeighbors,
         visualSettings.edgeOpacity,
+        visualSettings.showArrows ?? true,
+        visualSettings.nodeScale,
       );
       drawNodes(
         context!,
@@ -401,10 +419,13 @@ export const WorkspaceGraphCanvas = React.forwardRef<
     });
     const resizeObserver = new ResizeObserver(resizeCanvas);
     resizeObserver.observe(container);
+    const themeObserver = new MutationObserver(scheduleDraw);
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     canvas.addEventListener('click', handleClick);
     canvas.addEventListener('dblclick', handleDoubleClick);
     canvas.addEventListener('pointermove', handlePointerMove);
     resizeCanvas();
+    if (transformRef.current) selection.call(zoomBehavior.transform, transformRef.current);
 
     runtimeRef.current = {
       fit: fitGraph,
@@ -414,7 +435,10 @@ export const WorkspaceGraphCanvas = React.forwardRef<
 
     return () => {
       runtimeRef.current = null;
+      positionsRef.current = new Map(simulationNodes.map((node) => [node.id, { x: node.x, y: node.y, fx: node.fx, fy: node.fy }]));
+      transformRef.current = transform;
       resizeObserver.disconnect();
+      themeObserver.disconnect();
       simulation.stop();
       selection.on('.zoom', null).on('.drag', null);
       canvas.removeEventListener('click', handleClick);
@@ -477,7 +501,8 @@ function buildSpatialIndex(nodes: SimulationGraphNode[]) {
 
 function nodeRadius(node: WorkspaceGraphNode, nodeScale: number) {
   const base = node.kind === 'property' || node.kind === 'tag' ? 4.5 : 3.6;
-  return (base + Math.min(12, Math.sqrt(Math.max(node.degree, 0)) * 1.3)) * nodeScale;
+  const count = node.relativePath || node.kind === 'unresolved' ? (node.inDegree ?? node.degree) : node.degree;
+  return (base + Math.min(12, Math.sqrt(Math.max(count, 0)) * 1.3)) * nodeScale;
 }
 
 function graphExtent(nodes: SimulationGraphNode[]) {
@@ -543,6 +568,8 @@ function drawEdges(
   selectedId: string | null,
   selectedNeighbors: Set<string> | null,
   opacity: number,
+  showArrows: boolean,
+  nodeScale: number,
 ) {
   for (const kind of ['link', 'tag', 'property'] as const) {
     context.beginPath();
@@ -557,6 +584,7 @@ function drawEdges(
       }
       context.moveTo(source.x ?? 0, source.y ?? 0);
       context.lineTo(target.x ?? 0, target.y ?? 0);
+      if (showArrows && kind === 'link') drawArrow(context, source, target, nodeScale);
     }
     context.strokeStyle = EDGE_COLORS[kind];
     context.globalAlpha = selectedId ? opacity * 0.22 : opacity;
@@ -575,6 +603,7 @@ function drawEdges(
       if (source.id === selectedId || target.id === selectedId) {
         context.moveTo(source.x ?? 0, source.y ?? 0);
         context.lineTo(target.x ?? 0, target.y ?? 0);
+        if (showArrows && edge.kind === 'link') drawArrow(context, source, target, nodeScale);
       }
     }
     context.strokeStyle = '#2563eb';
@@ -583,6 +612,19 @@ function drawEdges(
     context.stroke();
   }
   context.globalAlpha = 1;
+}
+
+function drawArrow(context: CanvasRenderingContext2D, source: SimulationGraphNode, target: SimulationGraphNode, nodeScale: number) {
+  const dx = (target.x ?? 0) - (source.x ?? 0);
+  const dy = (target.y ?? 0) - (source.y ?? 0);
+  const length = Math.hypot(dx, dy);
+  const radius = nodeRadius(target, nodeScale) + 2;
+  if (length < radius + nodeRadius(source, nodeScale) + 6) return;
+  const x = (target.x ?? 0) - dx / length * radius;
+  const y = (target.y ?? 0) - dy / length * radius;
+  context.moveTo(x - dx / length * 5 - dy / length * 3, y - dy / length * 5 + dx / length * 3);
+  context.lineTo(x, y);
+  context.lineTo(x - dx / length * 5 + dy / length * 3, y - dy / length * 5 - dx / length * 3);
 }
 
 function drawNodes(
@@ -594,7 +636,8 @@ function drawNodes(
   matches: Set<string>,
   nodeScale: number,
 ) {
-  for (const kind of ['note', 'daily', 'weekly', 'tag', 'property'] as const) {
+  const colors = document.documentElement.classList.contains('dark') ? DARK_NODE_COLORS : NODE_COLORS;
+  for (const kind of ['note', 'daily', 'weekly', 'tag', 'property', 'unresolved'] as const) {
     context.beginPath();
     for (const node of nodes) {
       if (node.kind !== kind || !isVisible(node, bounds)) {
@@ -603,7 +646,7 @@ function drawNodes(
       context.moveTo((node.x ?? 0) + nodeRadius(node, nodeScale), node.y ?? 0);
       context.arc(node.x ?? 0, node.y ?? 0, nodeRadius(node, nodeScale), 0, Math.PI * 2);
     }
-    context.fillStyle = NODE_COLORS[kind];
+    context.fillStyle = colors[kind];
     context.globalAlpha = selectedId ? 0.22 : 0.94;
     context.fill();
   }
@@ -621,7 +664,7 @@ function drawNodes(
     const radius = nodeRadius(node, nodeScale) + (isSelected ? 3 : 1.8);
     context.beginPath();
     context.arc(node.x ?? 0, node.y ?? 0, radius, 0, Math.PI * 2);
-    context.fillStyle = NODE_COLORS[node.kind];
+    context.fillStyle = colors[node.kind];
     context.globalAlpha = 1;
     context.fill();
     context.strokeStyle = isMatch ? '#f59e0b' : '#2563eb';

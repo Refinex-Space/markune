@@ -35,6 +35,12 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 
 新增直接依赖 `pulldown-cmark 0.13.4` 用于保持原文格式的引用重算；Unix `libc` 调用系统无覆盖移动，Tokio `time` 约束域名解析预算，后两者复用既有依赖树。静态 Tauri 资源协议范围不变；普通附件经受限解析后仅动态授权具体文件。
 
+## Graph Defaults
+
+图谱默认显示普通笔记、日记、周记、标签、未解析节点；默认隐藏属性字段，不隐藏孤立节点，启用方向箭头。旧的合法显示偏好继续保留，恢复默认设置会应用新默认。图谱配置仅保存在工作区路径散列后的 local storage key，不写入文档或工作区配置。
+
+原生层新增精确锁定 `yaml-rust2 = 0.11.0`（关闭默认 encoding 特性），用于正确解析图谱 frontmatter。该版本及本次新增传递依赖的声明 MSRV 不高于项目的 Rust 1.77.2；不提升项目工具链要求。单次 frontmatter 输入最多 64 KiB，嵌套最多 16 层，先限制别名展开成本再构建 YAML 值，拒绝循环引用和超限内容。
+
 ## Environment Variables
 
 - `NEXT_OUTPUT=export`：启用静态导出行为。

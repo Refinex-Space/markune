@@ -1898,6 +1898,8 @@ export function WorkspaceLayout({
     };
   }, [isTauriRuntime, settingsVersion, workspaceRootPath]);
 
+  const [graphRevision, setGraphRevision] = React.useState(0);
+
   // Reconcile all disk-change sources without discarding editor drafts. author: refinex
   const synchronizeWorkspace = React.useCallback(
     async (request: WorkspaceRefreshRequest, isCurrent: () => boolean) => {
@@ -1914,6 +1916,7 @@ export function WorkspaceLayout({
         }
       }
       if (!isCurrent()) return;
+      setGraphRevision((current) => current + 1);
       const scopePaths = [
         ...request.paths,
         ...request.nodes.map((node) => node.absolutePath),
@@ -3846,9 +3849,8 @@ export function WorkspaceLayout({
                     ) : systemPage === 'graph' && workspace.snapshot ? (
                       <WorkspaceGraphPage
                         key={workspace.snapshot.rootPath}
-                        nodes={filterRegularWorkspaceNodes(
-                          workspace.snapshot.nodes,
-                        )}
+                        nodes={workspace.snapshot.nodes}
+                        revision={graphRevision}
                         rootPath={workspace.snapshot.rootPath}
                         sidebarHeaderOffset={macSidebarHeaderOffset}
                         onOpenNode={handleOpenWorkspaceViewNode}

@@ -34,6 +34,20 @@ pnpm build
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
+## Graph Acceptance
+
+```bash
+pnpm exec vitest run components/workspace/__tests__/workspace-graph-model.test.ts components/workspace/__tests__/workspace-graph-page.test.tsx components/workspace/__tests__/workspace-graph-canvas.test.ts components/workspace/__tests__/use-workspace-graph.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml graph --lib
+cargo test --manifest-path src-tauri/Cargo.toml graph::tests::benchmarks_synthetic_workspace --lib -- --ignored --nocapture
+```
+
+元数据回归同时覆盖 `components/editor/__tests__/markdown-frontmatter.test.ts`、原生 `document_frontmatter` 与 `graph_metadata` 测试。用 `title: **标题**`、冒号/引号/反斜杠/换行标题验证旧 Markune 只读兼容与新保存合法 YAML，并检查标签未丢失、文件字节未被图谱改写、错误元数据仍有行列提示；新建/重命名和重新打开的标题应一致。
+
+用独立工作区验证 Markdown 相对路径、Wiki 根路径/同名歧义、别名显示、引用定义、嵌入、标题/块锚点及 `markweave://doc/`。代码、注释、数学公式不产生引用；嵌套标签不与横线标签合并，YAML 引号/列表/注释保持语义。A 引 B 两次、B 引 A 一次应呈现两条方向边，每个文档的唯一引用邻居仍为 1。
+
+保持图谱打开，从外部新增、改写、移动、删除文档，检查自动刷新、未解析节点转为文件节点、图谱视角保留、失败保留旧图谱和重试。图谱中的 Daily 应可打开；恢复默认应隐藏属性字段，显示未解析和方向箭头。检查明暗主题、双向箭头、搜索、相邻节点详情与设置弹层。模拟 IPC 的 Chromium 检查只验证页面和 Canvas；实际监听到图谱的完整桌面路径、Windows/Linux 文件系统及大规模冷读仍需独立验收。2,000 篇合成样本仅用于观察本机扫描耗时，不代表十万节点图形性能。
+
 ## Attachment Storage Acceptance
 
 ```bash
