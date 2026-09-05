@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-08-15
+updated: 2026-09-05
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -14,6 +14,9 @@ referenced_by: AGENTS.md#knowledge-map
 - Markweave: the Markdown-first editor package used by this app through `@markweave/react` and `markweave`.
 - Page width mode: user-facing editor width setting, currently `standard` or `wide`.
 - Workspace asset: a local file associated with workspace content and exposed through Tauri asset handling. Markdown uses the stable `markune-asset://{assetId}` identity, while `.markune/assets/index.json` maps that identity to a physical `.markune/assets/files/{shard}/{hash}.{ext}` file. Older relative-path references remain readable and normalize only after successful resolution.
+- Document attachment: an image, video or file inserted into a Markdown document, stored either as a managed workspace asset or an ordinary file reference.
+- Ordinary attachment file: a file in the document directory, an assets directory or an authorized custom directory; Markdown stores its relative path or file URL, and managed-asset garbage collection does not delete it.
+- Attachment folder grant: persistent native authorization for a user-selected local folder, retained independently of the current storage policy so existing attachments remain readable after restoring defaults.
 - Export directory grant: a one-use, expiring Rust-side authorization for one user-selected local folder; renderer code only receives its opaque ID and display path.
 - Document export bundle: one primary HTML, Markdown, or Word file plus optional `{stem}.assets` sidecar files committed without overwriting existing paths.
 - Document import grant: a 15-minute Rust-side authorization for user-selected source files; the renderer receives only opaque grant/source IDs and source metadata, never absolute paths.

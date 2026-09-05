@@ -29,8 +29,10 @@ serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 notify = "=8.2.0"
 toml_edit = "0.22"
+tokio = { version = "1", features = ["time"] }
 sha2 = "0.10"
 portable-pty = "0.9.0"
+pulldown-cmark = { version = "=0.13.4", default-features = false }
 quick-xml = "=0.39.4"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tauri = { version = "~2.11.2", features = ["protocol-asset"] }
@@ -49,6 +51,9 @@ zip = { version = "=2.4.2", default-features = false, features = ["deflate"] }
 webview2-com = "0.38.2"
 windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 windows-core = "0.61.2"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.4"

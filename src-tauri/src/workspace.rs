@@ -793,7 +793,7 @@ pub(crate) fn save_markdown_document_sync(
     )
 }
 
-fn document_save_lock(path: &Path) -> Arc<Mutex<()>> {
+pub(crate) fn document_save_lock(path: &Path) -> Arc<Mutex<()>> {
     static LOCKS: OnceLock<Mutex<BTreeMap<PathBuf, Weak<Mutex<()>>>>> = OnceLock::new();
     let mut locks = LOCKS
         .get_or_init(Mutex::default)
@@ -1167,7 +1167,7 @@ pub fn rename_workspace_node(
 
     match kind {
         WorkspaceNodeKind::Directory => {
-            fs::rename(&node, &target).map_err(|_| "无法重命名目录".to_string())?;
+            crate::document_assets::move_with_document_assets(&node, &target)?;
             let mut metadata =
                 ensure_workspace_metadata(&root).map_err(|_| "无法读取工作区元数据".to_string())?;
             let sort_order = read_sort_order(&metadata);
@@ -1324,7 +1324,7 @@ pub fn move_workspace_node(
     let old_relative_path = to_relative_path(&root, &source);
 
     if destination != source {
-        fs::rename(&source, &destination).map_err(|error| format!("移动节点失败：{error}"))?;
+        crate::document_assets::move_with_document_assets(&source, &destination)?;
     }
 
     let destination = destination
@@ -2307,7 +2307,7 @@ pub(crate) fn write_text_atomic(path: &Path, content: &str) -> io::Result<()> {
     write_text_atomic_guarded(path, content, || Ok(())).map(|_| ())
 }
 
-fn write_text_atomic_guarded(
+pub(crate) fn write_text_atomic_guarded(
     path: &Path,
     content: &str,
     before_commit: impl FnOnce() -> io::Result<()>,
@@ -2482,7 +2482,7 @@ fn is_plate_document_file(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn is_markdown_document_file(path: &Path) -> bool {
+pub(crate) fn is_markdown_document_file(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .map(|extension| matches!(extension.to_ascii_lowercase().as_str(), "md" | "mdx"))
@@ -2551,7 +2551,7 @@ fn validate_plate_document_path(root_path: &str, document_path: &str) -> Result<
     Ok(document)
 }
 
-fn validate_existing_markdown_document_path(
+pub(crate) fn validate_existing_markdown_document_path(
     root_path: &str,
     document_path: &str,
 ) -> Result<PathBuf, String> {

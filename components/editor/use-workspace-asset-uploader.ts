@@ -11,6 +11,9 @@ import type {
 import {
   isTauriRuntime,
   readWorkspaceAssetData,
+  readDocumentAssetData,
+  resolveDocumentAssets,
+  storeDocumentAsset,
   resolveWorkspaceAssets,
   selectWorkspaceAssetDownloadPath,
   uploadWorkspaceAsset,
@@ -29,6 +32,7 @@ import {
   getDrawingClipboardAssetReference,
   normalizeDrawingClipboardAssetReferences,
 } from '@/components/editor/drawing-markdown-reference';
+import { extractDocumentFileReferences, isDocumentFileReference } from '@/components/workspace/document-asset-references';
 
 export interface WorkspaceAssetUploadBridge {
   editorMarkdown: string;
@@ -384,9 +388,35 @@ function waitForMediaResolutionOrAbort<T>(
 export function useWorkspaceAssetUploader(
   rootPath: string | null,
   storageMarkdown: string,
+  documentPath: string | null = null,
 ): WorkspaceAssetUploadBridge {
   const displayToStorageRef = React.useRef(new Map<string, string>());
   const cacheRootPathRef = React.useRef(rootPath);
+  const documentContextRef = React.useRef(documentPath);
+  const localReferences = React.useMemo(() => documentPath ? extractDocumentFileReferences(storageMarkdown) : [], [documentPath, storageMarkdown]);
+  const localResolutionRef = React.useRef<{ key: string; expires: number; startedAt: number; pending: Promise<Map<string, string>> } | null>(null);
+  React.useLayoutEffect(() => { documentContextRef.current = documentPath; }, [documentPath]);
+  const resolveLocalReference = React.useCallback(async (src: string, force: boolean) => {
+    if (!rootPath || !documentPath) return null;
+    const sources = [...new Set([...localReferences, src])];
+    const key = `${rootPath}\0${documentPath}\0${sources.join('\0')}`;
+    let entry = localResolutionRef.current;
+    if (!entry || entry.key !== key || Date.now() > entry.expires || (force && Date.now() - entry.startedAt > DOCUMENT_RECOVERY_COALESCE_MS)) {
+      const pending = (async () => {
+        const results = new Map<string, string>();
+        for (let offset = 0; offset < sources.length; offset += 2048) {
+          const items = await resolveDocumentAssets(rootPath, documentPath, sources.slice(offset, offset + 2048));
+          for (const item of items) if (item.absolutePath) results.set(item.src, convertFileSrc(item.absolutePath));
+        }
+        return results;
+      })();
+      entry = { key, pending, expires: Date.now() + 5000, startedAt: Date.now() };
+      localResolutionRef.current = entry;
+    }
+    const results = await entry.pending;
+    if (documentContextRef.current !== documentPath || cacheRootPathRef.current !== rootPath) return null;
+    return results.has(src) ? { src: results.get(src)! } : null;
+  }, [documentPath, localReferences, rootPath]);
 
   React.useEffect(() => {
     if (cacheRootPathRef.current === rootPath) {
@@ -526,6 +556,9 @@ export function useWorkspaceAssetUploader(
       );
 
       if (!assetId) {
+        if (documentPath && isDocumentFileReference(request.src)) {
+          return waitForMediaResolutionOrAbort(resolveLocalReference(request.src, request.reason === 'retry' || request.reason === 'image-error'), request.signal);
+        }
         return { src: request.src };
       }
 
@@ -581,7 +614,7 @@ export function useWorkspaceAssetUploader(
 
       return request.signal.aborted ? null : result;
     },
-    [assetIdSet, ensureDocumentAssetsResolved, rootPath],
+    [assetIdSet, ensureDocumentAssetsResolved, rootPath, documentPath, resolveLocalReference],
   );
 
   const toStorageMarkdown = React.useCallback(
@@ -622,6 +655,9 @@ export function useWorkspaceAssetUploader(
   const onSlashCommandUpload = React.useCallback<MarkweaveSlashCommandUploadHandler>(
     async (request) => {
       if (request.source.type !== 'file') {
+        if (rootPath && documentPath) {
+          return storeDocumentAsset(rootPath, documentPath, { kind: request.kind, sourceType: request.source.type, value: request.source.value, mediaType: request.source.mimeType });
+        }
         return createDirectUploadResult(
           request.source.value,
           request.source.mimeType,
@@ -650,6 +686,13 @@ export function useWorkspaceAssetUploader(
         total,
       });
 
+      if (documentPath) {
+        const uploaded = await storeDocumentAsset(rootPath, documentPath, {
+          kind: request.kind, sourceType: 'file', fileName: getUploadFileName(file), mediaType: file.type || 'application/octet-stream', value: base64Data,
+        });
+        if (documentContextRef.current !== documentPath || cacheRootPathRef.current !== rootPath) throw new Error('文档已切换，附件未插入。');
+        return uploaded;
+      }
       const uploaded = await uploadWorkspaceAsset(rootPath, {
         fileName: getUploadFileName(file),
         mediaType: file.type || 'application/octet-stream',
@@ -684,7 +727,7 @@ export function useWorkspaceAssetUploader(
         size: uploaded.size,
       };
     },
-    [rootPath],
+    [rootPath, documentPath],
   );
 
   const onAttachmentDownload = React.useCallback<MarkweaveAttachmentDownloadHandler>(
@@ -701,11 +744,11 @@ export function useWorkspaceAssetUploader(
         projectedStorageReference ?? attachment.src,
       );
 
-      if (!assetId) {
+      if (!assetId && !documentPath) {
         throw new Error('无法识别附件资源定位符。');
       }
 
-      const data = await readWorkspaceAssetData(rootPath, assetId);
+      const data = assetId ? await readWorkspaceAssetData(rootPath, assetId) : await readDocumentAssetData(rootPath, documentPath!, attachment.src);
       const fileName = attachment.name?.trim() || data.name;
       const targetPath = await selectWorkspaceAssetDownloadPath(
         fileName,
@@ -727,7 +770,7 @@ export function useWorkspaceAssetUploader(
         data.base64Data,
       );
     },
-    [rootPath],
+    [rootPath, documentPath],
   );
 
   return {

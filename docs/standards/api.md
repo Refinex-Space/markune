@@ -27,6 +27,14 @@ referenced_by: AGENTS.md#knowledge-map
 - `system_fonts.rs` 仅可返回字体家族名称与推荐元数据，不得暴露字体文件路径或内容。
 - 桌面端网络功能应走 Tauri 命令；生产桌面构建使用静态导出，不包含 Next API routes。
 
+### Document Attachment Commands
+
+- `store_document_asset(rootPath, documentPath, input)`：输入 `kind` 与 `sourceType/value/fileName/mediaType`，校验 Markdown/MDX 上下文并读取原生存储设置，返回持久化 `src/name/mimeType/size`。来源支持 File 的 Base64、Data URI、HTTP(S) URL、绝对和相对本地路径；不把普通文件伪装成托管资产 ID。
+- `resolve_document_assets(rootPath, documentPath, sources)`：每批最多 2,048 个普通本地引用，仅返回校验通过的精确文件路径供媒体 resolver 显示；不执行复制或下载。
+- `read_document_asset_data(rootPath, documentPath, source)`：下载/导出读取最多 100 MB 的授权文件，返回原有资源数据结构；拒绝目录、私有路径和未授权位置。
+- `select_attachment_directory()`：原生目录选择建立用户级持久授权，取消不改变授权。授权与当前存储策略分离，恢复默认或切换策略不破坏历史附件可读性。
+- `storage.attachments` 新字段具有 Serde 和前端默认值，旧配置无新字段时保留内置存储。保存设置与资产索引使用原子替换。
+
 ### Workspace Refresh Commands
 
 - `watch_workspace(rootPath, onChange: Channel) -> watchId` 在后台校验 canonical 工作区并建立当前窗口的原生递归监听。事件为 `{ rootPath, paths, rescan, watchError }`，只包含有界失效路径；`unwatch_workspace(watchId)` 只能释放调用窗口匹配的会话，迟到的清理不能停止新监听。窗口销毁时原生层主动释放。

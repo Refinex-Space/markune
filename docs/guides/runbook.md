@@ -34,6 +34,19 @@ pnpm build
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
+## Attachment Storage Acceptance
+
+```bash
+pnpm exec vitest run components/workspace/__tests__/workspace-settings-page.test.tsx components/editor/__tests__/use-workspace-asset-uploader.test.ts components/editor/__tests__/pasted-image-storage.test.ts components/editor/__tests__/markweave-image-paste.test.tsx components/workspace/__tests__/document-export-core.test.ts
+cargo test --manifest-path src-tauri/Cargo.toml document_assets::tests --lib
+```
+
+在专用工作区分别选择内置、文档目录、`assets`、`${filename}.assets` 和自定义目录，插入截图、已有本地图片、网络图片、视频与 PDF。核对实际落盘位置、同名不覆盖、Markdown 引用、重开预览和附件下载；本地/网络开关仅影响相应图片来源，截图仍必须保存。内置模式隐藏路径选项，自定义模式显示目录输入，关闭相对路径禁用 `./`；恢复默认后所有后续策略回到内置，历史文件和引用保持不变。
+
+验证普通文档/MDX 移动及目录移动、改名，覆盖行内图片、引用定义、HTML 图片/视频/附件、代码示例、`mailto:`、旧托管引用；移动期间外部更改源或创建同名目标必须被保护。分别导出 Markdown/HTML/PDF/Word，普通本地资源应进入现有便携导出包或转换暂存目录。
+
+真实跨平台验收还需 Windows 不同盘符、自定义外部目录授权与重启恢复、网络重定向/超时/超限、PNG/JPEG/GIF/WebP/SVG、图片下载中切换文档/撤销粘贴。单元测试、模拟 IPC 的真实编辑器集成及 Chromium 设置页不能代替原生 WKWebView/WebView2 的全链路验收。
+
 ## Workspace Refresh Acceptance
 
 ```bash

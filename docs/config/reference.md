@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-02
+updated: 2026-09-05
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -28,6 +28,12 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 `pnpm-workspace.yaml` 的 `minimumReleaseAgeExclude` 只豁免 Markune 已完成源码、发布包和真实桌面验收的 Markweave 版本。升级 `markweave` 与 `@markweave/react` 时必须同步更新两个版本范围，并保持二者版本一致，避免刚发布的受控版本在全新安装中被 pnpm 发布年龄策略拒绝。
 
 `.github/workflows/release.yml` 的 verify 和 publish job 固定使用 Node.js 24、pnpm 11.16.0 与当前锁定 Actions major。release 关键文件推送到 `dev` 时只运行 verify；`v*` Tag 在当前仓库生成 9 资产 GitHub Draft，不会自动转为正式 Release。维护者检查 Draft 后手工触发 `.github/workflows/publish-release.yml`，该工作流核对 9 个资产、6 个 updater target、当前 Tag commit、签名内容，以及每个 target 是否精确引用同名资产的浏览器下载 URL 或 GitHub Assets API URL，再正式发布 Draft。完整 Cargo 测试仍是本机 Tag 前门禁，不加入 Linux release verify。
+
+## Attachment Storage Defaults
+
+`storage.attachments` 默认值为 `mode: managed`、`customPath: ./assets`、`applyToLocalImages: true`、`applyToRemoteImages: false`、`preferRelativePath: true`、`addDotSlash: false`。内置模式使用原有资产库；其他模式以文档目录计算路径。自定义目录支持相对/绝对路径和 `${filename}`，不解释 shell 环境变量或命令。外部目录需通过原生选择建立授权。
+
+新增直接依赖 `pulldown-cmark 0.13.4` 用于保持原文格式的引用重算；Unix `libc` 调用系统无覆盖移动，Tokio `time` 约束域名解析预算，后两者复用既有依赖树。静态 Tauri 资源协议范围不变；普通附件经受限解析后仅动态授权具体文件。
 
 ## Environment Variables
 

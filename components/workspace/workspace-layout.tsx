@@ -98,7 +98,7 @@ import type {
   AiProposedPlan,
   AiWorkspaceChangeEvent,
 } from './ai-panel-state';
-import { useWorkspace } from './use-workspace';
+import { useWorkspace, getMovedNodePath } from './use-workspace';
 import { useGitAutoSync } from './use-git-auto-sync';
 import { useAiDrawingTools } from './use-ai-drawing-tools';
 import { drawingReferenceFromDescriptor } from './ai-drawing-inspector';
@@ -213,6 +213,7 @@ import type {
   RightPanelMode,
   SystemNavLayout,
   WorkspaceNode,
+  WorkspaceMoveRequest,
   WorkspaceExportFormat,
   WorkspaceGitSyncSettings,
   WorkspaceSnapshot,
@@ -2635,40 +2636,128 @@ export function WorkspaceLayout({
     [rememberRecentDocument, workspace],
   );
 
-  const handleRenameWorkspaceNode = React.useCallback(
-    async (node: WorkspaceNode, newName: string) => {
-      const renamed = await workspace.renameNode(node, newName);
-
-      if (!renamed || node.kind !== 'document' || renamed.kind !== 'document') {
-        return renamed;
+  const handleMoveWorkspaceNode = React.useCallback(
+    async (request: WorkspaceMoveRequest) => {
+      if (!(await flushActiveMarkdownEditor('document-switch'))) return;
+      const moved = await workspace.moveNode(request);
+      if (!moved) return;
+      const updates: Array<{
+        oldPath: string;
+        node: WorkspaceNode;
+        content: MarkdownDocumentContent;
+      }> = [];
+      for (const tab of documentEditorLayoutRef.current.tabs) {
+        if (tab.kind !== 'document') continue;
+        const path = getMovedNodePath(tab.absolutePath, request);
+        if (path === tab.absolutePath) continue;
+        const node = findWorkspaceDocumentByPath(moved.nodes, path);
+        if (node)
+          updates.push({
+            oldPath: tab.absolutePath,
+            node,
+            content: await readMarkdownDocument(moved.rootPath, path),
+          });
       }
-
       setDocumentEditorLayout((current) =>
-        renameDocumentTab(current, node.absolutePath, renamed),
+        updates.reduce(
+          (layout, item) => renameDocumentTab(layout, item.oldPath, item.node),
+          current,
+        ),
       );
       setEditorSessions((current) => {
-        const session = current[node.absolutePath];
-
-        if (!session || node.absolutePath === renamed.absolutePath) {
-          return current;
-        }
-
         const next = { ...current };
-        delete next[node.absolutePath];
-        next[renamed.absolutePath] = session;
+        for (const item of updates) {
+          const previous = next[item.oldPath];
+          delete next[item.oldPath];
+          next[item.node.absolutePath] = {
+            markdown: item.content.content,
+            documentVersion: (previous?.documentVersion ?? 0) + 1,
+          };
+        }
         return next;
       });
       setRecentDocuments((current) =>
-        current.map((document) =>
-          document.absolutePath === node.absolutePath
-            ? toRecentDocument(renamed)
-            : document,
+        current.map((item) => {
+          const node = findWorkspaceDocumentByPath(
+            moved.nodes,
+            getMovedNodePath(item.absolutePath, request),
+          );
+          return node ? toRecentDocument(node) : item;
+        }),
+      );
+    },
+    [flushActiveMarkdownEditor, workspace],
+  );
+
+  const handleRenameWorkspaceNode = React.useCallback(
+    async (node: WorkspaceNode, newName: string) => {
+      if (!(await flushActiveMarkdownEditor('document-switch'))) return null;
+      const renamed = await workspace.renameNode(node, newName);
+      if (!renamed || renamed.absolutePath === node.absolutePath) return renamed;
+      const updates: Array<{
+        oldPath: string;
+        node: WorkspaceNode;
+        content: MarkdownDocumentContent;
+      }> = [];
+      for (const tab of documentEditorLayoutRef.current.tabs) {
+        if (
+          tab.kind !== 'document' ||
+          (tab.absolutePath !== node.absolutePath &&
+            !isDescendantPath(tab.absolutePath, node.absolutePath))
+        )
+          continue;
+        const nextPath =
+          renamed.absolutePath + tab.absolutePath.slice(node.absolutePath.length);
+        const nextNode = findWorkspaceDocumentByPath([renamed], nextPath);
+        if (nextNode && workspaceRootPath)
+          updates.push({
+            oldPath: tab.absolutePath,
+            node: nextNode,
+            content: await readMarkdownDocument(workspaceRootPath, nextPath),
+          });
+      }
+      setDocumentEditorLayout((current) =>
+        updates.reduce(
+          (layout, item) => renameDocumentTab(layout, item.oldPath, item.node),
+          current,
         ),
       );
-
+      setEditorSessions((current) => {
+        const next = { ...current };
+        for (const item of updates) {
+          const previous = next[item.oldPath];
+          delete next[item.oldPath];
+          next[item.node.absolutePath] = {
+            markdown: item.content.content,
+            documentVersion: (previous?.documentVersion ?? 0) + 1,
+          };
+        }
+        return next;
+      });
+      setRecentDocuments((current) =>
+        current.map((item) => {
+          if (
+            item.absolutePath !== node.absolutePath &&
+            !isDescendantPath(item.absolutePath, node.absolutePath)
+          )
+            return item;
+          const nextNode = findWorkspaceDocumentByPath(
+            [renamed],
+            renamed.absolutePath +
+              item.absolutePath.slice(node.absolutePath.length),
+          );
+          return nextNode ? toRecentDocument(nextNode) : item;
+        }),
+      );
+      if (node.kind === 'directory') {
+        const active = updates.find(
+          (item) => item.oldPath === currentDocumentPathRef.current,
+        );
+        if (active) await workspace.openDocument(active.node);
+      }
       return renamed;
     },
-    [workspace],
+    [flushActiveMarkdownEditor, workspace, workspaceRootPath],
   );
 
   const handleOpenDailyNote = React.useCallback(
@@ -3516,6 +3605,7 @@ export function WorkspaceLayout({
                 onOpenSettings={openSettingsPage}
                 onRemoveWorkspace={handleRemoveWorkspace}
                 onDeleteNode={handleDeleteWorkspaceNode}
+                onMoveNode={handleMoveWorkspaceNode}
                 onRenameNode={handleRenameWorkspaceNode}
                 revealNodePath={treeRevealRequest?.absolutePath ?? null}
                 revealNodeRequestId={treeRevealRequest?.requestId}

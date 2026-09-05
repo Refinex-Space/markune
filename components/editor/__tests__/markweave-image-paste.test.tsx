@@ -34,6 +34,9 @@ vi.mock('@/components/workspace/workspace-api', () => {
       }),
     ),
     uploadWorkspaceAsset: vi.fn(),
+    storeDocumentAsset: vi.fn(),
+    resolveDocumentAssets: vi.fn(),
+    readAppSettings: vi.fn(),
   };
 });
 
@@ -44,6 +47,9 @@ import {
 import {
   resolveWorkspaceAsset,
   uploadWorkspaceAsset,
+  storeDocumentAsset,
+  resolveDocumentAssets,
+  readAppSettings,
 } from '@/components/workspace/workspace-api';
 
 function WorkspaceAssetEditor({
@@ -112,6 +118,24 @@ describe('Markweave image integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearWorkspaceAssetResolverCache();
+  });
+
+  it('真实编辑器的网络图片粘贴遵循存储规则并持久化相对引用', async () => {
+    vi.mocked(readAppSettings).mockResolvedValue({ storage: { attachments: { applyToRemoteImages: true } } } as never);
+    vi.mocked(storeDocumentAsset).mockResolvedValue({ src: './a.assets/picture.png', mimeType: 'image/png', name: 'picture.png', size: 2 });
+    vi.mocked(resolveDocumentAssets).mockResolvedValue([{ src: './a.assets/picture.png', absolutePath: '/ws/root/notes/a.assets/picture.png' }]);
+    const onMarkdownChange = vi.fn();
+    render(<MarkdownEditor documentKey="relative-asset-test" documentPath="/ws/root/notes/a.md" workspaceRootPath="/ws/root" markdown="# 图片" onMarkdownChange={onMarkdownChange} />);
+    await waitFor(() => expect(document.querySelector('[contenteditable="true"]')).toBeTruthy());
+    const editor = document.querySelector('[contenteditable="true"]')!;
+    fireEvent.paste(editor, { clipboardData: { files: [], getData: (type: string) => type === 'text/html' ? '<img src="https://example.com/picture.png">' : 'https://example.com/picture.png' } });
+    await waitFor(() => expect(storeDocumentAsset).toHaveBeenCalledWith('/ws/root', '/ws/root/notes/a.md', expect.objectContaining({ kind: 'image', sourceType: 'url', value: 'https://example.com/picture.png' })));
+    await waitFor(() => expect(document.querySelector('img[src="asset:///ws/root/notes/a.assets/picture.png"]')).toBeTruthy());
+    await waitFor(() => expect(onMarkdownChange).toHaveBeenCalled(), { timeout: 2000 });
+    const stored = onMarkdownChange.mock.calls.at(-1)?.[0] as string;
+    expect(stored).toContain('./a.assets/picture.png');
+    expect(stored).not.toContain('asset:///');
+    expect(readAppSettings).toHaveBeenCalledTimes(1);
   });
 
   it('0.10.3 可加载超过 20 万字符的混合块图片文档并保持可编辑', async () => {

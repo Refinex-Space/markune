@@ -195,7 +195,7 @@ export function useDocumentExport({
         const fileStem = sanitizeExportFileStem(title, request.node.name);
 
         phase = '解析本地资源';
-        const prepared = await prepareDocumentAssets(rootPath, markdown);
+        const prepared = await prepareDocumentAssets(rootPath, markdown, undefined, request.node.absolutePath);
         const warnings = [...prepared.warnings];
         let result: DocumentExportResult;
 

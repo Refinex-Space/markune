@@ -566,6 +566,34 @@ describe('WorkspaceSettingsPage', () => {
     expect(appUpdateController.restart).toHaveBeenCalledTimes(1);
   });
 
+  it('switches attachment strategies, enforces dependent options and restores defaults', async () => {
+    const user = userEvent.setup();
+    renderSettingsPage();
+    await user.click(screen.getByRole('button', { name: '存储' }));
+    expect(screen.queryByTestId('storage-path-options')).toBeNull();
+    expect(screen.getByRole('switch', { name: '对本地图片应用规则' }).getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByRole('switch', { name: '对网络图片应用规则' }).getAttribute('aria-checked')).toBe('false');
+    await user.click(screen.getByRole('combobox', { name: '附件保存位置' }));
+    await user.click(screen.getByRole('option', { name: './assets 文件夹' }));
+    expect(screen.queryByTestId('storage-local-card')).toBeNull();
+    const prefix = screen.getByRole('switch', { name: '为相对路径添加 ./' });
+    expect(prefix.getAttribute('aria-checked')).toBe('false');
+    await user.click(prefix);
+    await user.click(screen.getByRole('switch', { name: '优先使用相对路径' }));
+    expect((prefix as HTMLButtonElement).disabled).toBe(true);
+    await user.click(screen.getByRole('combobox', { name: '附件保存位置' }));
+    await user.click(screen.getByRole('option', { name: '指定路径' }));
+    expect(screen.getByLabelText('目标目录')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '恢复默认值' }));
+    expect(screen.queryByTestId('storage-path-options')).toBeNull();
+    expect(screen.queryByLabelText('目标目录')).toBeNull();
+    expect(screen.getByTestId('storage-local-card')).toBeTruthy();
+    await user.click(screen.getByRole('combobox', { name: '附件保存位置' }));
+    await user.click(screen.getByRole('option', { name: './assets 文件夹' }));
+    expect(screen.getByRole('switch', { name: '优先使用相对路径' }).getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByRole('switch', { name: '为相对路径添加 ./' }).getAttribute('aria-checked')).toBe('false');
+  });
+
   it('keeps storage and Git Sync information in structured cards', async () => {
     const user = userEvent.setup();
     renderSettingsPage();

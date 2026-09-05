@@ -177,6 +177,7 @@ export function AiDocumentPreview({
         ) : (
           <div className="relative h-full min-h-0">
             <MarkdownEditor
+              documentPath={document.absolutePath}
               documentKey={`ai-preview:${document.absolutePath}`}
               markdown={loadState.markdown}
               pageWidthMode={pageWidthMode}

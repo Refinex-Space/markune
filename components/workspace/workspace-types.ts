@@ -402,8 +402,25 @@ export interface AppSettings {
   calendar: CalendarSettings;
   storage: {
     defaultProvider: 'local';
+    attachments?: AttachmentStorageSettings;
   };
   appearance: AppearanceSettings;
+}
+
+export interface AttachmentStorageSettings {
+  mode: 'managed' | 'document' | 'assets' | 'filename-assets' | 'custom';
+  customPath: string;
+  applyToLocalImages: boolean;
+  applyToRemoteImages: boolean;
+  preferRelativePath: boolean;
+  addDotSlash: boolean;
+}
+
+export interface StoredDocumentAsset {
+  src: string;
+  name?: string;
+  mimeType?: string;
+  size?: number;
 }
 
 export interface UploadWorkspaceAssetInput {

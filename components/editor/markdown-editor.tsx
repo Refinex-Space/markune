@@ -26,6 +26,9 @@ import {
   type MarkweaveReferenceSuggestionConfig,
 } from 'markweave';
 import { useTheme } from 'next-themes';
+import { toast } from 'sonner';
+import { capturePastedImageStorage } from './pasted-image-storage';
+import { readAppSettings } from '@/components/workspace/workspace-api';
 
 import {
   DocumentFindBar,
@@ -233,6 +236,7 @@ export const MarkdownEditor = React.forwardRef<
   } = useWorkspaceAssetUploader(
     workspaceRootPath ?? null,
     projectedEditorBody,
+    documentPath ?? null,
   );
   React.useLayoutEffect(() => {
     const editorRoot = markweaveModeRef.current;
@@ -518,6 +522,15 @@ export const MarkdownEditor = React.forwardRef<
 
   const handlePasteCapture = React.useCallback(
     (event: React.ClipboardEvent<HTMLDivElement>) => {
+      if (!readOnly && !sourceMode && documentPath && workspaceRootPath) {
+        const editorElement = markweaveModeRef.current?.querySelector('[contenteditable="true"]');
+        const editor = activeEditorRef.current ?? (editorElement
+          ? getMarkweaveDocumentViewportCoordinatorForElement(editorElement)?.editor
+          : null);
+        if (editor) void capturePastedImageStorage(event.clipboardData, editor, onSlashCommandUpload,
+          (message) => toast.error(message),
+          async () => (await readAppSettings()).storage.attachments?.applyToRemoteImages === true);
+      }
       if (readOnly || event.clipboardData.getData('text/html').trim()) {
         return;
       }
@@ -543,7 +556,7 @@ export const MarkdownEditor = React.forwardRef<
         // The editor can still persist the canonical plain-text fallback.
       }
     },
-    [readOnly],
+    [documentPath, onSlashCommandUpload, readOnly, sourceMode, workspaceRootPath],
   );
 
   const handleSourceUpdate = React.useCallback(

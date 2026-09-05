@@ -18,6 +18,14 @@ referenced_by: AGENTS.md#knowledge-map
 - 未经明确批准不得扩大文件系统、进程、shell、opener 或资源协议权限。
 - 终端和 Git 操作只可作用于已选择工作区根目录。
 
+## Document Attachment Boundaries
+
+普通本地附件仅可访问当前工作区或用户通过原生目录选择授权的位置；授权存放在用户级应用配置，不能信任 Markdown/frontmatter 或工作区元数据自行授予外部访问。每次解析重新 canonicalize，大小写不敏感地排除 `.markune`/`.git`，校验文件类型、大小和目录边界后仅动态放行单文件，不扩大静态资源协议 scope。
+
+网络图片下载只接受无内嵌凭据的 HTTP(S)。每次重定向重新解析并验证全部 IP，禁止回环、内网与保留地址，将已验证地址固定给 HTTP 客户端，禁止自动代理、Cookie 或调用者请求头。域名解析与 HTTP 共用 20 秒预算；最多 4 次请求、20 MB 响应，校验图片签名或安全 SVG。失败保留文档中的原地址。
+
+普通附件不参与托管资产自动删除。文件写入使用无覆盖创建；移动正文重写复用保存锁及提交前基线校验。macOS、Linux、Windows 的最终移动分别使用 `RENAME_EXCL`、`RENAME_NOREPLACE`、`MoveFileW`，不能退回可覆盖的 rename 来掩盖文件系统不支持。
+
 ## Workspace File Synchronization
 
 - 目录扫描与原生递归监听均不得跟随符号链接；事件路径必须属于工作区且不含父级跳转或被排除的目录分量。删除事件无法 canonicalize，先检查词法边界，真正重读时仍经过现有 canonical 路径校验。

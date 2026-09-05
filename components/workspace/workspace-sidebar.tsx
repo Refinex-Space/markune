@@ -61,6 +61,7 @@ interface WorkspaceSidebarProps {
   onRefreshWorkspaceNode?: (node: WorkspaceNode) => Promise<unknown> | void;
   onOpenSettings?: (sectionId?: 'appearance' | 'version') => void;
   onRemoveWorkspace?: (rootPath: string) => void;
+  onMoveNode?: (request: Parameters<ReturnType<typeof useWorkspace>['moveNode']>[0]) => Promise<void> | void;
   onRenameNode?: (
     node: WorkspaceNode,
     newName: string,
@@ -125,6 +126,7 @@ export function WorkspaceSidebar({
   onOpenSettings,
   onRemoveWorkspace,
   onRenameNode,
+  onMoveNode,
   preferredEditorLabel,
   revealNodePath,
   revealNodeRequestId,
@@ -283,7 +285,7 @@ export function WorkspaceSidebar({
                 onImportMarkdown={(targetDir) =>
                   void onImportDocuments?.(targetDir, 'markdown')
                 }
-                onMoveNode={workspace.moveNode}
+                onMoveNode={onMoveNode ?? (async (request) => { await workspace.moveNode(request); })}
                 onUpdateNodeAppearance={workspace.updateTreeNodeAppearance}
                 onTreeIconPickerSettingsChange={
                   onTreeIconPickerSettingsChange

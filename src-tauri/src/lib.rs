@@ -4,6 +4,7 @@ mod brand_migration;
 mod codex;
 mod codex_provider;
 mod document_converter;
+mod document_assets;
 mod drawings;
 mod export;
 mod git;
@@ -122,6 +123,10 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            document_assets::store_document_asset,
+            document_assets::resolve_document_assets,
+            document_assets::read_document_asset_data,
+            document_assets::select_attachment_directory,
             workspace_watch::watch_workspace,
             workspace_watch::unwatch_workspace,
             app_update::app_update_check,

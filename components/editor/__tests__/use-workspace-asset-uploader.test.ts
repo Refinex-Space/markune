@@ -8,6 +8,9 @@ vi.mock('@tauri-apps/api/core', () => ({
 vi.mock('@/components/workspace/workspace-api', () => ({
   isTauriRuntime: vi.fn(() => true),
   readWorkspaceAssetData: vi.fn(),
+  readDocumentAssetData: vi.fn(),
+  resolveDocumentAssets: vi.fn(),
+  storeDocumentAsset: vi.fn(),
   resolveWorkspaceAssets: vi.fn(),
   selectWorkspaceAssetDownloadPath: vi.fn(),
   uploadWorkspaceAsset: vi.fn(),
@@ -17,6 +20,9 @@ vi.mock('@/components/workspace/workspace-api', () => ({
 import {
   isTauriRuntime,
   readWorkspaceAssetData,
+  readDocumentAssetData,
+  resolveDocumentAssets,
+  storeDocumentAsset,
   resolveWorkspaceAssets,
   selectWorkspaceAssetDownloadPath,
   uploadWorkspaceAsset,
@@ -32,6 +38,48 @@ describe('useWorkspaceAssetUploader', () => {
     vi.clearAllMocks();
     clearWorkspaceAssetResolverCache();
     vi.mocked(isTauriRuntime).mockReturnValue(true);
+  });
+
+  it('有文档上下文时将真实文档路径交给原生存储，并保持 Markdown 引用', async () => {
+    vi.mocked(storeDocumentAsset).mockResolvedValue({ src: './guide.assets/a.png', name: 'a.png', mimeType: 'image/png', size: 1 });
+    const { result } = renderHook(() => useWorkspaceAssetUploader('/ws', '# 文档', '/ws/notes/guide.md'));
+    const file = new File([new Uint8Array([1])], 'a.png', { type: 'image/png' });
+    let uploaded: unknown;
+    await act(async () => { uploaded = await result.current.onSlashCommandUpload({ kind: 'image', source: { type: 'file', file }, trigger: 'image-insert' }); });
+    expect(storeDocumentAsset).toHaveBeenCalledWith('/ws', '/ws/notes/guide.md', expect.objectContaining({ sourceType: 'file', fileName: 'a.png', value: expect.any(String) }));
+    expect(uploaded).toMatchObject({ src: './guide.assets/a.png' });
+    expect(uploadWorkspaceAsset).not.toHaveBeenCalled();
+  });
+
+  it('网络和本地地址插入均经过原生规则，后台预览不会触发复制', async () => {
+    vi.mocked(storeDocumentAsset).mockResolvedValue({ src: 'assets/picture.png' });
+    vi.mocked(resolveDocumentAssets).mockResolvedValue([{ src: 'assets/picture.png', absolutePath: '/ws/notes/assets/picture.png' }]);
+    const { result } = renderHook(() => useWorkspaceAssetUploader('/ws', '![x](assets/picture.png)', '/ws/notes/guide.md'));
+    await act(async () => {
+      await result.current.onSlashCommandUpload({ kind: 'image', source: { type: 'url', value: 'https://example.com/a.png' }, trigger: 'image-insert' });
+      await result.current.onSlashCommandUpload({ kind: 'image', source: { type: 'relative-path', value: '../a.png' }, trigger: 'image-insert' });
+    });
+    expect(storeDocumentAsset).toHaveBeenCalledTimes(2);
+    let resolved: unknown;
+    await act(async () => { resolved = await result.current.resolveMediaSource({ src: 'assets/picture.png', signal: new AbortController().signal, kind: 'image', priority: 'visible' }); });
+    expect(resolved).toEqual({ src: 'asset:///ws/notes/assets/picture.png' });
+    expect(storeDocumentAsset).toHaveBeenCalledTimes(2);
+  });
+
+  it('普通文件引用批量解析，下载通过文档上下文读取', async () => {
+    vi.mocked(resolveDocumentAssets).mockResolvedValue([
+      { src: 'assets/a.png', absolutePath: '/ws/notes/assets/a.png' },
+      { src: 'assets/b.png', absolutePath: '/ws/notes/assets/b.png' },
+    ]);
+    vi.mocked(readDocumentAssetData).mockResolvedValue({ id: 'assets/paper.pdf', name: 'paper.pdf', mediaType: 'application/pdf', base64Data: 'AQ==' });
+    vi.mocked(selectWorkspaceAssetDownloadPath).mockResolvedValue(null);
+    const { result } = renderHook(() => useWorkspaceAssetUploader('/ws', '![a](assets/a.png)\n![b](assets/b.png)', '/ws/notes/guide.md'));
+    await act(async () => {
+      await Promise.all(['assets/a.png', 'assets/b.png'].map((src) => result.current.resolveMediaSource({ src, signal: new AbortController().signal, kind: 'image', priority: 'visible' })));
+      await result.current.onAttachmentDownload({ src: 'assets/paper.pdf', name: 'paper.pdf' });
+    });
+    expect(resolveDocumentAssets).toHaveBeenCalledTimes(1);
+    expect(readDocumentAssetData).toHaveBeenCalledWith('/ws', '/ws/notes/guide.md', 'assets/paper.pdf');
   });
 
   it('上传 File 后返回 Markweave 可显示 URL，并在入库前还原资产协议引用', async () => {

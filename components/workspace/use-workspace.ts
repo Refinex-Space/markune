@@ -1149,9 +1149,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         return;
       }
 
-      if (saveState === 'dirty' || saveState === 'saving') {
-        await saveCurrentDocumentNow(draftDocument);
-      }
+      if (conflictRef.current || !(await saveCurrentDocumentNow())) return null;
 
       const movedSnapshot = await moveWorkspaceNode(snapshot.rootPath, request);
       setSnapshot(movedSnapshot);
@@ -1174,7 +1172,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       }
 
       if (!currentDocument) {
-        return;
+        return movedSnapshot;
       }
 
       const movedDocumentPath = getMovedNodePath(
@@ -1188,14 +1186,25 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
 
       if (movedDocument?.kind === 'document') {
         setCurrentDocument(movedDocument);
-        return;
+        currentDocumentRef.current = movedDocument;
+        if (movedDocument.absolutePath !== currentDocument.absolutePath) {
+          const content = await readMarkdownDocument(snapshot.rootPath, movedDocument.absolutePath);
+          const draft = createMarkdownDraft(content, movedDocument.name);
+          documentContentRef.current = content; draftDocumentRef.current = draft;
+          setDocumentContent(content); setDraftDocument(draft);
+          lastSavedMarkdownRef.current = content.content;
+          setDocumentVersion((version) => version + 1);
+          setLastSavedAt(content.modifiedAt);
+        }
+        return movedSnapshot;
       }
 
       if (!findNodeByAbsolutePath(movedSnapshot.nodes, currentDocument.absolutePath)) {
         resetDocumentState();
       }
+      return movedSnapshot;
     },
-    [snapshot, saveState, setSnapshot, currentDirectoryPath, currentDocument, saveCurrentDocumentNow, draftDocument, resetDocumentState],
+    [snapshot, setSnapshot, currentDirectoryPath, currentDocument, saveCurrentDocumentNow, resetDocumentState],
   );
 
   const updateNodeState = React.useCallback(
@@ -1784,7 +1793,7 @@ function insertWorkspaceNodeIntoChildren(
   return inserted ? nextNodes : null;
 }
 
-function getMovedNodePath(
+export function getMovedNodePath(
   currentPath: string,
   request: WorkspaceMoveRequest,
 ) {

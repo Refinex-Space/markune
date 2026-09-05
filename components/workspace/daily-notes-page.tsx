@@ -688,6 +688,7 @@ function DailyInspector({
                 data-testid="daily-inspector-preview"
               >
                 <MarkdownEditor
+                  documentPath={entry.documentPath}
                   documentKey={`daily-preview:${entry.documentPath}:${entry.updatedAt}:${previewRevision}`}
                   markdown={preview.markdown}
                   pageWidthMode={pageWidthMode}
@@ -1030,6 +1031,7 @@ function DailyQuickEditorDialog({
           ) : loadState.status === 'ready' ? (
             <MarkdownEditor
               ref={editorRef}
+              documentPath={loadState.document.path}
               documentKey={`daily-quick-editor:${targetKey}:${loadState.document.path ?? 'new'}:${loadState.document.modifiedAt ?? 'draft'}`}
               markdown={loadState.document.content}
               pageWidthMode={pageWidthMode}

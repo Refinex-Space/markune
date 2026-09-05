@@ -1,4 +1,5 @@
 import type {
+  StoredDocumentAsset,
   AppUpdateCheckResult,
   AppUpdateDownloadEvent,
   CreatedMarkdownDocument,
@@ -67,6 +68,28 @@ import type {
   TreeNodeAppearance,
   SystemFontOptions,
 } from './workspace-types';
+
+export async function selectAttachmentDirectory() {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<string | null>('select_attachment_directory');
+}
+
+export async function storeDocumentAsset(rootPath: string, documentPath: string, input: {
+  kind: string; sourceType: string; value?: string; fileName?: string; mediaType?: string;
+}) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<StoredDocumentAsset>('store_document_asset', { rootPath, documentPath, input });
+}
+
+export async function resolveDocumentAssets(rootPath: string, documentPath: string, sources: string[]) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<Array<{ src: string; absolutePath: string | null }>>('resolve_document_assets', { rootPath, documentPath, sources });
+}
+
+export async function readDocumentAssetData(rootPath: string, documentPath: string, source: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<WorkspaceAssetData>('read_document_asset_data', { rootPath, documentPath, source });
+}
 import { getParentPath } from './workspace-paths';
 
 import type { UnlistenFn } from '@tauri-apps/api/event';

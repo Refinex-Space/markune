@@ -17,6 +17,32 @@ pub struct AppSettings {
 #[serde(rename_all = "camelCase")]
 pub struct StorageSettings {
     pub default_provider: String,
+    #[serde(default)]
+    pub attachments: AttachmentStorageSettings,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AttachmentStorageSettings {
+    pub mode: String,
+    pub custom_path: String,
+    pub apply_to_local_images: bool,
+    pub apply_to_remote_images: bool,
+    pub prefer_relative_path: bool,
+    pub add_dot_slash: bool,
+}
+
+impl Default for AttachmentStorageSettings {
+    fn default() -> Self {
+        Self {
+            mode: "managed".into(),
+            custom_path: "./assets".into(),
+            apply_to_local_images: true,
+            apply_to_remote_images: false,
+            prefer_relative_path: true,
+            add_dot_slash: false,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -147,7 +173,8 @@ pub fn save_app_settings(app: AppHandle, settings: AppSettings) -> Result<AppSet
 
     let json =
         serde_json::to_string_pretty(&settings).map_err(|_| "无法序列化应用设置".to_string())?;
-    fs::write(&path, format!("{json}\n")).map_err(|_| "无法保存应用设置".to_string())?;
+    crate::workspace::write_text_atomic(&path, &format!("{json}\n"))
+        .map_err(|_| "无法保存应用设置".to_string())?;
     Ok(settings)
 }
 
@@ -156,6 +183,7 @@ fn default_app_settings() -> AppSettings {
         schema_version: 1,
         storage: StorageSettings {
             default_provider: "local".to_string(),
+            attachments: AttachmentStorageSettings::default(),
         },
         appearance: AppearanceSettings::default(),
         calendar: CalendarSettings::default(),
@@ -200,6 +228,33 @@ pub(crate) fn validate_app_settings(settings: &AppSettings) -> Result<(), String
     }
     if settings.storage.default_provider != "local" {
         return Err("仅支持本地存储".to_string());
+    }
+    let attachments = &settings.storage.attachments;
+    if !matches!(
+        attachments.mode.as_str(),
+        "managed" | "document" | "assets" | "filename-assets" | "custom"
+    ) {
+        return Err("附件存储位置无效".into());
+    }
+    if attachments.custom_path.len() > 4096 || attachments.custom_path.chars().any(char::is_control)
+    {
+        return Err("附件目录路径无效".into());
+    }
+    if attachments.mode == "custom" {
+        let path = attachments.custom_path.trim();
+        let without_variable = path.replace("${filename}", "");
+        let windows_absolute = path.as_bytes().get(1) == Some(&b':')
+            && path
+                .as_bytes()
+                .get(2)
+                .is_some_and(|c| *c == b'/' || *c == b'\\');
+        if path.is_empty()
+            || path.starts_with('~')
+            || without_variable.contains("${")
+            || (!windows_absolute && reqwest::Url::parse(path).is_ok())
+        {
+            return Err("请指定本地目录，仅支持 ${filename} 变量，不支持网址或 ~ 路径".into());
+        }
     }
     if !matches!(
         settings.appearance.page_width_mode.as_str(),
