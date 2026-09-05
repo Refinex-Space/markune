@@ -236,7 +236,7 @@ describe('DocumentTree', () => {
     );
 
     fireEvent.contextMenu(
-      screen.getByTestId('workspace-tree-root-creation-area'),
+      screen.getByTestId('workspace-tree-context-area'),
     );
     await user.click(screen.getByRole('menuitem', { name: '刷新' }));
 

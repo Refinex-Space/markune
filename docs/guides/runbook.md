@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-01
+updated: 2026-09-05
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -33,6 +33,20 @@ pnpm lint
 pnpm build
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
+
+## Workspace Refresh Acceptance
+
+```bash
+pnpm exec vitest run components/workspace/__tests__/use-workspace-ai-sync.test.tsx components/workspace/__tests__/use-workspace-refresh.test.tsx components/workspace/__tests__/workspace-refresh.test.ts components/workspace/__tests__/document-tree.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml workspace_watch::tests --lib
+cargo test --manifest-path src-tauri/Cargo.toml workspace::tests --lib
+```
+
+使用独立临时工作区，分别在根目录和多层子目录打开文档，并保留一个后台标签。通过其他编辑器或脚本修改、新建、删除、移动文件，以及“临时文件替换原文件”的保存方式，检查树与已打开正文更新；目录刷新应覆盖深层已打开标签，文档刷新不重载无关标签。右键树头部间距、底部剩余空白、折叠后的空白及空工作区，确认根目录菜单均可用，节点右键仍打开节点菜单。
+
+连续输入期间做外部改写，确认 500 ms 尚未 flush 的输入也被保留，重复事件不会覆盖冲突草稿；分别确认加载磁盘版本和用当前版本覆盖。触碰时间戳或应用自身保存时，编辑器不能闪烁或重置选区。删除当前文件应保留正文并报告错误；文件恢复后刷新应能重新读取。切换工作区、休眠恢复及关闭窗口后检查旧监听已释放，迟到结果不进入新工作区。
+
+当前自动化包含本机真实文件事件、同时间戳改写、并发保存及符号链接回归。Windows/Linux、网络盘、云盘占位文件和超大知识库必须分别验收，不能以 Chromium 或 macOS 临时目录结果代替；监听不可用时应展示每 3 秒复核的降级提示。
 
 ## Large-document Acceptance
 

@@ -85,6 +85,7 @@ const DEFAULT_TREE_ICON_PICKER_SETTINGS: TreeIconPickerSettings = {
 };
 
 interface DocumentTreeProps {
+  header?: React.ReactNode;
   nodes: WorkspaceNode[];
   searchQuery: string;
   currentDocumentPath: string | null;
@@ -136,6 +137,7 @@ interface DocumentTreeProps {
 }
 
 export function DocumentTree({
+  header,
   nodes,
   searchQuery,
   currentDocumentPath,
@@ -539,43 +541,48 @@ export function DocumentTree({
 
   return (
     <>
-      <div ref={treeRootRef} className="flex min-h-full flex-col pb-1 pt-2">
-        {treeContent}
-        <ContextMenu>
-          <ContextMenuTrigger asChild>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div
+            ref={treeRootRef}
+            className="flex flex-1 flex-col pb-3 pt-2"
+            data-testid="workspace-tree-context-area"
+          >
+            {header}
+            {treeContent}
             <div
               className="min-h-16 flex-1"
               data-testid="workspace-tree-root-creation-area"
             />
-          </ContextMenuTrigger>
-          <ContextMenuContent
-            className="w-44"
-            onCloseAutoFocus={(event) => event.preventDefault()}
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent
+          className="w-44"
+          onCloseAutoFocus={(event) => event.preventDefault()}
+        >
+          {onRefresh ? (
+            <>
+              <ContextMenuItem onSelect={() => void onRefresh()}>
+                <RefreshCw />
+                刷新
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+            </>
+          ) : null}
+          <ContextMenuItem
+            onSelect={() => void handleCreateDocument('')}
           >
-            {onRefresh ? (
-              <>
-                <ContextMenuItem onSelect={() => void onRefresh()}>
-                  <RefreshCw />
-                  刷新
-                </ContextMenuItem>
-                <ContextMenuSeparator />
-              </>
-            ) : null}
-            <ContextMenuItem
-              onSelect={() => void handleCreateDocument('')}
-            >
-              <FilePlus2 />
-              新建文档
-            </ContextMenuItem>
-            <ContextMenuItem
-              onSelect={() => void handleCreateDirectory('')}
-            >
-              <FolderPlus />
-              新建目录
-            </ContextMenuItem>
-          </ContextMenuContent>
-        </ContextMenu>
-      </div>
+            <FilePlus2 />
+            新建文档
+          </ContextMenuItem>
+          <ContextMenuItem
+            onSelect={() => void handleCreateDirectory('')}
+          >
+            <FolderPlus />
+            新建目录
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
 
       <DeleteNodeDialog
         node={deleteTarget}

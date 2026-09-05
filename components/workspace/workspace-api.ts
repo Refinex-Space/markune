@@ -249,6 +249,33 @@ export async function loadWorkspaceTree(rootPath: string) {
   return invoke<WorkspaceSnapshot>('load_workspace_tree', { rootPath });
 }
 
+export interface WorkspaceFileChange {
+  rootPath: string;
+  paths: string[];
+  rescan: boolean;
+  watchError?: boolean;
+}
+
+let workspaceWatchQueue: Promise<unknown> = Promise.resolve();
+
+export async function watchWorkspace(
+  rootPath: string,
+  onChange: (change: WorkspaceFileChange) => void,
+): Promise<() => Promise<void>> {
+  const start = workspaceWatchQueue.catch(() => undefined).then(async () => {
+    const { Channel, invoke } = await import('@tauri-apps/api/core');
+    const channel = new Channel<WorkspaceFileChange>();
+    channel.onmessage = onChange;
+    const watchId = await invoke<string>('watch_workspace', { rootPath, onChange: channel });
+    return async () => {
+      channel.onmessage = () => undefined;
+      await invoke('unwatch_workspace', { watchId });
+    };
+  });
+  workspaceWatchQueue = start;
+  return start;
+}
+
 export async function inspectWorkspaceBrand(rootPath: string) {
   const { invoke } = await import('@tauri-apps/api/core');
 
@@ -907,6 +934,7 @@ export async function saveMarkdownDocument(
   documentPath: string,
   content: string,
   expectedModifiedAt: number | null,
+  expectedContent?: string,
 ) {
   const { invoke } = await import('@tauri-apps/api/core');
 
@@ -915,6 +943,7 @@ export async function saveMarkdownDocument(
     documentPath,
     content,
     expectedModifiedAt,
+    expectedContent,
   });
 }
 

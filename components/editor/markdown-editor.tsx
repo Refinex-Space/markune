@@ -75,6 +75,7 @@ export type MarkdownEditorFlushReason =
   | 'app-exit'
   | 'document-switch'
   | 'export'
+  | 'external-refresh'
   | 'idle'
   | 'manual-save'
   | 'source-toggle';
@@ -470,7 +471,7 @@ export const MarkdownEditor = React.forwardRef<
       if (flushInFlightRef.current) {
         return flushInFlightRef.current.then((flushed) => {
           if (
-            flushed &&
+            (flushed || reason === 'external-refresh') &&
             (pendingPayloadRef.current ||
               pendingSourceMarkdownRef.current !== null)
           ) {

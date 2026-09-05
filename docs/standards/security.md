@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-01
+updated: 2026-09-05
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -17,6 +17,12 @@ referenced_by: AGENTS.md#knowledge-map
 - `src-tauri/capabilities/default.json`、Tauri 插件、shell/process 能力和资源协议范围均为安全敏感区域。
 - 未经明确批准不得扩大文件系统、进程、shell、opener 或资源协议权限。
 - 终端和 Git 操作只可作用于已选择工作区根目录。
+
+## Workspace File Synchronization
+
+- 目录扫描与原生递归监听均不得跟随符号链接；事件路径必须属于工作区且不含父级跳转或被排除的目录分量。删除事件无法 canonicalize，先检查词法边界，真正重读时仍经过现有 canonical 路径校验。
+- 原生监听会话以窗口隔离，用不可预测 ID 清理；只发送有界路径与重新扫描标记，不提供通用文件读取权限，不修改 capability 或资源协议。
+- 原子暂存必须使用随机名称与 `create_new`，失败只清理本次暂存文件。保存冲突、读取失败和删除事件都不能作为静默丢弃草稿的理由。
 
 ## Release And Update
 

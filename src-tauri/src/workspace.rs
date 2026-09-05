@@ -10,10 +10,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
 use std::io;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "macos")]
 use std::process::Command;
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
@@ -695,7 +696,8 @@ fn resolve_existing_workspace_node_path(
 
     let target = match candidate.canonicalize() {
         Ok(path) => path,
-        Err(_) => return Ok(None),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err("无法读取节点状态，请稍后重试".to_string()),
     };
 
     if !target.starts_with(root) {
@@ -726,14 +728,33 @@ fn read_markdown_document_sync(
     document_path: String,
 ) -> Result<MarkdownDocumentContent, String> {
     let document = validate_existing_markdown_document_path(&root_path, &document_path)?;
-    let content = fs::read_to_string(&document)
-        .map_err(|_| "无法读取 Markdown 文档内容，当前仅支持 UTF-8 文档".to_string())?;
-
-    Ok(MarkdownDocumentContent {
-        path: document.to_string_lossy().to_string(),
-        content,
-        modified_at: read_modified_at(&document)?,
-    })
+    for _ in 0..3 {
+        let mut file =
+            fs::File::open(&document).map_err(|_| "无法读取 Markdown 文档".to_string())?;
+        let before = file
+            .metadata()
+            .map_err(|_| "无法读取文档状态".to_string())?;
+        let mut content = String::new();
+        file.read_to_string(&mut content)
+            .map_err(|_| "无法读取 Markdown 文档内容，当前仅支持 UTF-8 文档".to_string())?;
+        let after = file
+            .metadata()
+            .map_err(|_| "无法读取文档状态".to_string())?;
+        if before.modified().ok() == after.modified().ok() && before.len() == after.len() {
+            let modified_at = after
+                .modified()
+                .ok()
+                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                .ok_or_else(|| "无法读取文档修改时间".to_string())?
+                .as_millis();
+            return Ok(MarkdownDocumentContent {
+                path: document.to_string_lossy().to_string(),
+                content,
+                modified_at,
+            });
+        }
+    }
+    Err("文档正在被外部写入，请稍后重试".to_string())
 }
 
 #[tauri::command]
@@ -742,9 +763,16 @@ pub async fn save_markdown_document(
     document_path: String,
     content: String,
     expected_modified_at: Option<u128>,
+    expected_content: Option<String>,
 ) -> Result<DocumentContentMeta, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        save_markdown_document_sync(root_path, document_path, content, expected_modified_at)
+        save_markdown_document_checked(
+            root_path,
+            document_path,
+            content,
+            expected_modified_at,
+            expected_content.as_deref(),
+        )
     })
     .await
     .map_err(|_| "Markdown 文档保存任务失败".to_string())?
@@ -756,6 +784,37 @@ pub(crate) fn save_markdown_document_sync(
     content: String,
     expected_modified_at: Option<u128>,
 ) -> Result<DocumentContentMeta, String> {
+    save_markdown_document_checked(
+        root_path,
+        document_path,
+        content,
+        expected_modified_at,
+        None,
+    )
+}
+
+fn document_save_lock(path: &Path) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<BTreeMap<PathBuf, Weak<Mutex<()>>>>> = OnceLock::new();
+    let mut locks = LOCKS
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    locks.retain(|_, lock| lock.strong_count() > 0);
+    if let Some(lock) = locks.get(path).and_then(Weak::upgrade) {
+        return lock;
+    }
+    let lock = Arc::new(Mutex::new(()));
+    locks.insert(path.to_path_buf(), Arc::downgrade(&lock));
+    lock
+}
+
+fn save_markdown_document_checked(
+    root_path: String,
+    document_path: String,
+    content: String,
+    expected_modified_at: Option<u128>,
+    expected_content: Option<&str>,
+) -> Result<DocumentContentMeta, String> {
     let timer = start_performance_timer();
     let performance_enabled = timer.is_some();
     let content_bytes = content.len();
@@ -766,6 +825,8 @@ pub(crate) fn save_markdown_document_sync(
     let result = (|| {
         let document = validate_existing_markdown_document_path(&root_path, &document_path)?;
 
+        let lock = document_save_lock(&document);
+        let _guard = lock.lock().map_err(|_| "文档保存状态不可用".to_string())?;
         if let Some(expected) = expected_modified_at {
             let current = read_modified_at(&document)?;
             if current != expected {
@@ -775,10 +836,12 @@ pub(crate) fn save_markdown_document_sync(
 
         let root = canonical_workspace_root(&root_path)?;
         let old_asset_read_started_at = Instant::now();
-        let old_asset_ids = fs::read_to_string(&document)
-            .ok()
-            .map(|raw| crate::assets::extract_asset_ids_from_markdown(&raw))
-            .unwrap_or_default();
+        let old_content =
+            fs::read_to_string(&document).map_err(|_| "无法读取磁盘版本".to_string())?;
+        if expected_content.is_some_and(|expected| old_content != expected) {
+            return Err("文档已在磁盘上更新，请重新加载后再保存".to_string());
+        }
+        let old_asset_ids = crate::assets::extract_asset_ids_from_markdown(&old_content);
         performance_details.old_asset_read_ms =
             finish_performance_segment(old_asset_read_started_at, performance_enabled);
         let new_asset_ids = crate::assets::extract_asset_ids_from_markdown(&content);
@@ -788,8 +851,22 @@ pub(crate) fn save_markdown_document_sync(
             .collect::<BTreeSet<_>>();
 
         let write_started_at = Instant::now();
-        write_text_atomic(&document, &content)
-            .map_err(|_| "无法保存 Markdown 文档内容".to_string())?;
+        let modified_at = write_text_atomic_guarded(&document, &content, || {
+            if fs::read_to_string(&document)? != old_content {
+                return Err(io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "document changed",
+                ));
+            }
+            Ok(())
+        })
+        .map_err(|error| {
+            if error.kind() == io::ErrorKind::WouldBlock {
+                "文档已在磁盘上更新，请重新加载后再保存".to_string()
+            } else {
+                "无法保存 Markdown 文档内容".to_string()
+            }
+        })?;
         performance_details.write_ms =
             finish_performance_segment(write_started_at, performance_enabled);
 
@@ -800,7 +877,6 @@ pub(crate) fn save_markdown_document_sync(
         performance_details.asset_cleanup_ms =
             finish_performance_segment(asset_cleanup_started_at, performance_enabled);
 
-        let modified_at = read_modified_at(&document)?;
         let daily_note_index_started_at = Instant::now();
         refresh_daily_note_index_for_path(&root, &document, &content, modified_at)
             .map_err(|error| format!("保存每日笔记索引失败：{error}"))?;
@@ -1349,11 +1425,14 @@ fn read_children(
         // Broken symlinks / vanished cloud placeholders must not fail the whole tree.
         // One metadata call serves both the sort timestamp and the dir/file
         // branch below, avoiding a redundant stat per entry. author: refinex
-        let entry_metadata = match fs::metadata(&path) {
+        let entry_metadata = match fs::symlink_metadata(&path) {
             Ok(metadata) => metadata,
             Err(error) if is_skippable_tree_entry_error(&error) => continue,
             Err(error) => return Err(error),
         };
+        if entry_metadata.file_type().is_symlink() {
+            continue;
+        }
         let sort_timestamp = sort_timestamp_from_metadata(&entry_metadata);
 
         if entry_metadata.is_dir() {
@@ -2225,6 +2304,14 @@ fn write_json_pretty<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
 }
 
 pub(crate) fn write_text_atomic(path: &Path, content: &str) -> io::Result<()> {
+    write_text_atomic_guarded(path, content, || Ok(())).map(|_| ())
+}
+
+fn write_text_atomic_guarded(
+    path: &Path,
+    content: &str,
+    before_commit: impl FnOnce() -> io::Result<()>,
+) -> io::Result<u128> {
     let parent = path
         .parent()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "missing parent"))?;
@@ -2232,10 +2319,32 @@ pub(crate) fn write_text_atomic(path: &Path, content: &str) -> io::Result<()> {
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("document.md");
-    let temp_path = parent.join(format!(".{file_name}.tmp"));
-
-    fs::write(&temp_path, content)?;
-    fs::rename(temp_path, path)
+    let temp_path = parent.join(format!(".{file_name}.{}.tmp", uuid::Uuid::new_v4()));
+    let result = (|| {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path)?;
+        if let Ok(metadata) = fs::metadata(path) {
+            file.set_permissions(metadata.permissions())?;
+        }
+        file.write_all(content.as_bytes())?;
+        file.sync_all()?;
+        let modified_at = file
+            .metadata()?
+            .modified()?
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
+            .as_millis();
+        drop(file);
+        before_commit()?;
+        fs::rename(&temp_path, path)?;
+        Ok(modified_at)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    result
 }
 
 fn write_workspace_metadata(root: &Path, metadata: &WorkspaceMetadata) -> io::Result<()> {
@@ -2356,7 +2465,7 @@ fn open_path_with_macos_app(_path: &Path, _app_name: &str) -> Result<(), String>
     Err("Preferred Editor 目前仅支持 macOS".to_string())
 }
 
-fn should_skip_entry(file_name: &str) -> bool {
+pub(crate) fn should_skip_entry(file_name: &str) -> bool {
     file_name == WORKSPACE_PRIVATE_DIR
         || file_name == ".git"
         || matches!(file_name, "node_modules" | "target" | "dist" | "build")
@@ -3324,6 +3433,115 @@ fn normalize_plate_timestamp(value: &str) -> Option<String> {
 mod tests {
     use super::*;
     use base64::Engine;
+
+    #[test]
+    fn atomic_commit_checks_after_staging_and_preserves_external_content_on_conflict() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("note.md");
+        fs::write(&path, "original").unwrap();
+        let result = write_text_atomic_guarded(&path, "local", || {
+            let staged: Vec<_> = fs::read_dir(temp.path())?
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+                .collect();
+            assert_eq!(staged.len(), 1);
+            assert_eq!(fs::read_to_string(staged[0].path())?, "local");
+            fs::write(&path, "external")?;
+            Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "document changed",
+            ))
+        });
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::WouldBlock);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "external");
+        assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn content_guard_rejects_external_edits_with_preserved_mtime() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("note.md");
+        fs::write(&path, "original").unwrap();
+        let modified = fs::metadata(&path).unwrap().modified().unwrap();
+        let original_millis = read_modified_at(&path).unwrap();
+        fs::write(&path, "external").unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+        assert_eq!(read_modified_at(&path).unwrap(), original_millis);
+        let result = save_markdown_document_checked(
+            temp.path().to_string_lossy().into_owned(),
+            path.to_string_lossy().into_owned(),
+            "local".to_string(),
+            Some(original_millis),
+            Some("original"),
+        );
+        assert!(result.unwrap_err().contains("磁盘上更新"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "external");
+    }
+
+    #[test]
+    fn concurrent_saves_with_the_same_baseline_have_only_one_winner() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("note.md");
+        fs::write(&path, "original").unwrap();
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let workers: Vec<_> = (0..2)
+            .map(|i| {
+                let root = temp.path().to_string_lossy().into_owned();
+                let path = path.to_string_lossy().into_owned();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    save_markdown_document_checked(
+                        root,
+                        path,
+                        format!("version {i}"),
+                        None,
+                        Some("original"),
+                    )
+                })
+            })
+            .collect();
+        let succeeded = workers
+            .into_iter()
+            .filter_map(|worker| worker.join().unwrap().ok())
+            .count();
+        assert_eq!(succeeded, 1);
+        assert!(fs::read_to_string(path).unwrap().starts_with("version "));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tree_refresh_ignores_external_and_cyclic_symbolic_links() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("private.md"), "# outside").unwrap();
+        fs::create_dir(root.path().join("notes")).unwrap();
+        fs::write(root.path().join("notes/real.md"), "# real").unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join("outside")).unwrap();
+        std::os::unix::fs::symlink(root.path(), root.path().join("notes/cycle")).unwrap();
+        let snapshot = build_workspace_snapshot(root.path()).unwrap();
+        assert_eq!(snapshot.nodes.len(), 1);
+        assert_eq!(snapshot.nodes[0].children.as_ref().unwrap().len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_does_not_follow_a_preexisting_temporary_symlink() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("note.md");
+        let other = temp.path().join("other.md");
+        fs::write(&path, "original").unwrap();
+        fs::write(&other, "untouched").unwrap();
+        std::os::unix::fs::symlink(&other, temp.path().join(".note.md.tmp")).unwrap();
+        write_text_atomic(&path, "new").unwrap();
+        assert_eq!(fs::read_to_string(path).unwrap(), "new");
+        assert_eq!(fs::read_to_string(other).unwrap(), "untouched");
+    }
 
     #[test]
     fn ensure_workspace_creates_metadata_file() {

@@ -695,6 +695,21 @@ describe('MarkdownEditor', () => {
     expect(markweaveEditorMock.mock.calls.at(-1)?.[0].askAi).toBeUndefined();
   });
 
+  it('外部刷新可在自动保存失败后捕获尚未提交的编辑器输入', async () => {
+    const ref = React.createRef<MarkdownEditorHandle>();
+    let complete!: (result: boolean) => void;
+    const onMarkdownChange = vi.fn()
+      .mockImplementationOnce(() => new Promise<boolean>((resolve) => { complete = resolve; }))
+      .mockResolvedValue(true);
+    render(<MarkdownEditor ref={ref} markdown="# 原文" onMarkdownChange={onMarkdownChange} />);
+    fireEvent.change(screen.getByLabelText('Markdown 正文'), { target: { value: '# 本地最新输入' } });
+    act(() => vi.advanceTimersByTime(500));
+    let capture!: Promise<boolean>;
+    act(() => { capture = ref.current!.flushDraft('external-refresh'); });
+    await act(async () => { complete(false); expect(await capture).toBe(true); });
+    expect(onMarkdownChange).toHaveBeenLastCalledWith('# 本地最新输入', undefined, 'external-refresh');
+  });
+
   it('保护 frontmatter，只把正文传给 Markweave，idle 时再序列化完整 Markdown', () => {
     const onMarkdownChange = vi.fn();
 

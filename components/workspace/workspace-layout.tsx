@@ -189,6 +189,9 @@ import {
 } from './workspace-document-insights';
 import { createDocumentPanelData } from './workspace-document-panel-data';
 import { flattenDocuments } from './workspace-tree';
+import { useWorkspaceRefresh, type WorkspaceRefreshRequest } from './use-workspace-refresh';
+import { reconcileWorkspaceDocuments } from './workspace-refresh';
+import { isDescendantPath } from './workspace-paths';
 import { XtermTerminal } from './xterm-terminal';
 import type {
   AppSettings,
@@ -362,7 +365,6 @@ export function WorkspaceLayout({
   const workspace = useWorkspace(initialSnapshot);
   const brandMigrationReport = workspace.brandMigrationReport;
   const clearBrandMigrationReport = workspace.clearBrandMigrationReport;
-  const refreshWorkspaceNodes = workspace.refreshWorkspaceNodes;
   const [leftSidebarWidth, setLeftSidebarWidth] = useStoredPanelWidth(
     WORKSPACE_PANEL_WIDTH_STORAGE_KEYS.left,
     LEFT_PANEL_WIDTH.defaultValue,
@@ -1895,10 +1897,94 @@ export function WorkspaceLayout({
     };
   }, [isTauriRuntime, settingsVersion, workspaceRootPath]);
 
-  // Reflect files pulled by a sync back into the UI: incrementally refresh the
-  // affected tree nodes and reload the open document through the conflict-safe
-  // path. Without this the editor keeps stale in-memory content and the next
-  // autosave would overwrite the just-pulled remote changes. author: liyao
+  // Reconcile all disk-change sources without discarding editor drafts. author: refinex
+  const synchronizeWorkspace = React.useCallback(
+    async (request: WorkspaceRefreshRequest, isCurrent: () => boolean) => {
+      if (!workspaceRootPath || !isCurrent()) return;
+      const root = workspaceRootPath;
+      if (request.full) {
+        await workspace.refreshWorkspaceTree();
+      } else {
+        if (request.paths.length)
+          await workspace.refreshWorkspaceNodes(request.paths);
+        for (const node of request.nodes) {
+          if (!isCurrent()) return;
+          await workspace.refreshWorkspaceNode(node, { reloadDocument: false });
+        }
+      }
+      if (!isCurrent()) return;
+      const scopePaths = [
+        ...request.paths,
+        ...request.nodes.map((node) => node.absolutePath),
+      ];
+      const paths = documentEditorLayoutRef.current.tabs.flatMap((tab) =>
+        tab.kind === 'document' &&
+        (request.full ||
+          scopePaths.some(
+            (path) =>
+              tab.absolutePath === path ||
+              isDescendantPath(tab.absolutePath, path),
+          ))
+          ? [tab.absolutePath]
+          : [],
+      );
+      const activePath = currentDocumentPathRef.current;
+      if (
+        activePath &&
+        (request.full ||
+          scopePaths.some(
+            (path) => activePath === path || isDescendantPath(activePath, path),
+          ))
+      )
+        paths.push(activePath);
+      await workspace.waitForPendingSave();
+      if (!isCurrent()) return;
+      const failures = await reconcileWorkspaceDocuments({
+        paths,
+        read: (path) => workspace.readExternalMarkdownDocument(root, path),
+        captureDraft: () => flushActiveMarkdownEditor('external-refresh'),
+        getActivePath: () => currentDocumentPathRef.current,
+        synchronizeActive: (document) =>
+          syncExternalMarkdownDocumentRef.current(document),
+        isCurrent,
+        applySessions: (documents) =>
+          setEditorSessions((current) => {
+            if (!isCurrent()) return current;
+            let next = current;
+            for (const document of documents) {
+              const session = current[document.path];
+              if (session && session.markdown !== document.content) {
+                if (next === current) next = { ...current };
+                next[document.path] = {
+                  documentVersion: (session.documentVersion ?? 0) + 1,
+                  markdown: document.content,
+                };
+              }
+            }
+            return next;
+          }),
+      });
+      if (!isCurrent()) return;
+      if (failures.length) {
+        if (failures.includes(currentDocumentPathRef.current ?? ''))
+          workspace.markExternalDocumentUnavailable();
+        throw new Error(
+          '部分已打开文档无法读取，可能已被移走或删除；已保留编辑内容，请重试。',
+        );
+      }
+      // Resume a captured dirty draft only after its disk baseline was checked. author: refinex
+      if (paths.includes(currentDocumentPathRef.current ?? ''))
+        await workspace.saveCurrentDocumentNow();
+    },
+    [flushActiveMarkdownEditor, workspace, workspaceRootPath],
+  );
+
+  const workspaceRefresh = useWorkspaceRefresh({
+    rootPath: workspaceRootPath,
+    enabled: isTauriRuntime,
+    synchronize: synchronizeWorkspace,
+  });
+
   const reconcileGitPulledChanges = React.useCallback(
     async (rootPath: string, changedPaths: string[]) => {
       if (changedPaths.length === 0) {
@@ -1908,33 +1994,11 @@ export function WorkspaceLayout({
       const changedAbsolutePaths = changedPaths.map((path) =>
         resolveWorkspaceEntryAbsolutePath(rootPath, path),
       );
-      await workspace.refreshWorkspaceNodes(changedAbsolutePaths);
-
-      const openDocumentPath = getActiveDocumentPath(documentEditorLayout);
-
-      if (!openDocumentPath) {
-        return;
-      }
-
-      const openRelativePath = toRepoRelativePosixPath(
-        rootPath,
-        openDocumentPath,
-      );
-
-      if (!openRelativePath || !changedPaths.includes(openRelativePath)) {
-        return;
-      }
-
-      const openNode = findWorkspaceDocumentByPath(
-        workspace.snapshot?.nodes ?? [],
-        openDocumentPath,
-      );
-
-      if (openNode) {
-        await workspace.refreshWorkspaceNode(openNode);
+      if (workspaceRootPathRef.current === rootPath) {
+        await workspaceRefresh.refreshPaths(changedAbsolutePaths);
       }
     },
-    [documentEditorLayout, workspace],
+    [workspaceRefresh],
   );
 
   const runGitSync = React.useCallback(async () => {
@@ -2632,27 +2696,10 @@ export function WorkspaceLayout({
 
   const handleDailyContentSaved = React.useCallback(
     (content: MarkdownDocumentContent, date: string) => {
-      const syncResult = workspace.syncExternalMarkdownDocument(content);
-      setEditorSessions((current) => {
-        if (!(content.path in current)) return current;
-        if (
-          content.path === currentDocumentPath &&
-          syncResult !== 'reloaded'
-        ) {
-          return current;
-        }
-        return {
-          ...current,
-          [content.path]: {
-            documentVersion: content.modifiedAt,
-            markdown: content.content,
-          },
-        };
-      });
-      void workspace.refreshWorkspaceTree();
+      void workspaceRefresh.refreshPaths([content.path]).catch(() => undefined);
       void loadDailyNotesForMonth(createDateFromDailyDate(date));
     },
-    [currentDocumentPath, loadDailyNotesForMonth, workspace],
+    [loadDailyNotesForMonth, workspaceRefresh],
   );
 
   const handleDailyMonthChange = React.useCallback(
@@ -2772,31 +2819,10 @@ export function WorkspaceLayout({
       setDailyCalendarMonth(
         new Date(today.getFullYear(), today.getMonth(), 1),
       );
-      const syncResult = workspace.syncExternalMarkdownDocument(daily.content);
-      setEditorSessions((current) => {
-        if (!(daily.content.path in current)) return current;
-        if (
-          daily.content.path === currentDocumentPath &&
-          syncResult !== 'reloaded'
-        ) {
-          return current;
-        }
-        return {
-          ...current,
-          [daily.content.path]: {
-            documentVersion: daily.content.modifiedAt,
-            markdown: daily.content.content,
-          },
-        };
-      });
-      void workspace.refreshWorkspaceTree();
+      void workspaceRefresh.refreshPaths([daily.content.path]).catch(() => undefined);
       void loadDailyNotesForMonth(today);
     },
-    [
-      currentDocumentPath,
-      loadDailyNotesForMonth,
-      workspace,
-    ],
+    [loadDailyNotesForMonth, workspaceRefresh],
   );
 
   const handleOpenInboxDaily = React.useCallback(
@@ -2932,7 +2958,8 @@ export function WorkspaceLayout({
         rememberRecentDocumentByPath(documentPath);
         saveResult = workspace.updateMarkdown(markdown, {
           preserveSource: origin === 'source',
-          saveImmediately: reason !== undefined,
+          saveImmediately: reason !== undefined && reason !== 'external-refresh',
+          deferSave: reason === 'external-refresh',
         }) ?? true;
       }
 
@@ -2966,123 +2993,20 @@ export function WorkspaceLayout({
 
   const flushAiWorkspaceChanges = React.useCallback(
     async (includeOpenTabs: boolean) => {
-      if (!workspaceRootPath) return;
-      const refreshRootPath = workspaceRootPath;
       const changes = [...pendingAiWorkspaceChangesRef.current.values()];
       pendingAiWorkspaceChangesRef.current.clear();
-
-      const removedPaths = new Set(
-        changes.flatMap((change) =>
-          change.absolutePath &&
-          (change.kind === 'delete' || Boolean(change.movePath))
-            ? [change.absolutePath]
-            : [],
-        ),
-      );
-      const reloadPaths = new Set(
-        changes.flatMap((change) =>
-          change.absolutePath &&
-          change.kind !== 'delete' &&
-          !change.movePath &&
-          change.absolutePath.toLocaleLowerCase().endsWith('.md')
-            ? [change.absolutePath]
-            : [],
-        ),
-      );
-      if (includeOpenTabs) {
-        for (const tab of documentEditorLayoutRef.current.tabs) {
-          if (tab.kind !== 'document') continue;
-          if (!removedPaths.has(tab.absolutePath)) {
-            reloadPaths.add(tab.absolutePath);
-          }
-        }
-      }
-
-      let failedReads = 0;
-      const documents = (
-        await Promise.all(
-          [...reloadPaths].map(async (documentPath) => {
-            try {
-              return await readMarkdownDocument(workspaceRootPath, documentPath);
-            } catch {
-              failedReads += 1;
-              return null;
-            }
-          }),
-        )
-      ).filter((document): document is NonNullable<typeof document> => Boolean(document));
-      if (workspaceRootPathRef.current !== refreshRootPath) return;
-      if (failedReads > 0) {
-        console.warn('重新读取 Codex 修改的文档失败', { count: failedReads });
-      }
-
-      const refreshedSessions = new Map<string, DocumentEditorSession>();
-      const activeDocumentPath = currentDocumentPathRef.current;
-      for (const document of documents) {
-        const syncResult = syncExternalMarkdownDocumentRef.current(document);
-        if (
-          document.path !== activeDocumentPath ||
-          syncResult === 'reloaded'
-        ) {
-          refreshedSessions.set(document.path, {
-            documentVersion: document.modifiedAt,
-            markdown: document.content,
-          });
-        }
-      }
-
-      setEditorSessions((current) => {
-        const next = { ...current };
-        for (const path of removedPaths) delete next[path];
-        for (const [path, session] of refreshedSessions) {
-          if (path in current || path === activeDocumentPath) {
-            next[path] = session;
-          }
-        }
-        return next;
-      });
-
-      // Only refresh the directories Codex actually touched (source + move
-      // destination) instead of rescanning the whole tree; the hook falls back
-      // to a full rescan when a top-level entry changed. author: liyao
-      const changedEntryPaths = new Set<string>();
+      const paths = new Set<string>();
       for (const change of changes) {
-        if (change.absolutePath) {
-          changedEntryPaths.add(change.absolutePath);
-        }
-        if (change.movePath) {
-          changedEntryPaths.add(
-            resolveWorkspaceEntryAbsolutePath(refreshRootPath, change.movePath),
+        if (change.absolutePath) paths.add(change.absolutePath);
+        if (change.movePath && workspaceRootPath)
+          paths.add(
+            resolveWorkspaceEntryAbsolutePath(workspaceRootPath, change.movePath),
           );
-        }
       }
-
-      const nextSnapshot = await refreshWorkspaceNodes([...changedEntryPaths]);
-      if (!nextSnapshot || workspaceRootPathRef.current !== refreshRootPath) return;
-      const latestLayout = documentEditorLayoutRef.current;
-      const unavailablePaths = new Set(removedPaths);
-      for (const tab of latestLayout.tabs) {
-        if (tab.kind !== 'document') continue;
-        if (!findWorkspaceDocumentByPath(nextSnapshot.nodes, tab.absolutePath)) {
-          unavailablePaths.add(tab.absolutePath);
-        }
-      }
-      if (unavailablePaths.size > 0) {
-        let nextLayout = latestLayout;
-        for (const path of unavailablePaths) {
-          nextLayout = closeDocumentTab(nextLayout, path);
-        }
-        if (nextLayout !== latestLayout) {
-          documentEditorLayoutRef.current = nextLayout;
-          applyDocumentEditorLayout(nextLayout);
-        }
-      }
+      if (includeOpenTabs) await workspaceRefresh.refresh();
+      else if (paths.size) await workspaceRefresh.refreshPaths([...paths]);
     },
-    [
-      applyDocumentEditorLayout,
-      refreshWorkspaceNodes,
-      workspaceRootPath,
-    ],
+    [workspaceRefresh, workspaceRootPath],
   );
 
   const queueAiWorkspaceRefresh = React.useCallback(
@@ -3182,42 +3106,27 @@ export function WorkspaceLayout({
     ],
   );
 
-  const handleResolveAiDocumentConflict = React.useCallback(
+  const handleResolveExternalDocumentConflict = React.useCallback(
     async (resolution: 'external' | 'local') => {
       const conflict = workspace.externalDocumentConflict;
-      const localDraft = workspace.draftDocument;
       if (!conflict) return;
       const confirmed = await confirmAction({
         confirmLabel:
-          resolution === 'external' ? '加载 AI 版本' : '覆盖 AI 版本',
+          resolution === 'external' ? '加载磁盘版本' : '覆盖磁盘版本',
         description:
           resolution === 'external'
-            ? '加载 Codex 写入的磁盘版本会丢弃当前未保存草稿。'
-            : '当前草稿将覆盖 Codex 写入的磁盘版本。',
+            ? '加载 外部修改后的磁盘版本会丢弃当前未保存草稿。'
+            : '当前草稿将覆盖 外部修改后的磁盘版本。',
         title:
-          resolution === 'external' ? '放弃当前草稿？' : '覆盖 AI 版本？',
+          resolution === 'external' ? '放弃当前草稿？' : '覆盖磁盘版本？',
         variant: 'destructive',
       });
       if (!confirmed) return;
-      const resolved = await workspace.resolveExternalDocumentConflict(resolution);
-      if (!resolved) return;
-      const content =
-        resolution === 'external'
-          ? conflict.externalDocument.content
-          : localDraft?.markdown;
-      if (content === undefined) return;
-      setEditorSessions((current) => ({
-        ...current,
-        [conflict.path]: {
-          documentVersion:
-            resolution === 'external'
-              ? conflict.externalDocument.modifiedAt
-              : Date.now(),
-          markdown: content,
-        },
-      }));
+      if (!(await flushActiveMarkdownEditor('external-refresh'))) return;
+      await workspace.resolveExternalDocumentConflict(resolution);
+
     },
-    [confirmAction, workspace],
+    [confirmAction, flushActiveMarkdownEditor, workspace],
   );
 
   React.useEffect(
@@ -3598,10 +3507,10 @@ export function WorkspaceLayout({
                 pinnedNodes={pinnedNodes}
                 onOpenViews={handleOpenViewsPage}
                 onRefreshWorkspaceTree={() =>
-                  workspace.refreshWorkspaceTree().catch(() => null)
+                  workspaceRefresh.refresh().catch(() => undefined)
                 }
                 onRefreshWorkspaceNode={(node) =>
-                  workspace.refreshWorkspaceNode(node).catch(() => null)
+                  workspaceRefresh.refresh(node).catch(() => undefined)
                 }
                 onOpenInFileManager={handleOpenNodeInFileManager}
                 onOpenSettings={openSettingsPage}
@@ -3840,7 +3749,7 @@ export function WorkspaceLayout({
                           workspace.snapshot.nodes,
                         )}
                         onOpenNode={handleOpenWorkspaceViewNode}
-                        onRefresh={() => void workspace.refreshWorkspaceTree()}
+                        onRefresh={() => void workspaceRefresh.refresh().catch(() => undefined)}
                         onToggleLocked={handleToggleNodeLocked}
                         onTogglePinned={handleToggleNodePinned}
                       />
@@ -3950,13 +3859,19 @@ export function WorkspaceLayout({
 
                 </div>
 
+                {workspaceRefresh.error ? (
+                  <div role="status" className="flex shrink-0 items-center gap-3 border-t px-4 py-2 text-xs text-muted-foreground">
+                    <span className="flex-1">{workspaceRefresh.error}</span>
+                    <button type="button" onClick={() => void workspaceRefresh.refresh().catch(() => undefined)}>重试刷新</button>
+                  </div>
+                ) : null}
                 {workspace.externalDocumentConflict ? (
                   <ExternalDocumentConflictBanner
                     onKeepLocal={() =>
-                      void handleResolveAiDocumentConflict('local')
+                      void handleResolveExternalDocumentConflict('local')
                     }
                     onLoadExternal={() =>
-                      void handleResolveAiDocumentConflict('external')
+                      void handleResolveExternalDocumentConflict('external')
                     }
                   />
                 ) : null}
@@ -5111,31 +5026,6 @@ function resolveWorkspaceEntryAbsolutePath(
   return `${normalizedRoot}${separator}${normalizedEntry}`;
 }
 
-// Convert an absolute workspace path to a git repo-relative, forward-slash path
-// so it can be matched against the changed-path list returned by a sync (git
-// always reports POSIX-style relative paths). Returns null when the path is not
-// inside the root. Case-insensitive root match tolerates Windows drive letters.
-// author: liyao
-function toRepoRelativePosixPath(
-  rootPath: string,
-  absolutePath: string,
-): string | null {
-  const normalizedRoot = rootPath.replace(/\\/g, '/').replace(/\/+$/, '');
-  const normalizedAbsolute = absolutePath.replace(/\\/g, '/');
-  const prefix = `${normalizedRoot}/`;
-  const caseInsensitive = rootPath.includes('\\');
-  const comparableAbsolute = caseInsensitive
-    ? normalizedAbsolute.toLowerCase()
-    : normalizedAbsolute;
-  const comparablePrefix = caseInsensitive ? prefix.toLowerCase() : prefix;
-
-  if (!comparableAbsolute.startsWith(comparablePrefix)) {
-    return null;
-  }
-
-  return normalizedAbsolute.slice(prefix.length);
-}
-
 function findWorkspaceDocumentByPath(
   nodes: WorkspaceNode[],
   absolutePath: string,
@@ -5331,14 +5221,14 @@ function ExternalDocumentConflictBanner({
     <div className="flex shrink-0 items-center gap-3 border-t border-amber-500/30 bg-amber-500/8 px-4 py-2 text-xs">
       <AlertTriangle className="shrink-0 text-amber-600" size={15} />
       <span className="min-w-0 flex-1 text-foreground/80">
-        当前草稿与 Codex 写入的磁盘版本发生冲突，Markune 已暂停自动保存。
+        当前草稿与 外部修改后的磁盘版本发生冲突，Markune 已暂停自动保存。
       </span>
       <button
         className="shrink-0 rounded-md px-2 py-1 text-muted-foreground outline-none hover:bg-background/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/30"
         type="button"
         onClick={onLoadExternal}
       >
-        加载 AI 版本
+        加载磁盘版本
       </button>
       <button
         className="shrink-0 rounded-md border border-amber-500/35 bg-background px-2 py-1 font-medium outline-none hover:bg-amber-500/10 focus-visible:ring-2 focus-visible:ring-ring/30"

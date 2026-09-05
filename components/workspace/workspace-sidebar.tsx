@@ -236,7 +236,7 @@ export function WorkspaceSidebar({
             'workspace-tree-scrollarea min-h-0 flex-1',
             systemPage === 'inbox' || systemPage === 'drawings'
               ? 'overflow-hidden'
-              : 'overflow-y-auto pb-3',
+              : 'overflow-y-auto',
           )}
           data-workspace-tree-scroll-container="true"
         >
@@ -245,25 +245,27 @@ export function WorkspaceSidebar({
           ) : workspace.snapshot && systemPage === 'drawings' ? (
             drawingContent
           ) : workspace.snapshot ? (
-            <div className="flex flex-col">
-              {onOpenPinnedNode && onOpenPinnedOverview && onUnpinNode ? (
-                <PinnedSidebarSection
-                  active={systemPage === 'pinned'}
-                  currentDirectoryPath={
-                    workspace.currentDirectory?.absolutePath ?? null
-                  }
-                  currentDocumentPath={
-                    workspace.currentDocument?.absolutePath ?? null
-                  }
-                  key={workspace.snapshot.rootPath}
-                  nodes={visiblePinnedNodes}
-                  rootPath={workspace.snapshot.rootPath}
-                  onOpenNode={onOpenPinnedNode}
-                  onOpenOverview={onOpenPinnedOverview}
-                  onUnpinNode={onUnpinNode}
-                />
-              ) : null}
+            <div className="flex min-h-full flex-col">
               <DocumentTree
+                header={
+                  onOpenPinnedNode && onOpenPinnedOverview && onUnpinNode ? (
+                    <PinnedSidebarSection
+                      active={systemPage === 'pinned'}
+                      currentDirectoryPath={
+                        workspace.currentDirectory?.absolutePath ?? null
+                      }
+                      currentDocumentPath={
+                        workspace.currentDocument?.absolutePath ?? null
+                      }
+                      key={workspace.snapshot.rootPath}
+                      nodes={visiblePinnedNodes}
+                      rootPath={workspace.snapshot.rootPath}
+                      onOpenNode={onOpenPinnedNode}
+                      onOpenOverview={onOpenPinnedOverview}
+                      onUnpinNode={onUnpinNode}
+                    />
+                  ) : null
+                }
                 currentDirectoryPath={
                   workspace.currentDirectory?.absolutePath ?? null
                 }

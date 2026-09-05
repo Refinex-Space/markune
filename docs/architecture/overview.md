@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-02
+updated: 2026-09-05
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -39,6 +39,18 @@ Markune 是一个以本地 Markdown 文档为核心的桌面知识库，使用 N
 - `components/workspace/`：工作区壳层、文档树、标签、搜索、Git、终端、设置和 Tauri API bridge。
 - `components/ui/`：共享 UI 原语。
 - `src-tauri/src/`：资源、Git、设置、系统字体、终端与工作区文件系统命令。
+
+## Workspace Refresh
+
+目录右键刷新重建该目录及全部子目录的树描述，同时重读范围内已打开的 Markdown；文档右键刷新只复核该文档，树空白区域刷新复核全工作区及所有已打开标签。空白区域的菜单覆盖目录树剩余高度，提供刷新、新建文档、新建目录，两个创建动作以根目录为空父路径。折叠、搜索和行内重命名继续由现有树组件管理。
+
+`workspace_watch.rs` 使用固定 `notify 8.2.0` 原生递归监听，由窗口持有会话，工作区切换和窗口销毁时释放。回调只累积失效路径，跳过树扫描排除的隐藏/依赖目录和自身暂存文件，不跟随符号链接；150 ms 静默窗口合并事件，最长等待 1 秒，最多 512 个路径，溢出或监听错误转为全量复核。监听不向渲染器提供文件正文，不扩大 Tauri capability。树扫描同样跳过符号链接，只有 `NotFound` 才解释为节点删除。
+
+`use-workspace-refresh.ts` 合并原生、手动、AI、Git 拉取及 Daily 写入请求并串行运行，扫描期间到达的变化留待下一批；每批文档读取并发上限为 4。首次订阅后、窗口恢复可见/聚焦时补偿复核，可见期间每 30 秒复核一次，监听不可用时降级为每 3 秒复核、每 30 秒重试监听。切换工作区后丢弃迟到结果。目录扫描只读取文档头用于树描述，完整正文只读取已打开标签；不以 frontmatter 的 `updatedAt` 判断磁盘内容变化。
+
+外部读取完成后，编辑器通过 `external-refresh` flush 把最新 Live/Source 输入移入内存草稿，该步骤不保存或重命名。磁盘正文等于已保存基线时保留本地输入、选区和 EditorView；正文变化才更新干净标签及其缓存。dirty、保存失败或已经冲突的草稿不会因重复刷新被覆盖。确认加载磁盘版本时重新读取当前文件，确认覆盖时仍校验展示给用户的外部基线。读取失败或文件删除只报告错误并保留编辑内容，不自动关闭标签。
+
+保存同时校验 `expectedModifiedAt` 与可选 `expectedContent` 正文基线，同文档写入在原生层串行，提交前再次核对磁盘正文。原子写使用 `create_new` 随机暂存文件、保留权限并同步后替换，避免多个保存请求共用固定临时文件。普通文件 API 无法对不协作的外部写入者提供完全原子的版本比较与替换；网络文件系统、超大目录及各平台监听仍需真实环境验收。
 
 ## Inbox Capture Boundary
 
@@ -120,9 +132,9 @@ Codex 同时提供右侧紧凑面板和主工作区两种展示形态，但两�
 
 上下文用量只消费 App Server 的 `thread/tokenUsage/updated`：输入框显示 `last.totalTokens / modelContextWindow`，累计的 `total.totalTokens` 不作为当前窗口占比。最新用量按 thread ID 保留在面板运行时内存中，用于线程恢复通知与界面切换，不写入 Markune 数据库、local storage 或会话副本。手动压缩只调用受控的 `thread/compact/start { threadId }`，并以 `contextCompaction` item 的 started/completed 生命周期展示状态；旧 `thread/compacted` 仅作完成兼容。自动压缩阈值及触发时机由 Codex Core 和 `model_auto_compact_token_limit` 配置所有，Markune 不创建第二套阈值、定时器或重试循环。
 
-AI 文件修改以 App Server 事件为刷新事实源。`item/fileChange/patchUpdated` 只更新处理中预览；成功的 `item/completed(fileChange)` 才按路径合并并触发短延迟重读，`turn/completed` 再刷新目录树并复核所有已打开 Markdown 标签，以覆盖通过 shell 直接写盘但未形成 fileChange item 的情况。发送 turn 前必须先完成当前草稿保存，避免 Codex 读取旧磁盘内容。磁盘重读继续使用受工作区边界保护的 `read_markdown_document`，不增加通用文件监听或 Tauri capability。
+AI 文件修改以 App Server 事件为刷新事实源。`item/fileChange/patchUpdated` 只更新处理中预览；成功的 `item/completed(fileChange)` 才按路径合并并触发短延迟重读，`turn/completed` 再刷新目录树并复核所有已打开 Markdown 标签，以覆盖通过 shell 直接写盘但未形成 fileChange item 的情况。发送 turn 前必须先完成当前草稿保存，避免 Codex 读取旧磁盘内容。AI 事件进入与原生文件监听、手动刷新共用的串行刷新队列；磁盘重读继续使用受工作区边界保护的 `read_markdown_document`。
 
-当 Codex 写盘期间用户又修改了同一当前文档，Markune 不自动选择任一版本，也不继续自动保存：编辑器保留本地草稿并进入显式冲突状态，用户只能确认“加载 AI 版本”或“用我的版本覆盖”。完成 turn 的聚合 diff 优先生成确定性的“已编辑 N 个文件”摘要、净增删行数和可展开文件列表；Markdown 路径只有在已解析到当前工作区时才可点击。摘要不发起第二次模型调用，也不提供缺少 turn 快照保障的一键撤销。
+当 Codex 写盘期间用户又修改了同一当前文档，Markune 不自动选择任一版本，也不继续自动保存：编辑器保留本地草稿并进入显式冲突状态，用户只能确认“加载磁盘版本”或“用我的版本覆盖”。完成 turn 的聚合 diff 优先生成确定性的“已编辑 N 个文件”摘要、净增删行数和可展开文件列表；Markdown 路径只有在已解析到当前工作区时才可点击。摘要不发起第二次模型调用，也不提供缺少 turn 快照保障的一键撤销。
 
 工具组及技术详情默认折叠，只保留语义摘要、状态与耗时；执行失败不会自动展开详情，拒绝和待审批活动仍自动展开，用户手动 disclosure 状态不会被后续增量或完成通知重置。消息视口只在用户位于底部时跟随流式更新，用户上滚后显示轻量“回到最新消息”按钮；发送新消息或显式点击后恢复跟随。输入编辑区从紧凑高度开始随内容增长，并在达到面板合理上限后改为内部滚动。
 

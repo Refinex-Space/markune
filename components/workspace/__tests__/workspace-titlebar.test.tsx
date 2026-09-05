@@ -168,9 +168,6 @@ describe('Workspace titlebar', () => {
     expect(workspaceSidebarSource).toContain(
       "import { PinnedSidebarSection }",
     );
-    expect(
-      workspaceSidebarSource.indexOf('<PinnedSidebarSection'),
-    ).toBeLessThan(workspaceSidebarSource.indexOf('<DocumentTree'));
     expect(pinnedSidebarSectionSource).toContain('aria-expanded={expanded}');
     expect(pinnedSidebarSectionSource).not.toContain('<Popover');
     // Windows keeps click focus; outer focus rings overlap the system nav.

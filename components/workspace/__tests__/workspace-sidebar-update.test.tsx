@@ -63,6 +63,24 @@ function createOpenWorkspaceStub() {
 }
 
 describe('WorkspaceSidebar update entry', () => {
+  it('renders pinned content above folders inside the root context menu area', () => {
+    const workspace = createOpenWorkspaceStub();
+    workspace.snapshot!.nodes = [{
+      id: 'notes', kind: 'directory', name: '笔记',
+      absolutePath: '/workspace/notes', relativePath: 'notes', children: [],
+    }];
+    render(
+      <WorkspaceSidebar width={280} workspace={workspace}
+        onOpenGlobalSearch={vi.fn()} onOpenPinnedNode={vi.fn()}
+        onOpenPinnedOverview={vi.fn()} onUnpinNode={vi.fn()}
+      />,
+    );
+    const pinned = screen.getByTestId('pinned-sidebar-section');
+    const folders = screen.getByText('文件夹');
+    expect(pinned.compareDocumentPosition(folders) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId('workspace-tree-context-area').contains(pinned)).toBe(true);
+  });
+
   it('uses the expanded document-tree folder icon for the notes entry', () => {
     render(
       <WorkspaceSidebar

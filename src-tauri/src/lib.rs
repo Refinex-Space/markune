@@ -17,6 +17,7 @@ mod terminal;
 mod window_chrome;
 mod window_opacity;
 mod workspace;
+mod workspace_watch;
 
 use tauri::Manager;
 
@@ -94,6 +95,14 @@ pub fn run() {
 
     builder
         .manage(app_update::AppUpdateState::default())
+        .manage(workspace_watch::WorkspaceWatchState::default())
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                window
+                    .state::<workspace_watch::WorkspaceWatchState>()
+                    .stop_window(window.label());
+            }
+        })
         .manage(terminal::TerminalState::default())
         .manage(codex::CodexState::default())
         .manage(drawings::DrawingState::default())
@@ -113,6 +122,8 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            workspace_watch::watch_workspace,
+            workspace_watch::unwatch_workspace,
             app_update::app_update_check,
             app_update::app_update_install,
             app_update::app_update_restart,

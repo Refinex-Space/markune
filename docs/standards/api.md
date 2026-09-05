@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-02
+updated: 2026-09-05
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -26,6 +26,13 @@ referenced_by: AGENTS.md#knowledge-map
 - Git 命令必须在阻塞任务中执行，不得占用 Tauri 原生主线程；本地命令超时为 60 秒，网络及提交等长操作超时为 180 秒，超时后必须终止对应进程树。Windows 启动 Git 子进程时必须使用无窗口标志，前端命令名称、参数和返回结构保持不变。
 - `system_fonts.rs` 仅可返回字体家族名称与推荐元数据，不得暴露字体文件路径或内容。
 - 桌面端网络功能应走 Tauri 命令；生产桌面构建使用静态导出，不包含 Next API routes。
+
+### Workspace Refresh Commands
+
+- `watch_workspace(rootPath, onChange: Channel) -> watchId` 在后台校验 canonical 工作区并建立当前窗口的原生递归监听。事件为 `{ rootPath, paths, rescan, watchError }`，只包含有界失效路径；`unwatch_workspace(watchId)` 只能释放调用窗口匹配的会话，迟到的清理不能停止新监听。窗口销毁时原生层主动释放。
+- `refresh_workspace_node(rootPath, nodePath)` 对目录返回递归子树，对文档返回最新树描述；缺失返回 `null`，权限或读取失败必须返回错误。前端协调器另行重读范围内已打开标签的完整正文。
+- `save_markdown_document` 新增可选 `expectedContent`，编辑器保存与冲突覆盖均提交所读取的正文基线；即使修改时间相同，也必须拒绝覆盖不同的磁盘内容。该参数只用于内存比较，不写日志或额外持久化。
+- `external-refresh` 是编辑器内部 flush 原因，必须只捕获输入，不触发磁盘保存或标题重命名；随后由外部版本比较决定重载、保持草稿或进入冲突。
 
 ### Daily Commands
 
