@@ -91,6 +91,7 @@ interface DocumentTreeProps {
   currentDocumentPath: string | null;
   currentDirectoryPath?: string | null;
   pendingRenameNodePath?: string | null;
+  onCreateTemplate?: (parentPath: string) => void;
   onCreateDirectory: (
     parentPath: string,
   ) => Promise<WorkspaceNode | null | void> | WorkspaceNode | null | void;
@@ -143,6 +144,7 @@ export function DocumentTree({
   currentDocumentPath,
   currentDirectoryPath,
   pendingRenameNodePath,
+  onCreateTemplate,
   onCreateDirectory,
   onCreateDocument,
   onDeleteNode,
@@ -503,6 +505,7 @@ export function DocumentTree({
                 level={0}
                 node={node}
                 pendingRenameNodePath={pendingRenameNodePath}
+                onCreateTemplate={onCreateTemplate}
                 onCreateDirectory={handleCreateDirectory}
                 onCreateDocument={handleCreateDocument}
                 onDeleteRequest={setDeleteTarget}
@@ -575,6 +578,7 @@ export function DocumentTree({
             <FilePlus2 />
             新建文档
           </ContextMenuItem>
+          {onCreateTemplate ? <ContextMenuItem onSelect={() => onCreateTemplate('')}><FilePlus2 />从模板新建...</ContextMenuItem> : null}
           <ContextMenuItem
             onSelect={() => void handleCreateDirectory('')}
           >
@@ -640,6 +644,7 @@ function TreeNode({
   level,
   node,
   pendingRenameNodePath,
+  onCreateTemplate,
   onCreateDirectory,
   onCreateDocument,
   onCustomizeIcon,
@@ -919,6 +924,7 @@ function TreeNode({
 
               <NodeActionDropdown
                 node={node}
+                onCreateTemplate={onCreateTemplate}
                 onCreateDirectory={onCreateDirectory}
                 onCreateDocument={onCreateDocument}
                 onCustomizeIcon={onCustomizeIcon}
@@ -941,6 +947,7 @@ function TreeNode({
         >
           <NodeContextActions
             node={node}
+            onCreateTemplate={onCreateTemplate}
             onCreateDirectory={onCreateDirectory}
             onCreateDocument={onCreateDocument}
             onCustomizeIcon={onCustomizeIcon}
@@ -985,6 +992,7 @@ function TreeNode({
               level={level + 1}
               node={child}
               pendingRenameNodePath={pendingRenameNodePath}
+              onCreateTemplate={onCreateTemplate}
               onCreateDirectory={onCreateDirectory}
               onCreateDocument={onCreateDocument}
               onCustomizeIcon={onCustomizeIcon}
@@ -1030,6 +1038,7 @@ interface TreeNodeProps {
   level: number;
   node: WorkspaceNode;
   pendingRenameNodePath?: string | null;
+  onCreateTemplate?: (parentPath: string) => void;
   onCreateDirectory: (parentPath: string) => Promise<void>;
   onCreateDocument: (
     parentPath: string,
@@ -1229,6 +1238,7 @@ function RenameInput({
 
 function NodeActionDropdown({
   node,
+  onCreateTemplate,
   onCreateDirectory,
   onCreateDocument,
   onCustomizeIcon,
@@ -1262,6 +1272,7 @@ function NodeActionDropdown({
       >
         <NodeDropdownActions
           node={node}
+          onCreateTemplate={onCreateTemplate}
           onCreateDirectory={onCreateDirectory}
           onCreateDocument={onCreateDocument}
           onCustomizeIcon={onCustomizeIcon}
@@ -1282,6 +1293,7 @@ function NodeActionDropdown({
 
 interface NodeActionProps {
   node: WorkspaceNode;
+  onCreateTemplate?: (parentPath: string) => void;
   onCreateDirectory: (parentPath: string) => Promise<void>;
   onCreateDocument: (
     parentPath: string,
@@ -1307,6 +1319,7 @@ interface NodeActionProps {
 
 function NodeDropdownActions({
   node,
+  onCreateTemplate,
   onCreateDirectory,
   onCreateDocument,
   onCustomizeIcon,
@@ -1335,6 +1348,7 @@ function NodeDropdownActions({
           <FilePlus2 />
           新建文档
         </DropdownMenuItem>
+        {onCreateTemplate ? <DropdownMenuItem onSelect={() => onCreateTemplate(node.relativePath)}><FilePlus2 />从模板新建...</DropdownMenuItem> : null}
         <DropdownMenuItem
           onSelect={() => void onCreateDirectory(node.relativePath)}
         >
@@ -1466,6 +1480,7 @@ function NodeDropdownActions({
 
 function NodeContextActions({
   node,
+  onCreateTemplate,
   onCreateDirectory,
   onCreateDocument,
   onCustomizeIcon,
@@ -1501,6 +1516,7 @@ function NodeContextActions({
           <FilePlus2 />
           新建文档
         </ContextMenuItem>
+        {onCreateTemplate ? <ContextMenuItem onSelect={() => onCreateTemplate(node.relativePath)}><FilePlus2 />从模板新建...</ContextMenuItem> : null}
         <ContextMenuItem
           onSelect={() => void onCreateDirectory(node.relativePath)}
         >

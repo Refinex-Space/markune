@@ -3,9 +3,11 @@ mod assets;
 mod brand_migration;
 mod codex;
 mod codex_provider;
-mod document_converter;
 mod document_assets;
+mod document_converter;
 mod document_frontmatter;
+mod document_links;
+mod document_move_journal;
 mod drawings;
 mod export;
 mod git;
@@ -15,6 +17,7 @@ mod graph_parse;
 mod graph_resolve;
 mod import;
 mod inbox;
+mod knowledge_actions;
 mod link_preview;
 mod settings;
 mod system_fonts;
@@ -22,6 +25,7 @@ mod terminal;
 mod window_chrome;
 mod window_opacity;
 mod workspace;
+mod workspace_index;
 mod workspace_watch;
 
 use tauri::Manager;
@@ -239,6 +243,12 @@ pub fn run() {
             git::git_revert_file,
             git::git_delete_file,
             graph::load_workspace_graph,
+            workspace_index::load_workspace_index,
+            workspace_index::find_workspace_mentions,
+            knowledge_actions::create_workspace_document_from_content,
+            knowledge_actions::set_workspace_task_checked,
+            knowledge_actions::read_workspace_views,
+            knowledge_actions::save_workspace_views,
             link_preview::resolve_link_preview,
             terminal::terminal_spawn,
             terminal::terminal_write,
@@ -270,6 +280,7 @@ pub fn run() {
             workspace::create_plate_document,
             workspace::create_workspace_directory,
             workspace::rename_workspace_node,
+            workspace::rename_workspace_document_path,
             workspace::delete_workspace_node,
             workspace::move_workspace_node,
             workspace::write_export_file,

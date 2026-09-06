@@ -28,6 +28,8 @@ pub struct WorkspaceSnapshot {
     pub root_path: String,
     pub root_name: String,
     pub nodes: Vec<WorkspaceNode>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -302,6 +304,7 @@ pub struct MarkdownMigrationFailure {
 #[tauri::command]
 pub fn ensure_workspace(root_path: String) -> Result<WorkspaceMetadata, String> {
     let root = canonical_workspace_root(&root_path)?;
+    let _ = crate::document_links::recover_pending_moves(&root);
     ensure_workspace_metadata(&root).map_err(|error| format!("初始化工作区失败：{error}"))
 }
 
@@ -603,8 +606,13 @@ fn load_workspace_tree_sync(root_path: String) -> Result<WorkspaceSnapshot, Stri
         let root = canonical_workspace_root(&root_path)?;
         // build_workspace_snapshot already ensures/initializes metadata; avoid a
         // second read+parse of workspace.json on the open path. author: liyao
-        build_workspace_snapshot(&root)
-            .map_err(|error| format!("读取工作区失败：{error}（{}）", root.display()))
+        let warning = crate::document_links::recover_pending_moves(&root).err();
+        let mut snapshot = build_workspace_snapshot(&root)
+            .map_err(|error| format!("读取工作区失败：{error}（{}）", root.display()))?;
+        if let Some(warning) = warning {
+            snapshot.warnings.push(warning);
+        }
+        Ok(snapshot)
     })();
     let details = match &result {
         Ok(snapshot) if timer.is_some() => {
@@ -793,6 +801,30 @@ pub(crate) fn save_markdown_document_sync(
     )
 }
 
+pub(crate) fn validate_document_writable(root: &Path, document: &Path) -> Result<(), String> {
+    validate_documents_writable(root, &[document])
+}
+
+pub(crate) fn validate_documents_writable(root: &Path, documents: &[&Path]) -> Result<(), String> {
+    let metadata = ensure_workspace_metadata(root).map_err(|_| "无法读取文档锁定状态")?;
+    for document in documents {
+        if fs::metadata(document)
+            .map_err(|_| "无法读取文档权限")?
+            .permissions()
+            .readonly()
+        {
+            return Err("文档为只读文件".into());
+        }
+        let relative = to_relative_path(root, document);
+        if metadata.node_state.iter().any(|(path, state)| {
+            state.locked && (relative == *path || relative.starts_with(&format!("{path}/")))
+        }) {
+            return Err("文档或所在目录已锁定".into());
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn document_save_lock(path: &Path) -> Arc<Mutex<()>> {
     static LOCKS: OnceLock<Mutex<BTreeMap<PathBuf, Weak<Mutex<()>>>>> = OnceLock::new();
     let mut locks = LOCKS
@@ -825,6 +857,8 @@ fn save_markdown_document_checked(
     let result = (|| {
         let document = validate_existing_markdown_document_path(&root_path, &document_path)?;
 
+        let root = canonical_workspace_root(&root_path)?;
+        validate_document_writable(&root, &document)?;
         let lock = document_save_lock(&document);
         let _guard = lock.lock().map_err(|_| "文档保存状态不可用".to_string())?;
         if let Some(expected) = expected_modified_at {
@@ -916,8 +950,7 @@ pub fn create_markdown_document(
             "---\ntitle: {frontmatter_title}\ncreatedAt: {now}\nupdatedAt: {now}\nrefinexDialect: 1\n---\n\n# {safe_title}\n"
         );
 
-        write_text_atomic(&document_path, &content)
-            .map_err(|_| "无法创建 Markdown 文档".to_string())?;
+        crate::knowledge_actions::write_new(&document_path, &content)?;
 
         let file_name = document_path
             .file_name()
@@ -945,13 +978,37 @@ pub(crate) fn create_imported_markdown_document(
     title: String,
     markdown: String,
 ) -> Result<CreatedMarkdownDocument, String> {
+    create_markdown_document_with_source(root_path, target_dir, title, markdown, None)
+}
+
+pub(crate) fn create_markdown_document_with_source(
+    root_path: String,
+    target_dir: String,
+    title: String,
+    mut markdown: String,
+    source_path: Option<String>,
+) -> Result<CreatedMarkdownDocument, String> {
     let root = canonical_workspace_root(&root_path)?;
     let parent = validate_workspace_directory(&root, &target_dir)?;
     let safe_title = normalize_document_title(&title);
     let document_path = unique_markdown_document_path(&parent, &safe_title);
 
-    write_text_atomic(&document_path, &markdown)
-        .map_err(|error| format!("无法写入导入文档：{error}"))?;
+    if let Some(source_path) = source_path {
+        let source = validate_existing_markdown_document_path(&root_path, &source_path)?;
+        let paths = crate::document_links::collect_documents(&root)?;
+        let references =
+            crate::document_links::MoveReferences::for_copy(&root, &paths, &source, &document_path);
+        markdown = references.rewrite(&markdown, &source)?;
+        markdown = crate::document_assets::rebase_document_assets(
+            &markdown,
+            &source,
+            &document_path,
+            &source,
+            &document_path,
+        )?;
+    }
+
+    crate::knowledge_actions::write_new(&document_path, &markdown)?;
 
     let file_name = document_path
         .file_name()
@@ -961,15 +1018,13 @@ pub(crate) fn create_imported_markdown_document(
     let node = match build_document_node(&root, &document_path, file_name, &BTreeMap::new()) {
         Ok(node) => node,
         Err(error) => {
-            let _ = fs::remove_file(&document_path);
-            return Err(format!("无法创建导入文档节点：{error}"));
+            return Err(format!("文档已写入，但无法读取节点，请刷新目录：{error}"));
         }
     };
     let content = match read_markdown_document_sync(root_path, node.absolute_path.clone()) {
         Ok(content) => content,
         Err(error) => {
-            let _ = fs::remove_file(&document_path);
-            return Err(error);
+            return Err(format!("文档已写入，但无法读取内容，请刷新目录：{error}"));
         }
     };
 
@@ -1149,87 +1204,116 @@ pub fn create_workspace_directory(
 }
 
 #[tauri::command]
-pub fn rename_workspace_node(
+pub async fn rename_workspace_node(
     root_path: String,
     node_path: String,
     new_name: String,
 ) -> Result<WorkspaceNode, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        rename_workspace_node_impl(root_path, node_path, new_name, true)
+    })
+    .await
+    .map_err(|_| "文档改名任务失败".to_string())?
+}
+
+#[tauri::command]
+pub async fn rename_workspace_document_path(
+    root_path: String,
+    node_path: String,
+    new_name: String,
+) -> Result<WorkspaceNode, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        rename_workspace_node_impl(root_path, node_path, new_name, false)
+    })
+    .await
+    .map_err(|_| "文档改名任务失败".to_string())?
+}
+
+fn read_metadata_for_move(root: &Path) -> Result<(WorkspaceMetadata, String), String> {
+    crate::document_links::recover_pending_moves(root)?;
+    ensure_workspace_metadata(root).map_err(|_| "无法读取工作区元数据")?;
+    let raw = crate::graph::read_regular_document(
+        &workspace_private_dir(root).join("workspace.json"),
+        32 * 1024 * 1024,
+        &mut 0,
+    )?;
+    let mut metadata: WorkspaceMetadata =
+        serde_json::from_str(&raw).map_err(|_| "工作区元数据在读取期间已改变")?;
+    if metadata.schema_version != 1 {
+        return Err("工作区元数据版本已改变，请重新加载".into());
+    }
+    normalize_recent_document_paths(&mut metadata);
+    Ok((metadata, raw))
+}
+
+fn metadata_move_change(
+    root: &Path,
+    old: String,
+    metadata: &WorkspaceMetadata,
+) -> Result<crate::document_links::FileChange, String> {
+    let json = serde_json::to_string_pretty(metadata).map_err(|_| "无法生成工作区元数据")?;
+    Ok(crate::document_links::FileChange {
+        path: workspace_private_dir(root).join("workspace.json"),
+        old,
+        new: format!("{json}\n"),
+    })
+}
+
+fn rename_workspace_node_impl(
+    root_path: String,
+    node_path: String,
+    new_name: String,
+    update_title: bool,
+) -> Result<WorkspaceNode, String> {
     let (root, node, kind) = validate_workspace_node_path(&root_path, &node_path)?;
+    if !update_title && kind != WorkspaceNodeKind::Document {
+        return Err("仅文档支持保留标题改名".into());
+    }
     let parent = node.parent().ok_or_else(|| "路径无效".to_string())?;
     let safe_name = validate_workspace_name(&new_name)?;
     let target = match kind {
         WorkspaceNodeKind::Directory => parent.join(&safe_name),
-        WorkspaceNodeKind::Document => parent.join(format!("{safe_name}.md")),
+        WorkspaceNodeKind::Document => parent.join(format!(
+            "{safe_name}.{}",
+            node.extension()
+                .and_then(|extension| extension.to_str())
+                .unwrap_or("md")
+        )),
     };
-
-    if target.exists() && target != node {
-        return Err("目标名称已存在".to_string());
+    if fs::symlink_metadata(&target).is_ok()
+        && target != node
+        && !crate::document_assets::is_case_only_rename(&node, &target)
+    {
+        return Err("目标名称已存在".into());
     }
-
+    let (mut metadata, old_metadata) = read_metadata_for_move(&root)?;
+    let old_relative = to_relative_path(&root, &node);
+    let new_relative = to_relative_path(&root, &target);
+    rewrite_node_state_path_prefix(&mut metadata.node_state, &old_relative, &new_relative);
+    let change = metadata_move_change(&root, old_metadata, &metadata)?;
+    crate::document_links::move_documents(
+        &root,
+        &node,
+        &target,
+        (update_title && kind == WorkspaceNodeKind::Document).then_some(safe_name.as_str()),
+        Some(change),
+    )?;
     match kind {
         WorkspaceNodeKind::Directory => {
-            crate::document_assets::move_with_document_assets(&node, &target)?;
-            let mut metadata =
-                ensure_workspace_metadata(&root).map_err(|_| "无法读取工作区元数据".to_string())?;
             let sort_order = read_sort_order(&metadata);
-            let old_relative_path = to_relative_path(&root, &node);
-            let new_relative_path = to_relative_path(&root, &target);
-            rewrite_node_state_path_prefix(
-                &mut metadata.node_state,
-                &old_relative_path,
-                &new_relative_path,
-            );
-            write_workspace_metadata(&root, &metadata)
-                .map_err(|_| "无法写入工作区元数据".to_string())?;
-            build_directory_node(
-                &root,
-                &target,
-                safe_name,
-                read_children(&root, &target, &sort_order, &metadata.node_state)
-                    .unwrap_or_default(),
-                &metadata.node_state,
-            )
-            .map_err(|_| "无法读取重命名后的目录".to_string())
+            let children = read_children(&root, &target, &sort_order, &metadata.node_state)
+                .map_err(|_| "已完成改名，但无法刷新目录")?;
+            build_directory_node(&root, &target, safe_name, children, &metadata.node_state)
+                .map_err(|_| "已完成改名，但无法读取目录信息".into())
         }
         WorkspaceNodeKind::Document => {
-            let original_content =
-                fs::read_to_string(&node).map_err(|_| "无法读取待重命名文档".to_string())?;
-            let updated_content = markdown_document_with_title(&original_content, &safe_name);
-            let mut metadata =
-                ensure_workspace_metadata(&root).map_err(|_| "无法读取工作区元数据".to_string())?;
-            let old_relative_path = to_relative_path(&root, &node);
-            let new_relative_path = to_relative_path(&root, &target);
-            rewrite_node_state_path_prefix(
-                &mut metadata.node_state,
-                &old_relative_path,
-                &new_relative_path,
-            );
-
-            fs::rename(&node, &target).map_err(|_| "无法重命名文档".to_string())?;
-            if write_text_atomic(&target, &updated_content).is_err() {
-                return Err(if fs::rename(&target, &node).is_ok() {
-                    "无法更新文档标题".to_string()
-                } else {
-                    "无法更新文档标题，且无法恢复原文件路径".to_string()
-                });
-            }
-            if write_workspace_metadata_atomic(&root, &metadata).is_err() {
-                let content_restored = write_text_atomic(&target, &original_content).is_ok();
-                let path_restored = fs::rename(&target, &node).is_ok();
-                return Err(if content_restored && path_restored {
-                    "无法写入工作区元数据".to_string()
-                } else {
-                    "无法写入工作区元数据，且无法完整恢复文档".to_string()
-                });
-            }
-
             let file_name = target
                 .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("renamed.md")
+                .unwrap_or_default()
+                .to_string_lossy()
                 .to_string();
             build_document_node(&root, &target, file_name, &metadata.node_state)
-                .map_err(|_| "无法读取重命名后的文档".to_string())
+                .map_err(|_| "已完成改名，但无法读取文档信息".into())
         }
     }
 }
@@ -1286,7 +1370,27 @@ pub fn delete_workspace_node(
 }
 
 #[tauri::command]
-pub fn move_workspace_node(
+pub async fn move_workspace_node(
+    root_path: String,
+    node_path: String,
+    target_parent_path: String,
+    before_path: Option<String>,
+    after_path: Option<String>,
+) -> Result<WorkspaceSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        move_workspace_node_sync(
+            root_path,
+            node_path,
+            target_parent_path,
+            before_path,
+            after_path,
+        )
+    })
+    .await
+    .map_err(|_| "文档移动任务失败".to_string())?
+}
+
+fn move_workspace_node_sync(
     root_path: String,
     node_path: String,
     target_parent_path: String,
@@ -1324,18 +1428,10 @@ pub fn move_workspace_node(
 
     let old_relative_path = to_relative_path(&root, &source);
 
-    if destination != source {
-        crate::document_assets::move_with_document_assets(&source, &destination)?;
-    }
-
-    let destination = destination
-        .canonicalize()
-        .map_err(|_| "无法读取移动后的节点".to_string())?;
     let new_relative_path = to_relative_path(&root, &destination);
     let target_parent_relative_path = to_relative_path(&root, &target_parent);
 
-    let mut metadata = ensure_workspace_metadata(&root)
-        .map_err(|error| format!("读取工作区元数据失败：{error}"))?;
+    let (mut metadata, old_metadata) = read_metadata_for_move(&root)?;
     let mut sort_order = read_sort_order(&metadata);
     rewrite_sort_order_path_prefix(&mut sort_order, &old_relative_path, &new_relative_path);
     rewrite_node_state_path_prefix(
@@ -1365,8 +1461,14 @@ pub fn move_workspace_node(
     );
     write_sort_order(&mut metadata, &sort_order)
         .map_err(|error| format!("更新排序元数据失败：{error}"))?;
-    write_workspace_metadata(&root, &metadata)
-        .map_err(|error| format!("保存排序元数据失败：{error}"))?;
+    let metadata_change = metadata_move_change(&root, old_metadata, &metadata)?;
+    crate::document_links::move_documents(
+        &root,
+        &source,
+        &destination,
+        None,
+        Some(metadata_change),
+    )?;
 
     build_workspace_snapshot(&root).map_err(|error| format!("读取工作区失败：{error}"))
 }
@@ -1399,6 +1501,7 @@ pub fn build_workspace_snapshot(root: &Path) -> std::io::Result<WorkspaceSnapsho
         root_path: root.to_string_lossy().to_string(),
         root_name,
         nodes: read_children(&root, &root, &sort_order, &metadata.node_state)?,
+        warnings: Vec::new(),
     })
 }
 
@@ -2340,6 +2443,7 @@ pub(crate) fn write_text_atomic_guarded(
         drop(file);
         before_commit()?;
         fs::rename(&temp_path, path)?;
+        crate::workspace_index::invalidate(path);
         Ok(modified_at)
     })();
     if result.is_err() {
@@ -3205,118 +3309,74 @@ fn count_workspace_nodes(nodes: &[WorkspaceNode]) -> usize {
 }
 
 fn read_frontmatter_title(raw: &str) -> Option<String> {
-    let mut lines = raw.lines();
-    if lines.next()? != "---" {
-        return None;
-    }
-
-    for line in lines {
-        if line == "---" {
-            return None;
-        }
-
-        if let Some(value) = line.strip_prefix("title:") {
-            let decoded = crate::document_frontmatter::decode_string(value);
-            let title = decoded.trim();
-            if !title.is_empty() {
-                return Some(title.to_string());
-            }
-        }
-    }
-
-    None
+    let frontmatter = crate::document_frontmatter::split(raw)?;
+    crate::graph_metadata::parse_fields(frontmatter.block)
+        .ok()?
+        .get("title")?
+        .first()
+        .cloned()
+        .filter(|title| !title.trim().is_empty())
 }
 
 #[cfg(test)]
 fn update_markdown_document_title(path: &Path, title: &str) -> io::Result<()> {
     let raw = fs::read_to_string(path)?;
-    let updated = markdown_document_with_title(&raw, title);
+    let updated = markdown_document_with_title(&raw, title)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
 
     write_text_atomic(path, &updated)
 }
 
-fn markdown_document_with_title(raw: &str, title: &str) -> String {
-    let with_frontmatter = update_existing_markdown_frontmatter_title(raw, title);
-    replace_first_h1(&with_frontmatter, title)
-}
-
-fn replace_first_h1(raw: &str, new_title: &str) -> String {
-    let mut found = false;
-    let result: Vec<String> = raw
-        .split('\n')
-        .map(|line| {
-            if !found && line.trim_start().starts_with("# ") && line.trim().len() > 2 {
-                found = true;
-                let indent: String = line.chars().take_while(|c| c.is_whitespace()).collect();
-                format!("{indent}# {new_title}")
-            } else {
-                line.to_string()
+pub(crate) fn markdown_document_with_title(raw: &str, title: &str) -> Result<String, String> {
+    use pulldown_cmark::{Event, HeadingLevel, Parser, Tag};
+    let mut next = crate::document_frontmatter::replace_title(raw, title)?;
+    let start = crate::document_frontmatter::split(&next)
+        .map(|frontmatter| frontmatter.body_start)
+        .unwrap_or(0);
+    let mut depth = 0usize;
+    let mut heading = None;
+    for (event, range) in Parser::new(&next[start..]).into_offset_iter() {
+        match event {
+            Event::Start(Tag::Heading {
+                level: HeadingLevel::H1,
+                ..
+            }) if depth == 0 => {
+                heading = Some(start + range.start..start + range.end);
+                break;
             }
-        })
-        .collect();
-
-    if found {
-        result.join("\n")
-    } else {
-        insert_h1_at_body_start(raw, new_title)
-    }
-}
-
-fn insert_h1_at_body_start(raw: &str, title: &str) -> String {
-    let h1_line = format!("# {title}");
-
-    if let Some(end) = raw.find("\n---") {
-        if raw.starts_with("---\n") {
-            let after_frontmatter = end + 4;
-            let body_start = raw[after_frontmatter..]
-                .find(|c: char| c != '\n' && c != '\r')
-                .map(|i| after_frontmatter + i)
-                .unwrap_or(raw.len());
-            let body = raw[body_start..].trim_start();
-            if body.is_empty() {
-                format!("{}\n{h1_line}\n", &raw[..body_start])
-            } else {
-                format!("{}\n\n{h1_line}\n\n{body}", &raw[..body_start])
-            }
-        } else {
-            format!("{h1_line}\n\n{raw}")
-        }
-    } else {
-        format!("{h1_line}\n\n{raw}")
-    }
-}
-
-fn update_existing_markdown_frontmatter_title(raw: &str, title: &str) -> String {
-    if !raw.starts_with("---\n") {
-        return raw.to_string();
-    }
-
-    let Some(end_index) = raw[4..].find("\n---") else {
-        return raw.to_string();
-    };
-    let end_index = end_index + 4;
-    let frontmatter = &raw[4..end_index];
-    let body = &raw[end_index + 4..];
-    let mut title_replaced = false;
-    let mut lines = Vec::new();
-
-    for line in frontmatter.lines() {
-        if line.trim_start().starts_with("title:") {
-            lines.push(format!(
-                "title: {}",
-                crate::document_frontmatter::encode_string(title)
-            ));
-            title_replaced = true;
-        } else {
-            lines.push(line.to_string());
+            Event::Start(_) => depth += 1,
+            Event::End(_) => depth = depth.saturating_sub(1),
+            _ => {}
         }
     }
-
-    if !title_replaced {
-        return raw.to_string();
+    let eol = if next.contains("\r\n") { "\r\n" } else { "\n" };
+    if let Some(range) = heading {
+        let old = &next[range.clone()];
+        let first = old.lines().next().unwrap_or_default();
+        let replacement = if first.trim_start().starts_with('#') {
+            let indentation = first
+                .chars()
+                .take_while(|character| character.is_whitespace())
+                .collect::<String>();
+            format!(
+                "{indentation}# {title}{}",
+                if old.ends_with('\n') { eol } else { "" }
+            )
+        } else {
+            let rest = old
+                .find('\n')
+                .map(|offset| &old[offset + 1..])
+                .unwrap_or_default();
+            format!("{title}{eol}{rest}")
+        };
+        next.replace_range(range, &replacement);
+    } else {
+        next.insert_str(start, &format!("{eol}# {title}{eol}{eol}"));
+        if start == 0 {
+            next = next[eol.len()..].to_string();
+        }
     }
-
-    format!("---\n{}\n---{}", lines.join("\n"), body)
+    Ok(next)
 }
 
 fn collect_plate_document_paths(dir: &Path, paths: &mut Vec<PathBuf>) -> io::Result<()> {
@@ -3437,6 +3497,22 @@ fn normalize_plate_timestamp(value: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn rename_workspace_node(
+        root: String,
+        node: String,
+        name: String,
+    ) -> Result<WorkspaceNode, String> {
+        rename_workspace_node_impl(root, node, name, true)
+    }
+    fn move_workspace_node(
+        root: String,
+        node: String,
+        target: String,
+        before: Option<String>,
+        after: Option<String>,
+    ) -> Result<WorkspaceSnapshot, String> {
+        move_workspace_node_sync(root, node, target, before, after)
+    }
     use base64::Engine;
 
     #[test]
@@ -4374,7 +4450,7 @@ mod tests {
         assert_eq!(yaml[0]["title"].as_str(), Some("[计划]"));
 
         let new_title = r#"Plan: **review** "quoted""#;
-        let renamed = markdown_document_with_title(&created.content.content, new_title);
+        let renamed = markdown_document_with_title(&created.content.content, new_title).unwrap();
         let metadata = read_markdown_frontmatter(&renamed).unwrap();
         let yaml = yaml_rust2::YamlLoader::load_from_str(metadata).unwrap();
         assert_eq!(yaml[0]["title"].as_str(), Some(new_title));

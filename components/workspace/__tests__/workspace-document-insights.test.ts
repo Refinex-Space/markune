@@ -194,3 +194,12 @@ describe('extractResourceReferencesFromMarkdown', () => {
     ]);
   });
 });
+
+it('excludes Obsidian comments and code examples from ordinary resource references', () => {
+  const markdown = '%%\n![hidden](hidden.png)\n%%\n`%%`\n![real](real.png)\n```md\n![code](code.png)\n```';
+  expect(extractResourceReferencesFromMarkdown(markdown).map((reference) => reference.url)).toEqual(['real.png']);
+});
+
+it('excludes resources embedded in HTML code examples', () => {
+  expect(extractResourceReferencesFromMarkdown('<code>![hidden](hidden.png)</code>\n\n![real](real.png)').map((reference) => reference.url)).toEqual(['real.png']);
+});

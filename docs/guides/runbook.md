@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-05
+updated: 2026-09-06
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -304,3 +304,25 @@ For source changes, prefer `git diff` inspection followed by targeted `git resto
 回滚画板功能时，定向恢复本次前端、Rust、脚本、依赖与文档文件，并删除由 staging 生成且已被 Git 忽略的 `public/excalidraw-runtime`。不要删除用户工作区的 `.markune/drawings`；旧图稿 bundle 是可直接交给 Excalidraw 的用户数据，应保留到确认无需恢复后再另行处理。
 
 旧 `.markune/ai-sessions` 若尚未提交删除，可在对应知识库仓库中定向 `git restore`。提交删除后旧内容仍存在于 Git 历史；彻底清除需要单独批准历史重写，不能作为常规回滚或清理步骤执行。
+
+## Knowledge Fidelity And Research Acceptance
+
+```bash
+pnpm exec vitest run components/editor/__tests__/markdown-frontmatter-source.test.ts components/editor/__tests__/source-text-changes.test.ts components/workspace/__tests__/workspace-query.test.ts components/workspace/__tests__/use-workspace-knowledge.test.tsx components/workspace/__tests__/knowledge-research.test.ts
+cargo test --manifest-path src-tauri/Cargo.toml document_move_journal --lib
+cargo test --manifest-path src-tauri/Cargo.toml knowledge_actions --lib
+cargo test --manifest-path src-tauri/Cargo.toml workspace_index --lib
+cargo test --manifest-path src-tauri/Cargo.toml benchmarks_incremental_workspace --lib -- --ignored --nocapture
+```
+
+使用临时工作区验证带 BOM、CRLF、注释、别名、嵌套对象/列表和块字符串的笔记。修改正文后比较未改头部字节；修改一个属性后比较其他字段。普通无头部 Markdown 打开后不应写盘；无效 YAML 保留原文并允许正文编辑，结构化修改应报错。
+
+移动测试覆盖目录树、仅改变大小写的改名、多篇入链、同名 Wiki 歧义、Markdown 引用定义/HTML、MDX 和普通附件；外部改写、目标抢先创建、锁定文档必须受保护。中断恢复测试分别模拟写入部分引用后退出、最终路径移动后退出、外部编辑及恢复副本损坏。正常完成只留下 `.markune/moves/.gitignore`；出现警告时先保留整个恢复目录，依据 manifest 中的相对路径/指纹与 `.old` 副本核对现场，不直接删除或覆盖笔记。只有人工确认内容和链接后才清理对应恢复记录；应用不会强行还原无法确认归属的外部修改。这些自动化模拟验证进程中断的持久恢复路径，不等同于断电或跨平台文件系统验收。
+
+在视图页检查保存/切换/删除配置、筛选、列选择、排序、分组、属性编辑、跨笔记任务和原文定位；恢复/删除视图不能改变笔记。验证正文索引超预算的明确提示、失败后的完整重试及根目录切换后的迟到响应隔离。搜索命中行和入链上下文要定位到正确文档及行号；局部图谱不能沿共享标签扩散到无文档链接的节点。
+
+PDF 用两页不同文字的专用文件检查 Canvas 与文字层对齐、选字、翻页后旧摘录仍保留原页码，以及保存后的 source.quote/page/fingerprint/reference。从新笔记回到来源 PDF 的页码，替换原 PDF 后应报告指纹变化。网页摘录检查 HTTP(S) 地址、原文、采集时间和返回链接。研究页选择资料后只追加 AI 草稿，原有输入和提及节点保持，未点击发送不得出现模型请求。
+
+本轮 Chromium 页面验收使用真实 React 组件、搜索 Worker、PDF.js 与人工生成的两页 PDF，文件系统 IPC 使用内存夹具；原生文件事务另由 Rust 临时目录测试覆盖。不可将这种组合验证表述为真实 WKWebView、WebView2、加密/扫描版 PDF、网络盘或实际 AI 回答引用准确性已全部验收。截图位于本次任务产物目录，测试页面完成后删除，不进入生产路由。
+
+2026-09-06 本机 debug 构建的 2,000 篇合成笔记样本：冷索引 1,626 ms，未变化复用 24 ms，修改一篇后 25 ms，投影仅替换 1 篇。该结果反映本机小型文本样本的增量复用，不代表大型单篇、网络盘或跨平台耗时。

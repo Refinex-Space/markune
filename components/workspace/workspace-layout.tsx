@@ -110,16 +110,14 @@ import {
   getMacosChromeContentTop,
   useMacosChromeControlsTop,
 } from './use-macos-titlebar-metrics';
+import type { KnowledgeLocation } from './workspace-knowledge-types';
+import { useWorkspaceKnowledge } from './use-workspace-knowledge';
 import { WorkspaceGlobalSearchDialog } from './workspace-global-search-dialog';
 import { WorkspaceBrandMigrationDialog } from './workspace-brand-migration-dialog';
 import { useDocumentExport } from './use-document-export';
 import { useDocumentImport } from './use-document-import';
 import {
-  buildWorkspaceSearchIndex,
-  searchWorkspaceIndex,
   type WorkspaceGlobalSearchResult,
-  type WorkspaceSearchDocument,
-  type WorkspaceSearchIndex,
 } from './workspace-global-search';
 import {
   gitBranches,
@@ -142,7 +140,6 @@ import {
   listenTerminalData,
   listenTerminalError,
   listenTerminalExit,
-  loadDrawingLibrary,
   closeAppWindow,
   readAppSettings,
   recordRecentDocument,
@@ -181,6 +178,11 @@ import { createTerminalOutputStore } from './terminal-output-store';
 import { WorkspaceResizeHandle } from './workspace-resize-handle';
 import { WorkspaceSidebar } from './workspace-sidebar';
 import { WorkspaceGraphPage } from './workspace-graph-page';
+import { PdfResearchDialog, WorkspaceResearchPanel, type PdfSourceRequest } from './workspace-research';
+import type { ResearchDraftRequest } from './research-notes';
+import { WorkspaceTemplateDialog } from './workspace-templates';
+import { WorkspaceKnowledgeViews } from './workspace-knowledge-views';
+import { WorkspaceResourcePanel } from './workspace-resource-panel';
 import { WorkspaceViewsPage } from './workspace-views-page';
 import {
   countMarkdownCharacters,
@@ -240,7 +242,6 @@ type WorkspaceSystemPage =
   | null;
 
 interface GlobalSearchState {
-  index: WorkspaceSearchIndex | null;
   results: WorkspaceGlobalSearchResult[];
   rootPath: string | null;
   status: GlobalSearchIndexStatus;
@@ -312,7 +313,6 @@ const WORKSPACE_PANEL_WIDTH_STORAGE_KEYS = {
   terminalHeight: 'markune:workspace:terminal-height',
 };
 
-const GLOBAL_SEARCH_READ_CONCURRENCY = 6;
 const RECENT_DOCUMENT_LIMIT = 5;
 const WORKSPACE_PANEL_MARGIN = 8;
 const WORKSPACE_SIDEBAR_HEADER_HEIGHT = 44;
@@ -455,13 +455,14 @@ export function WorkspaceLayout({
   const [globalSearchQuery, setGlobalSearchQuery] = React.useState('');
   const [globalSearchState, setGlobalSearchState] =
     React.useState<GlobalSearchState>({
-      index: null,
       results: [],
       rootPath: null,
       status: 'idle',
     });
-  const globalSearchWorkerRef = React.useRef<Worker | null>(null);
-  const globalSearchRequestIdRef = React.useRef(0);
+  const [graphRevision, setGraphRevision] = React.useState(0);
+  const [templateParentPath, setTemplateParentPath] = React.useState<string | null>(null);
+  const [pdfResearchRequest, setPdfResearchRequest] = React.useState<PdfSourceRequest | 'file' | null>(null);
+  const [researchDraft, setResearchDraft] = React.useState<ResearchDraftRequest | null>(null);
   const [dailyCalendarMonth, setDailyCalendarMonth] = React.useState(
     () => new Date(new Date().getFullYear(), new Date().getMonth(), 1),
   );
@@ -475,6 +476,10 @@ export function WorkspaceLayout({
   const pageTitle = documentTitle ?? workspace.currentDirectory?.name;
   const currentDocumentPath = workspace.currentDocument?.absolutePath ?? null;
   const workspaceRootPath = workspace.snapshot?.rootPath ?? null;
+  const workspaceWarnings = workspace.snapshot?.warnings?.join('\n') ?? '';
+  React.useEffect(() => {
+    if (workspaceWarnings) toast.warning('工作区有待检查的移动记录', { description: workspaceWarnings, duration: Infinity });
+  }, [workspaceRootPath, workspaceWarnings]);
 
   React.useEffect(() => {
     const report = brandMigrationReport;
@@ -557,6 +562,7 @@ export function WorkspaceLayout({
   );
   const workspaceRootPathRef = React.useRef(workspaceRootPath);
   const editorWorkspaceRootPathRef = React.useRef(workspaceRootPath);
+  const locationRequestRef = React.useRef(0);
   const activeMarkdownEditorRef = React.useRef<MarkdownEditorHandle | null>(
     null,
   );
@@ -695,37 +701,14 @@ export function WorkspaceLayout({
     () => countMarkdownLines(deferredDocumentMarkdown),
     [deferredDocumentMarkdown],
   );
-  const activeGlobalSearchIndex =
-    globalSearchState.rootPath === workspaceRootPath
-      ? globalSearchState.index
-      : null;
-  const activeGlobalSearchStatus =
-    globalSearchState.rootPath === workspaceRootPath
-      ? globalSearchState.status
-      : 'idle';
-  const globalSearchResults = React.useMemo(
-    () => {
-      if (globalSearchState.rootPath !== workspaceRootPath) {
-        return [];
-      }
-
-      return activeGlobalSearchIndex
-        ? searchWorkspaceIndex(activeGlobalSearchIndex, globalSearchQuery)
-        : globalSearchState.results;
-    },
-    [
-      activeGlobalSearchIndex,
-      globalSearchQuery,
-      globalSearchState.results,
-      globalSearchState.rootPath,
-      workspaceRootPath,
-    ],
-  );
+  const globalSearchResults = globalSearchState.rootPath === workspaceRootPath ? globalSearchState.results : [];
   const documentPanelData = React.useMemo(
     () => createDocumentPanelData(workspace.draftDocument, workspace.rightPanelMode),
     [workspace.draftDocument, workspace.rightPanelMode],
   );
   const isTauriRuntime = useIsTauriRuntime();
+  const knowledge = useWorkspaceKnowledge(workspaceRootPath, graphRevision, isTauriRuntime);
+  const activeGlobalSearchStatus: GlobalSearchIndexStatus = knowledge.status;
   const isMacRuntime = useIsMacRuntime();
   const isWindowsRuntime = useIsWindowsRuntime();
   const macChromeControlsTop = useMacosChromeControlsTop(
@@ -1063,80 +1046,14 @@ export function WorkspaceLayout({
 
   React.useEffect(() => observeWorkspaceLongTasks(), []);
 
-  React.useEffect(() => {
-    if (typeof Worker === 'undefined') {
-      return;
-    }
-
-    const worker = new Worker(
-      new URL('./workspace-search-worker.ts', import.meta.url),
-    );
-    globalSearchWorkerRef.current = worker;
-    worker.onmessage = (
-      event: MessageEvent<
-        | { rootPath: string; type: 'indexed' }
-        | {
-            requestId: number;
-            results: WorkspaceGlobalSearchResult[];
-            rootPath: string;
-            type: 'results';
-          }
-      >,
-    ) => {
-      const message = event.data;
-
-      if (message.type === 'indexed') {
-        setGlobalSearchState((current) =>
-          current.rootPath === message.rootPath
-            ? { ...current, index: null, results: [], status: 'ready' }
-            : current,
-        );
-        return;
-      }
-
-      if (message.requestId !== globalSearchRequestIdRef.current) {
-        return;
-      }
-
-      setGlobalSearchState((current) =>
-        current.rootPath === message.rootPath
-          ? { ...current, results: message.results }
-          : current,
-      );
-    };
-
-    return () => {
-      worker.terminate();
-      if (globalSearchWorkerRef.current === worker) {
-        globalSearchWorkerRef.current = null;
-      }
-    };
-  }, []);
+  const refreshKnowledge = knowledge.refresh;
+  const searchKnowledge = knowledge.search;
+  const refreshKnowledgeTree = workspace.refreshWorkspaceTree;
   const openGlobalSearch = React.useCallback(() => {
     setGlobalSearchOpen(true);
-    if (globalSearchState.rootPath !== workspaceRootPath) {
-      setGlobalSearchQuery('');
-    }
-    setGlobalSearchState((current) => {
-      if (!workspaceRootPath) {
-        return current;
-      }
-
-      if (
-        current.rootPath === workspaceRootPath &&
-        current.status !== 'idle'
-      ) {
-        return current;
-      }
-
-      return {
-        index: null,
-        results: [],
-        rootPath: workspaceRootPath,
-        status: 'indexing',
-      };
-    });
-  }, [globalSearchState.rootPath, workspaceRootPath]);
+    if (globalSearchState.rootPath !== workspaceRootPath) setGlobalSearchQuery('');
+    void refreshKnowledge();
+  }, [globalSearchState.rootPath, workspaceRootPath, refreshKnowledge]);
   const loadDailyNotesForMonth = dailyNotes.loadMonth;
 
   React.useEffect(() => {
@@ -1172,102 +1089,13 @@ export function WorkspaceLayout({
   }, []);
 
   React.useEffect(() => {
-    if (
-      !globalSearchOpen ||
-      !isTauriRuntime ||
-      !workspace.snapshot ||
-      activeGlobalSearchStatus !== 'indexing'
-    ) {
-      return;
-    }
-
-    const snapshot = workspace.snapshot;
-    let cancelled = false;
-
-    const perf = startWorkspacePerformanceMeasure('workspace.global_search.index');
-
-    void readWorkspaceSearchDocuments(snapshot)
-      .then((documents) => {
-        if (cancelled) {
-          return;
-        }
-
-        const worker = globalSearchWorkerRef.current;
-
-        if (worker) {
-          worker.postMessage({
-            documents,
-            rootPath: snapshot.rootPath,
-            type: 'index',
-          });
-          perf.finish({
-            documents: documents.length,
-            execution: 'worker',
-            rootDocuments: flattenDocuments(snapshot.nodes).length,
-          });
-          return;
-        }
-
-        setGlobalSearchState({
-          index: buildWorkspaceSearchIndex(documents),
-          results: [],
-          rootPath: snapshot.rootPath,
-          status: 'ready',
-        });
-        perf.finish({
-          documents: documents.length,
-          rootDocuments: flattenDocuments(snapshot.nodes).length,
-        });
-      })
-      .catch(() => {
-        if (cancelled) {
-          return;
-        }
-
-        setGlobalSearchState({
-          index: null,
-          results: [],
-          rootPath: snapshot.rootPath,
-          status: 'error',
-        });
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    activeGlobalSearchStatus,
-    globalSearchOpen,
-    isTauriRuntime,
-    workspace.snapshot,
-  ]);
-
-  React.useEffect(() => {
-    const worker = globalSearchWorkerRef.current;
-
-    if (
-      !worker ||
-      activeGlobalSearchStatus !== 'ready' ||
-      !workspaceRootPath ||
-      globalSearchState.rootPath !== workspaceRootPath
-    ) {
-      return;
-    }
-
-    const requestId = globalSearchRequestIdRef.current + 1;
-    globalSearchRequestIdRef.current = requestId;
-    worker.postMessage({
-      query: globalSearchQuery,
-      requestId,
-      rootPath: workspaceRootPath,
-      type: 'search',
+    if (!globalSearchOpen || !workspaceRootPath || knowledge.status !== 'ready') return;
+    let active = true;
+    void searchKnowledge(globalSearchQuery).then((results) => {
+      if (active) setGlobalSearchState({ results, rootPath: workspaceRootPath, status: 'ready' });
     });
-  }, [
-    activeGlobalSearchStatus,
-    globalSearchQuery,
-    globalSearchState.rootPath,
-    workspaceRootPath,
-  ]);
+    return () => { active = false; };
+  }, [globalSearchOpen, globalSearchQuery, workspaceRootPath, knowledge.status, knowledge.revision, searchKnowledge]);
 
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1898,8 +1726,6 @@ export function WorkspaceLayout({
     };
   }, [isTauriRuntime, settingsVersion, workspaceRootPath]);
 
-  const [graphRevision, setGraphRevision] = React.useState(0);
-
   // Reconcile all disk-change sources without discarding editor drafts. author: refinex
   const synchronizeWorkspace = React.useCallback(
     async (request: WorkspaceRefreshRequest, isCurrent: () => boolean) => {
@@ -2390,6 +2216,7 @@ export function WorkspaceLayout({
 
   const openDocumentNode = React.useCallback(
     async (node: WorkspaceNode) => {
+      locationRequestRef.current += 1;
       if (node.kind !== 'document') {
         return;
       }
@@ -2407,9 +2234,44 @@ export function WorkspaceLayout({
   );
 
   React.useEffect(() => {
+    const open = (event: Event) => {
+      const detail = (event as CustomEvent<PdfSourceRequest>).detail;
+      if (!detail?.documentPath || !workspaceRootPath || !isDescendantPath(detail.documentPath, workspaceRootPath)) return;
+      setPdfResearchRequest(detail);
+    };
+    window.addEventListener('markune:read-pdf', open);
+    return () => window.removeEventListener('markune:read-pdf', open);
+  }, [workspaceRootPath]);
+
+  const openKnowledgeLocation = React.useCallback(async (location: KnowledgeLocation) => {
+    const rootAtStart = workspaceRootPath;
+    let node = findWorkspaceDocumentByRelativePath(workspace.snapshot?.nodes ?? [], location.relativePath);
+    if (!node) {
+      const snapshot = await refreshKnowledgeTree();
+      if (workspaceRootPathRef.current !== rootAtStart) return;
+      node = findWorkspaceDocumentByRelativePath(snapshot?.nodes ?? [], location.relativePath);
+    }
+    if (!node) { toast.warning('文档已移动或删除，请刷新后重试'); return; }
+    const id = locationRequestRef.current + 1;
+    await openDocumentNode(node);
+    if (!location.line && !location.hash) return;
+    const started = Date.now();
+    const root = workspaceRootPath;
+    while (Date.now() - started < 15000 && locationRequestRef.current === id && workspaceRootPathRef.current === root) {
+      const editor = activeMarkdownEditorRef.current;
+      if (currentDocumentPathRef.current === node.absolutePath && editor?.getDocumentPath?.() === node.absolutePath) {
+        const isCurrent = () => locationRequestRef.current === id && currentDocumentPathRef.current === node.absolutePath && workspaceRootPathRef.current === root;
+        if (await editor.revealLocation({ ...location, isCurrent })) return;
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 100));
+      }
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+    }
+  }, [openDocumentNode, workspace.snapshot?.nodes, refreshKnowledgeTree, workspaceRootPath]);
+
+  React.useEffect(() => {
     const handleOpenDocument = (event: Event) => {
       const detail = (
-        event as CustomEvent<{ relativePath?: string }>
+        event as CustomEvent<{ relativePath?: string; hash?: string | null; line?: number }>
       ).detail;
       const relativePath = detail?.relativePath;
       if (!relativePath) return;
@@ -2426,7 +2288,7 @@ export function WorkspaceLayout({
         absolutePath: node.absolutePath,
         requestId: Date.now(),
       });
-      void openDocumentNode(node);
+      void openKnowledgeLocation({ relativePath, hash: detail?.hash, line: detail?.line });
     };
 
     window.addEventListener(
@@ -2439,7 +2301,7 @@ export function WorkspaceLayout({
         handleOpenDocument,
       );
   }, [
-    openDocumentNode,
+    openKnowledgeLocation,
     showWorkspaceSidebar,
     workspace.snapshot?.nodes,
   ]);
@@ -2601,27 +2463,17 @@ export function WorkspaceLayout({
         void openDrawingFromLibrary(result.document.drawingId);
         return;
       }
-      const node = findWorkspaceDocumentByPath(
-        workspace.snapshot?.nodes ?? [],
-        result.document.absolutePath,
-      );
-
-      if (!node) {
-        return;
-      }
-
       setGlobalSearchOpen(false);
       setGlobalSearchQuery('');
-      revealNodeInWorkspaceTree(node.absolutePath);
-      void openDocumentNode(node);
+      revealNodeInWorkspaceTree(result.document.absolutePath);
+      void openKnowledgeLocation({ relativePath: result.document.relativePath, line: result.snippet?.line });
     },
     [
       clearCurrentDocument,
       openDrawingFromLibrary,
-      openDocumentNode,
+      openKnowledgeLocation,
       revealNodeInWorkspaceTree,
       showWorkspaceSidebar,
-      workspace.snapshot?.nodes,
     ],
   );
 
@@ -2661,6 +2513,9 @@ export function WorkspaceLayout({
             content: await readMarkdownDocument(moved.rootPath, path),
           });
       }
+      documentEditorLayoutRef.current = updates.reduce((layout, item) => renameDocumentTab(layout, item.oldPath, item.node), documentEditorLayoutRef.current);
+      const migratedActive = updates.find((item) => item.oldPath === currentDocumentPathRef.current);
+      if (migratedActive) currentDocumentPathRef.current = migratedActive.node.absolutePath;
       setDocumentEditorLayout((current) =>
         updates.reduce(
           (layout, item) => renameDocumentTab(layout, item.oldPath, item.node),
@@ -2688,8 +2543,9 @@ export function WorkspaceLayout({
           return node ? toRecentDocument(node) : item;
         }),
       );
+      await workspaceRefresh.refresh();
     },
-    [flushActiveMarkdownEditor, workspace],
+    [flushActiveMarkdownEditor, workspace, workspaceRefresh],
   );
 
   const handleRenameWorkspaceNode = React.useCallback(
@@ -2719,6 +2575,9 @@ export function WorkspaceLayout({
             content: await readMarkdownDocument(workspaceRootPath, nextPath),
           });
       }
+      documentEditorLayoutRef.current = updates.reduce((layout, item) => renameDocumentTab(layout, item.oldPath, item.node), documentEditorLayoutRef.current);
+      const migratedActive = updates.find((item) => item.oldPath === currentDocumentPathRef.current);
+      if (migratedActive) currentDocumentPathRef.current = migratedActive.node.absolutePath;
       setDocumentEditorLayout((current) =>
         updates.reduce(
           (layout, item) => renameDocumentTab(layout, item.oldPath, item.node),
@@ -2752,15 +2611,11 @@ export function WorkspaceLayout({
           return nextNode ? toRecentDocument(nextNode) : item;
         }),
       );
-      if (node.kind === 'directory') {
-        const active = updates.find(
-          (item) => item.oldPath === currentDocumentPathRef.current,
-        );
-        if (active) await workspace.openDocument(active.node);
-      }
+      if (node.kind === 'directory' && migratedActive) await workspace.openDocument(migratedActive.node);
+      await workspaceRefresh.refresh();
       return renamed;
     },
-    [flushActiveMarkdownEditor, workspace, workspaceRootPath],
+    [flushActiveMarkdownEditor, workspace, workspaceRootPath, workspaceRefresh],
   );
 
   const handleOpenDailyNote = React.useCallback(
@@ -3450,6 +3305,7 @@ export function WorkspaceLayout({
       )}
 
       <WorkspaceGlobalSearchDialog
+        warnings={knowledge.warnings}
         indexStatus={activeGlobalSearchStatus}
         open={globalSearchOpen}
         query={globalSearchQuery}
@@ -3459,6 +3315,8 @@ export function WorkspaceLayout({
         onSelectResult={handleSelectGlobalSearchResult}
       />
 
+      {workspaceRootPath && pdfResearchRequest ? <PdfResearchDialog key={`${workspaceRootPath}:${pdfResearchRequest === 'file' ? 'file' : pdfResearchRequest.source}`} rootPath={workspaceRootPath} request={pdfResearchRequest} onClose={() => setPdfResearchRequest(null)} onCreated={async (node) => { await workspace.refreshWorkspaceTree(); await knowledge.refresh(); await openDocumentNode(node); }} /> : null}
+      {workspaceRootPath && templateParentPath !== null ? <WorkspaceTemplateDialog key={workspaceRootPath} rootPath={workspaceRootPath} parentPath={templateParentPath} knowledge={knowledge} open onOpenChange={(open) => { if (!open) setTemplateParentPath(null); }} onCreated={async (node) => { await workspace.refreshWorkspaceTree(); await openDocumentNode(node); }} /> : null}
       <WorkspaceBrandMigrationDialog
         key={
           workspace.pendingBrandMigration
@@ -3528,6 +3386,7 @@ export function WorkspaceLayout({
         <div className="flex min-w-0 flex-1 overflow-hidden">
             {leftPanelMode === 'workspace' ? (
               <WorkspaceSidebar
+                onCreateTemplate={setTemplateParentPath}
                 appUpdateAvailable={appUpdate.available}
                 dailyCalendar={
                   workspace.snapshot ? (
@@ -3836,7 +3695,18 @@ export function WorkspaceLayout({
                         rootPath={workspace.snapshot.rootPath}
                       />
                     ) : systemPage === 'views' && workspace.snapshot ? (
-                      <WorkspaceViewsPage
+                      isTauriRuntime ? <WorkspaceKnowledgeViews
+                        key={workspace.snapshot.rootPath}
+                        rootPath={workspace.snapshot.rootPath}
+                        knowledge={knowledge}
+                        onCreateTemplate={() => setTemplateParentPath('')}
+                        research={<WorkspaceResearchPanel rootPath={workspace.snapshot.rootPath} knowledge={knowledge} onOpen={(location) => void openKnowledgeLocation(location)} onReadPdf={() => setPdfResearchRequest('file')} onCreated={async (node) => { await workspace.refreshWorkspaceTree(); await openDocumentNode(node); }} onDraft={(request) => { setResearchDraft(request); workspace.setRightPanelMode('ai'); }} />}
+                        sidebarHeaderOffset={macSidebarHeaderOffset}
+                        onOpen={(location) => void openKnowledgeLocation(location)}
+                        onRefresh={() => workspaceRefresh.refresh()}
+                        isReadOnly={(path) => getDocumentReadOnly(`${workspace.snapshot!.rootPath}/${path}`)}
+                        resources={<WorkspaceResourcePanel key={workspace.snapshot.rootPath} rootPath={workspace.snapshot.rootPath} documents={knowledge.documents} onOpen={(location) => void openKnowledgeLocation(location)} onReadPdf={setPdfResearchRequest} />}
+                      /> : <WorkspaceViewsPage
                         sidebarHeaderOffset={macSidebarHeaderOffset}
                         nodes={filterRegularWorkspaceNodes(
                           workspace.snapshot.nodes,
@@ -3851,6 +3721,7 @@ export function WorkspaceLayout({
                         key={workspace.snapshot.rootPath}
                         nodes={workspace.snapshot.nodes}
                         revision={graphRevision}
+                        currentDocumentPath={workspace.currentDocument?.relativePath}
                         rootPath={workspace.snapshot.rootPath}
                         sidebarHeaderOffset={macSidebarHeaderOffset}
                         onOpenNode={handleOpenWorkspaceViewNode}
@@ -4076,6 +3947,10 @@ export function WorkspaceLayout({
               ) : null}
 
               <RightSidePanel
+                researchDraft={researchDraft}
+                onResearchDraftConsumed={() => setResearchDraft(null)}
+                knowledge={knowledge}
+                onOpenLocation={(location) => void openKnowledgeLocation(location)}
                 activeDrawing={activeAiDrawing}
                 aiPresentation={
                   systemPage === 'codex' ? 'workspace' : 'panel'
@@ -5029,66 +4904,6 @@ function subscribeStoredPanelWidth(
 
 function clampPanelWidth(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
-}
-
-async function readWorkspaceSearchDocuments(
-  snapshot: WorkspaceSnapshot,
-): Promise<WorkspaceSearchDocument[]> {
-  const documents = flattenDocuments(snapshot.nodes);
-  const results: WorkspaceSearchDocument[] = [];
-  let cursor = 0;
-
-  async function readNextDocument() {
-    while (cursor < documents.length) {
-      const index = cursor;
-      cursor += 1;
-      const document = documents[index];
-
-      try {
-        const content = await readMarkdownDocument(
-          snapshot.rootPath,
-          document.absolutePath,
-        );
-
-        results[index] = {
-          ...document,
-          content: content.content,
-          kind: 'document',
-        };
-      } catch {
-        results[index] = {
-          ...document,
-          content: '',
-          kind: 'document',
-        };
-      }
-    }
-  }
-
-  await Promise.all(
-    Array.from({
-      length: Math.min(GLOBAL_SEARCH_READ_CONCURRENCY, documents.length),
-    }).map(() => readNextDocument()),
-  );
-
-  let drawingDocuments: WorkspaceSearchDocument[] = [];
-  try {
-    const drawingLibrary = await loadDrawingLibrary(snapshot.rootPath);
-    drawingDocuments = drawingLibrary.drawings.map((drawing) => ({
-      absolutePath: '',
-      content: drawing.searchText,
-      drawingId: drawing.id,
-      id: drawing.id,
-      kind: 'drawing',
-      name: drawing.title,
-      relativePath: drawing.albumPath || '未归类',
-      title: drawing.title,
-    }));
-  } catch {
-    // A drawing index failure must not prevent Markdown search.
-  }
-
-  return [...results.filter(Boolean), ...drawingDocuments];
 }
 
 // Resolve a Codex-reported entry path (which may be workspace-relative) to an

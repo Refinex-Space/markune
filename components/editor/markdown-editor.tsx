@@ -22,6 +22,7 @@ import {
 } from '@markweave/react';
 import {
   getMarkweaveDocumentViewportCoordinatorForElement,
+  getMarkweaveTocItems,
   type MarkweaveInternalLinkCardConfig,
   type MarkweaveReferenceSuggestionConfig,
 } from 'markweave';
@@ -86,6 +87,8 @@ export type MarkdownEditorFlushReason =
 export interface MarkdownEditorHandle {
   flushDraft: (reason: MarkdownEditorFlushReason) => Promise<boolean>;
   getAiEditController: () => MarkweaveAiEditController | null;
+  revealLocation: (location: { line?: number; hash?: string | null; isCurrent?: () => boolean }) => Promise<boolean>;
+  getDocumentPath: () => string | null;
   prepareForOutput: (
     options: MarkweavePrepareOutputOptions,
   ) => Promise<MarkweaveOutputPreparationReport>;
@@ -207,7 +210,7 @@ export const MarkdownEditor = React.forwardRef<
   );
   const frontmatterView = React.useMemo(() => {
     const parsed = parseFrontmatter(normalizedMarkdown);
-    const hasFrontmatter = Object.keys(parsed.metadata).length > 0;
+    const hasFrontmatter = Boolean(parsed.source);
 
     if (!hasFrontmatter) {
       return {
@@ -220,6 +223,7 @@ export const MarkdownEditor = React.forwardRef<
     return {
       body: parsed.body,
       hasFrontmatter: true,
+      source: parsed.source,
       metadata: parsed.metadata,
     };
   }, [normalizedMarkdown]);
@@ -396,6 +400,7 @@ export const MarkdownEditor = React.forwardRef<
 
       return serializeFrontmatter({
         body,
+        source: frontmatterView.source,
         metadata: frontmatterView.metadata,
       });
     },
@@ -646,17 +651,55 @@ export const MarkdownEditor = React.forwardRef<
     [],
   );
 
+  const revealLocation = React.useCallback(async (location: { line?: number; hash?: string | null; isCurrent?: () => boolean }) => {
+    if (!(await flushDraft('source-toggle')) || location.isCurrent?.() === false) return false;
+    let hash = location.hash?.replace(/^#/, '') ?? '';
+    try { hash = decodeURIComponent(hash); } catch { /* Keep literal anchors readable. author: refinex */ }
+    const surface = markweaveModeRef.current?.querySelector<HTMLElement>('.markweave-editor-surface');
+    const coordinator = surface ? getMarkweaveDocumentViewportCoordinatorForElement(surface) : null;
+    if (!location.line && hash && coordinator && !sourceMode) {
+      const normalize = (value: string) => value.trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s+/g, '-');
+      const heading = getMarkweaveTocItems(coordinator.editor.state.doc).find((item) => item.id === hash || item.text === hash || normalize(item.text) === normalize(hash));
+      let position = heading?.pos;
+      if (hash.startsWith('^')) coordinator.editor.state.doc.descendants((node, pos) => {
+        if (position === undefined && node.isTextblock && node.type.name !== 'codeBlock' && node.textContent.trimEnd().endsWith(hash)) position = pos;
+        return position === undefined;
+      });
+      if (position !== undefined) {
+        const result = await coordinator.revealPosition(position, { reason: 'host', align: 'center', focus: true });
+        return result.status === 'revealed';
+      }
+    }
+    const raw = sourceDraftMarkdownRef.current;
+    let line = location.line;
+    if (!line && /^L\d+(?:-L\d+)?$/i.test(hash)) line = Number(/^L(\d+)/i.exec(hash)?.[1]);
+    if (!line && hash) {
+      const index = raw.split(/\r\n?|\n/).findIndex((line) => hash.startsWith('^') ? line.trimEnd().endsWith(hash) : /^#{1,6}\s/.test(line) && line.replace(/^#+\s*/, '').trim() === hash);
+      if (index >= 0) line = index + 1;
+    }
+    if (!line || !Number.isFinite(line)) return false;
+    sourceModeToggledRef.current = true; setSourceFindText(raw); setSourceMode(true);
+    const started = Date.now();
+    while (Date.now() - started < 5000 && location.isCurrent?.() !== false) {
+      if (sourceEditorRef.current) { sourceEditorRef.current.revealLine(line); return true; }
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+    }
+    return false;
+  }, [flushDraft, sourceMode]);
+
   React.useImperativeHandle(
     forwardedRef,
     () => ({
       flushDraft,
+      revealLocation,
+      getDocumentPath: () => documentPath,
       getAiEditController: () =>
         aiEnabled && !readOnly && !sourceMode
           ? aiEditControllerRef.current
           : null,
       prepareForOutput,
     }),
-    [aiEnabled, flushDraft, prepareForOutput, readOnly, sourceMode],
+    [aiEnabled, flushDraft, prepareForOutput, readOnly, sourceMode, revealLocation, documentPath],
   );
 
   React.useEffect(() => {
@@ -883,6 +926,14 @@ export const MarkdownEditor = React.forwardRef<
         // leaving propagation and all editor interaction semantics upstream.
         if (/^https?:\/\//iu.test(effectiveHref)) {
           event.preventDefault();
+          return;
+        }
+
+        if (documentPath && (/\.pdf(?:[?#]|$)/i.test(effectiveHref) || /^markune-asset:.*#page=\d+/i.test(effectiveHref))) {
+          event.preventDefault();
+          if (!internalCard && !readOnly && !event.metaKey && !event.ctrlKey) return;
+          event.stopPropagation();
+          window.dispatchEvent(new CustomEvent('markune:read-pdf', { detail: { documentPath, source: effectiveHref, name: link?.textContent ?? 'PDF', page: Number(/#page=(\d+)/i.exec(effectiveHref)?.[1] ?? 1) } }));
           return;
         }
 

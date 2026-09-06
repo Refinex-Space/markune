@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-05
+updated: 2026-09-06
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -114,3 +114,12 @@ Inbox Capture 独立保存在 `.markune/inbox/cap_YYYYMMDD_HHMMSS_SSS_<uuid8>.md
 `.markune` 不保存 AI 消息或 Codex 线程副本。旧 `.markune/ai-sessions` 路径已经停用，应在知识库中忽略；AI 会话的新建、恢复、命名、归档和删除完全由用户级 Codex Home 与 App Server 管理。
 
 右侧元信息宽度继续保存在 `markune:workspace:right-panel-width`；AI 面板使用独立的 `markune:workspace:ai-panel-width`，避免两个面板的尺寸互相覆盖。
+
+
+## Knowledge Views And Research Defaults
+
+元数据解析固定使用 `yaml@2.9.0`；不在打开笔记时迁移或自动补全 YAML。默认视图列是标题、路径、修改时间、标签，按修改时间降序、不分组；任务默认展示未完成项，文档/任务每页先展示 100 条。命名视图存入工作区 `.markune/views.json`，没有额外数据库。
+
+模板入口位于文件树根目录空白区、目录菜单和视图页加号。内置空白、会议、项目、研究与阅读模板；用户模板来自 `Templates/`、`模板/` 或 `markuneTemplate: true`，复制时该标记变为 false。全局搜索支持 `path:`、`tag:`、`prop:`、`after:`、`before:`、`type:`，字段前加 `-` 表示排除，双引号表示精确短语；日期按 UTC 日界解释。
+
+PDF 阅读使用既有 `public/import-runtime` 离线资源，不增加远程 Worker。研究资料默认只形成 AI 草稿，保留既有输入，等待用户发送。网页摘录由用户填写 HTTP(S) 来源及原文。普通笔记的回收站与本地版本历史未增加；移动恢复文件是短期事务现场，正常完成即清理。

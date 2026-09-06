@@ -37,6 +37,50 @@ pub(crate) fn parse_fields(raw: &str) -> Result<BTreeMap<String, Vec<String>>, S
     parsed
 }
 
+pub(crate) fn parse_values(raw: &str) -> Result<serde_json::Value, String> {
+    parse_fields(raw)?;
+    if raw.trim().is_empty() {
+        return Ok(serde_json::json!({}));
+    }
+    let docs = match YamlLoader::load_from_str(raw) {
+        Ok(docs) => docs,
+        Err(_) => {
+            YamlLoader::load_from_str(&quote_legacy_markune_title(raw).ok_or("无法读取元数据")?)
+                .map_err(yaml_error)?
+        }
+    };
+    fn convert(value: &Yaml) -> Result<serde_json::Value, String> {
+        Ok(match value {
+            Yaml::String(value) => value.clone().into(),
+            Yaml::Integer(value) => (*value).into(),
+            Yaml::Real(value) => value
+                .parse::<f64>()
+                .ok()
+                .and_then(serde_json::Number::from_f64)
+                .map(serde_json::Value::Number)
+                .unwrap_or_else(|| value.clone().into()),
+            Yaml::Boolean(value) => (*value).into(),
+            Yaml::Null => serde_json::Value::Null,
+            Yaml::Array(values) => values
+                .iter()
+                .map(convert)
+                .collect::<Result<Vec<_>, _>>()?
+                .into(),
+            Yaml::Hash(values) => {
+                let mut object = serde_json::Map::new();
+                for (key, value) in values {
+                    if let Some(key) = key.as_str() {
+                        object.insert(key.to_string(), convert(value)?);
+                    }
+                }
+                serde_json::Value::Object(object)
+            }
+            _ => return Err("无法解释元数据字段类型".into()),
+        })
+    }
+    convert(docs.first().ok_or("元数据为空")?)
+}
+
 // Old Markune writers interpolated an unquoted title. Repair only that field in memory. author: refinex
 fn quote_legacy_markune_title(raw: &str) -> Option<String> {
     if raw.len() > MAX_FRONTMATTER_BYTES

@@ -25,6 +25,7 @@ const DEFAULT_PANEL_MARGIN = 8;
 const DEFAULT_TITLEBAR_SPACER = 40;
 
 interface WorkspaceSidebarProps {
+  onCreateTemplate?: (parentPath: string) => void;
   appUpdateAvailable?: boolean;
   dailyCalendar?: ReactNode;
   drawingContent?: ReactNode;
@@ -105,6 +106,7 @@ export function WorkspaceSidebar({
   width,
   workspace,
   onCreateDocument,
+  onCreateTemplate,
   onDeleteNode,
   onExportNode,
   onImportDocuments,
@@ -278,6 +280,7 @@ export function WorkspaceSidebar({
                 pendingRenameNodePath={workspace.pendingRenameNodePath}
                 searchQuery=""
                 onCreateDirectory={workspace.createDirectory}
+                onCreateTemplate={onCreateTemplate}
                 onCreateDocument={createDocument}
                 onDeleteNode={deleteNode}
                 onExportNode={onExportNode}

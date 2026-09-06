@@ -166,6 +166,7 @@ vi.mock('@markweave/react', async () => {
 vi.mock('markweave', () => ({
   getMarkweaveDocumentViewportCoordinatorForElement:
     viewportCoordinatorForElementMock,
+  getMarkweaveTocItems: () => [{ id: 'source-heading', text: 'Source Heading', pos: 12 }],
 }));
 
 vi.mock('next/dynamic', async () => {
@@ -598,7 +599,7 @@ describe('MarkdownEditor', () => {
     expect(fireEvent.click(link, { ctrlKey: true })).toBe(false);
   });
 
-  it('阻止外部链接原生导航但保留 Markweave 事件和普通附件链接', () => {
+  it('保留外部链接事件和普通附件链接，将 PDF 的明确导航交给阅读器', () => {
     render(
       <MarkdownEditor
         documentPath="/vault/plans/2026.md"
@@ -614,13 +615,22 @@ describe('MarkdownEditor', () => {
     const externalClick = vi.fn();
     externalLink.addEventListener('click', externalClick);
     const attachmentLink = document.createElement('a');
-    attachmentLink.href = '../assets/guide.pdf';
+    attachmentLink.href = '../assets/guide.docx';
     editor.append(attachmentLink);
 
     expect(fireEvent.click(externalLink)).toBe(false);
     expect(fireEvent.click(externalLink, { metaKey: true })).toBe(false);
     expect(externalClick).toHaveBeenCalledTimes(2);
     expect(fireEvent.click(attachmentLink)).toBe(true);
+    attachmentLink.href = '../assets/guide.pdf#page=3';
+    const openPdf = vi.fn();
+    window.addEventListener('markune:read-pdf', openPdf);
+    expect(fireEvent.click(attachmentLink)).toBe(false);
+    expect(openPdf).not.toHaveBeenCalled();
+    expect(fireEvent.click(attachmentLink, { metaKey: true })).toBe(false);
+    expect(openPdf).toHaveBeenCalledTimes(1);
+    expect((openPdf.mock.calls[0][0] as CustomEvent).detail).toMatchObject({ documentPath: '/vault/plans/2026.md', source: '../assets/guide.pdf#page=3', page: 3 });
+    window.removeEventListener('markune:read-pdf', openPdf);
   });
 
   it('仅在可编辑 Live 文档发布 Ask AI handler 和 controller', () => {
@@ -732,7 +742,7 @@ describe('MarkdownEditor', () => {
     act(() => vi.advanceTimersByTime(500));
 
     expect(onMarkdownChange).toHaveBeenLastCalledWith(
-      '---\ntitle: 文档\n---\n\n# 新正文\n',
+      '---\ntitle: 文档\n---\n# 新正文',
       undefined,
       'idle',
     );
@@ -755,7 +765,7 @@ describe('MarkdownEditor', () => {
     act(() => vi.advanceTimersByTime(500));
 
     expect(onMarkdownChange).toHaveBeenLastCalledWith(
-      '---\ntitle: 文档\n---\n\n# 新正文\n\n- [ ] \n',
+      '---\ntitle: 文档\n---\n# 新正文\n\n- [ ] ',
       undefined,
       'idle',
     );
@@ -1304,4 +1314,15 @@ describe('MarkdownEditor', () => {
     window.removeEventListener('markune:open-drawing', onOpenDrawing);
   });
 
+});
+
+it('opens a heading through the editor viewport and rejects a stale source navigation', async () => {
+  const ref = React.createRef<MarkdownEditorHandle>(); const revealPosition = vi.fn().mockResolvedValue({ status: 'revealed' });
+  viewportCoordinatorForElementMock.mockReturnValue({ editor: { state: { doc: {} } }, revealPosition });
+  render(<MarkdownEditor ref={ref} documentPath="/vault/a.md" markdown="# Source Heading" />);
+  expect(await ref.current!.revealLocation({ hash: 'source-heading', isCurrent: () => true })).toBe(true);
+  expect(revealPosition).toHaveBeenCalledWith(12, expect.objectContaining({ align: 'center', focus: true }));
+  expect(ref.current!.getDocumentPath()).toBe('/vault/a.md');
+  expect(await ref.current!.revealLocation({ hash: 'source-heading', isCurrent: () => false })).toBe(false);
+  expect(revealPosition).toHaveBeenCalledTimes(1);
 });

@@ -35,6 +35,9 @@ export function filterWorkspaceGraph(
     (edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target),
   );
 
+  const connected = new Set(edges.flatMap((edge) => [edge.source, edge.target]));
+  for (const node of snapshot.nodes) if (!node.relativePath && !connected.has(node.id)) visibleIds.delete(node.id);
+
   if (hideOrphans) {
     const connectedIds = new Set<string>();
     for (const edge of edges) {
@@ -139,4 +142,30 @@ export function getWorkspaceGraphNeighbors(
     .map((id) => nodeById.get(id))
     .filter((node): node is WorkspaceGraphNode => Boolean(node))
     .sort((left, right) => right.degree - left.degree || left.label.localeCompare(right.label));
+}
+
+export function localWorkspaceGraph(graph: WorkspaceVisibleGraph, center: string | null, depth: number): WorkspaceVisibleGraph {
+  if (!center) return graph;
+  const files = new Set(graph.nodes.filter((node) => node.relativePath).map((node) => node.id));
+  if (!files.has(center)) return { nodes: [], edges: [] };
+  const adjacent = new Map<string, Set<string>>();
+  for (const edge of graph.edges) {
+    if (edge.kind !== 'link' || !files.has(edge.source) || !files.has(edge.target)) continue;
+    for (const [source, target] of [[edge.source, edge.target], [edge.target, edge.source]]) {
+      const values = adjacent.get(source) ?? new Set<string>(); values.add(target); adjacent.set(source, values);
+    }
+  }
+  const visible = new Set([center]); let frontier = new Set([center]);
+  for (let layer = 0; layer < Math.max(1, Math.min(3, depth)); layer++) {
+    const next = new Set<string>();
+    for (const id of frontier) for (const neighbor of adjacent.get(id) ?? []) if (!visible.has(neighbor)) { next.add(neighbor); visible.add(neighbor); }
+    frontier = next;
+  }
+  for (const edge of graph.edges) {
+    if (visible.has(edge.source) && !files.has(edge.target)) visible.add(edge.target);
+    if (visible.has(edge.target) && !files.has(edge.source)) visible.add(edge.source);
+  }
+  const nodes = graph.nodes.filter((node) => visible.has(node.id));
+  const edges = graph.edges.filter((edge) => visible.has(edge.source) && visible.has(edge.target));
+  return filterWorkspaceGraph({ nodes, edges, documentCount: files.size, warnings: [] }, { ...DEFAULT_GRAPH_VISIBILITY, property: true }, false);
 }

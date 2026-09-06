@@ -1,9 +1,13 @@
 import type { WorkspaceSearchResult } from './workspace-types';
+import { matchesWorkspaceQuery, parseWorkspaceQuery } from './workspace-query';
 
 export interface WorkspaceSearchDocument extends WorkspaceSearchResult {
   content: string;
   drawingId?: string;
   kind?: 'document' | 'drawing';
+  properties?: Record<string, unknown>;
+  tags?: string[];
+  modifiedAt?: number;
 }
 
 export interface TextHighlightRange {
@@ -14,6 +18,7 @@ export interface TextHighlightRange {
 export interface WorkspaceSearchSnippet {
   highlights: TextHighlightRange[];
   text: string;
+  line?: number;
 }
 
 export interface WorkspaceGlobalSearchResult {
@@ -41,6 +46,10 @@ interface IndexedWorkspaceSearchDocument {
 export interface WorkspaceSearchIndex {
   documents: IndexedWorkspaceSearchDocument[];
   postings: Map<string, Map<number, Partial<Record<SearchField, number>>>>;
+  byId: Map<string, number>;
+  bodyBytes: number;
+  maxBodyBytes: number;
+  limited: Set<string>;
 }
 
 type SearchField = 'content' | 'name' | 'path' | 'title';
@@ -58,31 +67,52 @@ const SNIPPET_RADIUS = 42;
 
 export function buildWorkspaceSearchIndex(
   documents: WorkspaceSearchDocument[],
+  maxBodyBytes = 128 * 1024 * 1024,
 ): WorkspaceSearchIndex {
-  const indexedDocuments = documents.map(indexDocument);
-  const postings = new Map<
-    string,
-    Map<number, Partial<Record<SearchField, number>>>
-  >();
+  return updateWorkspaceSearchIndex({ documents: [], postings: new Map(), byId: new Map(), bodyBytes: 0, maxBodyBytes, limited: new Set() }, documents);
+}
 
-  indexedDocuments.forEach((document, documentIndex) => {
-    FIELD_ORDER.forEach((field) => {
-      document.tokens[field].forEach((count, token) => {
-        let tokenPostings = postings.get(token);
+function bodyIndexBytes(document: IndexedWorkspaceSearchDocument) {
+  let bytes = (document.document.content.length + document.normalized.content.length) * 2;
+  for (const token of document.tokens.content.keys()) bytes += token.length * 4 + 160;
+  return bytes;
+}
 
-        if (!tokenPostings) {
-          tokenPostings = new Map();
-          postings.set(token, tokenPostings);
-        }
-
-        const entry = tokenPostings.get(documentIndex) ?? {};
-        entry[field] = count;
-        tokenPostings.set(documentIndex, entry);
-      });
-    });
-  });
-
-  return { documents: indexedDocuments, postings };
+export function updateWorkspaceSearchIndex(index: WorkspaceSearchIndex, documents: WorkspaceSearchDocument[], removed: string[] = []) {
+  const removePostings = (document: IndexedWorkspaceSearchDocument, position: number) => {
+    for (const field of FIELD_ORDER) for (const token of document.tokens[field].keys()) {
+      const postings = index.postings.get(token); postings?.delete(position);
+      if (postings?.size === 0) index.postings.delete(token);
+    }
+  };
+  const addPostings = (document: IndexedWorkspaceSearchDocument, position: number) => {
+    for (const field of FIELD_ORDER) for (const [token, count] of document.tokens[field]) {
+      const postings = index.postings.get(token) ?? new Map<number, Partial<Record<SearchField, number>>>();
+      const value = postings.get(position) ?? {}; value[field] = count;
+      postings.set(position, value); index.postings.set(token, postings);
+    }
+  };
+  for (const id of removed) {
+    const position = index.byId.get(id); if (position === undefined) continue;
+    const old = index.documents[position]; removePostings(old, position); index.byId.delete(id);
+    index.bodyBytes -= bodyIndexBytes(old); index.limited.delete(id);
+    const last = index.documents.pop()!;
+    if (position < index.documents.length) {
+      removePostings(last, index.documents.length); index.documents[position] = last;
+      index.byId.set(last.document.id, position); addPostings(last, position);
+    }
+  }
+  for (const document of documents) {
+    const position = index.byId.get(document.id) ?? index.documents.length;
+    const old = index.documents[position]; if (old) { removePostings(old, position); index.bodyBytes -= bodyIndexBytes(old); }
+    let next = indexDocument(document); index.limited.delete(document.id);
+    if (document.content && index.bodyBytes + bodyIndexBytes(next) > index.maxBodyBytes) {
+      next = indexDocument({ ...document, content: '' }); index.limited.add(document.id);
+    }
+    index.bodyBytes += bodyIndexBytes(next); index.documents[position] = next;
+    index.byId.set(document.id, position); addPostings(next, position);
+  }
+  return index;
 }
 
 export function searchWorkspaceIndex(
@@ -90,26 +120,33 @@ export function searchWorkspaceIndex(
   query: string,
   limit = MAX_RESULTS,
 ): WorkspaceGlobalSearchResult[] {
-  const normalizedQuery = normalizeText(query);
+  const parsed = parseWorkspaceQuery(query);
+  const normalizedQuery = normalizeText(parsed.text);
 
-  if (!normalizedQuery) {
+  if (parsed.error || !normalizedQuery && parsed.filters.length === 0) {
     return [];
   }
 
   const queryTokens = Array.from(new Set(tokenize(normalizedQuery)));
-  const candidateIndexes = collectCandidateIndexes(index, queryTokens);
+  const candidateIndexes = normalizedQuery ? collectCandidateIndexes(index, queryTokens) : new Set(index.documents.map((_, index) => index));
 
   if (candidateIndexes.size === 0) {
     collectSubstringCandidates(index, normalizedQuery, candidateIndexes);
   }
 
   return Array.from(candidateIndexes)
+    .filter((position) => matchesWorkspaceQuery(index.documents[position].document, parsed))
     .map((documentIndex) =>
       scoreDocument(index, documentIndex, normalizedQuery, queryTokens),
     )
     .filter((result): result is WorkspaceGlobalSearchResult => result !== null)
     .sort((left, right) => right.score - left.score)
-    .slice(0, limit);
+    .slice(0, limit)
+    .map((result) => ({ ...result,
+      titleHighlights: getHighlights(result.document.title, normalizedQuery),
+      pathHighlights: getHighlights(result.document.relativePath, normalizedQuery),
+      snippet: normalizedQuery ? createSnippet(result.document.content, normalizedQuery, queryTokens) : null,
+    }));
 }
 
 function indexDocument(
@@ -176,7 +213,7 @@ function scoreDocument(
   queryTokens: string[],
 ): WorkspaceGlobalSearchResult | null {
   const document = index.documents[documentIndex];
-  let score = 0;
+  let score = normalizedQuery ? 0 : 1;
 
   queryTokens.forEach((token) => {
     const tokenPostings = index.postings.get(token);
@@ -209,10 +246,10 @@ function scoreDocument(
 
   return {
     document: document.document,
-    pathHighlights: getHighlights(document.document.relativePath, normalizedQuery),
+    pathHighlights: [],
     score,
-    snippet: createSnippet(document.document.content, normalizedQuery, queryTokens),
-    titleHighlights: getHighlights(document.document.title, normalizedQuery),
+    snippet: null,
+    titleHighlights: [],
   };
 }
 
@@ -247,14 +284,24 @@ function createSnippet(
   queryTokens: string[],
 ): WorkspaceSearchSnippet | null {
   const normalizedContent = normalizeText(content);
-  const matchIndex = findBestMatchIndex(
+  const normalizedMatch = findBestMatchIndex(
     normalizedContent,
     normalizedQuery,
     queryTokens,
   );
 
-  if (matchIndex === -1) {
+  if (normalizedMatch === -1) {
     return null;
+  }
+
+  const normalizedRaw = content.normalize('NFKC').toLowerCase();
+  const offset = normalizedMatch + normalizedRaw.length - normalizedRaw.trimStart().length;
+  let matchIndex = offset;
+  if (content.normalize('NFKC') !== content || content.toLowerCase().length !== content.length) {
+    let low = 0; let high = content.length;
+    while (low < high) { const middle = (low + high) >>> 1; if (content.slice(0, middle).normalize('NFKC').toLowerCase().length > offset) high = middle; else low = middle + 1; }
+    matchIndex = Math.max(0, low - 1);
+    if (/[\uDC00-\uDFFF]/.test(content[matchIndex] ?? '')) matchIndex -= 1;
   }
 
   const start = Math.max(0, matchIndex - SNIPPET_RADIUS);
@@ -267,7 +314,7 @@ function createSnippet(
   const text = `${prefix}${content.slice(start, end)}${suffix}`;
   const highlights = getHighlights(text, normalizedQuery, queryTokens);
 
-  return { highlights, text };
+  return { highlights, text, line: content.slice(0, matchIndex).split('\n').length };
 }
 
 function findBestMatchIndex(

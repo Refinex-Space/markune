@@ -34,6 +34,7 @@ import {
 import {
   DEFAULT_GRAPH_VISIBILITY,
   getGraphRelationshipDescriptions,
+  localWorkspaceGraph,
   filterWorkspaceGraph,
   findWorkspaceGraphMatches,
   getWorkspaceGraphNeighbors,
@@ -50,6 +51,7 @@ interface WorkspaceGraphPageProps {
   nodes: WorkspaceNode[];
   rootPath: string;
   revision?: number;
+  currentDocumentPath?: string | null;
   sidebarHeaderOffset?: number;
   onOpenNode: (node: WorkspaceNode) => void;
 }
@@ -87,6 +89,7 @@ function WorkspaceGraphPageContent({
   nodes,
   rootPath,
   revision = 0,
+  currentDocumentPath,
   sidebarHeaderOffset,
   onOpenNode,
 }: WorkspaceGraphPageProps) {
@@ -95,6 +98,8 @@ function WorkspaceGraphPageContent({
   const searchInputRef = React.useRef<HTMLInputElement | null>(null);
   const { snapshot, error, isLoading, isRefreshing, refresh } = useWorkspaceGraph(rootPath, revision);
   const [query, setQuery] = React.useState('');
+  const [center, setCenter] = React.useState<string | null>(null);
+  const [depth, setDepth] = React.useState(1);
   const [selectedNodeId, setSelectedNodeId] = React.useState<string | null>(null);
   const [settings, setSettings] = React.useState<PersistedGraphSettings>(() =>
     readPersistedGraphSettings(rootPath),
@@ -126,9 +131,9 @@ function WorkspaceGraphPageContent({
   const visibleGraph = React.useMemo(
     () =>
       snapshot
-        ? filterWorkspaceGraph(snapshot, settings.visibility, settings.hideOrphans)
+        ? localWorkspaceGraph(filterWorkspaceGraph(snapshot, settings.visibility, settings.hideOrphans), center, depth)
         : { nodes: [], edges: [] },
-    [settings.hideOrphans, settings.visibility, snapshot],
+    [settings.hideOrphans, settings.visibility, snapshot, center, depth],
   );
   const matches = React.useMemo(
     () => findWorkspaceGraphMatches(visibleGraph.nodes, query),
@@ -149,6 +154,7 @@ function WorkspaceGraphPageContent({
         : [],
     [selectedNode, visibleGraph],
   );
+  React.useEffect(() => { canvasRef.current?.fit(); }, [center, depth]);
 
   const openGraphNode = React.useCallback(
     (nodeId: string) => {
@@ -238,6 +244,8 @@ function WorkspaceGraphPageContent({
                 适应图谱视图
               </TooltipContent>
             </Tooltip>
+            <button type="button" className="h-7 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent" disabled={!center && !selectedNode?.relativePath && !currentDocumentPath} onClick={() => setCenter(center ? null : selectedNode?.relativePath ? selectedNode.id : snapshot?.nodes.find((node) => node.relativePath === currentDocumentPath)?.id ?? null)}>{center ? '返回全局' : '局部图谱'}</button>
+            {center ? <select aria-label="局部图谱深度" className="h-7 rounded-md border border-border/60 bg-background px-1 text-xs" value={depth} onChange={(event) => setDepth(Number(event.target.value))}>{[1, 2, 3].map((depth) => <option key={depth} value={depth}>{depth} 层引用</option>)}</select> : null}
             <GraphSettingsPopover settings={settings} onChange={setSettings} />
             <Tooltip>
               <TooltipTrigger asChild>
@@ -259,6 +267,7 @@ function WorkspaceGraphPageContent({
       </header>
 
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
+        {center && !query.trim() ? <div className="absolute left-3 top-3 z-10 max-w-xs truncate rounded-md border border-border/60 bg-background/95 px-2 py-1 text-xs text-muted-foreground">中心：{snapshot?.nodes.find((node) => node.id === center)?.label ?? '笔记已不可用'} · {depth} 层文档引用</div> : null}
         {isLoading ? (
           <GraphStatus icon={<RefreshCw className="animate-spin" size={18} />} label="正在构建工作区图谱…" />
         ) : error && !snapshot ? (
@@ -314,6 +323,7 @@ function WorkspaceGraphPageContent({
             edges={visibleGraph.edges}
             neighbors={selectedNeighbors}
             node={selectedNode}
+            onLocal={() => setCenter(selectedNode.id)}
             onClose={() => setSelectedNodeId(null)}
             onOpen={() => openGraphNode(selectedNode.id)}
             onSelect={(node) => {
@@ -493,6 +503,7 @@ function GraphRange({
 }
 
 function GraphInspector({
+  onLocal,
   edges,
   neighbors,
   node,
@@ -500,6 +511,7 @@ function GraphInspector({
   onOpen,
   onSelect,
 }: {
+  onLocal: () => void;
   edges: WorkspaceGraphEdge[];
   neighbors: WorkspaceGraphNode[];
   node: WorkspaceGraphNode;
@@ -552,6 +564,7 @@ function GraphInspector({
             打开文档
           </button>
         ) : null}
+        {node.relativePath ? <button type="button" className="mt-2 w-full rounded-md border border-border/60 py-2" onClick={onLocal}>以此笔记为中心</button> : null}
         <div className="mb-2 mt-5 font-medium">相邻节点 ({neighbors.length})</div>
         <div className="space-y-1">
           {neighbors.slice(0, neighborLimit).map((neighbor) => (

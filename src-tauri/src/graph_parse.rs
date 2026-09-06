@@ -1,4 +1,4 @@
-use pulldown_cmark::{Event, HeadingLevel, LinkType, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use std::collections::{BTreeMap, BTreeSet};
 
 const MAX_VALUES: usize = 8192;
@@ -10,7 +10,7 @@ pub(crate) struct Reference {
     pub wiki: bool,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct Projection {
     pub title: Option<String>,
     pub references: Vec<Reference>,
@@ -24,7 +24,19 @@ pub(crate) fn parse(raw: &str) -> Projection {
     let (metadata, body) = split_frontmatter(raw.trim_start_matches('\u{feff}'));
     if let Some(metadata) = metadata {
         match crate::graph_metadata::parse_fields(metadata) {
-            Ok(fields) => project_fields(fields, &mut result),
+            Ok(fields) => {
+                project_fields(fields, &mut result);
+                match crate::document_frontmatter::text_scalars(metadata) {
+                    Ok(fields) => {
+                        for field in fields {
+                            if crate::document_frontmatter::is_reference_text(&field) {
+                                parse_body(&field.value, &mut result, false);
+                            }
+                        }
+                    }
+                    Err(error) => result.warnings.push(error),
+                }
+            }
             Err(error) => result.warnings.push(error),
         }
     }
@@ -52,7 +64,7 @@ fn split_frontmatter(raw: &str) -> (Option<&str>, &str) {
 
 fn project_fields(fields: BTreeMap<String, Vec<String>>, result: &mut Projection) {
     for (key, values) in fields {
-        match key.to_ascii_lowercase().as_str() {
+        match key.as_str() {
             "title" => {
                 result.title = values
                     .first()
@@ -64,58 +76,33 @@ fn project_fields(fields: BTreeMap<String, Vec<String>>, result: &mut Projection
                     add_tag(&value, result);
                 }
             }
-            "createdat" | "updatedat" | "refinexdialect" | "aliases" => {}
+            "createdAt" | "updatedAt" | "refinexDialect" | "aliases" => {}
             _ => {
                 result.properties.insert(key);
-                for value in values {
-                    parse_body(&value, result, false);
-                }
             }
         }
     }
 }
 
+pub(crate) fn is_system_field(key: &str) -> bool {
+    matches!(
+        key,
+        "title" | "tags" | "aliases" | "createdAt" | "updatedAt" | "refinexDialect"
+    )
+}
+
 fn parse_body(body: &str, result: &mut Projection, include_tags: bool) {
     let body = mask_obsidian_comments(body);
-    let options = Options::ENABLE_WIKILINKS
-        | Options::ENABLE_TABLES
-        | Options::ENABLE_STRIKETHROUGH
-        | Options::ENABLE_TASKLISTS
-        | Options::ENABLE_MATH;
-    let mut excluded = 0usize;
-    let mut link_depth = 0usize;
-    let mut heading = None::<String>;
-    for (event, range) in Parser::new_ext(&body, options).into_offset_iter() {
-        match event {
-            Event::Start(Tag::CodeBlock(_) | Tag::HtmlBlock) => excluded += 1,
-            Event::End(TagEnd::CodeBlock | TagEnd::HtmlBlock) => {
-                excluded = excluded.saturating_sub(1)
-            }
-            _ if excluded > 0 => {}
-            Event::Start(
-                Tag::Link {
-                    link_type,
-                    dest_url,
-                    ..
-                }
-                | Tag::Image {
-                    link_type,
-                    dest_url,
-                    ..
-                },
-            ) => {
-                let wiki = matches!(link_type, LinkType::WikiLink { .. });
-                let image = body[range.clone()].starts_with('!');
-                if (!image || wiki)
-                    && !matches!(link_type, LinkType::Autolink | LinkType::Email)
-                    && !dest_url.is_empty()
+    match crate::document_links::body_references_masked(&body) {
+        Ok(references) => {
+            for located in references
+                .into_iter()
+                .filter(|reference| reference.occurrence)
+            {
+                if located.reference.value.len() > MAX_VALUE_BYTES
+                    || result.references.len() >= MAX_VALUES
                 {
-                    if dest_url.len() <= MAX_VALUE_BYTES && result.references.len() < MAX_VALUES {
-                        result.references.push(Reference {
-                            value: dest_url.to_string(),
-                            wiki,
-                        });
-                    } else if !result
+                    if !result
                         .warnings
                         .iter()
                         .any(|warning| warning.contains("引用数量"))
@@ -124,7 +111,30 @@ fn parse_body(body: &str, result: &mut Projection, include_tags: bool) {
                             .warnings
                             .push("单篇文档引用数量或长度超过图谱解析上限".into());
                     }
+                    continue;
                 }
+                result.references.push(located.reference);
+            }
+        }
+        Err(error) => result.warnings.push(error),
+    }
+    let options = Options::ENABLE_WIKILINKS
+        | Options::ENABLE_TABLES
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_MATH;
+    let mut excluded = 0usize;
+    let mut link_depth = 0usize;
+    let mut html_code_depth = 0usize;
+    let mut heading = None::<String>;
+    for (event, range) in Parser::new_ext(&body, options).into_offset_iter() {
+        match event {
+            Event::Start(Tag::CodeBlock(_) | Tag::HtmlBlock) => excluded += 1,
+            Event::End(TagEnd::CodeBlock | TagEnd::HtmlBlock) => {
+                excluded = excluded.saturating_sub(1)
+            }
+            _ if excluded > 0 => {}
+            Event::Start(Tag::Link { .. } | Tag::Image { .. }) => {
                 link_depth += 1;
             }
             Event::End(TagEnd::Link | TagEnd::Image) => link_depth = link_depth.saturating_sub(1),
@@ -137,6 +147,32 @@ fn parse_body(body: &str, result: &mut Projection, include_tags: bool) {
                     result.title = Some(bounded_label(&value));
                 }
             }
+            Event::InlineHtml(html) => {
+                let mut reader = quick_xml::Reader::from_str(&html);
+                reader.config_mut().check_end_names = false;
+                reader.config_mut().allow_unmatched_ends = true;
+                loop {
+                    use quick_xml::events::Event as XmlEvent;
+                    match reader.read_event() {
+                        Ok(XmlEvent::Start(element))
+                            if [b"code".as_slice(), b"pre", b"script", b"style"]
+                                .iter()
+                                .any(|name| element.name().as_ref().eq_ignore_ascii_case(name)) =>
+                        {
+                            html_code_depth += 1
+                        }
+                        Ok(XmlEvent::End(element))
+                            if [b"code".as_slice(), b"pre", b"script", b"style"]
+                                .iter()
+                                .any(|name| element.name().as_ref().eq_ignore_ascii_case(name)) =>
+                        {
+                            html_code_depth = html_code_depth.saturating_sub(1)
+                        }
+                        Ok(XmlEvent::Eof) | Err(_) => break,
+                        _ => {}
+                    }
+                }
+            }
             Event::Text(value) => {
                 if let Some(heading) = heading
                     .as_mut()
@@ -144,7 +180,7 @@ fn parse_body(body: &str, result: &mut Projection, include_tags: bool) {
                 {
                     heading.push_str(&value);
                 }
-                if include_tags && link_depth == 0 {
+                if include_tags && link_depth == 0 && html_code_depth == 0 {
                     extract_tags(&body, range, result);
                 }
             }
@@ -165,7 +201,7 @@ fn bounded_label(value: &str) -> String {
     value.trim().chars().take(256).collect()
 }
 
-fn mask_obsidian_comments(raw: &str) -> String {
+pub(crate) fn mask_obsidian_comments(raw: &str) -> String {
     let protected = Parser::new_ext(raw, Options::ENABLE_MATH | Options::ENABLE_WIKILINKS)
         .into_offset_iter()
         .filter_map(|(event, range)| {
@@ -269,6 +305,15 @@ fn add_tag(value: &str, result: &mut Projection) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn inline_html_code_does_not_create_tags_or_links() {
+        let projection = parse("<code>#hidden [[missing]]</code> #real");
+        assert_eq!(
+            projection.tags.into_iter().collect::<Vec<_>>(),
+            vec!["real"]
+        );
+        assert!(projection.references.is_empty());
+    }
     #[test]
     fn accepts_markune_frontmatter_with_timestamps_and_chinese_title() {
         let raw = "---\ncreatedAt: 2026-07-13T08:59:16.273Z\nrefinexDialect: 1\ntitle: 通用 PDF 与 Word 转 Markdown 能力开发设计\nupdatedAt: 2026-07-17T01:04:39.834Z\n---\n";

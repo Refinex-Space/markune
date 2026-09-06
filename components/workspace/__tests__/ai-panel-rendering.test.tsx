@@ -2516,3 +2516,18 @@ function ComposerHarness({
     </>
   );
 }
+
+it('研究资料追加到现有 AI 草稿，保留提及节点且不自动发送', async () => {
+  const onSend = vi.fn(); const onValueChange = vi.fn(); const onApplied = vi.fn();
+  const props = { active: false, approvalPolicyAvailability: { never: true, onRequest: true }, autoReviewAvailable: false, currentDocument: null, effort: 'medium' as const, mentionDocuments: [], mentionQuery: null, models: [], permissionMode: 'ask' as const, permissionProfiles: [], permissionSwitchDisabled: false, runtimeStatus: 'ready' as const, selectedModel: '', selectedModelInfo: null, submitting: false, value: '已有问题', onEffortChange: vi.fn(), onInterrupt: vi.fn(), onMentionQueryChange: vi.fn(), onMentionsChange: vi.fn(), onModelChange: vi.fn(), onOpenMention: vi.fn(), onPermissionModeChange: vi.fn(), onSend, onValueChange };
+  const { container, rerender } = render(<AiComposer {...props} />);
+  const editor = container.querySelector('[contenteditable="true"]')!;
+  const mention = document.createElement('span'); mention.dataset.mentionPath = 'notes/a.md'; mention.textContent = '来源笔记'; mention.contentEditable = 'false'; editor.append(mention);
+  const request = { id: 'research-1', text: '根据来源研究 <script>unsafe</script>' };
+  rerender(<AiComposer {...props} textInsertRequest={request} onTextInsertApplied={onApplied} />);
+  await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1));
+  expect(editor.textContent).toContain('已有问题'); expect(editor.contains(mention)).toBe(true);
+  expect(editor.textContent).toContain(request.text); expect(editor.querySelector('script')).toBeNull(); expect(onSend).not.toHaveBeenCalled();
+  rerender(<AiComposer {...props} textInsertRequest={{ ...request }} onTextInsertApplied={onApplied} />);
+  expect(onApplied).toHaveBeenCalledTimes(1);
+});

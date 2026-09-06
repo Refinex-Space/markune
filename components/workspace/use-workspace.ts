@@ -56,7 +56,6 @@ import type {
   TreeNodeAppearance,
 } from './workspace-types';
 
-const FRONTMATTER_OPENING_PATTERN = /^---\r?\n/;
 
 export interface ExternalDocumentConflict {
   externalDocument: MarkdownDocumentContent;
@@ -519,19 +518,8 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
           snapshotRef.current?.rootPath !== snapshot.rootPath
         )
           return null;
-        const rawDraft = createMarkdownDraft(rawContent, node.name);
-
-        const { draft, content } = await compensateMarkdownDocument(
-          snapshot.rootPath,
-          node,
-          rawContent,
-          rawDraft,
-        );
-        if (
-          requestId !== documentOpenRequestIdRef.current ||
-          snapshotRef.current?.rootPath !== snapshot.rootPath
-        )
-          return null;
+        const content = rawContent;
+        const draft = createMarkdownDraft(content, node.name);
 
         documentContentRef.current = content;
         draftDocumentRef.current = draft;
@@ -866,19 +854,14 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       }
 
       const activeDraft = draftOverride ?? draftDocument;
-      if (conflictRef.current?.path === node.absolutePath) return null;
-
-      if (
-        currentDocument?.absolutePath === node.absolutePath &&
-        (saveState === 'dirty' || saveState === 'saving')
-      ) {
-        if (!(await saveCurrentDocumentNow(activeDraft))) return null;
-      }
+      if (conflictRef.current) return null;
+      if (!(await saveCurrentDocumentNow(activeDraft))) return null;
 
       const renamed = await renameWorkspaceNode(
         snapshot.rootPath,
         node.absolutePath,
         newName,
+        isRenamingRef.current,
       );
 
       // Incremental update: swap the renamed subtree in place. Rename keeps the
@@ -901,40 +884,16 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         if (renamed.kind === 'document') {
           setCurrentDocument(renamed);
 
-          if (isRenamingRef.current && activeDraft) {
-            // H1 同步：保持内存 draft（保留原始 H1），保存到新路径覆盖 Rust 规范化内容
-            const saveMeta = await saveMarkdownDocument(
-              snapshot.rootPath,
-              renamed.absolutePath,
-              activeDraft.markdown,
-              null,
-            );
-            setDocumentContent({
-              content: activeDraft.markdown,
-              modifiedAt: saveMeta.modifiedAt,
-              path: saveMeta.path,
-            });
-            setDraftDocument((prev) =>
-              prev
-                ? { ...prev, modifiedAt: saveMeta.modifiedAt, path: saveMeta.path }
-                : null,
-            );
-            lastSavedMarkdownRef.current = activeDraft.markdown;
-            setLastSavedAt(saveMeta.modifiedAt);
-            setSaveState('saved');
-          } else if (draftDocument) {
-            // 文件树重命名：从磁盘读取 Rust 更新后的内容，平滑更新编辑器
-            const freshContent = await readMarkdownDocument(
-              snapshot.rootPath,
-              renamed.absolutePath,
-            );
-            const freshDraft = createMarkdownDraft(freshContent, renamed.name);
-            setDocumentContent(freshContent);
-            setDraftDocument(freshDraft);
-            lastSavedMarkdownRef.current = freshContent.content;
-            setLastSavedAt(freshContent.modifiedAt);
-            setSaveState('saved');
-          }
+          const freshContent = await readMarkdownDocument(snapshot.rootPath, renamed.absolutePath);
+          const freshDraft = createMarkdownDraft(freshContent, renamed.name);
+          currentDocumentRef.current = renamed;
+          documentContentRef.current = freshContent;
+          draftDocumentRef.current = freshDraft;
+          setDocumentContent(freshContent);
+          setDraftDocument(freshDraft);
+          lastSavedMarkdownRef.current = freshContent.content;
+          setLastSavedAt(freshContent.modifiedAt);
+          setSaveState('saved');
         } else {
           resetDocumentState();
         }
@@ -950,7 +909,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
 
       return renamed;
     },
-    [snapshot, draftDocument, currentDocument?.absolutePath, saveState, currentDirectoryPath, saveCurrentDocumentNow, setSnapshot, resetDocumentState],
+    [snapshot, draftDocument, currentDocument?.absolutePath, currentDirectoryPath, saveCurrentDocumentNow, setSnapshot, resetDocumentState],
   );
 
   const updateMarkdown = React.useCallback(
@@ -1514,72 +1473,16 @@ function createMarkdownDraft(
   };
 }
 
-function withUpdatedMarkdown(
-  draft: MarkdownDraft,
-  markdown: string,
-): MarkdownDraft {
-  const parsed = parseMarkdownMetadata(markdown, '');
+function withUpdatedMarkdown(draft: MarkdownDraft, markdown: string): MarkdownDraft {
+  const fileName = getBaseName(draft.path);
+  const parsed = parseMarkdownMetadata(markdown, fileName);
   const h1Text = extractH1FromMarkdown(parsed.body);
-  const metadata = {
-    ...draft.metadata,
-    updatedAt: new Date().toISOString(),
-    ...(h1Text !== null && h1Text !== '' ? { title: h1Text } : {}),
+  const updates = {
+    ...(parsed.source && Object.hasOwn(parsed.source.properties, 'updatedAt') ? { updatedAt: new Date().toISOString() } : {}),
+    ...(parsed.source && Object.hasOwn(parsed.source.properties, 'title') && h1Text ? { title: h1Text } : {}),
   };
-
-  const nextMarkdown = serializeFrontmatter({ body: parsed.body, metadata });
-
-  return {
-    ...draft,
-    markdown: nextMarkdown,
-    metadata,
-  };
-}
-
-async function compensateMarkdownDocument(
-  rootPath: string,
-  node: WorkspaceNode,
-  content: MarkdownDocumentContent,
-  draft: MarkdownDraft,
-): Promise<{ draft: MarkdownDraft; content: MarkdownDocumentContent }> {
-  const fileStem = node.name.replace(/\.md$/i, '');
-  const parsed = parseMarkdownMetadata(content.content, node.name);
-  const needsFrontmatter = !FRONTMATTER_OPENING_PATTERN.test(content.content);
-  const hasH1InBody = /^#{1}\s+\S/m.test(parsed.body);
-  const needsH1 = !hasH1InBody;
-
-  if (!needsH1 && !needsFrontmatter) {
-    return { draft, content };
-  }
-
-  const title = draft.metadata.title || fileStem;
-  const h1Prefix = needsH1 ? `# ${title}\n\n` : '';
-  const body = needsH1 ? `${h1Prefix}${parsed.body}` : parsed.body;
-  const metadata = {
-    ...draft.metadata,
-    title,
-    createdAt: draft.metadata.createdAt ?? new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  const markdown = serializeFrontmatter({ body, metadata });
-
-  const meta = await saveMarkdownDocument(
-    rootPath,
-    node.absolutePath,
-    markdown,
-    content.modifiedAt,
-    content.content,
-  );
-
-  const compensatedContent: MarkdownDocumentContent = {
-    content: markdown,
-    modifiedAt: meta.modifiedAt,
-    path: meta.path,
-  };
-
-  return {
-    content: compensatedContent,
-    draft: createMarkdownDraft(compensatedContent, node.name),
-  };
+  const nextMarkdown = parsed.source ? serializeFrontmatter({ body: parsed.body, metadata: updates, source: parsed.source }) : markdown;
+  return { ...draft, markdown: nextMarkdown, metadata: parseMarkdownMetadata(nextMarkdown, fileName).metadata };
 }
 
 function findNodeByAbsolutePath(

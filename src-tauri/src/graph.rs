@@ -65,10 +65,10 @@ pub enum WorkspaceGraphEdgeKind {
     Property,
 }
 
-struct ParsedDocument {
-    path: String,
-    projection: Projection,
-    indexed: bool,
+pub(crate) struct ParsedDocument {
+    pub path: String,
+    pub projection: Projection,
+    pub indexed: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -127,7 +127,41 @@ pub async fn load_workspace_graph(root_path: String) -> Result<WorkspaceGraphSna
 }
 
 fn load_workspace_graph_sync(root_path: &str) -> Result<WorkspaceGraphSnapshot, String> {
-    load_with_limits(root_path, Limits::default())
+    let root = crate::workspace::canonical_workspace_root(root_path)?;
+    let (indexed, warnings) = crate::workspace_index::documents(&root)?;
+    let mut scan = Scan {
+        documents: Vec::new(),
+        warnings,
+        entries: 0,
+        bytes: 0,
+        projection_bytes: 0,
+        limits: Limits::default(),
+    };
+    for document in indexed {
+        let mut projection = (*document.projection).clone();
+        let mut truncated = false;
+        projection
+            .references
+            .retain(|reference| retain_value(&reference.value, &mut scan, &mut truncated));
+        projection
+            .tags
+            .retain(|value| retain_value(value, &mut scan, &mut truncated));
+        projection
+            .properties
+            .retain(|value| retain_value(value, &mut scan, &mut truncated));
+        if truncated {
+            push_warning(
+                &mut scan.warnings,
+                "图谱关系投影超过内存预算，部分内容未索引".into(),
+            );
+        }
+        scan.documents.push(ParsedDocument {
+            path: document.relative_path.clone(),
+            projection,
+            indexed: document.errors.is_empty() && !truncated,
+        });
+    }
+    build_graph(scan)
 }
 
 fn load_with_limits(root_path: &str, limits: Limits) -> Result<WorkspaceGraphSnapshot, String> {
@@ -146,6 +180,11 @@ fn load_with_limits(root_path: &str, limits: Limits) -> Result<WorkspaceGraphSna
         limits,
     };
     collect_documents(&root, &root, 0, &mut scan)?;
+    build_graph(scan)
+}
+
+fn build_graph(mut scan: Scan) -> Result<WorkspaceGraphSnapshot, String> {
+    let limits = scan.limits;
     let lookup = Lookup::new(scan.documents.iter().map(|document| document.path.clone()));
     let mut nodes = scan
         .documents
@@ -218,7 +257,14 @@ fn load_with_limits(root_path: &str, limits: Limits) -> Result<WorkspaceGraphSna
             ),
         ] {
             for value in values {
-                let id = format!("{prefix}:{}", value.to_lowercase());
+                let id = format!(
+                    "{prefix}:{}",
+                    if node_kind == WorkspaceGraphNodeKind::Tag {
+                        value.to_lowercase()
+                    } else {
+                        value.clone()
+                    }
+                );
                 if add_hub(
                     &mut hubs,
                     &mut scan.warnings,
@@ -490,7 +536,11 @@ fn retain_value(value: &str, scan: &mut Scan, truncated: &mut bool) -> bool {
     true
 }
 
-fn read_regular_document(path: &Path, limit: u64, spent: &mut u64) -> Result<String, String> {
+pub(crate) fn read_regular_document(
+    path: &Path,
+    limit: u64,
+    spent: &mut u64,
+) -> Result<String, String> {
     let mut options = fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]

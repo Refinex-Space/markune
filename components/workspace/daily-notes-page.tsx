@@ -897,6 +897,7 @@ function DailyQuickEditorDialog({
             const editedDraft = parseFrontmatter(draftMarkdown);
             contentToSave = serializeFrontmatter({
               body: editedDraft.body,
+              source: editedDraft.source ?? nativeTemplate.source,
               metadata: {
                 ...nativeTemplate.metadata,
                 ...editedDraft.metadata,

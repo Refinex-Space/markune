@@ -6,6 +6,7 @@ import {
   findWorkspaceGraphMatches,
   getWorkspaceGraphNeighbors,
   describeGraphRelationship,
+  localWorkspaceGraph,
 } from '../workspace-graph-model';
 import type { WorkspaceGraphSnapshot } from '../workspace-types';
 
@@ -65,4 +66,13 @@ describe('workspace graph model', () => {
       'tag:rust',
     ]);
   });
+});
+
+
+it('local graph expands document links by depth without crossing tag hubs', () => {
+  const extended = { ...snapshot, nodes: [...snapshot.nodes, { id: 'c.md', kind: 'note' as const, label: 'C', relativePath: 'c.md', degree: 1 }, { id: 'd.md', kind: 'note' as const, label: 'D', relativePath: 'd.md', degree: 1 }], edges: [...snapshot.edges, { id: 'bc', kind: 'link' as const, source: 'b.md', target: 'c.md', weight: 1 }, { id: 'dt', kind: 'tag' as const, source: 'd.md', target: 'tag:rust', weight: 1 }] };
+  const graph = filterWorkspaceGraph(extended, DEFAULT_GRAPH_VISIBILITY, false);
+  expect(localWorkspaceGraph(graph, 'a.md', 1).nodes.map((node) => node.id)).toEqual(['a.md', 'b.md', 'tag:rust']);
+  const depthTwo = localWorkspaceGraph(graph, 'a.md', 2);
+  expect(depthTwo.nodes.map((node) => node.id)).toContain('c.md'); expect(depthTwo.nodes.map((node) => node.id)).not.toContain('d.md');
 });

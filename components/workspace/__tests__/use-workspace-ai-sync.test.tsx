@@ -49,6 +49,46 @@ describe('useWorkspace AI 文件同步', () => {
     });
   });
 
+  it('打开及编辑普通 Markdown 不会自动添加元数据或标题', async () => {
+    const raw = '    original code\n';
+    api.readMarkdownDocument.mockResolvedValue({ content: raw, modifiedAt: 1, path: node.absolutePath });
+    const { result } = renderHook(() => useWorkspace(snapshot));
+    await act(() => result.current.openDocument(node));
+    expect(api.saveMarkdownDocument).not.toHaveBeenCalled();
+    expect(result.current.draftDocument?.markdown).toBe(raw);
+    await act(async () => { await result.current.updateMarkdown('    changed code\n', { saveImmediately: true }); });
+    expect(api.saveMarkdownDocument).toHaveBeenCalledWith('/workspace', node.absolutePath, '    changed code\n', 1, raw);
+  });
+
+  it('正文保存保留未知嵌套元数据与注释', async () => {
+    const header = '---\ntitle: README # keep\ntags:\n - one\n - two\ncustom:\n owner: team\n---\n\n';
+    const raw = header + '# README\n\nOriginal';
+    api.readMarkdownDocument.mockResolvedValue({ content: raw, modifiedAt: 1, path: node.absolutePath });
+    const { result } = renderHook(() => useWorkspace(snapshot));
+    await act(() => result.current.openDocument(node));
+    await act(async () => { await result.current.updateMarkdown(header + '# README\n\nChanged', { saveImmediately: true }); });
+    expect(api.saveMarkdownDocument).toHaveBeenCalledWith('/workspace', node.absolutePath, header + '# README\n\nChanged', 1, raw);
+  });
+
+  it('自动改名先保存最新内容，再读取引用修复结果，不以旧草稿覆盖新路径', async () => {
+    const { result } = renderHook(() => useWorkspace(snapshot));
+    await act(() => result.current.openDocument(node));
+    const renamed = { ...node, id: 'New.md', name: 'New.md', title: 'New', relativePath: 'New.md', absolutePath: '/workspace/New.md' };
+    const rewritten = '---\ntitle: New\nrefinexDialect: 1\n---\n# New\n\n[Target](fixed.md)';
+    api.renameWorkspaceNode.mockResolvedValue(renamed);
+    api.readMarkdownDocument.mockResolvedValue({ content: rewritten, modifiedAt: 3, path: renamed.absolutePath });
+    vi.useFakeTimers();
+    try {
+      act(() => result.current.updateMarkdown(markdown('New body').replace('# README', '# New')));
+      await act(() => vi.advanceTimersByTimeAsync(300));
+      expect(api.renameWorkspaceNode).toHaveBeenCalledWith('/workspace', node.absolutePath, 'New', true);
+      expect(api.saveMarkdownDocument).toHaveBeenCalledTimes(1);
+      expect(api.saveMarkdownDocument.mock.calls[0][1]).toBe(node.absolutePath);
+      expect(result.current.draftDocument?.markdown).toBe(rewritten);
+      expect(result.current.draftDocument?.path).toBe(renamed.absolutePath);
+    } finally { vi.useRealTimers(); }
+  });
+
   it('发送 AI turn 前会立即保存当前草稿并返回真实结果', async () => {
     const { result } = renderHook(() => useWorkspace(snapshot));
     await act(() => result.current.openDocument(node));

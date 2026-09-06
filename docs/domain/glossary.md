@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-05
+updated: 2026-09-06
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -22,7 +22,7 @@ referenced_by: AGENTS.md#knowledge-map
 - Document import grant: a 15-minute Rust-side authorization for user-selected source files; the renderer receives only opaque grant/source IDs and source metadata, never absolute paths.
 - Prepared import document: the normalized Markdown, title, asset manifest, warnings and PDF/OCR metadata produced before a document import commit.
 - Import commit session: a per-document staging transaction that validates and de-duplicates assets, replaces `markune-import://asset/{token}` placeholders with `markune-asset://{hash}`, and writes one uniquely named Markdown document.
-- Global search: client-side full-text Markdown search over workspace documents.
+- Global search: incremental client-side Markdown search fed by bounded native index pages; large-body omissions are reported explicitly.
 - Drawing: a `whiteboard` or `mindmap` with a stable UUID identity, stored outside the Markdown document tree and indexed as a separate global-search result type.
 - Drawing album: a nested physical directory under `.markune/drawings/albums` used to organize drawings; it is derived from location rather than stored in `meta.json`.
 - Drawing bundle: one drawing directory containing authoritative `scene.excalidraw` or `mindmap.json`, schema-v2 typed metadata, one valid type-matched backup pair and an optional WebP/PNG preview; schema-v1 whiteboards remain readable.
@@ -44,3 +44,10 @@ referenced_by: AGENTS.md#knowledge-map
 - Codex Skill: an App Server-discovered capability identified by a canonical name and absolute `SKILL.md` path; Markune selects it from the `/` panel, sends `$skill-name` plus a native `skill` input, and never treats its path as a general renderer file grant.
 - Codex context attachment: a 15-minute opaque native grant for a selected file/folder or an in-memory pasted bitmap; image grants become real App Server visual `image` inputs, while non-image grants remain permission-controlled local path context.
 - Attachment preview: a bounded PNG derived by Rust and delivered through Raw IPC for UI display; it is not the original file, a filesystem grant, or a persisted Markune asset.
+
+- Frontmatter source: exact YAML source kept separately from parsed properties so ordinary body edits preserve metadata bytes.
+- Knowledge index: rebuildable in-memory projection of file content, typed properties, references, tasks and resources; Markdown remains authoritative.
+- Saved view: a named filter, column, sort and group configuration over indexed documents; it is not a second document store.
+- Move recovery record: transient original-content copies and fingerprints for a multi-file rename/move, removed after success and never treated as note history.
+- Research source: a captured quote with its web address or PDF reference, page, capture time and optional content fingerprint.
+- Research draft: a user-reviewed AI input containing a question and selected source references; preparing it does not send a model request.

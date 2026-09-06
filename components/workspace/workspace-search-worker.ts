@@ -1,56 +1,53 @@
 /// <reference lib="webworker" />
 
 import {
-  buildWorkspaceSearchIndex,
-  searchWorkspaceIndex,
-  type WorkspaceGlobalSearchResult,
+  buildWorkspaceSearchIndex, searchWorkspaceIndex, updateWorkspaceSearchIndex,
   type WorkspaceSearchDocument,
-  type WorkspaceSearchIndex,
 } from './workspace-global-search';
 
 type WorkerRequest =
-  | {
-      documents: WorkspaceSearchDocument[];
-      rootPath: string;
-      type: 'index';
-    }
-  | {
-      query: string;
-      requestId: number;
-      rootPath: string;
-      type: 'search';
-    };
+  | { type: 'begin'; rootPath: string; reset: boolean }
+  | { type: 'upsert'; rootPath: string; documents: WorkspaceSearchDocument[]; removed: string[] }
+  | { type: 'commit'; rootPath: string; revision: number }
+  | { type: 'index'; rootPath: string; documents: WorkspaceSearchDocument[] }
+  | { type: 'search'; rootPath: string; requestId: number; query: string; limit?: number };
 
-type WorkerResponse =
-  | { rootPath: string; type: 'indexed' }
-  | {
-      requestId: number;
-      results: WorkspaceGlobalSearchResult[];
-      rootPath: string;
-      type: 'results';
-    };
+let rootPath: string | null = null;
+let index = buildWorkspaceSearchIndex([]);
+let updating = false;
+const waiting: Array<Extract<WorkerRequest, { type: 'search' }>> = [];
 
-let indexedRootPath: string | null = null;
-let index: WorkspaceSearchIndex | null = null;
+function search(request: Extract<WorkerRequest, { type: 'search' }>) {
+  const results = rootPath === request.rootPath ? searchWorkspaceIndex(index, request.query, request.limit) : [];
+  self.postMessage({ type: 'results', rootPath: request.rootPath, requestId: request.requestId,
+    results: results.map((result) => ({ ...result, document: { ...result.document, content: '' } })) });
+}
 
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const request = event.data;
-
   if (request.type === 'index') {
-    index = buildWorkspaceSearchIndex(request.documents);
-    indexedRootPath = request.rootPath;
-    self.postMessage({ rootPath: request.rootPath, type: 'indexed' } satisfies WorkerResponse);
+    index = buildWorkspaceSearchIndex(request.documents); rootPath = request.rootPath; updating = false;
+    self.postMessage({ type: 'indexed', rootPath }); return;
+  }
+  if (request.type === 'begin') {
+    if (request.reset || rootPath !== request.rootPath) index = buildWorkspaceSearchIndex([]);
+    rootPath = request.rootPath; updating = true; return;
+  }
+  if (request.type === 'upsert') {
+    if (rootPath === request.rootPath) updateWorkspaceSearchIndex(index, request.documents, request.removed);
     return;
   }
-
-  const results =
-    indexedRootPath === request.rootPath && index
-      ? searchWorkspaceIndex(index, request.query)
-      : [];
-  self.postMessage({
-    requestId: request.requestId,
-    results,
-    rootPath: request.rootPath,
-    type: 'results',
-  } satisfies WorkerResponse);
+  if (request.type === 'commit') {
+    if (rootPath !== request.rootPath) return;
+    updating = false; self.postMessage({ type: 'indexed', rootPath, revision: request.revision, limitedCount: index.limited.size });
+    for (const request of waiting.splice(0)) search(request);
+    return;
+  }
+  if (updating) {
+    waiting.push(request);
+    if (waiting.length > 64) {
+      const dropped = waiting.shift()!;
+      self.postMessage({ type: 'results', rootPath: dropped.rootPath, requestId: dropped.requestId, results: [] });
+    }
+  } else search(request);
 };

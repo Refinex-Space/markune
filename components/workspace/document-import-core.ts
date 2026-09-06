@@ -2,6 +2,7 @@ import {
   extractH1FromMarkdown,
   parseFrontmatter,
   serializeFrontmatter,
+  type FrontmatterSource,
 } from '@/components/editor/markdown-frontmatter';
 import rehypeParse from 'rehype-parse';
 import rehypeRemark from 'rehype-remark';
@@ -119,6 +120,7 @@ export async function prepareMarkdownImport(
     markdown: createCanonicalImportMarkdown({
       body,
       metadata: parsed.metadata,
+      frontmatterSource: parsed.source,
       title,
     }),
     source,
@@ -263,7 +265,9 @@ export function createCanonicalImportMarkdown({
   body,
   metadata,
   title,
+  frontmatterSource,
 }: {
+  frontmatterSource?: FrontmatterSource;
   body: string;
   metadata: Record<string, string>;
   title: string;
@@ -279,6 +283,7 @@ export function createCanonicalImportMarkdown({
 
   return serializeFrontmatter({
     body: bodyWithTitle,
+    source: frontmatterSource,
     metadata: {
       ...metadata,
       title: normalizedTitle,

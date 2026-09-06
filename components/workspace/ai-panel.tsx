@@ -201,6 +201,8 @@ import {
 import type { AiDrawingReference, WorkspaceNode } from './workspace-types';
 
 interface AiPanelProps {
+  researchDraft?: { id: string; text: string } | null;
+  onResearchDraftConsumed?: () => void;
   activeDrawing?: AiDrawingReference | null;
   currentDocument: WorkspaceNode | null;
   currentDocumentPath: string | null;
@@ -582,6 +584,8 @@ function collaborationModeForTurn(
 }
 
 export function AiPanel({
+  researchDraft,
+  onResearchDraftConsumed,
   activeDrawing = null,
   currentDocument,
   currentDocumentPath,
@@ -604,6 +608,11 @@ export function AiPanel({
     resolve: resolveConfirmation,
   } = useConfirmationDialog();
   const [view, setView] = React.useState<PanelView>('chat');
+  React.useEffect(() => {
+    if (!researchDraft) return;
+    const timer = setTimeout(() => setView('chat'), 0);
+    return () => clearTimeout(timer);
+  }, [researchDraft]);
   const [runtimeStatus, setRuntimeStatus] =
     React.useState<RuntimeStatus>('loading');
   const [runtimeError, setRuntimeError] = React.useState<string | null>(null);
@@ -3061,6 +3070,8 @@ export function AiPanel({
               modeSwitchDisabled={modeSwitchDisabled}
               planModeAvailable={planModeAvailable}
               planModeUnavailableReason={planModeUnavailableReason}
+              textInsertRequest={researchDraft}
+              onTextInsertApplied={onResearchDraftConsumed}
               value={composerValue}
               onAttachmentRemove={removeContextAttachment}
               onAttachmentPaste={pasteContextAttachments}
@@ -6340,6 +6351,8 @@ function formatElapsedTime(seconds: number) {
 }
 
 export function AiComposer({
+  textInsertRequest,
+  onTextInsertApplied,
   active,
   approvalPolicyAvailability,
   attachments = [],
@@ -6400,6 +6413,8 @@ export function AiComposer({
   onSend,
   onValueChange,
 }: {
+  textInsertRequest?: { id: string; text: string } | null;
+  onTextInsertApplied?: () => void;
   active: boolean;
   approvalPolicyAvailability: { never: boolean; onRequest: boolean };
   attachments?: CodexContextAttachment[];
@@ -6477,6 +6492,7 @@ export function AiComposer({
   const mentionTargetRef = React.useRef<ComposerMentionTarget | null>(null);
   const dismissedMentionKeyRef = React.useRef<string | null>(null);
   const mentionPathsRef = React.useRef<string[]>([]);
+  const appliedTextInsertRequestRef = React.useRef<string | null>(null);
   const appliedSkillInsertRequestIdRef = React.useRef<number | null>(null);
   const pasteQueueRef = React.useRef(Promise.resolve());
   const clearedComposerSnapshotRef = React.useRef<{
@@ -6621,6 +6637,17 @@ export function AiComposer({
       }
     }
   }, [value]);
+
+  React.useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !textInsertRequest || appliedTextInsertRequestRef.current === textInsertRequest.id) return;
+    appliedTextInsertRequestRef.current = textInsertRequest.id;
+    const prefix = readComposerSnapshot(editor).value.trim() ? '\n\n' : '';
+    editor.append(document.createTextNode(prefix + textInsertRequest.text));
+    syncEditorState();
+    onTextInsertApplied?.();
+  }, [textInsertRequest, onTextInsertApplied, syncEditorState]);
+
 
   React.useEffect(() => {
     if (!submitting && !value) {

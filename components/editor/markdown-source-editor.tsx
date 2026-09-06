@@ -3,12 +3,14 @@
 import * as React from 'react';
 import { markdown } from '@codemirror/lang-markdown';
 import { basicSetup, EditorView } from 'codemirror';
+import { applySourceChanges, sourceOffsetMap, type SourceChange } from './source-text-changes';
 
 export interface MarkdownSourceEditorHandle {
   focus: () => void;
   getSelectedText: () => string;
   selectRange: (from: number, to: number) => void;
   setValue: (value: string) => void;
+  revealLine: (line: number) => void;
 }
 
 interface MarkdownSourceEditorProps {
@@ -26,6 +28,8 @@ export function MarkdownSourceEditor({
 }: MarkdownSourceEditorProps) {
   const hostRef = React.useRef<HTMLDivElement | null>(null);
   const onChangeRef = React.useRef(onChange);
+  const initialValueRef = React.useRef(initialValue);
+  React.useLayoutEffect(() => { initialValueRef.current = initialValue; }, [initialValue]);
 
   React.useEffect(() => {
     onChangeRef.current = onChange;
@@ -38,15 +42,21 @@ export function MarkdownSourceEditor({
       return;
     }
 
+    let rawValue = initialValueRef.current;
+    let replacement: string | null = null;
     const view = new EditorView({
-      doc: initialValue,
+      doc: rawValue,
       extensions: [
         basicSetup,
         markdown(),
         EditorView.editable.of(!readOnly),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
-            onChangeRef.current?.(update.state.doc.toString());
+            const changes: SourceChange[] = [];
+            update.changes.iterChanges((from, to, _fromNew, _toNew, inserted) => changes.push({ from, to, insert: inserted.toString() }));
+            rawValue = replacement ?? applySourceChanges(rawValue, changes);
+            replacement = null;
+            onChangeRef.current?.(rawValue);
           }
         }),
         EditorView.theme({
@@ -76,10 +86,11 @@ export function MarkdownSourceEditor({
           : view.state.sliceDoc(selection.from, selection.to);
       },
       selectRange: (from, to) => {
+        const offsets = sourceOffsetMap(rawValue);
         view.dispatch({
           selection: {
-            anchor: Math.max(0, Math.min(from, view.state.doc.length)),
-            head: Math.max(0, Math.min(to, view.state.doc.length)),
+            anchor: Math.max(0, Math.min(offsets.toEditor(from), view.state.doc.length)),
+            head: Math.max(0, Math.min(offsets.toEditor(to), view.state.doc.length)),
           },
           scrollIntoView: true,
         });
@@ -87,13 +98,21 @@ export function MarkdownSourceEditor({
       setValue: (value) => {
         const current = view.state.doc.toString();
 
-        if (current === value) {
+        if (current === value.replace(/\r\n?|\n/g, '\n')) {
+          const changed = rawValue !== value;
+          rawValue = value;
+          if (changed) onChangeRef.current?.(value);
           return;
         }
-
+        replacement = value;
         view.dispatch({
           changes: { from: 0, to: current.length, insert: value },
         });
+      },
+      revealLine: (line) => {
+        const target = view.state.doc.line(Math.max(1, Math.min(Math.trunc(line), view.state.doc.lines)));
+        view.dispatch({ selection: { anchor: target.from, head: target.to }, scrollIntoView: true });
+        view.focus();
       },
     };
 
@@ -101,7 +120,7 @@ export function MarkdownSourceEditor({
       editorRef.current = null;
       view.destroy();
     };
-  }, [editorRef, initialValue, readOnly]);
+  }, [editorRef, readOnly]);
 
   return (
     <div

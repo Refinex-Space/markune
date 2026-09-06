@@ -3,6 +3,9 @@
  * 不依赖 React、编辑器或 Plate，可被 workspace 层与编辑器层共享复用。
  */
 
+import { joinFrontmatterSource, patchFrontmatterSource, readFrontmatterSource, type FrontmatterSource, type MetadataValue } from './markdown-frontmatter-source';
+export type { FrontmatterSource, MetadataValue } from './markdown-frontmatter-source';
+
 export interface MarkdownDocumentMetadata {
   title: string;
   createdAt: string | null;
@@ -11,52 +14,44 @@ export interface MarkdownDocumentMetadata {
 }
 
 export interface ParsedMarkdownDocument {
+  source?: FrontmatterSource;
   body: string;
   metadata: MarkdownDocumentMetadata;
 }
 
 export interface ParsedFrontmatter {
+  source?: FrontmatterSource;
+  properties: Record<string, MetadataValue>;
+  errors: string[];
   metadata: Record<string, string>;
   body: string;
 }
 
 export interface SerializeFrontmatterInput {
+  source?: FrontmatterSource;
   body: string;
   metadata: Record<string, string | number | null | undefined>;
 }
 
 const FRONTMATTER_DELIMITER = '---';
-const FRONTMATTER_OPENING_PATTERN = /^---\r?\n/;
-const FRONTMATTER_CLOSING_PATTERN = /\r?\n---(?:\r?\n|$)/;
 const MARKDOWN_WORD_CHAR_PATTERN = /[\p{L}\p{N}]/u;
 
 export function parseFrontmatter(raw: string): ParsedFrontmatter {
-  const openingMatch = FRONTMATTER_OPENING_PATTERN.exec(raw);
-
-  if (!openingMatch) {
-    return { metadata: {}, body: raw.trimStart() };
-  }
-
-  const frontmatterStart = openingMatch[0].length;
-  const remaining = raw.slice(frontmatterStart);
-  const closingMatch = FRONTMATTER_CLOSING_PATTERN.exec(remaining);
-
-  if (!closingMatch || closingMatch.index === undefined) {
-    return { metadata: {}, body: raw.trimStart() };
-  }
-
-  const rawFrontmatter = remaining.slice(0, closingMatch.index);
-  const bodyStart =
-    frontmatterStart + closingMatch.index + closingMatch[0].length;
-  const body = raw.slice(bodyStart);
-  const frontmatter = parseFrontmatterBlock(rawFrontmatter);
-
-  return { metadata: frontmatter, body: body.trimStart() };
+  const { source, body } = readFrontmatterSource(raw);
+  return { source, body, metadata: source?.values ?? {}, properties: source?.properties ?? {}, errors: source?.errors ?? [] };
 }
 
 export function serializeFrontmatter(
   input: SerializeFrontmatterInput,
 ): string {
+  if (input.source) {
+    const updates: Record<string, MetadataValue> = {};
+    for (const [key, value] of Object.entries(input.metadata)) {
+      if (value !== undefined && value !== null && String(value) !== input.source.values[key]) updates[key] = value;
+    }
+    const block = input.source.errors.length ? input.source.block : patchFrontmatterSource(input.source, updates);
+    return joinFrontmatterSource(input.source, block, input.body);
+  }
   const entries = Object.entries(input.metadata).filter(
     ([, value]) => value !== '' && value !== null && value !== undefined,
   );
@@ -87,7 +82,7 @@ export function parseMarkdownMetadata(
   markdown: string,
   fileName: string,
 ): ParsedMarkdownDocument {
-  const { body, metadata: frontmatter } = parseFrontmatter(markdown);
+  const { body, metadata: frontmatter, source } = parseFrontmatter(markdown);
   const title =
     collapseIntraWordEscapedUnderscores(
       readString(frontmatter.title) ??
@@ -96,6 +91,7 @@ export function parseMarkdownMetadata(
     );
 
   return {
+    source,
     body,
     metadata: {
       createdAt: readString(frontmatter.createdAt),
@@ -144,16 +140,6 @@ export function sanitizeTitleForFileName(title: string): string {
   return sanitized || '未命名文档';
 }
 
-function parseFrontmatterBlock(block: string): Record<string, string> {
-  return Object.fromEntries(
-    block
-      .split(/\r?\n/)
-      .map((line) => line.match(/^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/))
-      .filter((match): match is RegExpMatchArray => match !== null)
-      .map((match) => [match[1], match[1] === 'title' ? decodeFrontmatterString(match[2].trim()) : unquote(match[2].trim())]),
-  );
-}
-
 function collapseIntraWordEscapedUnderscores(text: string) {
   return text.replace(/\\+_/g, (match, offset: number) => {
     const previous = text[offset - 1];
@@ -182,10 +168,6 @@ function readNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function unquote(value: string) {
-  return value.replace(/^["']|["']$/g, '');
-}
-
 // Mirror native document_frontmatter so a title always remains a string. author: refinex
 function encodeFrontmatterString(value: string) {
   const first = value[0] ?? '';
@@ -202,17 +184,4 @@ function encodeFrontmatterString(value: string) {
     return (code >= 127 && code <= 159) || code === 0x2028 || code === 0x2029
       ? `\\u${code.toString(16).padStart(4, '0')}` : character;
   }).join('');
-}
-
-function decodeFrontmatterString(value: string): string {
-  if (value.startsWith('"') && value.endsWith('"')) {
-    try {
-      const decoded: unknown = JSON.parse(value);
-      if (typeof decoded === 'string') return decoded;
-    } catch { /* Preserve malformed legacy text. author: refinex */ }
-  }
-  if (value.startsWith("'") && value.endsWith("'") && value.length >= 2) {
-    return value.slice(1, -1).replace(/''/g, "'");
-  }
-  return value;
 }

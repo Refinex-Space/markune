@@ -189,6 +189,13 @@ pub async fn watch_workspace(
     let result = tauri::async_runtime::spawn_blocking(move || {
         let root = crate::workspace::canonical_workspace_root(&root_path)?;
         start_watcher(root, cancelled.clone(), move |change| {
+            if change.rescan {
+                crate::workspace_index::invalidate(Path::new(&change.root_path));
+            } else {
+                for path in &change.paths {
+                    crate::workspace_index::invalidate(Path::new(path));
+                }
+            }
             on_change.send(change).is_ok()
         })?;
         if cancelled.load(Ordering::Acquire) {

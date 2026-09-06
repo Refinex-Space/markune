@@ -705,7 +705,9 @@ pub async fn read_document_asset_data(
     .map_err(|_| "附件读取任务失败")?
 }
 
-fn markdown_destinations(markdown: &str) -> Vec<(std::ops::Range<usize>, String)> {
+pub(crate) fn markdown_destinations(markdown: &str) -> Vec<(std::ops::Range<usize>, String)> {
+    let masked = crate::graph_parse::mask_obsidian_comments(markdown);
+    let markdown = masked.as_str();
     use pulldown_cmark::{Event, Options, Parser, Tag};
     let parser = Parser::new_ext(
         markdown,
@@ -719,7 +721,11 @@ fn markdown_destinations(markdown: &str) -> Vec<(std::ops::Range<usize>, String)
             result.push((range, definition.dest.to_string()));
         }
     }
+    let mut html_code_depth = 0usize;
     for (event, range) in parser.into_offset_iter() {
+        if html_code_depth > 0 && !matches!(&event, Event::Html(_) | Event::InlineHtml(_)) {
+            continue;
+        }
         match event {
             Event::Start(Tag::Image { dest_url, .. })
             | Event::Start(Tag::Link { dest_url, .. }) => {
@@ -731,11 +737,23 @@ fn markdown_destinations(markdown: &str) -> Vec<(std::ops::Range<usize>, String)
                 let html = &markdown[range.clone()];
                 let mut reader = quick_xml::Reader::from_str(html);
                 reader.config_mut().check_end_names = false;
+                reader.config_mut().allow_unmatched_ends = true;
                 loop {
                     use quick_xml::events::Event as XmlEvent;
-                    match reader.read_event() {
+                    let event = reader.read_event();
+                    let empty = matches!(&event, Ok(XmlEvent::Empty(_)));
+                    match event {
                         Ok(XmlEvent::Start(element) | XmlEvent::Empty(element)) => {
                             let name = element.name().as_ref().to_ascii_lowercase();
+                            if [b"pre".as_slice(), b"code", b"script", b"style"]
+                                .contains(&name.as_slice())
+                                && !empty
+                            {
+                                html_code_depth += 1;
+                            }
+                            if html_code_depth > 0 {
+                                continue;
+                            }
                             if ![b"img".as_slice(), b"video", b"source", b"a"]
                                 .contains(&name.as_slice())
                             {
@@ -776,6 +794,14 @@ fn markdown_destinations(markdown: &str) -> Vec<(std::ops::Range<usize>, String)
                                 }
                             }
                         }
+                        Ok(XmlEvent::End(element)) => {
+                            if [b"pre".as_slice(), b"code", b"script", b"style"]
+                                .iter()
+                                .any(|name| element.name().as_ref().eq_ignore_ascii_case(name))
+                            {
+                                html_code_depth = html_code_depth.saturating_sub(1);
+                            }
+                        }
                         Ok(XmlEvent::Eof) | Err(_) => break,
                         _ => {}
                     }
@@ -787,7 +813,7 @@ fn markdown_destinations(markdown: &str) -> Vec<(std::ops::Range<usize>, String)
     result
 }
 
-fn destination_range(
+pub(crate) fn destination_range(
     markdown: &str,
     range: std::ops::Range<usize>,
     definition: bool,
@@ -867,7 +893,69 @@ fn destination_range(
     Some(start..range.end)
 }
 
-fn rebase_document_assets(
+pub(crate) fn rebase_document_assets(
+    markdown: &str,
+    old_document: &Path,
+    new_document: &Path,
+    source: &Path,
+    destination: &Path,
+) -> Result<String, String> {
+    let Some(frontmatter) = crate::document_frontmatter::split(markdown) else {
+        return rebase_body_assets(markdown, old_document, new_document, source, destination);
+    };
+    let mut block = frontmatter.block.to_string();
+    if let Ok(fields) = crate::document_frontmatter::text_scalars(frontmatter.block) {
+        for field in fields
+            .into_iter()
+            .rev()
+            .filter(crate::document_frontmatter::is_reference_text)
+        {
+            let value = rebase_body_assets(
+                &field.value,
+                old_document,
+                new_document,
+                source,
+                destination,
+            )?;
+            if value == field.value {
+                continue;
+            }
+            let mut encoded = if block[field.range.clone()].starts_with('\'') {
+                format!("'{}'", value.replace('\'', "''"))
+            } else {
+                crate::document_frontmatter::encode_string(&value)
+            };
+            if field.block {
+                if !field.comment.is_empty() {
+                    encoded.push(' ');
+                    encoded.push_str(&field.comment);
+                }
+                encoded.push_str(if markdown.contains("\r\n") {
+                    "\r\n"
+                } else {
+                    "\n"
+                });
+            }
+            block.replace_range(field.range, &encoded);
+        }
+    }
+    let body = rebase_body_assets(
+        &markdown[frontmatter.body_start..],
+        old_document,
+        new_document,
+        source,
+        destination,
+    )?;
+    Ok(format!(
+        "{}{}{}{}",
+        &markdown[..frontmatter.range.start],
+        block,
+        &markdown[frontmatter.range.end..frontmatter.body_start],
+        body
+    ))
+}
+
+fn rebase_body_assets(
     markdown: &str,
     old_document: &Path,
     new_document: &Path,
@@ -1021,7 +1109,95 @@ pub(crate) fn move_with_document_assets(source: &Path, destination: &Path) -> Re
     result
 }
 
-fn move_path_no_replace(source: &Path, destination: &Path) -> std::io::Result<()> {
+pub(crate) fn is_case_only_rename(source: &Path, destination: &Path) -> bool {
+    if source == destination
+        || source.parent() != destination.parent()
+        || source
+            .file_name()
+            .map(|name| name.to_string_lossy().to_lowercase())
+            != destination
+                .file_name()
+                .map(|name| name.to_string_lossy().to_lowercase())
+    {
+        return false;
+    }
+    let (Ok(left), Ok(right)) = (
+        fs::symlink_metadata(source),
+        fs::symlink_metadata(destination),
+    ) else {
+        return false;
+    };
+    if left.file_type().is_symlink() || right.file_type().is_symlink() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        left.dev() == right.dev() && left.ino() == right.ino()
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
+        #[repr(C)]
+        struct FileIdentity {
+            volume: u64,
+            id: [u8; 16],
+        }
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetFileInformationByHandleEx(
+                handle: *mut std::ffi::c_void,
+                class: i32,
+                information: *mut std::ffi::c_void,
+                size: u32,
+            ) -> i32;
+        }
+        let identity = |path: &Path| -> Option<(u64, [u8; 16])> {
+            let file = fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(0x02000000 | 0x00200000)
+                .open(path)
+                .ok()?;
+            let mut information = std::mem::MaybeUninit::<FileIdentity>::uninit();
+            // FileIdInfo (18) initializes FILE_ID_INFO, including the full ReFS-compatible ID. author: refinex
+            if unsafe {
+                GetFileInformationByHandleEx(
+                    file.as_raw_handle(),
+                    18,
+                    information.as_mut_ptr().cast(),
+                    std::mem::size_of::<FileIdentity>() as u32,
+                )
+            } == 0
+            {
+                return None;
+            }
+            let information = unsafe { information.assume_init() };
+            information
+                .id
+                .iter()
+                .any(|byte| *byte != 0)
+                .then_some((information.volume, information.id))
+        };
+        let left = identity(source);
+        left.is_some() && left == identity(destination)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        false
+    }
+}
+
+pub(crate) fn has_exact_entry(path: &Path) -> bool {
+    path.parent()
+        .and_then(|parent| fs::read_dir(parent).ok())
+        .is_some_and(|entries| {
+            entries
+                .flatten()
+                .any(|entry| Some(entry.file_name().as_os_str()) == path.file_name())
+        })
+}
+
+pub(crate) fn move_path_no_replace(source: &Path, destination: &Path) -> std::io::Result<()> {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         use std::os::unix::ffi::OsStrExt;

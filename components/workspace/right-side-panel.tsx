@@ -56,6 +56,10 @@ export interface DocumentPanelData {
 }
 
 interface RightSidePanelProps {
+  researchDraft?: { id: string; text: string } | null;
+  onResearchDraftConsumed?: () => void;
+  knowledge?: import('./use-workspace-knowledge').WorkspaceKnowledge;
+  onOpenLocation?: (location: import('./workspace-knowledge-types').KnowledgeLocation) => void;
   activeDrawing?: AiDrawingReference | null;
   aiPresentation?: AiPanelPresentation;
   aiWorkspacePreview?: React.ReactNode;
@@ -97,6 +101,10 @@ interface RightToolRailProps {
 }
 
 export function RightSidePanel({
+  researchDraft,
+  onResearchDraftConsumed,
+  knowledge,
+  onOpenLocation,
   activeDrawing = null,
   aiPresentation = 'panel',
   aiWorkspacePreview,
@@ -146,6 +154,8 @@ export function RightSidePanel({
         <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
           <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
             <AiPanel
+              researchDraft={researchDraft}
+              onResearchDraftConsumed={onResearchDraftConsumed}
               activeDrawing={activeDrawing}
               currentDocument={currentDocument}
               currentDocumentPath={currentDocumentPath}
@@ -202,6 +212,8 @@ export function RightSidePanel({
           style={{ width }}
         >
           <DocumentMetaPanel
+            knowledge={knowledge}
+            onOpenLocation={onOpenLocation}
             currentDocument={currentDocument}
             documentPanelData={documentPanelData}
             readOnly={documentReadOnly}

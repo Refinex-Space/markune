@@ -253,6 +253,7 @@ export interface TreeNodeAppearance {
 }
 
 export interface WorkspaceSnapshot {
+  warnings?: string[];
   rootPath: string;
   rootName: string;
   nodes: WorkspaceNode[];

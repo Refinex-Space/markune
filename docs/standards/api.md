@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-05
+updated: 2026-09-06
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -181,3 +181,15 @@ interface DocumentExportRuntimeInfo {
 - `cancel_document_import(sessionId)` 与 `release_document_import_grant(grantId)`：幂等清理当前 staging 或释放源授权。
 
 源授权有效期 15 分钟，提交会话有效期 30 分钟；过期 staging 在后续导入启动时清理。旧 `read_markdown_source_files`、`read_import_source_files` 和 `create_imported_plate_documents` 不得重新注册。
+
+
+## Knowledge Index And Mutation Commands
+
+- `load_workspace_index`：接收 rootPath、sinceRevision、cursor、snapshotRevision、changedPaths、force；返回 revision/reset、变更 documents、removed、warnings、nextCursor、total。游标必须与快照版本和 sinceRevision 一致，分页失败时丢弃本轮部分结果并请求完整快照。全文只在分页记录中，UI 摘要剥离 content。
+- `find_workspace_mentions`：接收工作区目标相对路径和至多 64 篇候选，返回最多 200 个正文提及及行号/上下文，不执行改写。
+- `rename_workspace_node`：统一事务改写明确入链/出链/附件和 workspace.json；`rename_workspace_document_path` 使用同样事务但保持正文标题。已有 move 命令复用相同逻辑。工作区快照可携带可选 warnings，包含待检查的中断移动。
+- `create_workspace_document_from_content`：最多 4 MiB Markdown；可选 sourcePath 必须为当前工作区内既有文档，仅用于模板/来源副本的相对路径重定位。目标采用唯一文件名并原子创建，不覆盖已有文件。
+- `set_workspace_task_checked`：documentPath、UTF-8 字节 offset、完整内容 fingerprint 与 checked；校验并只修改真实任务标记。行号为一基，不能用 JS UTF-16 偏移替代原生字节 offset。
+- `read_workspace_views` / `save_workspace_views`：读写 `.markune/views.json` 的 views 与 fingerprint；最多 64 个视图、配置 256 KiB。删除视图即以原指纹保存删去该 ID 的列表，不删除笔记。
+
+PDF 来源及网页来源采用普通 frontmatter 的 `source` 对象：type/title/quote/capturedAt，网页有 url，PDF 有 page/fingerprint/reference。reference 是标准 Markdown 来源链接。quote 不参加自动链接修复，已捕获证据保持原文。
