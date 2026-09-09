@@ -10,7 +10,10 @@ import { getMarkweaveDocumentViewportCoordinatorForElement } from 'markweave';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createDrawingMarkdownReferenceHtml } from '@/components/editor/drawing-markdown-reference';
-import { MarkdownEditor } from '@/components/editor/markdown-editor';
+import {
+  MarkdownEditor,
+  type MarkdownEditorHandle,
+} from '@/components/editor/markdown-editor';
 
 vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: vi.fn((path: string) => `asset://${path}`),
@@ -119,6 +122,94 @@ describe('Markweave image integration', () => {
     vi.clearAllMocks();
     clearWorkspaceAssetResolverCache();
   });
+
+  it.each(['standard', 'large'] as const)(
+    '图片开头的列表与表格在 %s 文档中加载、编辑、保存和重开后保持结构',
+    async (tier) => {
+      const image = `![预览](markune-asset://${'a'.repeat(64)})`;
+      const link = '[查看说明](https://example.com/guide)';
+      const markdown = [
+        '---',
+        'title: 图片结构回归',
+        'custom: keep-me',
+        '---',
+        '# 图片结构回归',
+        '',
+        `- ${image}${link}`,
+        '- 后续列表项',
+        '',
+        `1. ${image}${link}`,
+        '2. 后续有序项',
+        '',
+        `- [x] ${image}${link}`,
+        '- [ ] 后续任务',
+        '',
+        '| 预览 |',
+        '| --- |',
+        `| ${image}${link} |`,
+        '',
+        tier === 'large' ? '文档正文 padding '.repeat(20_000) : '文档正文。',
+      ].join('\n');
+      const states: MarkweaveDocumentLoadState[] = [];
+      const ref = React.createRef<MarkdownEditorHandle>();
+      const onMarkdownChange = vi.fn();
+      const view = render(
+        <MarkdownEditor
+          ref={ref}
+          markdown={markdown}
+          onMarkdownChange={onMarkdownChange}
+          onDocumentLoadStateChange={(state) => states.push(state)}
+        />,
+      );
+      await waitFor(() => expect(states.at(-1)?.phase).toBe('ready'), {
+        timeout: 15_000,
+      });
+      expect(states.at(-1)?.tier).toBe(tier);
+      expect(states.some((state) => state.phase === 'error')).toBe(false);
+      expect(onMarkdownChange).not.toHaveBeenCalled();
+
+      const surface = screen.getByTestId('markweave-editor-surface');
+      const editor = getMarkweaveDocumentViewportCoordinatorForElement(surface)!.editor;
+      expect(() => editor.state.doc.check()).not.toThrow();
+      expect(editor.getHTML().match(/src="markune-asset:/g)).toHaveLength(4);
+      expect(editor.getHTML().match(/href="https:\/\/example.com\/guide"/g)).toHaveLength(4);
+
+      await act(async () => {
+        editor.commands.insertContentAt(editor.state.doc.content.size, '\n\n追加正文。', {
+          contentType: 'markdown',
+        });
+      });
+      const editedDocument = editor.getJSON();
+      await act(async () => {
+        expect(await ref.current!.flushDraft('manual-save')).toBe(true);
+      });
+      const saved = onMarkdownChange.mock.calls.at(-1)![0] as string;
+      expect(saved).toContain('custom: keep-me');
+      expect(saved).toContain('追加正文。');
+      expect(saved).toContain(`markune-asset://${'a'.repeat(64)}`);
+      expect(saved).not.toContain('asset://localhost');
+      view.unmount();
+
+      states.length = 0;
+      onMarkdownChange.mockClear();
+      render(
+        <MarkdownEditor
+          markdown={saved}
+          onMarkdownChange={onMarkdownChange}
+          onDocumentLoadStateChange={(state) => states.push(state)}
+        />,
+      );
+      await waitFor(() => expect(states.at(-1)?.phase).toBe('ready'), {
+        timeout: 15_000,
+      });
+      const reopened = getMarkweaveDocumentViewportCoordinatorForElement(
+        screen.getByTestId('markweave-editor-surface'),
+      )!.editor;
+      expect(reopened.getJSON()).toEqual(editedDocument);
+      expect(onMarkdownChange).not.toHaveBeenCalled();
+    },
+    30_000,
+  );
 
   it('真实编辑器的网络图片粘贴遵循存储规则并持久化相对引用', async () => {
     vi.mocked(readAppSettings).mockResolvedValue({ storage: { attachments: { applyToRemoteImages: true } } } as never);

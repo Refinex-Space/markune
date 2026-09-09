@@ -12,7 +12,7 @@ Markune 是一个以本地 Markdown 文档为核心的桌面知识库，使用 N
 ## Runtime Shape
 
 - Web shell：Next.js App Router 与 React client components。
-- Editor：`components/editor/markdown-editor.tsx` 以非受控 `defaultContent` 包装 `@markweave/react@0.10.3` / `markweave@0.10.3`；Markweave 对正文执行一次 canonical whole-document parse，并在严格 Schema 校验前把混合 Markdown 段落中的块图片提升为有序兄弟节点，避免大文档因图片与相邻文本共处段落而加载失败。HTTP(S) 页面可以使用完整 Markdown lexer Worker，`tauri:` 等桌面自定义协议立即走同语义的主线程解析，避免 WKWebView 构造 Blob Worker 后静默等待超时。只有文本、选择、撤销、搜索与 TOC 完成 `ready` 后才开放编辑，视觉资源再按视口渐进补齐；`parsing`、`mounting` 与 `finalizing` 显示明确进度，加载失败时 Markune 保留本地正文并提供重新加载与源码模式恢复，不再显示无诊断白板。序列化遵循 GFM 词中下划线规则，标识符如 `doc_review_agent` 不再写成 `doc\_review\_agent`。编辑事务只保留惰性 payload 和 dirty 状态，完整 Markdown 字符串边界只位于 load/flush。源码模式动态加载 CodeMirror 6，Live/Source 切换只在边界互转一次。Slash 附件经 `onSlashCommandUpload` 写入工作区资产并以 `markune-asset://` 持久化，激活下载由 `onAttachmentDownload` 处理。
+- Editor：`components/editor/markdown-editor.tsx` 以非受控 `defaultContent` 包装 `@markweave/react@0.10.4` / `markweave@0.10.4`；Markweave 对正文执行一次 canonical whole-document parse，并在严格 Schema 校验前把混合 Markdown 段落中的块图片提升为有序兄弟节点，避免大文档因图片与相邻文本共处段落而加载失败。首次加载与后续 Markdown 更新共用同一规范化逻辑，图片开头的列表项保留必要首段落；无序列表与表格在需要时通过 HTML 回退保留块媒体结构。HTTP(S) 页面可以使用完整 Markdown lexer Worker，`tauri:` 等桌面自定义协议立即走同语义的主线程解析，避免 WKWebView 构造 Blob Worker 后静默等待超时。只有文本、选择、撤销、搜索与 TOC 完成 `ready` 后才开放编辑，视觉资源再按视口渐进补齐；`parsing`、`mounting` 与 `finalizing` 显示明确进度，加载失败时 Markune 保留本地正文并提供重新加载与源码模式恢复，不再显示无诊断白板。序列化遵循 GFM 词中下划线规则，标识符如 `doc_review_agent` 不再写成 `doc\_review\_agent`。编辑事务只保留惰性 payload 和 dirty 状态，完整 Markdown 字符串边界只位于 load/flush。源码模式动态加载 CodeMirror 6，Live/Source 切换只在边界互转一次。Slash 附件经 `onSlashCommandUpload` 写入工作区资产并以 `markune-asset://` 持久化，激活下载由 `onAttachmentDownload` 处理。
 - Workspace shell：`components/workspace/workspace-layout.tsx` 管理文档树、编辑器标签、全文搜索、Git、终端、设置、文档元信息与 AI 侧栏。左侧顶部系统入口（笔记、日程、Inbox、画板、视图、图谱、Codex）由 `workspace-system-nav.tsx` 渲染，排列与折叠偏好写入全局 `appearance.systemNavLayout` / `appearance.systemNavCollapsed`；文档树“文件夹”标题切换到复用 `directory-page.tsx` 的工作区根级总览，根级文件夹卡片继续进入既有目录详情。
 - Native boundary：前端经 `components/workspace/workspace-api.ts` 调用 Tauri 命令；实现位于 `src-tauri/src`。macOS 原生 `Markune` 菜单中的“设置…”（`⌘,`）与“检查更新…”只发出前端事件：前者复用现有设置页，后者打开“版本”并调用既有 updater 检查，不创建第二个设置窗口，也不自动安装更新。`window_chrome.rs` 只读取 macOS AppKit 红绿灯在 WKWebView 中的垂直中心数值，使 Web 标题栏控件不依赖构建 SDK 的固定偏移；`window_opacity.rs` 通过 macOS AppKit 或 Windows 分层窗口接口调整整个原生窗口的合成透明度，Web 页面不使用 CSS `opacity` 模拟该能力。
 - Codex runtime：`components/workspace/codex-app-server.ts` 只消费协议消息；`src-tauri/src/codex.rs` 启动随应用打包的 Codex App Server sidecar，并通过 stdio JSONL 传递允许的方法、通知与审批请求。
@@ -120,7 +120,7 @@ Markdown/HTML 相对图片只能从已授权源文档目录内读取；跨工作
 
 单文档导出由 `components/workspace/use-document-export.tsx` 统一编排。入口包括文档树右键/省略号菜单、日程检查器「导出」菜单，以及文档标签右键「导出」子菜单；上述入口只传入文档节点和格式。导出源按当前未保存草稿、已打开标签缓存、磁盘 Markdown 的顺序解析，继续保持 Markdown-first 边界。日程导出通过 `toDailyExportNode` 把 `DailyNoteEntry` 映射为最小 `WorkspaceNode`（文件名 stem 优先使用 `YYYY-MM-DD`），不因导出调用 `open_daily_note` 创建空文件，也不新增批量/整月导出协议。
 
-`document-export-core.ts` 负责可移植 Markdown 资源包、只读 Markweave DOM 快照与静态 HTML 清理。DOM 快照必须先等待编辑器 `ready`，再调用 Markweave 0.10.3 官方 output barrier 强制 materialize 全文并等待图片、视频、Mermaid、数学、字体和稳定布局；barrier 报告的缺失、不可读与超时资源转为显式警告或占位，不能通过固定延时猜测完成。HTML 跟随当前主题并使用 64 rem 标准正文宽度；导出快照必须移除编辑器目录、工具栏、大文档 `content-visibility` 属性和其他运行时 UI，但保留正文语义与内联图片。`document-export-professional.ts` 是 Markune 方言到通用 Markdown 的受控适配层：本地资产只映射到 staging，相同的 frontmatter 标题/H1 去重，Wiki 链接转为可读文本，远程图片转为普通链接，已成功渲染的 Mermaid 预览转为静态 PNG。
+`document-export-core.ts` 负责可移植 Markdown 资源包、只读 Markweave DOM 快照与静态 HTML 清理。DOM 快照必须先等待编辑器 `ready`，再调用 Markweave 0.10.4 官方 output barrier 强制 materialize 全文并等待图片、视频、Mermaid、数学、字体和稳定布局；barrier 报告的缺失、不可读与超时资源转为显式警告或占位，不能通过固定延时猜测完成。HTML 跟随当前主题并使用 64 rem 标准正文宽度；导出快照必须移除编辑器目录、工具栏、大文档 `content-visibility` 属性和其他运行时 UI，但保留正文语义与内联图片。`document-export-professional.ts` 是 Markune 方言到通用 Markdown 的受控适配层：本地资产只映射到 staging，相同的 frontmatter 标题/H1 去重，Wiki 链接转为可读文本，远程图片转为普通链接，已成功渲染的 Mermaid 预览转为静态 PNG。
 
 Word 与 PDF 默认使用固定版本 sidecar：Pandoc 3.10.1 负责 Markdown AST、DOCX writer 和 Typst writer，Word 套用固定 `reference.docx`，PDF 再由 Typst 0.15.1 和固定 A4 模板排版。运行时缺失、平台没有可用中文字体或显式设置 legacy 开关时，Word 回退到 `document-export-word.ts` 的兼容 DOCX writer，PDF 回退到平台 WebView 原生打印；兼容链保留一个迁移周期，不作为继续堆叠专业排版能力的主线。HTML 不经过 Pandoc，文档导入仍维持 Mammoth/PDF.js 的现有安全与交互边界，避免在同一变更中重写成熟的批量导入提交协议。
 
@@ -196,19 +196,19 @@ Codex App Server 是 AI 会话持久化的唯一所有者。Markune 默认把 si
 
 ## Storage And Editor Boundary
 
-持久化文档始终为 Markdown 文件。磁盘格式、内存草稿和编辑器输入/输出必须保持 Markdown 字符串边界，禁止重新引入富文本投影层。文档树标题来自文件头 frontmatter 或 H1，读取时收起词中 `\_`，与 Markweave 0.10.3 的 GFM 序列化规则对齐。
+持久化文档始终为 Markdown 文件。磁盘格式、内存草稿和编辑器输入/输出必须保持 Markdown 字符串边界，禁止重新引入富文本投影层。文档树标题来自文件头 frontmatter 或 H1，读取时收起词中 `\_`，与 Markweave 0.10.4 的 GFM 序列化规则对齐。
 
 受控 `title` 写入必须按 YAML 字符串转义，前端 `markdown-frontmatter.ts` 与原生 `document_frontmatter.rs` 保持同一规则；加粗标记、冒号、引号、反斜杠、换行、数字或布尔样式标题不能直接插值进 YAML。重新读取时解码 JSON 兼容双引号和 YAML 单引号，避免转义字符泄漏到树标题。普通标题保持原有简洁表示，未知字段不因标题修复被整体重写。
 
 Markweave 只接收 frontmatter 解析后的正文；保存正文时必须复用 frontmatter 原文，只为明确改变的字段修改值区间。停止输入 500 ms、手动保存、切换标签/模式、导出、AI 发送和应用退出统一调用 `flushDraft(reason)`；flush 才读取一次 `payload.markdown`、恢复图稿引用、更新已有 `updatedAt` 并进入原子保存，失败会中止后续动作并保留草稿。默认内置存储把新资源写入 `.markune/assets/files/{shard}/{hash}.{ext}`，Markdown 使用 `markune-asset://{assetId}`；用户选择其他附件存储模式时使用既有普通文件引用与授权边界。
 
-正文 canonical 挂载不等待视觉资源解析。宿主按文档唯一资产 ID 发起解析波，每个 `resolve_workspace_assets` IPC 最多 2,048 项并合并全部分片；工作区级缓存最多保留 8 个 root、每个 8,192 个结果及共享中的请求。`resolved` 正结果有界复用，`missing` / `unreadable` 只负缓存 5 秒；Markweave 0.10.3 resolver request 的可选 `attempt` / `reason` 在 `retry`、`image-error`、`output` 或 `attempt > 1` 时强制重新校验，同一文档 750 ms 内的恢复请求合并，单个分片失败不污染其他分片或形成永久失败。
+正文 canonical 挂载不等待视觉资源解析。宿主按文档唯一资产 ID 发起解析波，每个 `resolve_workspace_assets` IPC 最多 2,048 项并合并全部分片；工作区级缓存最多保留 8 个 root、每个 8,192 个结果及共享中的请求。`resolved` 正结果有界复用，`missing` / `unreadable` 只负缓存 5 秒；Markweave 0.10.4 resolver request 的可选 `attempt` / `reason` 在 `retry`、`image-error`、`output` 或 `attempt > 1` 时强制重新校验，同一文档 750 ms 内的恢复请求合并，单个分片失败不污染其他分片或形成永久失败。
 
 图片候选 URL 只有在真实 `<img load>` 后才算成功，resolver 返回本身不能提交成功缓存。图片仍由 Markweave NodeView 按视口调度；本地视频由 `markweave-video-media-bridge.ts` 在 DOM 层解析、超时、重试和响应 output barrier，只投影 `<video src>` 与 `data-media-state`，不修改 ProseMirror 文档、Markdown 或撤销历史。所有晚到结果都必须校验 Abort、工作区 generation 与当前持久化 source。旧 `.markune/assets/files/...` 引用保持只读兼容，并在成功解析后的下一次保存中规范化为协议引用。资产存活扫描覆盖正式 Markdown 和 `.markune/inbox/*.md`，但不扫描 `.markune` 下其他私有 Markdown。
 
 ## Large-document Performance Boundary
 
-Markune 的每次按键不得读取 `payload.markdown`、复制完整草稿到父级状态或产生资产 IPC。`?markunePerf=1` 开启脱敏诊断，`window.__MarkunePerformanceReport()` 返回仅含数量、耗时、原因和状态的 JSON；不得记录正文或路径。Markweave 0.10.3 以 canonical whole-document parse 保证完整 ProseMirror 语义，再通过复杂度分层、增量 TOC/搜索、视口协调、轻量媒体 NodeView、受控 `content-visibility` 和 output barrier 隔离结构就绪与视觉补齐；Markune 不恢复按 Markdown 文本块独立解析。工作区以 LRU 方式保留最近 3 个已打开文档的 EditorView；切换 Tab 只改变可见性和活动编辑器 ref，关闭或超过上限才销毁实例，文档版本键必须在 live draft 与缓存 session 之间保持稳定。依赖升级必须先核对 npm tarball、锁文件中的单运行时解析和 React/Vue 发布边界，再执行 Markune 的浏览器与真实桌面验收。
+Markune 的每次按键不得读取 `payload.markdown`、复制完整草稿到父级状态或产生资产 IPC。`?markunePerf=1` 开启脱敏诊断，`window.__MarkunePerformanceReport()` 返回仅含数量、耗时、原因和状态的 JSON；不得记录正文或路径。Markweave 0.10.4 以 canonical whole-document parse 保证完整 ProseMirror 语义，再通过复杂度分层、增量 TOC/搜索、视口协调、轻量媒体 NodeView、受控 `content-visibility` 和 output barrier 隔离结构就绪与视觉补齐；Markune 不恢复按 Markdown 文本块独立解析。工作区以 LRU 方式保留最近 3 个已打开文档的 EditorView；切换 Tab 只改变可见性和活动编辑器 ref，关闭或超过上限才销毁实例，文档版本键必须在 live draft 与缓存 session 之间保持稳定。依赖升级必须先核对 npm tarball、锁文件中的单运行时解析和 React/Vue 发布边界，再执行 Markune 的浏览器与真实桌面验收。
 
 ## Desktop Update Boundary
 
