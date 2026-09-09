@@ -179,14 +179,7 @@ const SETTINGS_SECTIONS: Array<{
     id: 'calendar',
     icon: CalendarDays,
     label: '日历',
-    searchTerms: [
-      '日历',
-      '每日笔记',
-      '展开',
-      '每周起始日',
-      '星期一',
-      '星期日',
-    ],
+    searchTerms: ['日历', '每日笔记', '展开', '每周起始日', '星期一', '星期日'],
   },
   {
     id: 'codex',
@@ -396,11 +389,7 @@ export function WorkspaceSettingsPage({
     if (!isTauriRuntime()) return;
     setError(null);
     void setAppWindowOpacity(windowOpacity).catch((reason) => {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : '无法预览应用透明度',
-      );
+      setError(reason instanceof Error ? reason.message : '无法预览应用透明度');
     });
   }, []);
 
@@ -436,9 +425,7 @@ export function WorkspaceSettingsPage({
   );
 
   const updateGitSettings = (
-    update: (
-      current: WorkspaceGitSyncSettings,
-    ) => WorkspaceGitSyncSettings,
+    update: (current: WorkspaceGitSyncSettings) => WorkspaceGitSyncSettings,
   ) => {
     const next = withDefaultGitSyncSettings(update(gitSettings));
     setGitSettings(next);
@@ -449,9 +436,7 @@ export function WorkspaceSettingsPage({
       .catch((reason) => {
         setGitActionState('error');
         setGitMessage(
-          reason instanceof Error
-            ? reason.message
-            : '无法保存 Git Sync 设置',
+          reason instanceof Error ? reason.message : '无法保存 Git Sync 设置',
         );
       });
   };
@@ -689,7 +674,10 @@ export function WorkspaceSettingsPage({
                   saveState={saveState}
                   settings={settings}
                   onChange={(attachments) => {
-                    void saveSettings({ ...settingsRef.current, storage: { ...settingsRef.current.storage, attachments } });
+                    void saveSettings({
+                      ...settingsRef.current,
+                      storage: { ...settingsRef.current.storage, attachments },
+                    });
                   }}
                 />
               ) : null}
@@ -936,8 +924,7 @@ function WindowOpacitySetting({
   onPreview: (value: number) => void;
 }) {
   const progress =
-    ((value - MIN_WINDOW_OPACITY) /
-      (MAX_WINDOW_OPACITY - MIN_WINDOW_OPACITY)) *
+    ((value - MIN_WINDOW_OPACITY) / (MAX_WINDOW_OPACITY - MIN_WINDOW_OPACITY)) *
     100;
   const commitValue = () => onCommit();
   const restoreDefault = () => {
@@ -1023,7 +1010,9 @@ function CodexSection({
   workspaceRootPath: string | null;
 }) {
   const desktop = isTauriRuntime();
-  const [status, setStatus] = React.useState<CodexConnectionStatus | null>(null);
+  const [status, setStatus] = React.useState<CodexConnectionStatus | null>(
+    null,
+  );
   const [provider, setProvider] = React.useState<CodexCustomProviderInfo | null>(
     null,
   );
@@ -1101,7 +1090,10 @@ function CodexSection({
     setMessage(null);
     setError(null);
     try {
+      if (!provider?.fingerprint)
+        throw new Error('API 配置尚未载入，请刷新后重试');
       await setCodexCustomProvider({
+        expectedFingerprint: provider?.fingerprint,
         baseUrl,
         model,
         apiKey: apiKey.trim() ? apiKey : undefined,
@@ -1123,7 +1115,9 @@ function CodexSection({
     setMessage(null);
     setError(null);
     try {
-      await clearCodexCustomProvider();
+      if (!provider?.fingerprint)
+        throw new Error('API 配置尚未载入，请刷新后重试');
+      await clearCodexCustomProvider(provider.fingerprint);
       setBaseUrl('');
       setModel('');
       setApiKey('');
@@ -1143,7 +1137,9 @@ function CodexSection({
     setMessage(null);
     setError(null);
     try {
-      await setCodexAuthMode(mode);
+      if (!provider?.fingerprint)
+        throw new Error('API 配置尚未载入，请刷新后重试');
+      await setCodexAuthMode(mode, provider.fingerprint);
       await restartRuntime();
       await refresh();
       setMessage(mode === 'custom' ? '已切换到自定义 API' : '已切换到 ChatGPT');
@@ -1239,8 +1235,7 @@ function CodexSection({
                     'bg-sky-500/10 text-sky-700 dark:text-sky-400',
                   runtimeTone === 'danger' &&
                     'bg-destructive/10 text-destructive',
-                  runtimeTone === 'muted' &&
-                    'bg-muted text-muted-foreground',
+                  runtimeTone === 'muted' && 'bg-muted text-muted-foreground',
                 )}
                 data-testid="codex-runtime-badge"
               >
@@ -1287,9 +1282,7 @@ function CodexSection({
               )}
               <p>
                 <span className="text-muted-foreground">模型 </span>
-                <span className="font-medium">
-                  {status?.model || '未设置'}
-                </span>
+                <span className="font-medium">{status?.model || '未设置'}</span>
               </p>
             </div>
           </div>
@@ -1464,7 +1457,9 @@ function CodexSection({
               {saving ? <Loader2 className="animate-spin" size={14} /> : null}
               保存并启用
             </Button>
-            {activeMode !== 'custom' && provider?.hasApiKey && provider.baseUrl ? (
+            {activeMode !== 'custom' &&
+            provider?.hasApiKey &&
+            provider.baseUrl ? (
               <Button
                 disabled={!desktop || switchingMode !== null}
                 size="sm"
@@ -1473,8 +1468,8 @@ function CodexSection({
                 onClick={() => void switchMode('custom')}
               >
                 {switchingMode === 'custom' ? (
-                  <Loader2 className="animate-spin" size={14} />
-                ) : null}
+                    <Loader2 className="animate-spin" size={14} />
+                  ) : null}
                 启用此方式
               </Button>
             ) : null}
@@ -1493,7 +1488,9 @@ function CodexSection({
       )}
 
       {message ? (
-        <p className="text-xs text-emerald-600 dark:text-emerald-400">{message}</p>
+        <p className="text-xs text-emerald-600 dark:text-emerald-400">
+          {message}
+        </p>
       ) : null}
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
     </div>
@@ -1620,7 +1617,8 @@ function StorageSection({
       /[\u0000-\u001f]/u.test(customPath) ||
       customPath.replaceAll('${filename}', '').includes('${') ||
       customPath.trim().startsWith('~') ||
-      (/^[a-z][a-z\d+.-]*:/i.test(customPath) && !/^[a-z]:[/\\]/i.test(customPath))
+      (/^[a-z][a-z\d+.-]*:/i.test(customPath) &&
+        !/^[a-z]:[/\\]/i.test(customPath))
     ) {
       setPathError('请输入本地目录；仅支持 ${filename} 变量，不支持网址或 ~ 路径。');
       return;
@@ -1827,11 +1825,7 @@ function StorageSection({
   );
 }
 
-function VersionSection({
-  appUpdate,
-}: {
-  appUpdate: AppUpdateController;
-}) {
+function VersionSection({ appUpdate }: { appUpdate: AppUpdateController }) {
   const busy =
     appUpdate.phase === 'checking' ||
     appUpdate.phase === 'downloading' ||
@@ -2001,7 +1995,13 @@ function VersionSection({
   );
 }
 
-function VersionMetadataRow({ label, value }: { label: string; value: string }) {
+function VersionMetadataRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
   return (
     <div className="grid gap-3 border-t border-border/60 px-5 py-4 text-sm sm:grid-cols-[160px_minmax(0,1fr)] sm:items-center">
       <span className="text-muted-foreground">{label}</span>

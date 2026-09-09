@@ -1,10 +1,12 @@
 @import "tailwindcss";
 @import "@xterm/xterm/css/xterm.css";
 @import "@markweave/react/styles.css";
+@import "katex/dist/katex.min.css";
 
-@plugin "tailwind-scrollbar-hide";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+
+@plugin "tailwind-scrollbar-hide";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -976,3 +978,7 @@
   padding: 7px 10px;
   font-size: 13px;
 }
+
+.ai-code-token { color: var(--shiki-light); font-style: var(--shiki-light-font-style); font-weight: var(--shiki-light-font-weight); text-decoration: var(--shiki-light-text-decoration); }
+.dark .ai-code-token { color: var(--shiki-dark); font-style: var(--shiki-dark-font-style); font-weight: var(--shiki-dark-font-weight); text-decoration: var(--shiki-dark-text-decoration); }
+.ai-message-content .katex-display { overflow-x: auto; overflow-y: hidden; padding-block: 0.35rem; }

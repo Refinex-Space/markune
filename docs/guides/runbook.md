@@ -215,7 +215,7 @@ test ! -d .markune/ai-sessions
 2. 在 AI 面板发送消息，确认可走自定义端点；重启 Markune 后仍可用（keyring + config 持久化）。
 3. 切换回“使用 ChatGPT 路径”，确认 `model_provider` 不再指向 `markune_custom`，且需 ChatGPT 登录时可正常 OAuth。
 4. 错误 Base URL、空 Model、无 Key 必须被拒绝；纯 Chat Completions 端点即使保存成功，对话也会因 wire API 不兼容失败——产品文案已说明此限制。
-5. 确认 `settings.json`、React 会话状态与日志中没有明文 API Key；`CODEX_HOME/config.toml` 仅出现受控的 `[model_providers.markune_custom]`。
+5. 确认 `settings.json`、React 会话状态与日志中没有明文 API Key；`CODEX_HOME/markune-provider.toml` 仅出现受控 provider 与凭据 ID，共享 `config.toml` 保持不变。
 
 聚焦自动化：
 
@@ -225,6 +225,8 @@ pnpm test:run -- components/workspace/__tests__/codex-app-server.test.ts compone
 ```
 
 ## Codex Startup Acceptance
+
+`pnpm codex:stage` 必须同时准备 `codex` 和 `codex-code-mode-host`。出现 `failed to spawn code-mode host` / `No such file or directory` 时先核对二者是否同目录、来自同一版本且可执行；开发环境重新执行 `pnpm desktop:dev`，安装版重新构建完整安装包。不要通过关闭只读权限或清空 Codex 历史解决资源缺失。运行 `node --test scripts/stage-codex-sidecar.test.mjs` 可验证独立临时目录中的真实辅助程序握手与工具往返，随后检查 `bundle.externalBin` 中包含两项。
 
 首次启动桌面端并打开工作区后，不先打开 AI 面板，确认 App Server 已在后台启动；随后首次展开 AI 面板时应直接显示正常的新任务界面，不出现占满会话区的“正在连接 Codex”。在核心握手尚未完成时，输入区仍可编辑，点击发送后应显示轻量准备状态，核心成功后自动继续发送；启动失败时必须保留输入内容并显示可诊断错误。
 
@@ -326,3 +328,7 @@ PDF 用两页不同文字的专用文件检查 Canvas 与文字层对齐、选�
 本轮 Chromium 页面验收使用真实 React 组件、搜索 Worker、PDF.js 与人工生成的两页 PDF，文件系统 IPC 使用内存夹具；原生文件事务另由 Rust 临时目录测试覆盖。不可将这种组合验证表述为真实 WKWebView、WebView2、加密/扫描版 PDF、网络盘或实际 AI 回答引用准确性已全部验收。截图位于本次任务产物目录，测试页面完成后删除，不进入生产路由。
 
 2026-09-06 本机 debug 构建的 2,000 篇合成笔记样本：冷索引 1,626 ms，未变化复用 24 ms，修改一篇后 25 ms，投影仅替换 1 篇。该结果反映本机小型文本样本的增量复用，不代表大型单篇、网络盘或跨平台耗时。
+
+## Codex 专业化验证
+
+先执行 `pnpm test:codex:contract`、`pnpm test:codex:probe`、`pnpm test:codex:eval`，再运行相关组件与 Rust 回归。probe 创建并清理独立临时 Codex Home，不使用真实账号，也不调用模型。完整检查中 `pnpm test:run` 必须先结束，才能执行 `pnpm build:desktop:web`。Windows、登录恢复与模型质量不能以合成事件验收替代，详见 [Codex 专项架构](../architecture/codex.md)。

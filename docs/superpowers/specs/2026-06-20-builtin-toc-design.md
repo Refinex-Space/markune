@@ -1,7 +1,8 @@
 ---
 owner: refinex
 updated: 2026-06-20
-status: confirmed
+status: deprecated
+referenced_by: docs/README.md
 ---
 # 用 markora 内置目录替换自研 TOC
 

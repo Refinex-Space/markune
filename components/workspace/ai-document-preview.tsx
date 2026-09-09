@@ -3,7 +3,10 @@
 import * as React from 'react';
 import { ExternalLink, FileText, RotateCcw, X } from 'lucide-react';
 
-import { MarkdownEditor } from '@/components/editor/markdown-editor';
+import {
+  MarkdownEditor,
+  type MarkdownEditorHandle,
+} from '@/components/editor/markdown-editor';
 import {
   Tooltip,
   TooltipContent,
@@ -11,6 +14,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
+import { contentFingerprint } from './research-notes';
 import { readMarkdownDocument } from './workspace-api';
 import type { PageWidthMode, WorkspaceNode } from './workspace-types';
 
@@ -25,6 +29,7 @@ interface PreviewRequestState {
 }
 
 interface AiDocumentPreviewProps {
+  location?: { fingerprint?: string; line?: number; hash?: string | null };
   document: WorkspaceNode;
   markdownOverride: string | null;
   pageWidthMode: PageWidthMode;
@@ -34,6 +39,7 @@ interface AiDocumentPreviewProps {
 }
 
 export function AiDocumentPreview({
+  location,
   document,
   markdownOverride,
   pageWidthMode,
@@ -89,6 +95,42 @@ export function AiDocumentPreview({
       cancelled = true;
     };
   }, [document.absolutePath, markdownOverride, requestKey, workspaceRootPath]);
+
+  const editorRef = React.useRef<MarkdownEditorHandle | null>(null);
+  const [locationError, setLocationError] = React.useState<string | null>(null);
+  const source = loadState.status === 'ready' ? loadState.markdown : null;
+  React.useEffect(() => {
+    if (!source || (!location?.line && !location?.hash)) return;
+    let active = true;
+    const frame = requestAnimationFrame(() => {
+      void (async () => {
+        if (location.line && location.line > source.split(/\r\n?|\n/).length) {
+          if (active) setLocationError('引用行号超出当前版本，请核对来源');
+          return;
+        }
+        if (
+          location.fingerprint &&
+          (await contentFingerprint(source)) !== location.fingerprint
+        ) {
+          if (active)
+            setLocationError(
+              '来源已变化，当前内容可能不再支持原结论，请重新核对',
+            );
+          return;
+        }
+        const editor = editorRef.current;
+        const found = await editor?.revealLocation({
+          ...location,
+          isCurrent: () => active,
+        });
+        if (active) setLocationError(found ? null : '当前版本未找到引用位置');
+      })();
+    });
+    return () => {
+      active = false;
+      cancelAnimationFrame(frame);
+    };
+  }, [source, location]);
 
   const title = document.title || document.name.replace(/\.(md|mdx)$/i, '');
 
@@ -152,6 +194,12 @@ export function AiDocumentPreview({
         </TooltipProvider>
       </header>
 
+      {location?.line || location?.hash ? (
+        <p className="border-b px-3 py-2 text-xs text-muted-foreground">
+          {locationError ??
+            `当前版本 · ${location.line ? `第 ${location.line} 行` : location.hash}`}
+        </p>
+      ) : null}
       <div className="min-h-0 flex-1 overflow-hidden">
         {loadState.status === 'loading' ? (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
@@ -177,6 +225,7 @@ export function AiDocumentPreview({
         ) : (
           <div className="relative h-full min-h-0">
             <MarkdownEditor
+              ref={editorRef}
               documentPath={document.absolutePath}
               documentKey={`ai-preview:${document.absolutePath}`}
               markdown={loadState.markdown}

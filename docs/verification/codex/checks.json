@@ -1,0 +1,60 @@
+{
+  "baselineCommit": "1ebcadac680dab16bc377340ec48d1c85bec831b",
+  "runtimeVersion": "0.153.4",
+  "runtimeSource": "042fb41b7c813ac7999105e886b2b7aa715b5081",
+  "frontend": {
+    "files": 128,
+    "passed": 956
+  },
+  "rust": {
+    "passed": 314,
+    "ignored": 4
+  },
+  "lint": {
+    "errors": 0,
+    "existingWarnings": 4
+  },
+  "typescript": "passed",
+  "webBuild": "passed",
+  "desktopWebExport": "passed",
+  "contractSchemas": 15,
+  "isolatedRuntimeProbe": "passed",
+  "upgradeProbe": {
+    "from": "0.144.4",
+    "to": "0.153.4",
+    "legacyContent": "preserved",
+    "legacyRolloutPrefixes": "unchanged",
+    "permissions": "preserved",
+    "fork": "passed",
+    "coldRestart": "passed"
+  },
+  "realAppServer": {
+    "model": "gpt-6-astra",
+    "authoritativeOutput": "matched",
+    "phase": "final_answer",
+    "toolCalls": 0,
+    "ephemeral": true
+  },
+  "deterministicCases": 100,
+  "realModelConstraints": {
+    "cases": 100,
+    "passed": 100,
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "oracleRevision": 2,
+    "executionAttempts": 11
+  },
+  "harness": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "uiEvidence": "actual components, synthetic Tauri bridge; Chinese references, footnotes, dark/light,420px,640x480,PDF page2",
+  "notVerified": [
+    "Windows physical device",
+    "macOS native application end-to-end",
+    "true desktop 200% zoom",
+    "human blind evaluation",
+    "paired Notion AI/ChatGPT comparison"
+  ],
+  "professionalScore": null
+}

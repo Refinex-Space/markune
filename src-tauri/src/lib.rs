@@ -2,7 +2,11 @@ mod app_update;
 mod assets;
 mod brand_migration;
 mod codex;
+mod codex_artifacts;
+mod codex_context;
+mod codex_elicitation;
 mod codex_provider;
+mod codex_transport;
 mod document_assets;
 mod document_converter;
 mod document_frontmatter;
@@ -131,6 +135,10 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            codex_artifacts::read_codex_artifact,
+            codex_artifacts::preview_codex_tool_image,
+            codex_context::read_codex_instruction_manifest,
+            codex::codex_app_server_respond_elicitation,
             document_assets::store_document_asset,
             document_assets::resolve_document_assets,
             document_assets::read_document_asset_data,

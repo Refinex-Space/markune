@@ -1,3 +1,10 @@
+---
+owner: refinex
+updated: 2026-09-06
+status: deprecated
+referenced_by: docs/README.md
+---
+
 # AI 面板消息列表与渲染设计（C 子项目）
 
 - 日期：2026-06-28

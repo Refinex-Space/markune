@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-08-06
+updated: 2026-09-06
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -9,7 +9,7 @@ referenced_by: AGENTS.md#knowledge-map
 
 ## Active
 
-（无）
+- [Codex 专业化实施与验收](plans/codex-professionalization.md)
 
 ## Planned
 

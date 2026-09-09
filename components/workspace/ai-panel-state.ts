@@ -1,3 +1,4 @@
+import { boundedToolResult } from './codex-tool-result';
 import type {
   CodexProtocolMessage,
   CodexThread,
@@ -170,6 +171,8 @@ export type AiTimelineItem =
   | (AiActivityBase & {
       detail: string | null;
       kind: 'collab' | 'context' | 'image' | 'status';
+      imagePath?: string;
+      imageData?: string;
     });
 
 type AiMessageEntry = { type: 'message' } & AiChatMessage;
@@ -208,6 +211,7 @@ export interface AiApprovalChoice {
 }
 
 export interface AiApprovalRequest {
+  sessionId?: string;
   choices: AiApprovalChoice[];
   detail: string;
   id: number | string;
@@ -218,6 +222,7 @@ export interface AiApprovalRequest {
 }
 
 export interface AiUserInputRequest extends CodexUserInputRequest {
+  sessionId?: string;
   id: number | string;
   itemId: string | null;
   turnId: string | null;
@@ -273,7 +278,9 @@ export function isPaginatedThreadsUnsupportedError(error: unknown) {
       : typeof error === 'string'
         ? error
         : '';
-  return message.toLowerCase().includes('paginated_threads is not supported yet');
+  return message
+    .toLowerCase()
+    .includes('paginated_threads is not supported yet');
 }
 
 export function paginatedThreadUnsupportedMessage() {
@@ -366,7 +373,7 @@ export function reduceCodexProtocolMessage(
         diff: next.turns[turnState.id]?.diff ?? turnState.diff,
         error:
           turnState.status === 'failed'
-            ? turnState.error ?? next.turns[turnState.id]?.error ?? null
+            ? (turnState.error ?? next.turns[turnState.id]?.error ?? null)
             : null,
       };
       if (next.activeTurnId === turnState.id) {
@@ -430,7 +437,10 @@ export function reduceCodexProtocolMessage(
     return next;
   }
 
-  if (message.method === 'item/started' || message.method === 'item/completed') {
+  if (
+    message.method === 'item/started' ||
+    message.method === 'item/completed'
+  ) {
     const item = params.item as CodexThreadItem | undefined;
 
     if (!item) {
@@ -595,6 +605,7 @@ export function reduceCodexProtocolMessage(
       ? describePermissionRequest(permissions)
       : null;
     next.approvals.push({
+      sessionId: message.markuneSessionId,
       choices: supportedApprovalChoices(
         params.markuneApprovalChoices,
         params.availableDecisions,
@@ -609,7 +620,8 @@ export function reduceCodexProtocolMessage(
       method: message.method,
       title: message.method.includes('permissions')
         ? '请求扩展操作权限'
-        : message.method.includes('fileChange') || message.method === 'applyPatchApproval'
+        : message.method.includes('fileChange') ||
+            message.method === 'applyPatchApproval'
           ? '请求修改工作区文件'
           : '请求执行工具命令',
       turnId: getString(params, 'turnId'),
@@ -624,9 +636,10 @@ export function reduceCodexProtocolMessage(
     const request = parseUserInputRequest(params.markuneUserInput);
     if (request) {
       next.userInputRequests = next.userInputRequests.filter(
-        (candidate) => String(candidate.id) !== String(message.id),
+        (candidate) => candidate.id !== message.id,
       );
       next.userInputRequests.push({
+        sessionId: message.markuneSessionId,
         ...request,
         id: message.id,
         itemId: getString(params, 'itemId'),
@@ -639,15 +652,28 @@ export function reduceCodexProtocolMessage(
   if (message.method === 'serverRequest/resolved') {
     const requestId = params.requestId;
     next.approvals = next.approvals.filter(
-      (approval) => String(approval.id) !== String(requestId),
+      (approval) => approval.id !== requestId,
     );
     next.userInputRequests = next.userInputRequests.filter(
-      (request) => String(request.id) !== String(requestId),
+      (request) => request.id !== requestId,
     );
     return next;
   }
 
   if (message.method === 'markune/runtime/exited') {
+    next.approvals = [];
+    for (const [id, turn] of Object.entries(next.turns))
+      if (turn.status === 'inProgress')
+        next.turns[id] = {
+          ...turn,
+          status: 'interrupted',
+          completedAtMs: Date.now(),
+        };
+    next.entries = next.entries.map((entry) =>
+      entry.type === 'timeline' && entry.status === 'inProgress'
+        ? { ...entry, status: 'failed' as const, completedAtMs: Date.now() }
+        : entry,
+    );
     next.activeTurnId = null;
     next.userInputRequests = [];
     next.entries.push({
@@ -827,7 +853,10 @@ function timelineFromItem(
 
   switch (item.type) {
     case 'commandExecution': {
-      const actions = parseCommandActions(item.commandActions, workspaceRootPath);
+      const actions = parseCommandActions(
+        item.commandActions,
+        workspaceRootPath,
+      );
       const command = typeof item.command === 'string' ? item.command : '';
       return {
         ...common,
@@ -838,7 +867,9 @@ function timelineFromItem(
         kind: 'command',
         label: commandLabel(actions, command),
         output: createOutputPreview(
-          typeof item.aggregatedOutput === 'string' ? item.aggregatedOutput : '',
+          typeof item.aggregatedOutput === 'string'
+            ? item.aggregatedOutput
+            : '',
         ),
         terminalInputs: [],
       };
@@ -858,7 +889,7 @@ function timelineFromItem(
         kind: 'mcp',
         label: `调用 ${[item.server, item.tool].filter((value) => typeof value === 'string').join(' · ') || 'MCP 工具'}`,
         progress: null,
-        result: item.result,
+        result: boundedToolResult(item.result),
         server: typeof item.server === 'string' ? item.server : null,
         tool: typeof item.tool === 'string' ? item.tool : 'MCP 工具',
       };
@@ -892,13 +923,41 @@ function timelineFromItem(
         label: collabLabel(item),
       };
     case 'imageView':
-    case 'imageGeneration':
+    case 'imageGeneration': {
+      const path =
+        typeof item.savedPath === 'string'
+          ? item.savedPath
+          : typeof item.path === 'string'
+            ? item.path
+            : undefined;
+      const raw =
+        typeof item.result === 'string'
+          ? item.result.replace(
+              /^data:image\/(?:png|jpeg|webp|gif);base64,/i,
+              '',
+            )
+          : '';
+      const imageData =
+        raw.length <= 28 * 1024 * 1024 &&
+        /^(?:iVBOR|\/9j\/|UklGR|R0lGOD)/.test(raw)
+          ? raw
+          : undefined;
       return {
         ...common,
-        detail: stringifyToolValue(item.path ?? item.result),
+        detail:
+          path ??
+          (imageData
+            ? '图片可在下方预览'
+            : (stringifyToolValue(item.failure ?? item.result)?.slice(
+                0,
+                4000,
+              ) ?? null)),
+        imagePath: path,
+        imageData,
         kind: 'image',
         label: item.type === 'imageView' ? '查看了图像' : '生成了图像',
       };
+    }
     case 'contextCompaction':
       return {
         ...common,
@@ -906,9 +965,7 @@ function timelineFromItem(
         id: `context-${turnId ?? 'unknown'}`,
         kind: 'context',
         label:
-          common.status === 'inProgress'
-            ? '正在压缩上下文'
-            : '上下文已压缩',
+          common.status === 'inProgress' ? '正在压缩上下文' : '上下文已压缩',
       };
     case 'enteredReviewMode':
     case 'exitedReviewMode':
@@ -1030,7 +1087,9 @@ function appendOutputPreview(
     ...preview,
     tail: (preview.tail + delta).slice(-half),
     totalLines:
-      preview.totalLines + countNewlines(delta) + (preview.totalLines === 0 ? 1 : 0),
+      preview.totalLines +
+      countNewlines(delta) +
+      (preview.totalLines === 0 ? 1 : 0),
   };
 }
 
@@ -1305,13 +1364,15 @@ function isLastAssistantMessageForTurn(
   index: number,
   turnId: string,
 ) {
-  return !entries.slice(index + 1).some(
-    (entry) =>
+  return !entries
+    .slice(index + 1)
+    .some(
+      (entry) =>
       entry.type === 'message' &&
       entry.role === 'assistant' &&
       entry.phase !== 'commentary' &&
       entry.turnId === turnId,
-  );
+    );
 }
 
 function createChangeSummaryBlock(
@@ -1410,8 +1471,7 @@ function changeSummaryPathsMatch(left: string, right: string) {
   const normalizedLeft = normalizeChangeSummaryPath(left);
   const normalizedRight = normalizeChangeSummaryPath(right);
   const windows =
-    /^[A-Za-z]:\//.test(normalizedLeft) ||
-    /^[A-Za-z]:\//.test(normalizedRight);
+    /^[A-Za-z]:\//.test(normalizedLeft) || /^[A-Za-z]:\//.test(normalizedRight);
   const comparableLeft = windows
     ? normalizedLeft.toLocaleLowerCase()
     : normalizedLeft;
@@ -1592,9 +1652,9 @@ function isStandaloneActivity(activity: AiTimelineItem) {
 }
 
 function activityStatus(activities: AiTimelineItem[]): AiActivityStatus {
+  if (activities.some((activity) => activity.status === 'inProgress')) return 'inProgress';
   if (activities.some((activity) => activity.status === 'failed')) return 'failed';
   if (activities.some((activity) => activity.status === 'declined')) return 'declined';
-  if (activities.some((activity) => activity.status === 'inProgress')) return 'inProgress';
   return 'completed';
 }
 
@@ -1603,10 +1663,11 @@ function traceStatus(
   approvals: AiApprovalRequest[],
   turn?: AiTurnState,
 ): AiTraceBlock['status'] {
+  // A recoverable tool error is not the outcome of the whole turn.
+  // author: refinex
+  if (turn && turn.status !== 'inProgress') return turn.status;
   if (approvals.length > 0) return 'waitingApproval';
-  const status = activityStatus(activities);
-  if (status !== 'completed') return status;
-  return turn?.status ?? 'completed';
+  return turn?.status ?? activityStatus(activities);
 }
 
 function groupDuration(activities: AiTimelineItem[]) {
@@ -1760,10 +1821,16 @@ export function createComposerAwareUserInput(
   let modelText = '';
 
   const mentions = [
-    ...documentMentions.map((mention) => ({ mention, type: 'document' as const })),
+    ...documentMentions.map((mention) => ({
+      mention,
+      type: 'document' as const,
+    })),
     ...pluginMentions.map((mention) => ({ mention, type: 'plugin' as const })),
     ...skillMentions.map((mention) => ({ mention, type: 'skill' as const })),
-    ...drawingMentions.map((mention) => ({ mention, type: 'drawing' as const })),
+    ...drawingMentions.map((mention) => ({
+      mention,
+      type: 'drawing' as const,
+    })),
   ].sort((left, right) => left.mention.start - right.mention.start);
 
   for (const { mention, type } of mentions) {
@@ -1835,11 +1902,10 @@ function messageFromUserMessage(
     return { attachments: [], mentions: [], text: '' };
   }
 
-  const inputs = item.content
-    .filter(
-      (content): content is Record<string, unknown> =>
+  const inputs = item.content.filter(
+    (content): content is Record<string, unknown> =>
         Boolean(content && typeof content === 'object'),
-    );
+  );
   const mentionInputs = inputs
     .filter(
       (input) =>
@@ -1856,11 +1922,13 @@ function messageFromUserMessage(
   let imageIndex = 0;
   const attachments = inputs.flatMap<AiMessageAttachment>((input) => {
     if (input.type === 'localImage' && typeof input.path === 'string') {
-      return [{
+      return [
+        {
         kind: 'image' as const,
         name: localPathName(input.path),
         previewUrl: null,
-      }];
+      },
+      ];
     }
     if (input.type !== 'image' || typeof input.url !== 'string') {
       return [];
@@ -1868,12 +1936,14 @@ function messageFromUserMessage(
     const mediaType = inlineImageMediaType(input.url);
     if (!mediaType) return [];
     imageIndex += 1;
-    return [{
+    return [
+      {
       kind: 'image' as const,
       mediaType,
       name: `图片 ${imageIndex}`,
       previewUrl: input.url,
-    }];
+    },
+    ];
   });
   const mentions: AiMessageMention[] = [];
   let text = '';
@@ -2086,7 +2156,7 @@ function inlineImageMediaType(url: string): AiMessageAttachment['mediaType'] {
   const match = /^data:(image\/(?:gif|jpeg|png|webp));base64,[A-Za-z0-9+/]+={0,2}$/.exec(
     url,
   );
-  return match?.[1] as AiMessageAttachment['mediaType'] ?? null;
+  return (match?.[1] as AiMessageAttachment['mediaType']) ?? null;
 }
 
 function parseHistoricalDocumentReference(value: string) {
@@ -2224,9 +2294,7 @@ function hasRemainingEntryForTurn(
   startIndex: number,
   turnId: string,
 ) {
-  return entries
-    .slice(startIndex)
-    .some((entry) => entry.turnId === turnId);
+  return entries.slice(startIndex).some((entry) => entry.turnId === turnId);
 }
 
 function secondsToMilliseconds(value: number | null) {
@@ -2234,7 +2302,12 @@ function secondsToMilliseconds(value: number | null) {
 }
 
 function parseTurnStatus(value: unknown): AiTurnState['status'] {
-  return matches(String(value), ['completed', 'failed', 'inProgress', 'interrupted'])
+  return matches(String(value), [
+    'completed',
+    'failed',
+    'inProgress',
+    'interrupted',
+  ])
     ? (value as AiTurnState['status'])
     : 'completed';
 }
@@ -2247,7 +2320,12 @@ function parseActivityStatus(
   value: unknown,
   fallback: AiActivityStatus,
 ): AiActivityStatus {
-  return matches(String(value), ['completed', 'declined', 'failed', 'inProgress'])
+  return matches(String(value), [
+    'completed',
+    'declined',
+    'failed',
+    'inProgress',
+  ])
     ? (value as AiActivityStatus)
     : fallback;
 }
@@ -2277,7 +2355,9 @@ function parseCommandActions(
       ];
     }
     if (candidate.type === 'listFiles') {
-      return [{ command, path: getString(candidate, 'path'), type: 'listFiles' }];
+      return [
+        { command, path: getString(candidate, 'path'), type: 'listFiles' },
+      ];
     }
     if (candidate.type === 'search') {
       return [
@@ -2438,12 +2518,18 @@ function resolveWorkspaceItemPath(
     return null;
   }
   const windows = /^[A-Za-z]:[\\/]/.test(workspaceRootPath);
-  const normalizedRoot = workspaceRootPath.replaceAll('\\', '/').replace(/\/$/, '');
+  const normalizedRoot = workspaceRootPath
+    .replaceAll('\\', '/')
+    .replace(/\/$/, '');
   const normalizedPath = path.replaceAll('\\', '/');
   const absolute = normalizedPath.startsWith('/') || /^[A-Za-z]:\//.test(normalizedPath);
   if (absolute) {
-    const comparableRoot = windows ? normalizedRoot.toLocaleLowerCase() : normalizedRoot;
-    const comparablePath = windows ? normalizedPath.toLocaleLowerCase() : normalizedPath;
+    const comparableRoot = windows
+      ? normalizedRoot.toLocaleLowerCase()
+      : normalizedRoot;
+    const comparablePath = windows
+      ? normalizedPath.toLocaleLowerCase()
+      : normalizedPath;
     if (
       comparablePath !== comparableRoot &&
       !comparablePath.startsWith(`${comparableRoot}/`)
@@ -2549,23 +2635,32 @@ function parseBridgeApprovalChoice(value: unknown): AiApprovalChoice[] {
   const kind = getString(value, 'kind');
   const label = getString(value, 'label');
   if (!id || !kind || !label || !isApprovalChoiceKind(kind)) return [];
-  return [{
+  return [
+    {
     description: getString(value, 'description'),
     id,
     kind,
     label,
-  }];
+  },
+  ];
 }
 
 function approvalChoiceForKind(id: string, kind: string): AiApprovalChoice[] {
-  const labels: Partial<Record<AiApprovalChoiceKind, [string, string | null]>> = {
-    accept: ['允许一次', null],
-    acceptForSession: ['本次任务允许', '同类操作在当前任务中不再询问'],
-    acceptWithExecpolicyAmendment: ['允许并记住命令规则', '仅允许服务端建议的命令规则'],
-    applyNetworkPolicyAmendment: ['应用联网规则', '仅应用服务端建议的主机访问规则'],
-    cancel: ['拒绝并停止', '拒绝操作并中断当前任务'],
-    decline: ['拒绝并继续', '拒绝操作，但允许 Codex 尝试其他方案'],
-  };
+  const labels: Partial<Record<AiApprovalChoiceKind, [string, string | null]>> =
+    {
+      accept: ['允许一次', null],
+      acceptForSession: ['本次任务允许', '同类操作在当前任务中不再询问'],
+      acceptWithExecpolicyAmendment: [
+        '允许并记住命令规则',
+        '仅允许服务端建议的命令规则',
+      ],
+      applyNetworkPolicyAmendment: [
+        '应用联网规则',
+        '仅应用服务端建议的主机访问规则',
+      ],
+      cancel: ['拒绝并停止', '拒绝操作并中断当前任务'],
+      decline: ['拒绝并继续', '拒绝操作，但允许 Codex 尝试其他方案'],
+    };
   if (!isApprovalChoiceKind(kind) || !labels[kind]) return [];
   return [{ description: labels[kind]![1], id, kind, label: labels[kind]![0] }];
 }
@@ -2608,9 +2703,7 @@ function describePermissionRequest(permissions: Record<string, unknown>) {
       }
     }
   }
-  return parts.length > 0
-    ? parts.join('\n')
-    : '请求临时扩展文件或网络访问范围';
+  return parts.length > 0 ? parts.join('\n') : '请求临时扩展文件或网络访问范围';
 }
 
 function permissionPathLabel(value: unknown) {
@@ -2672,21 +2765,25 @@ function parseUserInputRequest(value: unknown): CodexUserInputRequest | null {
       const label = getString(option, 'label');
       const description = getString(option, 'description');
       if (!optionId || !label || description === null) return [];
-      return [{
+      return [
+        {
         description,
         id: optionId,
         isOther: option.isOther === true,
         label,
-      }];
+      },
+      ];
     });
     if (options.length === 1) return [];
-    return [{
+    return [
+      {
       header,
       id,
       isSecret: candidate.isSecret === true,
       options,
       question,
-    }];
+    },
+    ];
   });
   if (questions.length !== value.questions.length) return null;
   const autoResolutionMs =

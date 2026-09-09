@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-06
+updated: 2026-09-09
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -128,11 +128,11 @@ Word 与 PDF 默认使用固定版本 sidecar：Pandoc 3.10.1 负责 Markdown AS
 
 ## Codex AI Boundary
 
-AI 面板是工作区级客户端，不在浏览器渲染器中运行 Node.js SDK，也不持有供应商 API key。Tauri 启动固定版本的 `codex app-server --listen stdio://`，账户登录、线程历史、模型目录、MCP、联网搜索、工具调用和文件变更由 App Server 提供。前端仅能调用 `src-tauri/src/codex.rs` 与受控的 `codex_provider.rs` 命令；通用 `config/read|write` 仍不在 allowlist。自定义 Responses 兼容端点由宿主写入 `CODEX_HOME/config.toml` 的固定 provider `markune_custom`，API Key 只进入 OS keyring，并在 sidecar 启动时注入进程环境变量 `MARKUNE_CODEX_PROVIDER_API_KEY`；渲染器、`settings.json`、localStorage 与日志不得保存明文 Key。ChatGPT OAuth 与自定义模式互斥，切换后需重启 App Server。会话消息、计划、命令、文件修改与 MCP 事件按协议到达顺序写入统一会话流；助手消息使用禁用原始 HTML 的 GFM 渲染。
+AI 面板是工作区级 App Server 客户端。固定 0.153.4 的协议、运行时监督、任务隔离、文档读写、研究证据与安全 renderer 详见 [Codex 专项架构](codex.md)。应用级 listener 在设置、紧凑面板与全宽工作区之间持续存在；会话投影按 threadId 隔离，旧进程通知按代际拒绝。后台任务的审批、追问和动态工具仍被处理。
 
-Markweave 0.10.3 的 AI 预编辑由两条互补路径组成。可编辑的活动 Live 文档通过 `askAi` 启用编辑器内置入口，覆盖普通文本以及单元格、行、列、多单元格选区和整表；AI 面板通过活动 `MarkdownEditorHandle` 取得 `MarkweaveAiEditController`，仅对普通文本选区发起宿主驱动预编辑。Source、View、只读文档、Plan/AI 预览和隐藏缓存编辑器不发布可用 controller。两条路径都由 Markweave 持有临时差异、冲突检测、接受、舍弃、停止和一次 Undo；接受结果沿既有 `onUpdate`、500 ms 惰性 flush 与 Markdown 保存链路提交，不调用全量 `setContent`。
+新任务默认使用工作区 Agent 与原生请求审批：问答直接回答，修改按用户意图直接调用工具。不提供额外文档预审、回答追加或全文替换动作，也不强制套用内置写作质量标准。编辑器关闭 AI 内联预审，未采纳状态可清除；文件更新继续经过既有工作区刷新与草稿冲突处理。
 
-`components/workspace/codex-inline-ai.ts` 为每次预编辑创建独立的 Codex `ephemeral` 线程，使用当前模型和非 Plan 推理强度，固定 `:read-only + on-request + user`、禁用 Web Search 与 Environment。请求只包含用户指令和 Markweave 提供的目标 Markdown/表格结构，不附加当前会话、整篇文档、文档/图稿引用、附件、mention、Plugin、Skill 或 Goal。runner 只消费自己 thread/turn 的 `final_answer` 增量；AI 面板拒绝归约 ephemeral 或非当前可见线程事件。目标中止、冲突、文档/工作区切换和运行时退出会中断 turn，终态后 best-effort 删除线程；Rust 对 `ephemeral: true` 的 thread 不注入 Markune Drawing 动态工具。
+自定义 provider 选择写入 Markune 专用 overlay，不修改共享 Codex 全局模型。API Key 使用版本化 OS keyring account，只在 sidecar 启动时注入环境；渲染器与日志不保存明文。
 
 AI 画图是宿主内的受控 Codex 能力，不接入远程 Excalidraw MCP UI。随应用打包的 `markune-diagram` Skill 负责检查当前或显式提及图稿、收敛单一视角、选择图型和质量 profile、编排 Mermaid，并根据预览最多修复两轮；Rust 在新线程中固定注入 `markune_drawing.inspect_drawing`、两类 preview 工具、`markune_drawing.apply_preview_to_active` 与 `markune_drawing.create_from_preview`，渲染器不能提供其他 dynamic tools。`inspect_drawing` 只接受当前 turn 已授权的 Drawing UUID，返回去除 files/blob 的有界元素结构和可选 PNG/WebP 预览。Mermaid 编译器只在工具调用时动态加载，成功结果必须是可编辑 Excalidraw 元素，SVG/image fallback 会作为失败返回；编译后按 `architecture | flow | default` profile 计算交叉、穿越节点、关系和分组预算、扇出、转折、逆向关系、重叠、标签裁切与画布比例，返回确定性的 grade、blockers 和 repair suggestions。预览按工作区和 turn 保存在前端内存中，最多 3 个且 10 分钟有效；未达 A 级或存在 blocker 的预览保留供模型检查，但应用和创建都必须失败关闭。模型只能提交 opaque `previewId`：活动图稿改写由 Rust 注入本 turn 绑定的 Drawing ID、kind 与 revision，前端再次校验后复用普通原子保存、备份和冲突机制；显式提及图稿始终只读。用户明确要求新建或副本、或没有活动图稿时才走 generated-create。
 
@@ -140,7 +140,7 @@ AI 画图是宿主内的受控 Codex 能力，不接入远程 Excalidraw MCP UI�
 
 生成图稿继续复用 Drawing Raw IPC，但使用独立 generated-create session。场景与 PNG/WebP 预览完整暂存并通过 Rust 校验后，revision 1 bundle 才从 `.staging` 原子 rename 到当前普通图集或未归类根目录；任何失败都不创建空白 bundle。成功后前端刷新图稿库、切换到 Drawings system page 并打开结果，后续保存、备份、冲突和导出完全复用普通图稿流程。
 
-Codex 运行时在工作区根目录就绪后后台预热，关闭右侧 AI 面板只隐藏视图，不卸载会话组件或终止 App Server。启动采用分层加载：App Server、账户与权限约束构成可发送消息的核心就绪条件，模型目录、线程历史、当前工作区的已安装插件与 Skill 在核心就绪后后台加载。Markune 不为输入框菜单预取或展示 MCP inventory。模型、历史、插件或 Skill 加载慢或失败都不得退回全屏“正在连接”状态，也不得阻塞使用服务端默认模型发送消息。用户在核心握手期间可以编辑并提交，提交操作等待同一个启动 Promise，核心成功后继续执行，失败时保留草稿并显示错误。
+Codex 运行时在工作区根目录就绪后后台预热，关闭右侧 AI 面板只隐藏视图，不卸载会话组件或终止 App Server。启动采用分层加载：App Server、账户与权限约束构成可发送消息的核心就绪条件，模型目录、线程历史、当前工作区的已安装插件与 Skill 在核心就绪后后台加载。Markune 不为输入框菜单预取 MCP inventory，也不在普通 Agent 任务开始前额外禁用用户的连接器或插件。模型、历史、插件或 Skill 加载慢或失败都不得退回全屏“正在连接”状态，也不得阻塞使用服务端默认模型发送消息。用户在核心握手期间可以编辑并提交，提交操作等待同一个启动 Promise，核心成功后继续执行，失败时保留草稿并显示错误。
 
 Codex 同时提供右侧紧凑面板和主工作区两种展示形态，但两者必须复用同一个持续挂载的 `AiPanel` 实例；从左侧固定的“Codex”入口进入主工作区时，只切换 presentation，不新建运行时、线程或消息状态，也不清空当前文档与已打开标签。主工作区中的文档动作先打开右侧只读预览检查器，不立即替换编辑器当前文档；预览优先使用当前未保存草稿或已缓存编辑器 session，否则通过既有 `readMarkdownDocument` 读取磁盘内容。用户只有显式选择“在编辑器中打开”时，才把该文档提升为普通编辑器标签。预览宽度只保存在浏览器 local storage，不属于工作区或 AI 会话状态。
 
@@ -190,7 +190,7 @@ Plan turn 的 `item/plan/delta` 只用于流式展示，`item/completed` 的完�
 
 提及候选只来自当前已加载的 Markdown 文档索引，并在前端按标题、文件名和工作区相对路径进行确定性的 Unicode 模糊排序。匹配同时识别忽略空格与常用路径分隔符的紧凑前缀；当前文档在真实命中后获得有限排序加权并显式标记，但不会压过更高等级的文本匹配；只有已显式插入输入框的文档从候选中排除。编辑器基于真实光标位置识别空白分隔的 `@token`，候选列表支持方向键循环选择、选中项就近滚动、Enter/Tab 确认和 Escape 关闭。固定 sidecar 虽提供通用 `fuzzyFileSearch`，但 Markune 不向渲染器开放该文件系统枚举接口，避免绕过文档索引和工作区路径边界。
 
-Codex App Server 是 AI 会话持久化的唯一所有者。Markune 默认把 sidecar 绑定到共享的 `~/.codex`，允许的 `CODEX_HOME` 覆盖必须是工作区之外的既有绝对目录；该进程的 `sqlite_home` 固定为同一目录。Codex 管理 `sessions/**/*.jsonl` 会话记录、`session_index.jsonl` 追加索引和 SQLite 查询投影，Markune 只能通过 `thread/start`、`thread/resume`、`thread/list`、`thread/read`、`thread/name/set`、`thread/archive` 与 `thread/delete` 访问线程，禁止直接读写这些内部文件或数据库。
+Codex App Server 是 AI 会话持久化的唯一所有者。Markune 默认把 sidecar 绑定到共享的 `~/.codex`，允许的 `CODEX_HOME` 覆盖必须是工作区之外的既有绝对目录；该进程的 `sqlite_home` 固定为同一目录。Codex 管理 `sessions/**/*.jsonl` 会话记录、`session_index.jsonl` 追加索引和 SQLite 查询投影，Markune 只能通过允许的原生 thread API（含列表、分页、分支、恢复与归档）访问线程，禁止直接读写这些内部文件或数据库。
 
 工作区 `.markune` 只保存工作区元数据和资产，不保存 AI 消息。历史 `.markune/ai-sessions` JSON 方案已经废弃，不得重新引入，也不得为 Codex 会话维护第二份本地镜像。
 

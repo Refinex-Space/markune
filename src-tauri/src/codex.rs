@@ -1,3 +1,4 @@
+use crate::codex_transport::{initial_frame, read_frame, CodexWriter, MAX_FRAME_BYTES};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use image::{DynamicImage, ImageFormat, RgbaImage};
 use serde::{Deserialize, Serialize};
@@ -7,9 +8,10 @@ use std::collections::{HashMap, HashSet};
 use std::env;
 use std::ffi::OsStr;
 use std::fs;
-use std::io::{BufRead, BufReader, Cursor, Read, Write};
+use std::io::{BufRead, BufReader, Cursor, Read};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
@@ -63,7 +65,10 @@ impl CodexState {
             return false;
         };
         match guard.as_mut() {
-            Some(session) => session.child.try_wait().ok().flatten().is_none(),
+            Some(session) => {
+                session.writer.healthy.load(Ordering::Acquire)
+                    && session.child.try_wait().ok().flatten().is_none()
+            }
             None => false,
         }
     }
@@ -80,12 +85,13 @@ impl Drop for CodexState {
 }
 
 struct CodexSession {
+    id: String,
     built_in_skill_root: PathBuf,
     root: PathBuf,
     storage_root: PathBuf,
     binary_source: String,
     version: String,
-    writer: Arc<Mutex<ChildStdin>>,
+    writer: Arc<CodexWriter>,
     child: Child,
     pending_server_requests: Arc<Mutex<HashMap<String, PendingServerRequest>>>,
     pending_plugin_installed_requests: Arc<Mutex<HashSet<u64>>>,
@@ -117,6 +123,9 @@ struct CodexSkillAuthorization {
 
 #[derive(Debug, Clone)]
 enum PendingServerRequestKind {
+    Elicitation {
+        params: Value,
+    },
     Approval {
         choices: HashMap<String, Value>,
     },
@@ -139,7 +148,8 @@ impl PendingServerRequest {
         match &self.kind {
             PendingServerRequestKind::Approval { choices } => Some(choices),
             PendingServerRequestKind::UserInput { .. }
-            | PendingServerRequestKind::DynamicTool { .. } => None,
+            | PendingServerRequestKind::DynamicTool { .. }
+            | PendingServerRequestKind::Elicitation { .. } => None,
         }
     }
 }
@@ -170,6 +180,7 @@ pub struct CodexDynamicToolResponse {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexRuntimeInfo {
+    pub(crate) session_id: Option<String>,
     pub(crate) available: bool,
     pub(crate) running: bool,
     pub(crate) binary_source: Option<String>,
@@ -448,7 +459,13 @@ pub fn release_codex_context_attachments(
 }
 
 #[tauri::command]
-pub fn codex_runtime_probe(app: AppHandle) -> CodexRuntimeInfo {
+pub async fn codex_runtime_probe(app: AppHandle) -> CodexRuntimeInfo {
+    tauri::async_runtime::spawn_blocking(move || codex_runtime_probe_sync(app))
+        .await
+        .unwrap_or_else(|_| unavailable_runtime_info("Codex 探测任务失败".into(), None))
+}
+
+fn codex_runtime_probe_sync(app: AppHandle) -> CodexRuntimeInfo {
     let storage = match resolve_codex_storage(&app, None) {
         Ok(storage) => storage,
         Err(message) => return unavailable_runtime_info(message, None),
@@ -456,6 +473,7 @@ pub fn codex_runtime_probe(app: AppHandle) -> CodexRuntimeInfo {
 
     match resolve_codex_binary(&app) {
         Ok(binary) => CodexRuntimeInfo {
+            session_id: None,
             available: true,
             running: false,
             binary_source: Some(binary.source),
@@ -469,7 +487,19 @@ pub fn codex_runtime_probe(app: AppHandle) -> CodexRuntimeInfo {
 }
 
 #[tauri::command]
-pub fn codex_runtime_start(
+pub async fn codex_runtime_start(
+    app: AppHandle,
+    root_path: String,
+) -> Result<CodexRuntimeInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<CodexState>();
+        codex_runtime_start_sync(app.clone(), state, root_path)
+    })
+    .await
+    .map_err(|_| "Codex 启动任务失败".to_string())?
+}
+
+fn codex_runtime_start_sync(
     app: AppHandle,
     state: State<'_, CodexState>,
     root_path: String,
@@ -485,6 +515,7 @@ pub fn codex_runtime_start(
     if let Some(session) = session_guard.as_mut() {
         if session.root == root
             && session.storage_root == storage.root
+            && session.writer.healthy.load(Ordering::Acquire)
             && session.child.try_wait().ok().flatten().is_none()
         {
             return Ok(runtime_info_for_session(session));
@@ -496,7 +527,21 @@ pub fn codex_runtime_start(
     clear_context_attachments(&state.context_attachments)?;
 
     let binary = resolve_codex_binary(&app)?;
-    let app_server_args = codex_app_server_args(&storage.root)?;
+    let contract: Value = serde_json::from_str(include_str!("../../contracts/codex/manifest.json"))
+        .map_err(|_| "Codex 版本契约损坏")?;
+    let expected = contract["version"]
+        .as_str()
+        .ok_or("Codex 版本契约缺少版本")?;
+    if binary.version != format!("codex-cli {expected}") {
+        return Err(format!(
+            "当前 Codex 版本 {} 未通过兼容验证；请使用捆绑的 {expected}",
+            binary.version
+        ));
+    }
+    let mut app_server_args = codex_app_server_args(&storage.root)?;
+    app_server_args.extend(crate::codex_provider::sidecar_provider_overrides(
+        &storage.root,
+    )?);
     let provider_api_key = crate::codex_provider::load_sidecar_api_key(&storage.root)?;
     let mut command = codex_command(&binary.path);
     command
@@ -526,7 +571,8 @@ pub fn codex_runtime_start(
         .stderr
         .take()
         .ok_or_else(|| "Codex App Server 标准错误不可用".to_string())?;
-    let writer = Arc::new(Mutex::new(stdin));
+    let writer = CodexWriter::new(stdin);
+    let session_id = Uuid::new_v4().to_string();
     let pending_server_requests = Arc::new(Mutex::new(HashMap::new()));
     let pending_plugin_installed_requests = Arc::new(Mutex::new(HashSet::new()));
     let pending_skill_list_requests = Arc::new(Mutex::new(HashSet::new()));
@@ -536,11 +582,8 @@ pub fn codex_runtime_start(
 
     thread::spawn(move || {
         let mut reader = BufReader::new(stderr);
-        let mut sink = String::new();
-
-        while reader.read_line(&mut sink).unwrap_or(0) > 0 {
-            sink.clear();
-        }
+        let mut sink = [0u8; 8192];
+        while reader.read(&mut sink).unwrap_or(0) > 0 {}
     });
 
     let initialize = json!({
@@ -558,14 +601,19 @@ pub fn codex_runtime_start(
             }
         }
     });
-    write_json_line(&writer, &initialize)?;
-
-    let mut stdout_reader = BufReader::new(stdout);
-    let mut initialize_line = String::new();
-    if let Err(error) = stdout_reader.read_line(&mut initialize_line) {
+    if let Err(error) = write_json_line(&writer, &initialize) {
         let _ = child.kill();
-        return Err(format!("读取 Codex 初始化响应失败: {error}"));
+        return Err(error);
     }
+    let (stdout_reader, initialize_line) =
+        match initial_frame(BufReader::new(stdout), Duration::from_secs(15)) {
+            Ok(value) => value,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
+        };
     let initialize_response = match serde_json::from_str::<Value>(&initialize_line) {
         Ok(response) => response,
         Err(error) => {
@@ -588,6 +636,7 @@ pub fn codex_runtime_start(
     }
     spawn_stdout_reader(
         app.clone(),
+        session_id.clone(),
         stdout_reader,
         Arc::clone(&pending_server_requests),
         Arc::clone(&pending_plugin_installed_requests),
@@ -599,6 +648,7 @@ pub fn codex_runtime_start(
     );
 
     let session = CodexSession {
+        id: session_id,
         built_in_skill_root,
         root,
         storage_root: storage.root,
@@ -620,7 +670,16 @@ pub fn codex_runtime_start(
 }
 
 #[tauri::command]
-pub fn codex_runtime_stop(state: State<'_, CodexState>) -> Result<(), String> {
+pub async fn codex_runtime_stop(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<CodexState>();
+        codex_runtime_stop_sync(state)
+    })
+    .await
+    .map_err(|_| "Codex 请求任务失败".to_string())?
+}
+
+fn codex_runtime_stop_sync(state: State<'_, CodexState>) -> Result<(), String> {
     let mut session_guard = state
         .session
         .lock()
@@ -643,11 +702,27 @@ pub fn codex_runtime_stop(state: State<'_, CodexState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn codex_app_server_request(
+pub async fn codex_app_server_request(
+    app: AppHandle,
+    request_id: u64,
+    method: String,
+    params: Value,
+    session_id: Option<String>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<CodexState>();
+        codex_app_server_request_sync(state, request_id, method, params, session_id)
+    })
+    .await
+    .map_err(|_| "Codex 请求任务失败".to_string())?
+}
+
+fn codex_app_server_request_sync(
     state: State<'_, CodexState>,
     request_id: u64,
     method: String,
     mut params: Value,
+    session_id: Option<String>,
 ) -> Result<(), String> {
     if request_id == INITIALIZE_REQUEST_ID {
         return Err("请求标识 0 由初始化流程保留".to_string());
@@ -664,10 +739,20 @@ pub fn codex_app_server_request(
         .as_ref()
         .ok_or_else(|| "Codex App Server 尚未启动".to_string())?;
 
+    if session_id.as_ref().is_some_and(|id| id != &session.id) {
+        return Err("Codex 运行时会话已改变".into());
+    }
+    if !session.writer.healthy.load(Ordering::Acquire) {
+        return Err("CODEX_TRANSPORT_FAILED: Codex 连接不可用，请重连".into());
+    }
+
     if method == "skills/extraRoots/set" {
         inject_built_in_skill_root(&mut params, &session.built_in_skill_root)?;
     }
     if method == "thread/start" {
+        if params.get("markuneWritingMode").is_some() {
+            return Err("旧写作模式已移除，请刷新客户端后重试".into());
+        }
         inject_markune_dynamic_tools(&mut params)?;
     }
 
@@ -782,10 +867,25 @@ pub fn read_codex_plugin_icon(
 }
 
 #[tauri::command]
-pub fn codex_app_server_respond(
+pub async fn codex_app_server_respond(
+    app: AppHandle,
+    request_id: Value,
+    decision: String,
+    session_id: Option<String>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<CodexState>();
+        codex_app_server_respond_sync(state, request_id, decision, session_id)
+    })
+    .await
+    .map_err(|_| "Codex 请求任务失败".to_string())?
+}
+
+fn codex_app_server_respond_sync(
     state: State<'_, CodexState>,
     request_id: Value,
     decision: String,
+    session_id: Option<String>,
 ) -> Result<(), String> {
     let session_guard = state
         .session
@@ -794,6 +894,9 @@ pub fn codex_app_server_respond(
     let session = session_guard
         .as_ref()
         .ok_or_else(|| "Codex App Server 尚未启动".to_string())?;
+    if session_id.as_ref().is_some_and(|id| id != &session.id) {
+        return Err("交互所属运行时已结束，不能回答新会话的请求".into());
+    }
     let request_key = request_id_key(&request_id)?;
     let mut pending_requests = session
         .pending_server_requests
@@ -822,10 +925,25 @@ pub fn codex_app_server_respond(
 }
 
 #[tauri::command]
-pub fn codex_app_server_respond_user_input(
+pub async fn codex_app_server_respond_user_input(
+    app: AppHandle,
+    request_id: Value,
+    answers: Vec<CodexUserInputAnswer>,
+    session_id: Option<String>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<CodexState>();
+        codex_app_server_respond_user_input_sync(state, request_id, answers, session_id)
+    })
+    .await
+    .map_err(|_| "Codex 请求任务失败".to_string())?
+}
+
+fn codex_app_server_respond_user_input_sync(
     state: State<'_, CodexState>,
     request_id: Value,
     answers: Vec<CodexUserInputAnswer>,
+    session_id: Option<String>,
 ) -> Result<(), String> {
     let session_guard = state
         .session
@@ -834,6 +952,9 @@ pub fn codex_app_server_respond_user_input(
     let session = session_guard
         .as_ref()
         .ok_or_else(|| "Codex App Server 尚未启动".to_string())?;
+    if session_id.as_ref().is_some_and(|id| id != &session.id) {
+        return Err("交互所属运行时已结束，不能回答新会话的请求".into());
+    }
     let request_key = request_id_key(&request_id)?;
     let mut pending_requests = session
         .pending_server_requests
@@ -859,10 +980,58 @@ pub fn codex_app_server_respond_user_input(
 }
 
 #[tauri::command]
-pub fn codex_app_server_respond_dynamic_tool(
+pub async fn codex_app_server_respond_elicitation(
+    app: AppHandle,
+    request_id: Value,
+    session_id: String,
+    action: String,
+    content: Option<Value>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<CodexState>();
+        let guard = state.session.lock().map_err(|_| "运行时状态不可用")?;
+        let session = guard.as_ref().ok_or("Codex 已停止")?;
+        if session.id != session_id {
+            return Err("此交互已过期，请重新发起".into());
+        }
+        let key = request_id_key(&request_id)?;
+        let mut pending = session
+            .pending_server_requests
+            .lock()
+            .map_err(|_| "交互状态不可用")?;
+        let request = pending.get(&key).ok_or("交互已结束或已回答")?;
+        let PendingServerRequestKind::Elicitation { params } = &request.kind else {
+            return Err("交互类型不匹配".into());
+        };
+        let result = crate::codex_elicitation::response(params, &action, content)?;
+        write_json_line(&session.writer, &json!({"id":request_id,"result":result}))?;
+        pending.remove(&key);
+        Ok(())
+    })
+    .await
+    .map_err(|_| "MCP 交互任务失败".to_string())?
+}
+
+#[tauri::command]
+pub async fn codex_app_server_respond_dynamic_tool(
+    app: AppHandle,
+    request_id: Value,
+    response: CodexDynamicToolResponse,
+    session_id: Option<String>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<CodexState>();
+        codex_app_server_respond_dynamic_tool_sync(state, request_id, response, session_id)
+    })
+    .await
+    .map_err(|_| "Codex 请求任务失败".to_string())?
+}
+
+fn codex_app_server_respond_dynamic_tool_sync(
     state: State<'_, CodexState>,
     request_id: Value,
     response: CodexDynamicToolResponse,
+    session_id: Option<String>,
 ) -> Result<(), String> {
     if response.text.len() > MAX_DYNAMIC_TOOL_TEXT_BYTES
         || response.text.chars().any(|character| character == '\0')
@@ -876,6 +1045,9 @@ pub fn codex_app_server_respond_dynamic_tool(
     let session = session_guard
         .as_ref()
         .ok_or_else(|| "Codex App Server 尚未启动".to_string())?;
+    if session_id.as_ref().is_some_and(|id| id != &session.id) {
+        return Err("交互所属运行时已结束，不能回答新会话的请求".into());
+    }
     let request_key = request_id_key(&request_id)?;
     let mut pending_requests = session
         .pending_server_requests
@@ -915,24 +1087,35 @@ pub fn codex_app_server_respond_dynamic_tool(
 
 fn spawn_stdout_reader(
     app: AppHandle,
-    stdout: impl BufRead + Send + 'static,
+    session_id: String,
+    mut stdout: impl BufRead + Send + 'static,
     pending_server_requests: Arc<Mutex<HashMap<String, PendingServerRequest>>>,
     pending_plugin_installed_requests: Arc<Mutex<HashSet<u64>>>,
     plugin_icon_paths: Arc<Mutex<HashSet<PathBuf>>>,
     pending_skill_list_requests: Arc<Mutex<HashSet<u64>>>,
     skill_authorizations: Arc<Mutex<HashSet<CodexSkillAuthorization>>>,
     drawing_authorizations: Arc<Mutex<HashMap<String, CodexDrawingAuthorization>>>,
-    writer: Arc<Mutex<ChildStdin>>,
+    writer: Arc<CodexWriter>,
 ) {
     thread::spawn(move || {
-        for line in stdout.lines() {
-            let Ok(line) = line else {
-                emit_runtime_event(&app, "markune/runtime/readError", "读取 Codex 输出失败");
-                break;
+        loop {
+            let line = match read_frame(&mut stdout, MAX_FRAME_BYTES) {
+                Ok(Some(line)) => line,
+                Ok(None) => break,
+                Err(_) => {
+                    emit_runtime_event(
+                        &app,
+                        &session_id,
+                        "markune/runtime/readError",
+                        "Codex 输出无效、过大或中断",
+                    );
+                    break;
+                }
             };
             let Ok(mut payload) = serde_json::from_str::<Value>(&line) else {
                 emit_runtime_event(
                     &app,
+                    &session_id,
                     "markune/runtime/protocolError",
                     "Codex 返回了无效消息",
                 );
@@ -991,6 +1174,13 @@ fn spawn_stdout_reader(
                         Ok(pending_request) => {
                             if let Ok(key) = request_id_key(&request_id) {
                                 if let Ok(mut pending) = pending_server_requests.lock() {
+                                    if pending.len() >= 256 {
+                                        let _ = write_json_line(
+                                            &writer,
+                                            &json!({"id":request_id,"error":{"code":-32001,"message":"Too many pending interactions"}}),
+                                        );
+                                        continue;
+                                    }
                                     pending.insert(key, pending_request);
                                 }
                             }
@@ -1005,6 +1195,7 @@ fn spawn_stdout_reader(
                             );
                             emit_runtime_event(
                                 &app,
+                                &session_id,
                                 "markune/runtime/protocolError",
                                 "Codex 审批请求格式无效，已安全拒绝",
                             );
@@ -1026,6 +1217,7 @@ fn spawn_stdout_reader(
                     );
                     emit_runtime_event(
                         &app,
+                        &session_id,
                         "markune/runtime/unsupportedServerRequest",
                         "Codex 请求了当前客户端不支持的交互，已安全拒绝",
                     );
@@ -1033,6 +1225,7 @@ fn spawn_stdout_reader(
                 }
             }
 
+            payload["markuneSessionId"] = json!(session_id);
             let _ = app.emit(CODEX_EVENT_NAME, payload);
         }
 
@@ -1040,7 +1233,13 @@ fn spawn_stdout_reader(
             authorized.clear();
         }
 
-        emit_runtime_event(&app, "markune/runtime/exited", "Codex App Server 已停止");
+        writer.healthy.store(false, Ordering::Release);
+        emit_runtime_event(
+            &app,
+            &session_id,
+            "markune/runtime/exited",
+            "Codex App Server 已停止",
+        );
     });
 }
 
@@ -1234,6 +1433,14 @@ fn prepare_pending_server_request_with_drawings(
         .get_mut("params")
         .and_then(Value::as_object_mut)
         .ok_or_else(|| "Codex server request 缺少 params".to_string())?;
+    if method == "mcpServer/elicitation/request" {
+        let value = Value::Object(params.clone());
+        crate::codex_elicitation::prepare(&value)?;
+        return Ok(PendingServerRequest {
+            method,
+            kind: PendingServerRequestKind::Elicitation { params: value },
+        });
+    }
     if method == "item/tool/call" {
         return prepare_dynamic_tool_request(&method, params, drawing_authorizations);
     }
@@ -1909,26 +2116,19 @@ fn approval_choice_display(id: &str, kind: &str, label: &str, description: Optio
     })
 }
 
-fn emit_runtime_event(app: &AppHandle, method: &str, message: &str) {
+fn emit_runtime_event(app: &AppHandle, session_id: &str, method: &str, message: &str) {
     let _ = app.emit(
         CODEX_EVENT_NAME,
         json!({
             "method": method,
+            "markuneSessionId": session_id,
             "params": { "message": message },
         }),
     );
 }
 
-fn write_json_line(writer: &Arc<Mutex<ChildStdin>>, payload: &Value) -> Result<(), String> {
-    let mut writer = writer
-        .lock()
-        .map_err(|_| "Codex 输入锁已损坏".to_string())?;
-    serde_json::to_writer(&mut *writer, payload)
-        .map_err(|error| format!("编码 Codex 请求失败: {error}"))?;
-    writer
-        .write_all(b"\n")
-        .and_then(|_| writer.flush())
-        .map_err(|error| format!("写入 Codex App Server 失败: {error}"))
+fn write_json_line(writer: &Arc<CodexWriter>, payload: &Value) -> Result<(), String> {
+    writer.write(payload)
 }
 
 fn validate_workspace_root(root_path: &str) -> Result<PathBuf, String> {
@@ -1993,7 +2193,64 @@ fn validate_request_params_with_authorized_context(
         }
     }
 
+    if matches!(
+        method,
+        "thread/fork"
+            | "thread/unarchive"
+            | "thread/unsubscribe"
+            | "thread/turns/list"
+            | "thread/items/list"
+    ) {
+        required_bounded_text(params.get("threadId"), "线程标识无效", 256)?;
+        if params
+            .get("sortDirection")
+            .is_some_and(|v| !matches!(v.as_str(), Some("asc" | "desc")))
+        {
+            return Err("分页方向无效".into());
+        }
+        if params
+            .get("itemsView")
+            .is_some_and(|v| !matches!(v.as_str(), Some("full" | "summary" | "notLoaded")))
+        {
+            return Err("历史明细模式无效".into());
+        }
+        if params.get("excludeTurns").is_some_and(|v| !v.is_boolean()) {
+            return Err("excludeTurns 必须为布尔值".into());
+        }
+        let allowed: &[&str] = match method {
+            "thread/fork" => &["threadId", "lastTurnId", "excludeTurns"],
+            "thread/turns/list" => &["threadId", "cursor", "limit", "sortDirection", "itemsView"],
+            "thread/items/list" => &["threadId", "turnId", "cursor", "limit", "sortDirection"],
+            _ => &["threadId"],
+        };
+        if params
+            .as_object()
+            .is_none_or(|object| object.keys().any(|key| !allowed.contains(&key.as_str())))
+        {
+            return Err("线程操作包含不允许的字段".into());
+        }
+        if let Some(limit) = params.get("limit") {
+            if limit.as_u64().is_none_or(|value| value == 0 || value > 100) {
+                return Err("历史分页 limit 必须为 1-100".into());
+            }
+        }
+        if let Some(cursor) = params.get("cursor").filter(|value| !value.is_null()) {
+            required_bounded_text(Some(cursor), "历史游标无效", 8192)?;
+        }
+    }
+
     if method == "thread/list" {
+        if let Some(limit) = params.get("limit") {
+            if limit.as_u64().is_none_or(|value| value == 0 || value > 100) {
+                return Err("任务列表 limit 必须为 1-100".into());
+            }
+        }
+        if let Some(query) = params.get("searchTerm").filter(|v| !v.is_null()) {
+            required_bounded_text(Some(query), "任务搜索内容过长或无效", 200)?;
+        }
+        if let Some(cursor) = params.get("cursor").filter(|v| !v.is_null()) {
+            required_bounded_text(Some(cursor), "任务列表游标无效", 8192)?;
+        }
         if let Some(cwd) = params.get("cwd") {
             match cwd {
                 Value::String(path) => validate_path_within_root(root, path)?,
@@ -2018,7 +2275,7 @@ fn validate_request_params_with_authorized_context(
         validate_plugin_installed_params(root, params)?;
     }
 
-    if method == "skills/list" {
+    if method == "skills/list" || method == "hooks/list" {
         validate_skill_list_params(root, params)?;
     }
 
@@ -2047,12 +2304,36 @@ fn validate_request_params_with_authorized_context(
         "thread/start" => validate_thread_permission_settings(root, params, true)?,
         "thread/settings/update" => validate_thread_permission_settings(root, params, false)?,
         "thread/resume" => reject_thread_permission_overrides(params)?,
-        "turn/start" => reject_turn_permission_overrides(params)?,
+        "turn/start" | "turn/steer" => reject_turn_permission_overrides(params)?,
         _ => {}
     }
 
-    if method == "turn/start" {
-        validate_turn_collaboration_mode(params)?;
+    if method == "turn/steer" {
+        required_bounded_text(params.get("threadId"), "turn/steer threadId 无效", 256)?;
+        required_bounded_text(
+            params.get("expectedTurnId"),
+            "turn/steer 必须声明活动 turn",
+            256,
+        )?;
+        if params.as_object().is_none_or(|object| {
+            object.keys().any(|key| {
+                !matches!(
+                    key.as_str(),
+                    "threadId"
+                        | "expectedTurnId"
+                        | "clientUserMessageId"
+                        | "input"
+                        | "additionalContext"
+                )
+            })
+        }) {
+            return Err("turn/steer 只允许追加输入，不能覆盖线程设置".into());
+        }
+    }
+    if matches!(method, "turn/start" | "turn/steer") {
+        if method == "turn/start" {
+            validate_turn_collaboration_mode(params)?;
+        }
         if let Some(inputs) = params.get("input").and_then(Value::as_array) {
             for input in inputs {
                 let input_type = input.get("type").and_then(Value::as_str);
@@ -2330,7 +2611,9 @@ fn validate_thread_permission_settings(
         if approval_policy != "never" || reviewer != "user" {
             return Err("完全访问权限必须使用 never + user 审批配置".to_string());
         }
-    } else if approval_policy != "on-request" {
+    } else if approval_policy != "on-request"
+        && !(permissions == ":read-only" && approval_policy == "never" && reviewer == "user")
+    {
         return Err("非完全访问权限必须使用 on-request 审批策略".to_string());
     }
     if reviewer == "auto_review" && permissions != ":workspace" {
@@ -2414,7 +2697,7 @@ fn prepare_request_params_with_attachments(
     if params.contains_key("additionalContext") {
         return Err("渲染器不得直接提交 Codex additionalContext".to_string());
     }
-    if method == "turn/start"
+    if matches!(method, "turn/start" | "turn/steer")
         && params
             .get("input")
             .and_then(Value::as_array)
@@ -2431,10 +2714,10 @@ fn prepare_request_params_with_attachments(
     let drawing_references = params.remove("markuneDrawingReferences");
     let attachment_ids = params.remove("markuneFileAttachments");
 
-    if method != "turn/start"
+    if !matches!(method, "turn/start" | "turn/steer")
         && (references.is_some() || drawing_references.is_some() || attachment_ids.is_some())
     {
-        return Err("Markune 上下文只允许用于 turn/start".to_string());
+        return Err("Markune 上下文只允许用于 turn/start 或 turn/steer".to_string());
     }
 
     let mut security = PreparedRequestSecurity::default();
@@ -2710,7 +2993,10 @@ fn inject_built_in_skill_root(params: &mut Value, root: &Path) -> Result<(), Str
     }
     params.insert(
         "extraRoots".to_string(),
-        json!([root.to_string_lossy().into_owned()]),
+        json!(REQUIRED_BUILT_IN_SKILLS
+            .iter()
+            .map(|name| root.join(name).to_string_lossy().into_owned())
+            .collect::<Vec<_>>()),
     );
     Ok(())
 }
@@ -2723,8 +3009,14 @@ fn validate_built_in_skill_root_params(params: &Value) -> Result<(), String> {
         .get("extraRoots")
         .and_then(Value::as_array)
         .ok_or_else(|| "skills/extraRoots/set 缺少 extraRoots".to_string())?;
-    if params.len() != 1 || roots.len() != 1 || roots[0].as_str().is_none() {
-        return Err("Markune 只允许注册一个内置 Skill 根目录".to_string());
+    if params.len() != 1 || roots.len() != REQUIRED_BUILT_IN_SKILLS.len() {
+        return Err("Markune 只允许注册内置图稿 Skill 目录".to_string());
+    }
+    for (value, name) in roots.iter().zip(REQUIRED_BUILT_IN_SKILLS) {
+        let path = value.as_str().map(Path::new).ok_or("内置 Skill 路径无效")?;
+        if !path.is_absolute() || path.file_name().and_then(|part| part.to_str()) != Some(name) {
+            return Err("内置 Skill 路径无效".into());
+        }
     }
     Ok(())
 }
@@ -3451,6 +3743,14 @@ fn is_allowed_client_method(method: &str) -> bool {
             | "thread/goal/clear"
             | "collaborationMode/list"
             | "turn/start"
+            | "turn/steer"
+            | "thread/turns/list"
+            | "thread/items/list"
+            | "thread/fork"
+            | "thread/unarchive"
+            | "thread/unsubscribe"
+            | "thread/loaded/list"
+            | "account/rateLimits/read"
             | "turn/interrupt"
             | "permissionProfile/list"
             | "experimentalFeature/list"
@@ -3461,6 +3761,7 @@ fn is_allowed_client_method(method: &str) -> bool {
             | "plugin/installed"
             | "skills/extraRoots/set"
             | "skills/list"
+            | "hooks/list"
     )
 }
 
@@ -3474,19 +3775,31 @@ fn is_supported_server_request(method: &str) -> bool {
             | "item/tool/call"
             | "execCommandApproval"
             | "applyPatchApproval"
+            | "mcpServer/elicitation/request"
     )
 }
 
 fn request_id_key(request_id: &Value) -> Result<String, String> {
     match request_id {
-        Value::String(value) => Ok(format!("s:{value}")),
-        Value::Number(value) => Ok(format!("n:{value}")),
+        Value::String(value)
+            if !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control) =>
+        {
+            Ok(format!("s:{value}"))
+        }
+        Value::Number(value)
+            if value
+                .as_i64()
+                .is_some_and(|id| id.unsigned_abs() <= 9_007_199_254_740_991) =>
+        {
+            Ok(format!("n:{value}"))
+        }
         _ => Err("Codex 请求标识无效".to_string()),
     }
 }
 
 fn runtime_info_for_session(session: &CodexSession) -> CodexRuntimeInfo {
     CodexRuntimeInfo {
+        session_id: Some(session.id.clone()),
         available: true,
         running: true,
         binary_source: Some(session.binary_source.clone()),
@@ -3502,6 +3815,7 @@ pub(crate) fn unavailable_runtime_info(
     storage_root: Option<&Path>,
 ) -> CodexRuntimeInfo {
     CodexRuntimeInfo {
+        session_id: None,
         available: false,
         running: false,
         binary_source: None,
@@ -3634,11 +3948,37 @@ pub(crate) fn resolve_codex_binary(app: &AppHandle) -> Result<CodexBinary, Strin
 
     for (path, source) in candidates {
         if let Some(binary) = probe_binary(path, source) {
+            if source == "bundled" {
+                validate_bundled_code_mode_host(&binary.path)?;
+            }
             return Ok(binary);
         }
     }
 
     Err("未找到可用的 Codex App Server；请安装 Codex 或配置 MARKUNE_CODEX_BIN".to_string())
+}
+
+fn validate_bundled_code_mode_host(binary: &Path) -> Result<(), String> {
+    let host = binary.with_file_name(if cfg!(windows) {
+        "codex-code-mode-host.exe"
+    } else {
+        "codex-code-mode-host"
+    });
+    let metadata = fs::metadata(&host).map_err(|_| {
+        "Codex 运行时不完整：缺少 codex-code-mode-host，无法执行文件读取等工具。开发环境请运行 pnpm codex:stage 后重新启动桌面实例；安装版请重新安装完整应用。".to_string()
+    })?;
+    let executable = metadata.is_file() && metadata.len() > 0;
+    #[cfg(unix)]
+    let executable = {
+        use std::os::unix::fs::PermissionsExt;
+        executable && metadata.permissions().mode() & 0o111 != 0
+    };
+    if !executable {
+        return Err(
+            "Codex 辅助程序 codex-code-mode-host 不可执行，请重新准备或安装完整运行时。".into(),
+        );
+    }
+    Ok(())
 }
 
 fn resolve_built_in_skill_root(app: &AppHandle) -> Result<PathBuf, String> {
@@ -3680,11 +4020,36 @@ fn probe_binary(path: PathBuf, source: &str) -> Option<CodexBinary> {
         return None;
     }
 
-    let output = codex_command(&path).arg("--version").output().ok()?;
-    if !output.status.success() {
+    let mut child = codex_command(&path)
+        .arg("--version")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let started = Instant::now();
+    loop {
+        match child.try_wait().ok()? {
+            Some(status) if status.success() => break,
+            Some(_) => return None,
+            None if started.elapsed() >= Duration::from_secs(3) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            None => thread::sleep(Duration::from_millis(15)),
+        }
+    }
+    let mut stdout = String::new();
+    child
+        .stdout
+        .take()?
+        .take(64 * 1024)
+        .read_to_string(&mut stdout)
+        .ok()?;
+    let version = stdout.trim().to_string();
+    if !version.starts_with("codex-cli ") {
         return None;
     }
-    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
     Some(CodexBinary {
         path,
@@ -3706,6 +4071,31 @@ fn find_on_path(executable_name: &str) -> Option<PathBuf> {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn bundled_codex_requires_executable_code_mode_host() {
+        let directory = tempdir().unwrap();
+        let binary = directory.path().join("codex");
+        let host = binary.with_file_name(if cfg!(windows) {
+            "codex-code-mode-host.exe"
+        } else {
+            "codex-code-mode-host"
+        });
+        assert!(validate_bundled_code_mode_host(&binary)
+            .unwrap_err()
+            .contains("缺少 codex-code-mode-host"));
+        fs::write(&host, []).unwrap();
+        assert!(validate_bundled_code_mode_host(&binary).is_err());
+        fs::write(&host, b"fixture").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&host, fs::Permissions::from_mode(0o644)).unwrap();
+            assert!(validate_bundled_code_mode_host(&binary).is_err());
+            fs::set_permissions(&host, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        assert!(validate_bundled_code_mode_host(&binary).is_ok());
+    }
 
     struct FakeClipboard {
         files: Vec<PathBuf>,
@@ -4105,6 +4495,27 @@ mod tests {
             resolved,
             source.path().canonicalize().expect("canonicalize source"),
         );
+    }
+
+    #[test]
+    fn built_in_skill_registration_excludes_retired_writing_resources() {
+        let root = tempdir().unwrap();
+        fs::create_dir_all(root.path().join("markune-writing")).unwrap();
+        fs::write(
+            root.path().join("markune-writing/SKILL.md"),
+            "obsolete rules",
+        )
+        .unwrap();
+        let mut params = json!({});
+        inject_built_in_skill_root(&mut params, root.path()).unwrap();
+        validate_built_in_skill_root_params(&params).unwrap();
+        let registered = params["extraRoots"].as_array().unwrap();
+        assert_eq!(registered.len(), 2);
+        assert!(registered
+            .iter()
+            .all(|path| !path.as_str().unwrap().contains("markune-writing")));
+        assert!(registered[0].as_str().unwrap().ends_with("markune-diagram"));
+        assert!(registered[1].as_str().unwrap().ends_with("markune-mindmap"));
     }
 
     #[test]

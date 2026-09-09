@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-06
+updated: 2026-09-09
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -61,15 +61,13 @@ referenced_by: AGENTS.md#knowledge-map
 
 ## Codex Runtime
 
-- Markweave 选区、表格内容和用户预编辑指令都属于不可信用户数据。固定开发者指令必须明确禁止把目标内容解释为高优先级指令，并要求只返回可替换 Markdown；表格结果还必须遵守请求中的 scope、rows、columns 与 `fragment | table` 形态。
-- 内联预编辑只能主动发送当前目标。不得附加整篇文档、活动/提及文档、图稿、文件附件、mention、Plugin、Skill、Goal、Plan 或普通 AI 会话历史；渲染器不得保存供应商 API key，也不得复制 playground 的 OpenRouter route。
-- 每次内联请求使用独立 `ephemeral` 线程、`:read-only` profile、`on-request` user reviewer、禁用 Web Search 和空 Environment。`ephemeral` 只保证线程不写入 Codex 历史，不是密码学隔离；只读 profile 仍保留既有工作区读取边界，因此任何命令、文件、MCP、动态工具、联网、审批和用户追问事件都必须失败关闭并中断 turn。Rust 不得为 `ephemeral: true` 的线程注入 Markune Drawing 动态工具。
-- 普通 AI 面板和内联 runner 可以并行，但事件必须按显式 thread/turn ownership 隔离。面板不得消费 ephemeral 或其他非当前可见线程事件；runner 只消费自身 `final_answer` 增量。Abort、冲突、标签/工作区切换和运行时退出必须中断 turn；`thread/delete` 失败不得回退到持久线程或输出原始诊断。
+- 新任务使用工作区 Agent 与原生审批，允许按用户明确请求读取或修改文档。不强制文档预审、写作风格或引用数量门禁；普通文件锁定、保存冲突、路径授权与原生权限审批不得移除。资料中的指令仍为不可信内容。
+
+
 - Codex App Server 必须由 Tauri 在本地通过 stdio 启动；不得监听 TCP，也不得把 API key、登录 Token 或认证响应传入 React state、local storage、应用设置或日志。
 - 自定义 provider 密钥只能写入 OS keyring（服务名 `markune.codex.custom-provider`），并由 Rust 在 sidecar spawn 时注入 `MARKUNE_CODEX_PROVIDER_API_KEY`；不得把该环境变量写入用户 shell profile、共享日志或诊断导出。受控 TOML patch 只允许顶层 `model` / `model_provider` 与 `[model_providers.markune_custom]`（`wire_api = "responses"`、`env_key` 固定），禁止开放通用 `config/*` 写入。
 - 设置页 Codex 状态只允许通过受控命令读取 `CODEX_HOME/config.toml` 与 `auth.json` 的非敏感摘要（是否已登录、auth_mode、可选 email）；不得返回 access/refresh/id token 或 API key。设置页刷新不得为探测状态启动 App Server，也不得依赖可能挂起的 `account/read` RPC。
-- 新线程默认使用 Codex 命名权限配置 `:workspace`、`on-request` 审批策略和 `user` reviewer，并把已 canonicalize 的当前工作区作为唯一 runtime workspace root。`turn/start` 不得携带权限覆盖；恢复线程不得隐式重置权限，后续切换只能走 `thread/settings/update`。
-- 权限模式必须保持 profile 与 reviewer 分层：自动审查只可使用 `:workspace + on-request + auto_review`，不得扩大文件或网络边界；完全访问必须经过显式风险确认并固定为 `:danger-full-access + never + user`；只读模式使用 `:read-only + on-request + user`。运行中的 turn 或待审批请求存在时禁止切换。
+- 权限模式必须保持 profile 与 reviewer 分层：自动审查只可使用 `:workspace + on-request + auto_review`，不得扩大文件或网络边界；完全访问必须经过显式风险确认并固定为 `:danger-full-access + never + user`；输入框“只读访问”使用 `:read-only + on-request + user`；恢复历史任务不改写其已有权限策略。运行中的 turn 或待审批请求存在时禁止切换。
 - Codex collaboration mode 与权限模式必须保持分离。Plan 只能使用 `collaborationMode/list` 返回的内置预设、当前模型、`medium` 推理强度和显式空 `developer_instructions`；渲染器不得提交自定义开发者指令、未知模式或非法强度。Plan 依赖指令禁止实施，并不提供强制只读安全边界；不得因此绕过现有 permission profile、审批或审计。
 - 上下文压缩不得成为通用 App Server 参数透传入口。Rust 只允许 `thread/compact/start` 的精确 `threadId`，拒绝缺失、空值、控制字符、超长值、未知字段和自定义压缩指令。上下文用量只作为当前面板的临时协议状态，不得写入日志、工作区、local storage 或 Markune 会话镜像；自动压缩必须继续由 Codex Core 原生阈值控制，前端不得按百分比重复触发。
 - Goal 不得成为扩大权限或无限前端重试的入口。Rust 只允许用户设置非空、最多 4,000 字符且不含非法控制字符的 objective，并只允许 `active | paused` 生命周期写入；模型终态、token budget、自定义 continuation prompt 和未知字段一律拒绝。Goal 的续跑、预算、空转保护和运行中 objective steering 由 Codex Core 负责，Markune 不得建立定时轮询、后台重发或第二份持久化状态。目标文本仍属于会话用户内容，会遵循 Codex Home 的线程持久化规则，不得写入共享日志。
@@ -84,7 +82,7 @@ referenced_by: AGENTS.md#knowledge-map
 - Markune 图稿引用只接受规范小写 UUID、`active | mention` 角色和最多 32 项；Rust 必须从当前工作区非回收站 Drawing bundle 重新读取权威元数据，并拒绝未知字段、多个 active、缺失/损坏 bundle、重复 ID 和符号链接存储。模型只取得 untrusted 元数据、移除 files/blob 的有界场景投影和受签名校验的现有 PNG/WebP 预览，不得取得物理路径或 raw scene。
 - Markune 文档引用必须由 Rust canonicalize，并验证为当前工作区内真实存在的 Markdown 文件；必须拒绝相对路径、目录、非 Markdown 文件、工作区外路径、符号链接逃逸、未知角色、多个活跃文档和超过 32 个引用。传给 Codex 的只是不可信工作区相对路径，不得由前端预读、上传或复制文档正文。
 - 渲染器不得直接构造 `additionalContext` 或 developer 级上下文。固定读取策略只能由 Tauri 生成，活跃文档和显式引用路径必须分别使用 `untrusted` 信任级别；文件名、路径和文档内容均不得解释为指令。空活跃文档必须编码为 `null`，防止跨 turn 沿用旧文档。
-- `on-request` 审批是默认策略。命令、文件修改和 `item/permissions/requestApproval` 在用户或 auto-reviewer 决定前不得继续；“拒绝并继续”与“拒绝并停止”必须保持不同语义，“本次任务允许”只作用于当前 App Server 会话。
+- `on-request` 审批是 Agent 的默认策略。命令、文件修改和 `item/permissions/requestApproval` 在用户或 auto-reviewer 决定前不得继续；“拒绝并继续”与“拒绝并停止”必须保持不同语义，“本次任务允许”只作用于当前 App Server 会话。
 - Rust 必须保存每个 server request 的原始允许候选，前端只能回传 opaque choice id。结构化 execpolicy/network amendment 与临时文件/网络权限必须由 Rust 从原始请求复制，渲染器不得构造或修改。未登记、已处理或未知的 server request 必须失败关闭并返回 JSON-RPC 错误，不得静默允许或让 turn 无限等待。
 - 用户决策 request 必须同样使用 Rust 生成的 opaque question/option ID；前端不得回传原始协议 question ID 或自行构造 option label。秘密输入只能保留在交互组件的临时内存中，不得写入 Markune 日志、React 会话历史、local storage、工作区或应用设置；提交后仍会进入 Codex，并遵循 App Server 自身的会话持久化规则。Markune 不得根据 `autoResolutionMs` 自动代答；App Server resolved、interrupt、运行时退出或首次成功回答后必须撤销 pending 映射，后续回答一律拒绝。
 - App Server stderr 必须被消费但不得原样转发到前端或共享日志，避免泄露绝对路径、命令输出和文档内容。
@@ -151,3 +149,5 @@ referenced_by: AGENTS.md#knowledge-map
 PDF 的来源回读继续通过已授权附件 API；本地新文件由用户选择并遵循当前存储策略。网络摘录不自动下载网页。引用文本与研究预览均为不可信资料，只以文本节点进入 AI 输入框，不能把资料中的指令作为应用命令执行；追加草稿不触发发送。
 
 仅改变大小写的改名仍使用不覆盖目标的原生重命名操作。Unix 校验设备号/inode；Windows 通过 [GetFileInformationByHandleEx](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getfileinformationbyhandleex) 的 FileIdInfo 比较卷号和完整 128 位文件身份，读取失败时不放宽同名冲突检查。恢复时核对真实目录项拼写，不能用大小写不敏感的 exists 判断是否已经提交。
+
+产物预览、文档操作、版本化凭据和诊断的限制见 [Codex 专项架构](../architecture/codex.md)。网络图片不自动下载；HTML/SVG 文件以文本预览，Mermaid 只允许经检查的静态 SVG。配置日志与错误不得回显 TOML 原文、密钥或请求正文。普通文档回收站/本地历史、语音与远程控制不属于此次扩展。

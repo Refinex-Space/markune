@@ -660,7 +660,7 @@ describe('MarkdownEditor', () => {
       />,
     );
 
-    expect(markweaveEditorMock.mock.calls.at(-1)?.[0].askAi).toBeUndefined();
+    expect(markweaveEditorMock.mock.calls.at(-1)?.[0].askAi).toEqual({ enabled: false });
     expect(ref.current?.getAiEditController()).toBeNull();
   });
 
@@ -702,7 +702,7 @@ describe('MarkdownEditor', () => {
     });
 
     expect(ref.current?.getAiEditController()).toBeNull();
-    expect(markweaveEditorMock.mock.calls.at(-1)?.[0].askAi).toBeUndefined();
+    expect(markweaveEditorMock.mock.calls.at(-1)?.[0].askAi).toEqual({ enabled: false });
   });
 
   it('外部刷新可在自动保存失败后捕获尚未提交的编辑器输入', async () => {

@@ -1,7 +1,8 @@
 ---
 owner: refinex
 updated: 2026-06-20
-status: active
+status: deprecated
+referenced_by: docs/README.md
 ---
 
 # Daily Calendar Sidebar Design

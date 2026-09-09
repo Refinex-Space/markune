@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { createEvidenceRefs } from './research-evidence';
 import { PdfResearchReader } from './pdf-research-reader';
 import {
   assertResearchPdf,
@@ -107,13 +108,14 @@ export function WorkspaceResearchPanel({
           rootPath,
           `${rootPath}/${path}`,
         );
-        evidence.push({
-          relativePath: path,
-          title: document.title,
-          fingerprint: await contentFingerprint(current.content),
-          excerpt: [...current.content].slice(0, 1600).join(''),
-          line: 1,
-        });
+        evidence.push(
+          ...(await createEvidenceRefs(
+            path,
+            document.title,
+            current.content,
+            question,
+          )),
+        );
       }
       setEvidence(evidence);
       onDraft({
@@ -256,13 +258,14 @@ export function WorkspaceResearchPanel({
             );
             return (
               <button
-                key={source.relativePath}
+                key={source.evidenceId ?? source.relativePath}
                 type="button"
                 className="block w-full rounded-md border border-border/60 p-3 text-left"
                 onClick={() =>
                   onOpen({
                     relativePath: source.relativePath,
                     line: source.line,
+                    fingerprint: source.fingerprint,
                   })
                 }
               >
@@ -273,7 +276,14 @@ export function WorkspaceResearchPanel({
                   </span>
                 ) : null}
                 <span className="mt-1 block text-[10px] text-muted-foreground">
-                  {source.relativePath}
+                  {source.relativePath} · L{source.line}
+                  {source.endLine ? `–${source.endLine}` : ''} ·{' '}
+                  {source.retrieval === 'no-match'
+                    ? '未匹配问题，仅供浏览'
+                    : '关键词匹配 · 事实待核实'}
+                </span>
+                <span className="mt-2 line-clamp-4 block whitespace-pre-wrap text-xs text-muted-foreground">
+                  {source.excerpt}
                 </span>
               </button>
             );

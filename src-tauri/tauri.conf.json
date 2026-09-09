@@ -47,6 +47,7 @@
     "targets": "all",
     "externalBin": [
       "binaries/codex",
+      "binaries/codex-code-mode-host",
       "binaries/pandoc",
       "binaries/typst"
     ],

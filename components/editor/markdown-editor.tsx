@@ -205,7 +205,7 @@ export const MarkdownEditor = React.forwardRef<
     () =>
       aiEnabled && askAiHandler && !readOnly && !sourceMode
         ? { enabled: true as const, handler: askAiHandler }
-        : undefined,
+        : { enabled: false as const },
     [aiEnabled, askAiHandler, readOnly, sourceMode],
   );
   const frontmatterView = React.useMemo(() => {

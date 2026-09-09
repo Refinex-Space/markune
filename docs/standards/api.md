@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-06
+updated: 2026-09-09
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -64,13 +64,15 @@ referenced_by: AGENTS.md#knowledge-map
 
 ## Codex App Server Bridge
 
+- 不再注册 `validate_codex_document_proposal` 或接受 `markuneWritingMode`。文档问答与编辑直接使用标准 Agent；新建和恢复会话均提供当前宿主操作指令，恢复不覆盖权限配置。
+
 - Codex 协议封装位于 `components/workspace/codex-app-server.ts` 与 `src-tauri/src/codex.rs`；不得从 React 组件直接启动进程或写入 stdio。
 - Windows 上的 Codex 版本探测与 App Server sidecar 必须复用无窗口命令构造入口，设置 `CREATE_NO_WINDOW`；不得让控制台子系统的 `codex.exe` 拉起独立终端窗口。
 - 客户端请求必须由 Rust allowlist 限制。当前允许账户、模型、线程、turn、MCP inventory/OAuth、skills、按工作区受控的 `plugin/installed`，以及只读的 `collaborationMode/list`、`permissionProfile/list`、`configRequirements/read`、`experimentalFeature/list`、受控的 `thread/settings/update` 和 `thread/compact/start`；禁止向渲染器暴露通用 App Server `fs/*`、`command/exec`、`thread/shellCommand`、`config/read` 或配置写入方法。`thread/compact/start` 参数必须是仅含非空、无控制字符 `threadId` 的对象，不得接受额外配置或客户端压缩提示词。
 - App Server 的响应、通知与 server request 使用统一 `codex:event` 事件。前端必须按 JSON-RPC `id` 关联请求，并在运行时退出时拒绝所有 pending 请求。
 - `thread/tokenUsage/updated` 必须保留 `total`、`last` 与 `modelContextWindow` 的协议区别；当前上下文占比只使用 `last.totalTokens`。手动或自动压缩状态以 `contextCompaction` item 为权威，`thread/compacted` 只作旧协议完成兼容；不得通过累计 token 自行推断或触发压缩。
 - 消息与工具通知必须按首次到达顺序保存在同一会话流中；同一 item 的完成通知只更新原位置，不得把工具记录统一追加到回答末尾。`thread/name/updated` 必须同步当前标题与历史列表。
-- 历史投影只能消费 App Server 返回的 thread items。固定 sidecar `0.144.4` 不得通过直接读取 Codex JSONL、SQLite 或维护第二份 Markune 会话日志来弥补 `thread/read` / `thread/turns/list` 缺失的工具 item；sidecar 升级后应以 `thread/items/list` 或等价官方接口补齐并重新运行契约测试。
+- 历史投影只能消费 App Server 返回的 thread items。固定 sidecar `0.153.4` 不得通过直接读取 Codex JSONL、SQLite 或维护第二份 Markune 会话日志来弥补 `thread/read` / `thread/turns/list` 缺失的工具 item；sidecar 升级后应以 `thread/items/list` 或等价官方接口补齐并重新运行契约测试。
 - 前端必须保留 turn 的 `startedAt`、`completedAt`、`durationMs` 和 agent message phase。`commentary` 只进入处理过程，`final_answer` 独立展示；phase 缺失时不得推断或改写旧消息语义。
 - `item/commandExecution/outputDelta`、`item/commandExecution/terminalInteraction`、`item/fileChange/patchUpdated`、`item/mcpToolCall/progress`、`turn/plan/updated` 与 `turn/diff/updated` 必须更新对应 turn/item，不得创建伪造工具记录。`item/plan/delta` 必须按 item ID 累积，随后由 `item/completed(plan)` 的完整正文覆盖；正式 plan item 不得与 `turn/plan/updated` 的执行检查清单合并。命令输出必须使用有界首尾缓冲并在界面标明省略行数。
 - `item/fileChange/patchUpdated` 不得触发编辑器重载。只有状态成功的 `item/completed(fileChange)` 可以提交结构化路径刷新事件；失败或拒绝的修改不能刷新文档。`turn/completed` 必须执行最终目录树刷新并复核已打开 Markdown 标签。前端必须保留此前收到的 `turn/diff/updated`，不能在完成通知中把聚合 diff 重置为空。
@@ -81,14 +83,10 @@ referenced_by: AGENTS.md#knowledge-map
 - 命令审批必须区分 `decline`（拒绝并继续 turn）与 `cancel`（拒绝并中断 turn），并按服务端候选显示一次允许、会话允许和规则授权。`item/permissions/requestApproval` 的允许响应只能复制服务端原始 permissions，可选择 turn、session 或 strict auto-review；拒绝固定返回空 permissions 和 turn scope。
 - `thread/start` 使用命名 `permissions`、`approvalPolicy`、`approvalsReviewer` 与 `runtimeWorkspaceRoots` 建立权限状态，且不得同时发送 legacy `sandbox`。`thread/resume` 不覆盖权限，`turn/start` 不发送安全字段；切换模式只用 `thread/settings/update`，且不得同时发送 `sandboxPolicy`。界面以 `thread/settings/updated` 和 start/resume response 为真实状态来源。
 - `thread/read` 默认 `includeTurns: true`。若 App Server 返回 `paginated_threads is not supported yet`，必须立即重试 `includeTurns: false`，并将 `thread/resume` 降级为 `excludeTurns: true`。自动恢复优先选择非 paginated 线程；用户手动打开仍失败时只显示中文说明，不得升级为全局 runtime crash。
-- Markweave AI 预编辑只使用 Markune 内部组件协议，不新增公开 HTTP API。编辑器内置 `askAi` 与 AI 面板取得的 `MarkweaveAiEditController` 复用同一窗口级 runner；controller 只可从当前活动、可编辑的 Live 正式文档取得，切换到 Source/View/只读、隐藏缓存编辑器或卸载时必须撤销或返回 `null`。
-- 每次预编辑固定新建 `ephemeral: true` 的 `thread/start`，同时提交 `permissions: ":read-only"`、`approvalPolicy: "on-request"`、`approvalsReviewer: "user"`、`config.web_search: "disabled"`、空 `environments` 与唯一工作区根。`turn/start` 只包含固定开发者约束、用户指令和 Markweave 目标，不得携带 `markuneDocumentReferences`、`markuneDrawingReferences`、附件、原生 mention、Plugin、Skill、Goal、当前会话或 collaboration mode。
-- 内联 runner 必须用 thread/turn ID 声明事件所有权，只转发 `agentMessage.phase=final_answer`，忽略 commentary。AI 面板不得归约 ephemeral 线程或其他非当前可见线程的 token、Goal、消息、工具、文件变更和工作区刷新事件。任何工具/文件 item、审批或用户追问都必须中断内联 turn 并判定失败；终态后调用 `thread/delete`，删除失败只显示脱敏诊断。
-- AI 面板宿主预编辑先调用 `captureSelection({ controls: "default" })`，流式响应必须把累计完整 Markdown 交给 `updateProposal(..., status: "streaming")`，结束后再提交 `complete`。宿主 V1 对表格、代码块、媒体、NodeSelection、CellSelection 和空选区失败关闭；表格只能使用编辑器内置 `askAi` 的精确 scope/resultShape 协议。
 - 协作模式必须先通过实验接口 `collaborationMode/list` 发现 Plan 与 Default 预设；缺少任一预设时降级到 Default。模式可用后，每个 `turn/start` 必须显式发送 `{ collaborationMode: { mode, settings: { model, reasoning_effort, developer_instructions: null } } }`，且不得同时发送顶层 `model`、`effort` 或开发者指令。Plan 的 `reasoning_effort` 固定为 `medium`；模式名、模型和推理强度均由 Rust 再校验。
 - Markdown 文档不得作为 Codex 原生 `mention` 输入发送；该类型只用于 `app://` 与 `plugin://` 目标。显式文档提及必须把带引号的工作区相对路径写入文本，并用 `text_elements.placeholder` 保存显示标题；`byteRange` 使用替换后文本的 UTF-8 字节偏移。插件输入框节点可以只显示名称和真实图标，但模型文本必须恢复 `@Plugin` 与对应 `text_elements`，并额外发送名称和 `plugin://{id}` 原生 mention。
 - Drawing 不得伪装为 Codex 原生 mention。显式图稿提及必须把规范 `markune-drawing://<uuid>` 写入文本、用 `text_elements.placeholder` 保留标题，并通过私有 `markuneDrawingReferences` 提交 active/mention 角色。`inspect_drawing({ drawingId })` 只能消费当前 turn 授权的 UUID，响应正文限制为 16 KiB，预览只允许 Markune 读取的 2 MiB 内 PNG/WebP Data URL。
-- 核心运行时就绪后必须自动调用一次 `plugin/installed`，请求参数固定为当前工作区根目录的单元素 `cwds` 与空 `installSuggestionPluginNames`；同一运行时代际成功后不得重复请求，失败时允许用户从加号菜单重试。不得借加载安装建议或查询其他目录；结果只展示 installed、enabled 且 `availability` 非 `DISABLED_BY_ADMIN` 的插件。该接口在固定 sidecar `0.144.4` 中仍标记为开发中，升级时必须重新生成 schema 并验证降级行为。
+- 核心运行时就绪后必须自动调用一次 `plugin/installed`，请求参数固定为当前工作区根目录的单元素 `cwds` 与空 `installSuggestionPluginNames`；同一运行时代际成功后不得重复请求，失败时允许用户从加号菜单重试。不得借加载安装建议或查询其他目录；结果只展示 installed、enabled 且 `availability` 非 `DISABLED_BY_ADMIN` 的插件。该接口在固定 sidecar `0.153.4` 中仍标记为开发中，升级时必须重新生成 schema 并验证降级行为。
 - `read_codex_plugin_icon(path) -> { mediaType, base64Data }` 只服务最近一次成功关联的 `plugin/installed` 响应。Rust 必须先按客户端请求 ID 关联响应，只登记其中 `composerIcon`、`logo`、`logoDark` 声明且可 canonicalize 的普通文件；命令仅接受与登记结果完全相同的 canonical path，限制 1 MiB，并按内容签名识别 PNG、JPEG、GIF、WebP 或 SVG。重新请求插件清单时先清空旧授权，运行时重启、停止或工作区切换后不得沿用。
 - 插件图标解析顺序固定为 `composerIcon` / `composerIconUrl`、当前主题 `logoDark` / `logo`、当前主题 `logoUrlDark` / `logoUrl`。本地资源读取失败后可以继续尝试下一候选；远程候选只接受 HTTPS，渲染时必须使用 `referrerPolicy="no-referrer"`，加载错误降级为通用插件图标且不得把整个插件清单标记为失败。
 - 核心运行时就绪后必须调用 `skills/list`，参数固定为当前工作区根目录的单元素 `cwds` 与 `forceReload: false`；收到 `skills/changed` 后使用相同 `cwds` 和 `forceReload: true` 刷新。只展示 enabled Skill，名称优先使用 `interface.displayName`，描述优先使用 `interface.shortDescription`，来源由 `scope` 映射。输入框选择结果必须把模型文本编码为 `$skill-name` 并带 UTF-8 `text_elements`，同时追加精确的 `{ type: "skill", name, path }` 原生输入。
@@ -193,3 +191,5 @@ interface DocumentExportRuntimeInfo {
 - `read_workspace_views` / `save_workspace_views`：读写 `.markune/views.json` 的 views 与 fingerprint；最多 64 个视图、配置 256 KiB。删除视图即以原指纹保存删去该 ID 的列表，不删除笔记。
 
 PDF 来源及网页来源采用普通 frontmatter 的 `source` 对象：type/title/quote/capturedAt，网页有 url，PDF 有 page/fingerprint/reference。reference 是标准 Markdown 来源链接。quote 不参加自动链接修复，已捕获证据保持原文。
+
+新增内部命令：`read_codex_artifact(rootPath, relativePath?|assetId?)` 返回有界只读预览；`read_codex_instruction_manifest(rootPath)` 只返回指令文件路径、大小与指纹。`codex_app_server_respond_elicitation` 必须提供原 `sessionId`、requestId 和 accept/decline/cancel，Rust 校验原请求 schema。provider 的 set/clear/auth-mode 更新必须提供 `expectedFingerprint`。更详细的协议与预算见 [专项架构](../architecture/codex.md)。

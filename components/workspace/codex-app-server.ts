@@ -1,8 +1,13 @@
 'use client';
 
+import { recordCodexDiagnostic } from './codex-diagnostics';
+import { CodexEventBuffer } from './codex-event-buffer';
+import { CodexRuntimeSupervisor } from './codex-runtime-supervisor';
+
 import type { UnlistenFn } from '@tauri-apps/api/event';
 
 export interface CodexRuntimeInfo {
+  sessionId?: string | null;
   available: boolean;
   running: boolean;
   binarySource: string | null;
@@ -15,6 +20,7 @@ export interface CodexRuntimeInfo {
 export type CodexRequestId = number | string;
 
 export interface CodexProtocolMessage {
+  markuneSessionId?: string;
   id?: CodexRequestId;
   method?: string;
   params?: Record<string, unknown>;
@@ -357,82 +363,292 @@ export interface CodexSkillsListResponse {
   }>;
 }
 
+export class CodexRpcError extends Error {
+  constructor(
+    message: string,
+    public readonly code?: number,
+    public readonly data?: unknown,
+    public readonly method?: string,
+  ) {
+    super(message);
+    this.name = 'CodexRpcError';
+  }
+}
+export interface CodexRequestOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
 type PendingRequest = {
-  reject: (reason?: unknown) => void;
+  method: string;
+  threadId?: string;
+  reject: (reason: Error) => void;
   resolve: (value: unknown) => void;
+  dispose: () => void;
 };
-
 type ProtocolSubscriber = (message: CodexProtocolMessage) => void;
 
 export class CodexAppServerClient {
   private nextRequestId = 1000;
   private pending = new Map<CodexRequestId, PendingRequest>();
   private subscribers = new Set<ProtocolSubscriber>();
-
+  private sessionId: string | null = null;
+  private loadedThreads = new Set<string>();
+  isThreadLoaded(id: string) {
+    return this.loadedThreads.has(id);
+  }
+  constructor(
+    private readonly connect?: () => Promise<unknown>,
+    private readonly onTransportFailure?: (session: string | null) => void,
+  ) {}
+  get pendingCount() {
+    return this.pending.size;
+  }
+  get runtimeSessionId() {
+    return this.sessionId;
+  }
+  setSession(id: string | null) {
+    if (id !== this.sessionId) {
+      this.loadedThreads.clear();
+      this.rejectPending(
+        new CodexRpcError('运行时会话已改变，请核对任务状态后重试', -32098),
+      );
+      this.sessionId = id;
+    }
+  }
   subscribe(subscriber: ProtocolSubscriber) {
     this.subscribers.add(subscriber);
     return () => this.subscribers.delete(subscriber);
   }
-
   handleMessage(message: CodexProtocolMessage) {
+    if (message.markuneSessionId && message.markuneSessionId !== this.sessionId)
+      return;
     if (message.id !== undefined && message.method === undefined) {
       const pending = this.pending.get(message.id);
-
       if (pending) {
         this.pending.delete(message.id);
-
-        if (message.error) {
-          const error = new Error(
-            message.error.message || 'Codex App Server 请求失败',
+        pending.dispose();
+        if (message.error)
+          pending.reject(
+            new CodexRpcError(
+              message.error.message || 'Codex App Server 请求失败',
+              message.error.code,
+              message.error.data,
+            ),
           );
-          // Defer rejection so Next.js overlay does not treat protocol
-          // errors as uncaught event-handler exceptions.
-          // author: refinex
-          queueMicrotask(() => pending.reject(error));
-        } else {
+        else {
+          const thread = (
+            message.result as { thread?: { id?: unknown } } | undefined
+          )?.thread;
+          if (
+            ['thread/start', 'thread/resume', 'thread/fork'].includes(
+              pending.method,
+            ) &&
+            typeof thread?.id === 'string'
+          )
+            this.loadedThreads.add(thread.id);
+          if (
+            ['thread/unsubscribe', 'thread/archive', 'thread/delete'].includes(
+              pending.method,
+            ) &&
+            pending.threadId
+          )
+            this.loadedThreads.delete(pending.threadId);
           pending.resolve(message.result);
         }
       }
     }
-
     for (const subscriber of this.subscribers) {
-      subscriber(message);
+      try {
+        subscriber(message);
+      } catch {
+        recordCodexDiagnostic('subscriber-failure');
+      }
     }
   }
-
-  async request<T>(method: string, params: Record<string, unknown> = {}) {
+  async request<T>(
+    method: string,
+    params: Record<string, unknown> = {},
+    options: CodexRequestOptions = {},
+  ): Promise<T> {
+    if (options.signal?.aborted)
+      throw new DOMException('请求已取消', 'AbortError');
+    if (this.connect) {
+      const connection = this.connect();
+      if (!options.signal) await connection;
+      else
+        await new Promise<void>((resolve, reject) => {
+          const signal = options.signal!;
+          const cancel = () => {
+            signal.removeEventListener('abort', cancel);
+            reject(new DOMException('请求已取消', 'AbortError'));
+          };
+          signal.addEventListener('abort', cancel, { once: true });
+          void connection.then(
+            () => {
+              signal.removeEventListener('abort', cancel);
+              resolve();
+            },
+            (error) => {
+              signal.removeEventListener('abort', cancel);
+              reject(error);
+            },
+          );
+          if (signal.aborted) cancel();
+        });
+    }
+    if (options.signal?.aborted)
+      throw new DOMException('请求已取消', 'AbortError');
+    if (this.pending.size >= 256)
+      throw new CodexRpcError(
+        '等待中的请求过多，请稍后重试',
+        -32001,
+        undefined,
+        method,
+      );
     const requestId = this.nextRequestId++;
-    const response = new Promise<T>((resolve, reject) => {
+    const session = this.sessionId;
+    return new Promise<T>((resolve, reject) => {
+      const timeoutMs =
+        options.timeoutMs ??
+        (method === 'turn/start' || method === 'thread/resume'
+          ? 30_000
+          : 15_000);
+      const remove = (error: Error) => {
+        const pending = this.pending.get(requestId);
+        if (!pending) return;
+        this.pending.delete(requestId);
+        pending.dispose();
+        reject(error);
+      };
+      const onAbort = () =>
+        remove(
+          new DOMException(
+            '请求已取消；已提交的任务不会自动重发',
+            'AbortError',
+          ),
+        );
+      const timer = setTimeout(
+        () => {
+          recordCodexDiagnostic('rpc-timeout');
+          remove(
+            new CodexRpcError(
+              '请求超时，请核对任务状态后重试；不会自动重复提交',
+              -32097,
+              { timeoutMs },
+              method,
+            ),
+          );
+        },
+        Math.max(1, timeoutMs),
+      );
+      const dispose = () => {
+        clearTimeout(timer);
+        options.signal?.removeEventListener('abort', onAbort);
+      };
       this.pending.set(requestId, {
+        method,
+        threadId:
+          typeof params.threadId === 'string' ? params.threadId : undefined,
         reject,
         resolve: (value) => resolve(value as T),
+        dispose,
       });
+      options.signal?.addEventListener('abort', onAbort, { once: true });
+      void import('@tauri-apps/api/core')
+        .then(({ invoke }) => {
+          if (!this.pending.has(requestId)) return;
+          return invoke('codex_app_server_request', {
+            requestId,
+            method,
+            params,
+            ...(this.sessionId ? { sessionId: this.sessionId } : {}),
+          });
+        })
+        .catch((error) => {
+          remove(
+            error instanceof Error
+              ? error
+              : new CodexRpcError(String(error), undefined, undefined, method),
+          );
+          if (String(error).includes('CODEX_TRANSPORT_FAILED:')) {
+            recordCodexDiagnostic('transport-failure');
+            this.onTransportFailure?.(session);
+          }
+        });
     });
-
-    try {
-      const { invoke } = await import('@tauri-apps/api/core');
-      await invoke('codex_app_server_request', {
-        requestId,
-        method,
-        params,
-      });
-    } catch (error) {
-      this.pending.delete(requestId);
-      throw error;
-    }
-
-    return response;
   }
-
   rejectPending(reason: Error) {
     for (const pending of this.pending.values()) {
+      pending.dispose();
       pending.reject(reason);
     }
     this.pending.clear();
   }
 }
 
-export const codexAppServerClient = new CodexAppServerClient();
+let messageBridge: Promise<UnlistenFn> | null = null;
+/** One native listener for the application lifetime, independent of rendered pages. author: refinex */
+export function ensureCodexMessageBridge() {
+  if (messageBridge) return messageBridge;
+  let live = true;
+  let timer: ReturnType<typeof setTimeout>;
+  const pending = listenCodexEvents((message) => {
+    if (live) codexEventBuffer.push(message);
+  });
+  const connection = new Promise<UnlistenFn>((resolve, reject) => {
+    timer = setTimeout(() => {
+      live = false;
+      reject(new Error('Codex 事件监听超时，请重新连接'));
+    }, 8000);
+    void pending.then(
+      (unlisten) => {
+        if (!live) {
+          unlisten();
+          return;
+        }
+        clearTimeout(timer);
+        resolve(unlisten);
+      },
+      (error) => {
+        live = false;
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+  const guarded = connection.catch((error) => {
+    if (messageBridge === guarded) messageBridge = null;
+    throw error;
+  });
+  messageBridge = guarded;
+  return guarded;
+}
+
+export const codexAppServerClient = new CodexAppServerClient(
+  ensureCodexMessageBridge,
+  (session) =>
+    codexRuntimeSupervisor.receive({
+      method: 'markune/runtime/exited',
+      ...(session ? { markuneSessionId: session } : {}),
+      params: { message: '运行时连接不可用' },
+    }),
+);
+export const codexRuntimeSupervisor = new CodexRuntimeSupervisor({
+  connect: ensureCodexMessageBridge,
+  start: async (rootPath) => {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<CodexRuntimeInfo>('codex_runtime_start', { rootPath });
+},
+  stop: async () => {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('codex_runtime_stop');
+  },
+  session: (id) => codexAppServerClient.setSession(id),
+  emit: (message) => codexAppServerClient.handleMessage(message),
+});
+const codexEventBuffer = new CodexEventBuffer((message) =>
+  codexRuntimeSupervisor.receive(message),
+);
 
 export function codexProtocolThreadId(message: CodexProtocolMessage) {
   const direct = nonEmptyString(message.params?.threadId);
@@ -592,16 +808,14 @@ export async function probeCodexRuntime() {
 }
 
 export async function startCodexRuntime(rootPath: string) {
-  const { invoke } = await import('@tauri-apps/api/core');
-  return invoke<CodexRuntimeInfo>('codex_runtime_start', { rootPath });
+  return codexRuntimeSupervisor.start(rootPath);
 }
-
 export async function stopCodexRuntime() {
-  const { invoke } = await import('@tauri-apps/api/core');
-  return invoke<void>('codex_runtime_stop');
+  return codexRuntimeSupervisor.stop();
 }
 
 export interface CodexCustomProviderInfo {
+  fingerprint: string;
   baseUrl: string | null;
   model: string | null;
   hasApiKey: boolean;
@@ -636,26 +850,36 @@ export async function getCodexCustomProvider() {
 }
 
 export async function setCodexCustomProvider(input: {
+  expectedFingerprint: string;
   baseUrl: string;
   model: string;
   apiKey?: string;
 }) {
   const { invoke } = await import('@tauri-apps/api/core');
   return invoke<CodexCustomProviderInfo>('codex_custom_provider_set', {
+    expectedFingerprint: input.expectedFingerprint,
     baseUrl: input.baseUrl,
     model: input.model,
     apiKey: input.apiKey,
   });
 }
 
-export async function clearCodexCustomProvider() {
+export async function clearCodexCustomProvider(expectedFingerprint: string) {
   const { invoke } = await import('@tauri-apps/api/core');
-  return invoke<CodexCustomProviderInfo>('codex_custom_provider_clear');
+  return invoke<CodexCustomProviderInfo>('codex_custom_provider_clear', {
+    expectedFingerprint,
+  });
 }
 
-export async function setCodexAuthMode(mode: 'chatgpt' | 'custom') {
+export async function setCodexAuthMode(
+  mode: 'chatgpt' | 'custom',
+  expectedFingerprint: string,
+) {
   const { invoke } = await import('@tauri-apps/api/core');
-  return invoke<CodexCustomProviderInfo>('codex_auth_mode_set', { mode });
+  return invoke<CodexCustomProviderInfo>('codex_auth_mode_set', {
+    mode,
+    expectedFingerprint,
+  });
 }
 
 export async function readCodexPluginIcon(path: string) {
@@ -704,10 +928,12 @@ export async function releaseCodexContextAttachments(
 export async function respondToCodexApproval(
   requestId: CodexRequestId,
   choiceId: string,
+  sessionId: string | null = codexAppServerClient.runtimeSessionId,
 ) {
   const { invoke } = await import('@tauri-apps/api/core');
   return invoke<void>('codex_app_server_respond', {
     requestId,
+    ...(sessionId ? { sessionId } : {}),
     decision: choiceId,
   });
 }
@@ -715,10 +941,12 @@ export async function respondToCodexApproval(
 export async function respondToCodexUserInput(
   requestId: CodexRequestId,
   answers: CodexUserInputAnswer[],
+  sessionId: string | null = codexAppServerClient.runtimeSessionId,
 ) {
   const { invoke } = await import('@tauri-apps/api/core');
   return invoke<void>('codex_app_server_respond_user_input', {
     requestId,
+    ...(sessionId ? { sessionId } : {}),
     answers,
   });
 }
@@ -726,10 +954,12 @@ export async function respondToCodexUserInput(
 export async function respondToCodexDynamicTool(
   requestId: CodexRequestId,
   response: CodexDynamicToolResponse,
+  sessionId: string | null = codexAppServerClient.runtimeSessionId,
 ) {
   const { invoke } = await import('@tauri-apps/api/core');
   return invoke<void>('codex_app_server_respond_dynamic_tool', {
     requestId,
+    ...(sessionId ? { sessionId } : {}),
     response,
   });
 }

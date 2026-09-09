@@ -1,0 +1,30 @@
+{
+  "version": "0.144.4",
+  "sourceCommit": "8c68d4c87dc54d38861f5114e920c3de2efa5876",
+  "experimentalApi": true,
+  "storage": "sharedCodexHome",
+  "capabilities": {
+    "legacyHistory": "supported",
+    "paginatedHistory": "experimental-guarded",
+    "explicitSteer": "supported",
+    "fork": "supported",
+    "mcpElicitation": "form-url-bounded",
+    "remoteControl": "not-exposed",
+    "voice": "not-exposed"
+  },
+  "schemaSha256": {
+    "ClientRequest.json": "d8474445e109c242a2cc1169ed6d8644f86df3a097230c8c52bdc107a9014efa",
+    "ServerRequest.json": "886f30bd882a73600566695e0f08f8a10fcd9897742c4745ecf91710ec256f6a",
+    "ServerNotification.json": "fb0d6bf6b9f192257f452340de3fdca6b4b2c8e1a216aafaf48837a006e14bea",
+    "v2/ThreadStartParams.json": "4f30cb90cae47ff01adba8d863228b2aa198232df895dbfc996d594270326744",
+    "v2/ThreadResumeParams.json": "f828ee9846f11a68a1d259429ae147ddd49fcbd1cfb860b1a83f41604a5e97b9",
+    "v2/ThreadForkParams.json": "26cd7019c1799698502657e4279eb08530c2625b2cab38c22b3ca74a126d3dbb",
+    "v2/ThreadTurnsListParams.json": "37df0285a84103220306e5750173d1dcf846d5475684752c0a1252501dd9784e",
+    "v2/ThreadTurnsListResponse.json": "58eec9f441ab08aff99522a2d96b85ef9e0c984bc0ac61373a3bd12b31d7e19d",
+    "v2/TurnStartParams.json": "a28f74287e18b8a18c7aa6966ee7552a8ed2ae13c03f4ba12e9af48f7370f19d",
+    "v2/TurnSteerParams.json": "2c5a7ff12f952bab1b829bcae1afd2f79217b87f48ba296581ea3b3888eedabb",
+    "v2/TurnSteerResponse.json": "a669b85e3b75b86468e39e6a2f760966bffe83f378b514c6898fb04b838cd78d",
+    "McpServerElicitationRequestParams.json": "12e180a344101863b73a3ba101d12ae14fff1b6eff679b7ccd0769cc22827261",
+    "McpServerElicitationRequestResponse.json": "b9658ba208bfc7ecb3139c4d9742608f260e1583bd6cd11666dce289c975d670"
+  }
+}

@@ -1,81 +1,126 @@
 import { spawnSync } from 'node:child_process';
-import { chmod, copyFile, mkdir, stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+import {
+  chmod,
+  copyFile,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+} from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const rootRequire = createRequire(import.meta.url);
-const codexPackagePath = rootRequire.resolve('@openai/codex/package.json');
-const codexRequire = createRequire(codexPackagePath);
-const currentDir = dirname(fileURLToPath(import.meta.url));
-const projectRoot = dirname(currentDir);
-const target = resolveTarget();
-const vendorPackage = `@openai/codex-${target.packageSuffix}`;
-const source = codexRequire.resolve(
-  `${vendorPackage}/vendor/${target.vendorTriple}/bin/codex${target.extension}`,
-);
-const destinationDir = join(projectRoot, 'src-tauri', 'binaries');
-const destination = join(
-  destinationDir,
-  `codex-${target.tauriTriple}${target.extension}`,
-);
-
-await mkdir(destinationDir, { recursive: true });
-const sourceProbe = probeVersion(source);
-if (!sourceProbe) {
-  throw new Error('Bundled Codex sidecar failed the version probe.');
+export function codexPackageBin(target = resolveTarget()) {
+  const require = createRequire(import.meta.url);
+  const packagePath = require.resolve('@openai/codex/package.json');
+  const codexRequire = createRequire(packagePath);
+  return dirname(
+    codexRequire.resolve(
+      `@openai/codex-${target.packageSuffix}/vendor/${target.vendorTriple}/bin/codex${target.extension}`,
+    ),
+  );
 }
 
-const shouldCopy = !(await isCurrentSidecar(destination, source, sourceProbe));
-if (shouldCopy) {
-  await copyFile(source, destination);
-
-  if (process.platform !== 'win32') {
-    await chmod(destination, 0o755);
-  }
-}
-
-const stagedProbe = probeVersion(destination);
-if (!stagedProbe) {
-  throw new Error('Staged Codex sidecar failed the version probe.');
-}
-
-process.stdout.write(
-  `${shouldCopy ? 'Staged' : 'Reused'} ${stagedProbe} for ${target.tauriTriple}\n`,
-);
-
-async function isCurrentSidecar(destinationPath, sourcePath, expectedVersion) {
-  try {
-    const [destinationStat, sourceStat] = await Promise.all([
-      stat(destinationPath),
-      stat(sourcePath),
-    ]);
-
-    if (destinationStat.size !== sourceStat.size) {
-      return false;
+export async function stageCodexSidecars({
+  target = resolveTarget(),
+  sourceDir = codexPackageBin(target),
+  destinationDir = fileURLToPath(
+    new URL('../src-tauri/binaries', import.meta.url),
+  ),
+} = {}) {
+  const manifest = JSON.parse(
+    await readFile(
+      new URL('../contracts/codex/manifest.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  const names = ['codex', 'codex-code-mode-host'];
+  // Verify the complete source pair before replacing either staged executable.
+  // author: refinex
+  for (const name of names)
+    await stat(join(sourceDir, name + target.extension));
+  if (
+    probe(join(sourceDir, 'codex' + target.extension), '--version') !==
+    `codex-cli ${manifest.version}`
+  )
+    throw new Error(
+      'Bundled Codex version differs from the verified contract.',
+    );
+  if (
+    !probe(
+      join(sourceDir, 'codex-code-mode-host' + target.extension),
+      '--help',
+    )?.includes('codex-code-mode-host')
+  )
+    throw new Error('Bundled Codex code-mode host is not executable.');
+  await mkdir(destinationDir, { recursive: true });
+  const staged = [];
+  for (const name of names) {
+    const source = join(sourceDir, name + target.extension);
+    const destination = join(
+      destinationDir,
+      `${name}-${target.tauriTriple}${target.extension}`,
+    );
+    const expected = await digest(source);
+    let current = null;
+    try {
+      current = await digest(destination);
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
     }
-
-    return probeVersion(destinationPath) === expectedVersion;
-  } catch (error) {
-    if (error?.code === 'ENOENT') {
-      return false;
+    const copied = current !== expected;
+    if (copied) {
+      const temporary = destination + `.${process.pid}.tmp`;
+      try {
+        await copyFile(source, temporary);
+        if (process.platform !== 'win32') await chmod(temporary, 0o755);
+        if ((await digest(temporary)) !== expected)
+          throw new Error(`Staged ${name} hash mismatch.`);
+        await rename(temporary, destination);
+      } finally {
+        await rm(temporary, { force: true });
+      }
     }
-
-    throw error;
+    if (
+      process.platform !== 'win32' &&
+      ((await stat(destination)).mode & 0o111) !== 0o111
+    ) await chmod(destination, 0o755);
+    if (!probe(destination, name === 'codex' ? '--version' : '--help'))
+      throw new Error(`Staged ${name} is not executable.`);
+    staged.push({ name, destination, copied });
   }
+  return staged;
 }
 
-function probeVersion(binaryPath) {
-  const probe = spawnSync(binaryPath, ['--version'], { encoding: 'utf8' });
-
-  if (probe.status !== 0) {
-    return null;
-  }
-
-  return probe.stdout.trim();
+async function digest(path) {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  return hash.digest('hex');
+}
+function probe(binary, argument) {
+  const result = spawnSync(binary, [argument], {
+    encoding: 'utf8',
+    timeout: 5000,
+    maxBuffer: 65536,
+  });
+  return result.status === 0 ? result.stdout.trim() : null;
 }
 
-function resolveTarget() {
+if (
+  process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  for (const item of await stageCodexSidecars())
+    process.stdout.write(
+      `${item.copied ? 'Staged' : 'Reused'} ${item.name} for ${resolveTarget().tauriTriple}\n`,
+    );
+}
+
+export function resolveTarget() {
   const key = `${process.platform}-${process.arch}`;
   const targets = {
     'darwin-arm64': {

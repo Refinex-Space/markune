@@ -39,6 +39,7 @@ export interface WorkspaceIndexPage {
 }
 
 export interface KnowledgeLocation {
+  fingerprint?: string;
   relativePath: string;
   line?: number;
   hash?: string | null;

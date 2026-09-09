@@ -147,6 +147,11 @@ export function PdfResearchReader({
   }, [pdf, page, width]);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {pdf && initialPage > pdf.numPages ? (
+        <p role="status" className="p-2 text-xs text-amber-600">
+          引用页码超出当前 PDF 页数，请重新核对来源。
+        </p>
+      ) : null}
       <div className="flex items-center justify-center gap-3 border-b border-border/50 p-2 text-xs">
         <button
           type="button"

@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-02
+updated: 2026-09-06
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -40,4 +40,4 @@ referenced_by: AGENTS.md#knowledge-map
 
 ## Testing
 
-Run the smallest relevant test first, for example `pnpm test:run -- components/workspace/__tests__/workspace-global-search.test.ts`, then broaden to `pnpm test:run` and build/lint checks as appropriate.
+Run the smallest relevant test first, for example `pnpm exec vitest run components/workspace/__tests__/workspace-global-search.test.ts`, then broaden to `pnpm test:run` and build/lint checks as appropriate.

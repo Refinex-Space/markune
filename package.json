@@ -27,7 +27,10 @@
     "harness:check": "python3 ops/harness/check-harness.py",
     "test": "vitest",
     "test:run": "vitest run",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:codex:contract": "node scripts/verify-codex-contract.mjs",
+    "test:codex:eval": "vitest run components/workspace/__tests__/codex-evaluation.test.ts",
+    "test:codex:probe": "node scripts/probe-codex-session.mjs"
   },
   "dependencies": {
     "@ariakit/react": "^0.4.28",
@@ -65,6 +68,7 @@
     "date-fns": "^4.4.0",
     "docx": "9.7.1",
     "jotai": "^2.20.1",
+    "katex": "0.16.47",
     "lodash": "^4.18.1",
     "lucide-react": "^1.17.0",
     "mammoth": "1.12.0",
@@ -79,12 +83,14 @@
     "react-day-picker": "^10.0.1",
     "react-dom": "19.2.4",
     "react-markdown": "^10.1.0",
+    "rehype-katex": "7.0.1",
     "rehype-parse": "9.0.1",
     "rehype-remark": "10.0.1",
     "rehype-sanitize": "6.0.0",
     "remark-breaks": "^4.0.0",
     "remark-frontmatter": "5.0.0",
     "remark-gfm": "^4.0.1",
+    "remark-math": "6.0.0",
     "remark-parse": "11.0.0",
     "remark-stringify": "11.0.0",
     "shadcn": "^4.11.0",
@@ -101,7 +107,7 @@
   },
   "devDependencies": {
     "@iconify-json/tabler": "1.2.37",
-    "@openai/codex": "0.144.4",
+    "@openai/codex": "0.153.4",
     "@tailwindcss/postcss": "^4",
     "@tauri-apps/cli": "^2.11.2",
     "@testing-library/react": "^16.3.2",
