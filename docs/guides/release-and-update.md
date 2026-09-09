@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-01
+updated: 2026-09-09
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -47,6 +47,8 @@ GitHub 只会从默认分支加载可手工触发的工作流，因此 `.github/
 两处必须为相同 SemVer。`src-tauri/Cargo.toml` 的 crate 版本属于内部 Rust 包版本，不作为桌面 Release 版本来源。
 
 在创建 Tag 前准备用户可读的 Release Notes，至少包含本次更新、支持平台、升级提示和已知限制。不得包含密钥、Token、真实用户路径或用户文档。
+
+当前发布目标为 `0.2.5`，配套编辑器为 `markweave@0.10.4` 与 `@markweave/react@0.10.4`。本次说明涵盖工作区自动刷新、附件存储、元数据与链接保真、图谱和知识整理、Codex 问答及编辑体验。Tag 前同步 `.github/workflows/release.yml` 的 `releaseBody` 与官网 `markune-web` 的 `src/content/changelog.ts`；官网发布日期以正式 Release 返回的时间为准。
 
 ## 4. 本地门禁
 
