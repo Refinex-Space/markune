@@ -34,7 +34,7 @@ describe('document import core', () => {
     );
 
     expect(prepared.title).toBe('跨平台说明');
-    expect(prepared.markdown).not.toContain('\r');
+    expect(prepared.markdown).toContain('---\r\ntitle: 跨平台说明\r\ncreatedAt: 2026-07-17T00:00:00.000Z\r\n');
     expect(prepared.markdown).toContain('# 跨平台说明');
     expect(prepared.markdown).toContain('markune-import://asset/');
     expect(prepared.markdown).toContain('https://example.com/a.png');

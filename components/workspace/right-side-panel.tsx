@@ -1,10 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import type {
-  MarkweaveAiEditController,
-  MarkweaveAskAiHandler,
-} from '@markweave/react';
 import { Openai } from '@thesvg/react';
 import { Info, Palette, Settings } from 'lucide-react';
 import { useTheme } from 'next-themes';
@@ -30,15 +26,17 @@ import {
 import { cn } from '@/lib/utils';
 
 import { DocumentMetaPanel } from './document-meta-panel';
+import {
+  AiArtifactViewer,
+  type AiResourceReference,
+} from './ai-artifact-viewer';
+import { AiContentProvider } from './ai-content-context';
 import { AiPanel } from './ai-panel';
 import type {
   CodexDynamicToolRequest,
   CodexDynamicToolResponse,
 } from './codex-app-server';
-import type {
-  AiProposedPlan,
-  AiWorkspaceChangeEvent,
-} from './ai-panel-state';
+import type { AiProposedPlan, AiWorkspaceChangeEvent } from './ai-panel-state';
 import type {
   AiDrawingReference,
   RightPanelMode,
@@ -56,6 +54,12 @@ export interface DocumentPanelData {
 }
 
 interface RightSidePanelProps {
+  onArtifactCreated?: (node: WorkspaceNode) => Promise<void> | void;
+  onArtifactDraft?: (text: string) => void;
+  researchDraft?: { id: string; text: string } | null;
+  onResearchDraftConsumed?: () => void;
+  knowledge?: import('./use-workspace-knowledge').WorkspaceKnowledge;
+  onOpenLocation?: (location: import('./workspace-knowledge-types').KnowledgeLocation) => void;
   activeDrawing?: AiDrawingReference | null;
   aiPresentation?: AiPanelPresentation;
   aiWorkspacePreview?: React.ReactNode;
@@ -69,7 +73,6 @@ interface RightSidePanelProps {
   mode: RightPanelMode;
   width: number;
   workspaceRootPath: string | null;
-  getActiveEditorAiEditController?: () => MarkweaveAiEditController | null;
   onBeforeTurnStart: (
     documentPath: string | null,
     drawingId: string | null,
@@ -78,13 +81,10 @@ interface RightSidePanelProps {
     request: CodexDynamicToolRequest,
   ) => Promise<CodexDynamicToolResponse>;
   onAiWorkspacePreviewResize?: (width: number) => void;
-  onAskAiHandlerChange?: (handler: MarkweaveAskAiHandler | null) => void;
   onOpenDocument: (documentPath: string) => void;
   onOpenPlanPreview: (plan: AiProposedPlan, threadId: string) => void;
   onOpenCodexSettings?: () => void;
-  onWorkspaceChanged: (
-    event: AiWorkspaceChangeEvent,
-  ) => void | Promise<void>;
+  onWorkspaceChanged: (event: AiWorkspaceChangeEvent) => void | Promise<void>;
   onToggleDocumentReadOnly?: () => void;
 }
 
@@ -97,6 +97,12 @@ interface RightToolRailProps {
 }
 
 export function RightSidePanel({
+  onArtifactDraft,
+  onArtifactCreated,
+  researchDraft,
+  onResearchDraftConsumed,
+  knowledge,
+  onOpenLocation,
   activeDrawing = null,
   aiPresentation = 'panel',
   aiWorkspacePreview,
@@ -110,11 +116,9 @@ export function RightSidePanel({
   mode,
   width,
   workspaceRootPath,
-  getActiveEditorAiEditController = () => null,
   onBeforeTurnStart,
   onDrawingToolCall,
   onAiWorkspacePreviewResize,
-  onAskAiHandlerChange = () => undefined,
   onOpenDocument,
   onOpenPlanPreview,
   onOpenCodexSettings,
@@ -123,9 +127,43 @@ export function RightSidePanel({
 }: RightSidePanelProps) {
   const aiVisible = mode === 'ai';
   const workspacePresentation = aiPresentation === 'workspace';
+  const [resource, setResource] = React.useState<{
+    root: string;
+    reference: AiResourceReference;
+  } | null>(null);
+  const openResource = React.useCallback(
+    (reference: AiResourceReference) => {
+      if (workspaceRootPath)
+        setResource({ root: workspaceRootPath, reference });
+    },
+    [workspaceRootPath],
+  );
+  const contentContext = React.useMemo(
+    () => ({
+      root: workspaceRootPath,
+      sourceDocument: null,
+      openDocument: onOpenLocation,
+      openResource,
+    }),
+    [
+      workspaceRootPath,
+      onOpenLocation,
+      openResource,
+    ],
+  );
 
   return (
     <>
+      {resource && resource.root === workspaceRootPath ? (
+        <AiArtifactViewer
+          key={JSON.stringify(resource)}
+          root={resource.root}
+          reference={resource.reference}
+          onClose={() => setResource(null)}
+          onDraft={onArtifactDraft}
+          onCreated={onArtifactCreated}
+        />
+      ) : null}
       <aside
         aria-hidden={!aiVisible}
         className={cn(
@@ -136,7 +174,9 @@ export function RightSidePanel({
             : 'h-full shrink-0 rounded-xl border border-border/70',
         )}
         data-chrome={
-          workspacePresentation ? 'workspace-ai-surface' : 'workspace-side-panel'
+          workspacePresentation
+            ? 'workspace-ai-surface'
+            : 'workspace-side-panel'
         }
         data-presentation={aiPresentation}
         data-testid="ai-side-panel"
@@ -145,7 +185,10 @@ export function RightSidePanel({
       >
         <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
           <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-            <AiPanel
+            <AiContentProvider value={contentContext}>
+              <AiPanel
+              researchDraft={researchDraft}
+              onResearchDraftConsumed={onResearchDraftConsumed}
               activeDrawing={activeDrawing}
               currentDocument={currentDocument}
               currentDocumentPath={currentDocumentPath}
@@ -154,10 +197,6 @@ export function RightSidePanel({
               presentation={aiPresentation}
               visible={aiVisible}
               workspaceRootPath={workspaceRootPath}
-              getActiveEditorAiEditController={
-                getActiveEditorAiEditController
-              }
-              onAskAiHandlerChange={onAskAiHandlerChange}
               onBeforeTurnStart={onBeforeTurnStart}
               onDrawingToolCall={onDrawingToolCall}
               onOpenCodexSettings={onOpenCodexSettings}
@@ -165,6 +204,7 @@ export function RightSidePanel({
               onOpenPlanPreview={onOpenPlanPreview}
               onWorkspaceChanged={onWorkspaceChanged}
             />
+            </AiContentProvider>
           </div>
 
           {workspacePresentation && aiWorkspacePreview ? (
@@ -202,6 +242,8 @@ export function RightSidePanel({
           style={{ width }}
         >
           <DocumentMetaPanel
+            knowledge={knowledge}
+            onOpenLocation={onOpenLocation}
             currentDocument={currentDocument}
             documentPanelData={documentPanelData}
             readOnly={documentReadOnly}
@@ -303,10 +345,19 @@ export function RightToolRail({
                   <span>主题</span>
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="w-32">
-                  <DropdownMenuRadioGroup value={theme ?? 'light'} onValueChange={setTheme}>
-                    <DropdownMenuRadioItem value="light">亮色</DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="dark">暗色</DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="system">跟随系统</DropdownMenuRadioItem>
+                  <DropdownMenuRadioGroup
+                    value={theme ?? 'light'}
+                    onValueChange={setTheme}
+                  >
+                    <DropdownMenuRadioItem value="light">
+                      亮色
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="dark">
+                      暗色
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="system">
+                      跟随系统
+                    </DropdownMenuRadioItem>
                   </DropdownMenuRadioGroup>
                 </DropdownMenuSubContent>
               </DropdownMenuSub>

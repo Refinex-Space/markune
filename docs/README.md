@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-08-14
+updated: 2026-09-06
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -10,6 +10,12 @@ referenced_by: AGENTS.md#knowledge-map
 This directory contains routed repository knowledge for agent work. Root instructions stay in `AGENTS.md`; this file keeps every active or preserved docs file reachable in one hop.
 
 ## Active References
+
+- Codex architecture and verification: `docs/architecture/codex.md`: [open](architecture/codex.md)
+
+- Execution plans index: `docs/plans-index.md`: [open](plans-index.md)
+
+- Codex 专业化实施与验收：`docs/plans/codex-professionalization.md`：[open](plans/codex-professionalization.md)
 
 - Architecture overview: `docs/architecture/overview.md`: [open](architecture/overview.md)
 - Config reference: `docs/config/reference.md`: [open](config/reference.md)
@@ -21,6 +27,8 @@ This directory contains routed repository knowledge for agent work. Root instruc
 - Release and update manual: `docs/guides/release-and-update.md`: [open](guides/release-and-update.md)
 
 ## Validation Artifacts
+
+- Codex 专业化本机验收：`docs/verification/codex/acceptance.md`：[open](verification/codex/acceptance.md)
 
 - Codex AI panel design QA: `design-qa.md`: [open](../design-qa.md)
 
@@ -65,3 +73,16 @@ These files are retained as historical planning/spec evidence. Prefer current so
 - `docs/superpowers/specs/2026-06-17-markora-editor-replacement-design.md`: [open](superpowers/specs/2026-06-17-markora-editor-replacement-design.md)
 - `docs/superpowers/specs/2026-06-19-ai-panel-agent-runtime-design.md`: [open](superpowers/specs/2026-06-19-ai-panel-agent-runtime-design.md)
 - `docs/superpowers/specs/2026-06-19-ai-provider-runtime-secret-store-design.md`: [open](superpowers/specs/2026-06-19-ai-provider-runtime-secret-store-design.md)
+
+- `docs/superpowers/plans/2026-06-20-builtin-toc.md`: [historical](superpowers/plans/2026-06-20-builtin-toc.md)
+- `docs/superpowers/plans/2026-06-20-daily-calendar-sidebar.md`: [historical](superpowers/plans/2026-06-20-daily-calendar-sidebar.md)
+- `docs/superpowers/plans/2026-06-20-recent-documents-persistence.md`: [historical](superpowers/plans/2026-06-20-recent-documents-persistence.md)
+- `docs/superpowers/plans/2026-06-22-local-ai-assistants-v0-2.md`: [historical](superpowers/plans/2026-06-22-local-ai-assistants-v0-2.md)
+- `docs/superpowers/plans/2026-06-28-ai-chat-transport.md`: [historical](superpowers/plans/2026-06-28-ai-chat-transport.md)
+- `docs/superpowers/plans/2026-06-28-ai-data-contracts.md`: [historical](superpowers/plans/2026-06-28-ai-data-contracts.md)
+- `docs/superpowers/specs/2026-06-20-builtin-toc-design.md`: [historical](superpowers/specs/2026-06-20-builtin-toc-design.md)
+- `docs/superpowers/specs/2026-06-20-daily-calendar-sidebar-design.md`: [historical](superpowers/specs/2026-06-20-daily-calendar-sidebar-design.md)
+- `docs/superpowers/specs/2026-06-20-recent-documents-persistence-design.md`: [historical](superpowers/specs/2026-06-20-recent-documents-persistence-design.md)
+- `docs/superpowers/specs/2026-06-28-ai-chat-transport-design.md`: [historical](superpowers/specs/2026-06-28-ai-chat-transport-design.md)
+- `docs/superpowers/specs/2026-06-28-ai-data-contracts-design.md`: [historical](superpowers/specs/2026-06-28-ai-data-contracts-design.md)
+- `docs/superpowers/specs/2026-06-28-ai-message-rendering-design.md`: [historical](superpowers/specs/2026-06-28-ai-message-rendering-design.md)

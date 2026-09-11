@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import type { MarkweaveAskAiHandler } from '@markweave/react';
 import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
 import {
@@ -46,10 +45,7 @@ import {
 } from '@/components/ui/confirmation-dialog';
 import { cn } from '@/lib/utils';
 
-import {
-  RightSidePanel,
-  RightToolRail,
-} from './right-side-panel';
+import { RightSidePanel, RightToolRail } from './right-side-panel';
 import { AiDocumentPreview } from './ai-document-preview';
 import { DirectoryPage } from './directory-page';
 import { DailyNoteCalendar } from './daily-note-calendar';
@@ -98,7 +94,7 @@ import type {
   AiProposedPlan,
   AiWorkspaceChangeEvent,
 } from './ai-panel-state';
-import { useWorkspace } from './use-workspace';
+import { useWorkspace, getMovedNodePath } from './use-workspace';
 import { useGitAutoSync } from './use-git-auto-sync';
 import { useAiDrawingTools } from './use-ai-drawing-tools';
 import { drawingReferenceFromDescriptor } from './ai-drawing-inspector';
@@ -110,17 +106,13 @@ import {
   getMacosChromeContentTop,
   useMacosChromeControlsTop,
 } from './use-macos-titlebar-metrics';
+import type { KnowledgeLocation } from './workspace-knowledge-types';
+import { useWorkspaceKnowledge } from './use-workspace-knowledge';
 import { WorkspaceGlobalSearchDialog } from './workspace-global-search-dialog';
 import { WorkspaceBrandMigrationDialog } from './workspace-brand-migration-dialog';
 import { useDocumentExport } from './use-document-export';
 import { useDocumentImport } from './use-document-import';
-import {
-  buildWorkspaceSearchIndex,
-  searchWorkspaceIndex,
-  type WorkspaceGlobalSearchResult,
-  type WorkspaceSearchDocument,
-  type WorkspaceSearchIndex,
-} from './workspace-global-search';
+import { type WorkspaceGlobalSearchResult } from './workspace-global-search';
 import {
   gitBranches,
   gitCommit,
@@ -142,7 +134,6 @@ import {
   listenTerminalData,
   listenTerminalError,
   listenTerminalExit,
-  loadDrawingLibrary,
   closeAppWindow,
   readAppSettings,
   recordRecentDocument,
@@ -181,6 +172,15 @@ import { createTerminalOutputStore } from './terminal-output-store';
 import { WorkspaceResizeHandle } from './workspace-resize-handle';
 import { WorkspaceSidebar } from './workspace-sidebar';
 import { WorkspaceGraphPage } from './workspace-graph-page';
+import {
+  PdfResearchDialog,
+  WorkspaceResearchPanel,
+  type PdfSourceRequest,
+} from './workspace-research';
+import type { ResearchDraftRequest } from './research-notes';
+import { WorkspaceTemplateDialog } from './workspace-templates';
+import { WorkspaceKnowledgeViews } from './workspace-knowledge-views';
+import { WorkspaceResourcePanel } from './workspace-resource-panel';
 import { WorkspaceViewsPage } from './workspace-views-page';
 import {
   countMarkdownCharacters,
@@ -189,6 +189,12 @@ import {
 } from './workspace-document-insights';
 import { createDocumentPanelData } from './workspace-document-panel-data';
 import { flattenDocuments } from './workspace-tree';
+import {
+  useWorkspaceRefresh,
+  type WorkspaceRefreshRequest,
+} from './use-workspace-refresh';
+import { reconcileWorkspaceDocuments } from './workspace-refresh';
+import { isDescendantPath } from './workspace-paths';
 import { XtermTerminal } from './xterm-terminal';
 import type {
   AppSettings,
@@ -210,6 +216,7 @@ import type {
   RightPanelMode,
   SystemNavLayout,
   WorkspaceNode,
+  WorkspaceMoveRequest,
   WorkspaceExportFormat,
   WorkspaceGitSyncSettings,
   WorkspaceSnapshot,
@@ -236,7 +243,6 @@ type WorkspaceSystemPage =
   | null;
 
 interface GlobalSearchState {
-  index: WorkspaceSearchIndex | null;
   results: WorkspaceGlobalSearchResult[];
   rootPath: string | null;
   status: GlobalSearchIndexStatus;
@@ -308,11 +314,13 @@ const WORKSPACE_PANEL_WIDTH_STORAGE_KEYS = {
   terminalHeight: 'markune:workspace:terminal-height',
 };
 
-const GLOBAL_SEARCH_READ_CONCURRENCY = 6;
 const RECENT_DOCUMENT_LIMIT = 5;
 const WORKSPACE_PANEL_MARGIN = 8;
 const WORKSPACE_SIDEBAR_HEADER_HEIGHT = 44;
 const WEB_SIDEBAR_TITLEBAR_SPACER = 40;
+const HEADER_TOOL_BUTTON_PX = 28;
+const HEADER_TOOL_GAP_PX = 2;
+const DRAWING_OVERLAY_TOOLS_EXTRA_PX = 12;
 const UI_FONT_FALLBACK =
   "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 const DOCUMENT_FONT_FALLBACK =
@@ -359,7 +367,6 @@ export function WorkspaceLayout({
   const workspace = useWorkspace(initialSnapshot);
   const brandMigrationReport = workspace.brandMigrationReport;
   const clearBrandMigrationReport = workspace.clearBrandMigrationReport;
-  const refreshWorkspaceNodes = workspace.refreshWorkspaceNodes;
   const [leftSidebarWidth, setLeftSidebarWidth] = useStoredPanelWidth(
     WORKSPACE_PANEL_WIDTH_STORAGE_KEYS.left,
     LEFT_PANEL_WIDTH.defaultValue,
@@ -449,13 +456,19 @@ export function WorkspaceLayout({
   const [globalSearchQuery, setGlobalSearchQuery] = React.useState('');
   const [globalSearchState, setGlobalSearchState] =
     React.useState<GlobalSearchState>({
-      index: null,
       results: [],
       rootPath: null,
       status: 'idle',
     });
-  const globalSearchWorkerRef = React.useRef<Worker | null>(null);
-  const globalSearchRequestIdRef = React.useRef(0);
+  const [graphRevision, setGraphRevision] = React.useState(0);
+  const [templateParentPath, setTemplateParentPath] = React.useState<
+    string | null
+  >(null);
+  const [pdfResearchRequest, setPdfResearchRequest] = React.useState<
+    PdfSourceRequest | 'file' | null
+  >(null);
+  const [researchDraft, setResearchDraft] =
+    React.useState<ResearchDraftRequest | null>(null);
   const [dailyCalendarMonth, setDailyCalendarMonth] = React.useState(
     () => new Date(new Date().getFullYear(), new Date().getMonth(), 1),
   );
@@ -469,6 +482,14 @@ export function WorkspaceLayout({
   const pageTitle = documentTitle ?? workspace.currentDirectory?.name;
   const currentDocumentPath = workspace.currentDocument?.absolutePath ?? null;
   const workspaceRootPath = workspace.snapshot?.rootPath ?? null;
+  const workspaceWarnings = workspace.snapshot?.warnings?.join('\n') ?? '';
+  React.useEffect(() => {
+    if (workspaceWarnings)
+      toast.warning('工作区有待检查的移动记录', {
+        description: workspaceWarnings,
+        duration: Infinity,
+      });
+  }, [workspaceRootPath, workspaceWarnings]);
 
   React.useEffect(() => {
     const report = brandMigrationReport;
@@ -551,6 +572,7 @@ export function WorkspaceLayout({
   );
   const workspaceRootPathRef = React.useRef(workspaceRootPath);
   const editorWorkspaceRootPathRef = React.useRef(workspaceRootPath);
+  const locationRequestRef = React.useRef(0);
   const activeMarkdownEditorRef = React.useRef<MarkdownEditorHandle | null>(
     null,
   );
@@ -560,7 +582,8 @@ export function WorkspaceLayout({
   React.useLayoutEffect(() => {
     currentDocumentPathRef.current = currentDocumentPath;
     documentLoadStateRef.current = workspace.documentLoadState;
-    prepareCurrentDocumentForAiRef.current = workspace.prepareCurrentDocumentForAi;
+    prepareCurrentDocumentForAiRef.current =
+      workspace.prepareCurrentDocumentForAi;
     updateMarkdownRef.current = workspace.updateMarkdown;
     editorSessionsRef.current = editorSessions;
   }, [
@@ -572,19 +595,7 @@ export function WorkspaceLayout({
   ]);
   const [activeEditorSourceMode, setActiveEditorSourceMode] =
     React.useState(false);
-  const [askAiHandler, setAskAiHandler] =
-    React.useState<MarkweaveAskAiHandler | null>(null);
   const appWindowExitPendingRef = React.useRef(false);
-  const getActiveEditorAiEditController = React.useCallback(
-    () => activeMarkdownEditorRef.current?.getAiEditController() ?? null,
-    [],
-  );
-  const handleAskAiHandlerChange = React.useCallback(
-    (handler: MarkweaveAskAiHandler | null) => {
-      setAskAiHandler(() => handler);
-    },
-    [],
-  );
 
   React.useEffect(() => {
     documentEditorLayoutRef.current = documentEditorLayout;
@@ -640,10 +651,7 @@ export function WorkspaceLayout({
     [recentDocuments, workspace.snapshot?.nodes],
   );
   React.useEffect(() => {
-    if (
-      !workspace.initialRecentDocumentPaths.length ||
-      !workspace.snapshot
-    ) {
+    if (!workspace.initialRecentDocumentPaths.length || !workspace.snapshot) {
       return;
     }
 
@@ -689,37 +697,25 @@ export function WorkspaceLayout({
     () => countMarkdownLines(deferredDocumentMarkdown),
     [deferredDocumentMarkdown],
   );
-  const activeGlobalSearchIndex =
+  const globalSearchResults =
     globalSearchState.rootPath === workspaceRootPath
-      ? globalSearchState.index
-      : null;
-  const activeGlobalSearchStatus =
-    globalSearchState.rootPath === workspaceRootPath
-      ? globalSearchState.status
-      : 'idle';
-  const globalSearchResults = React.useMemo(
-    () => {
-      if (globalSearchState.rootPath !== workspaceRootPath) {
-        return [];
-      }
-
-      return activeGlobalSearchIndex
-        ? searchWorkspaceIndex(activeGlobalSearchIndex, globalSearchQuery)
-        : globalSearchState.results;
-    },
-    [
-      activeGlobalSearchIndex,
-      globalSearchQuery,
-      globalSearchState.results,
-      globalSearchState.rootPath,
-      workspaceRootPath,
-    ],
-  );
+      ? globalSearchState.results
+      : [];
   const documentPanelData = React.useMemo(
-    () => createDocumentPanelData(workspace.draftDocument, workspace.rightPanelMode),
+    () =>
+      createDocumentPanelData(
+        workspace.draftDocument,
+        workspace.rightPanelMode,
+      ),
     [workspace.draftDocument, workspace.rightPanelMode],
   );
   const isTauriRuntime = useIsTauriRuntime();
+  const knowledge = useWorkspaceKnowledge(
+    workspaceRootPath,
+    graphRevision,
+    isTauriRuntime,
+  );
+  const activeGlobalSearchStatus: GlobalSearchIndexStatus = knowledge.status;
   const isMacRuntime = useIsMacRuntime();
   const isWindowsRuntime = useIsWindowsRuntime();
   const macChromeControlsTop = useMacosChromeControlsTop(
@@ -807,8 +803,12 @@ export function WorkspaceLayout({
     (activeEditorTab?.kind === 'plan' ||
       Boolean(workspace.currentDocument) ||
       (!workspace.currentDirectory && hasOpenDocumentTabs));
-  const [aiPreviewDocumentPath, setAiPreviewDocumentPath] =
-    React.useState<string | null>(null);
+  const [aiPreviewLocation, setAiPreviewLocation] = React.useState<
+    KnowledgeLocation | undefined
+  >();
+  const [aiPreviewDocumentPath, setAiPreviewDocumentPath] = React.useState<
+    string | null
+  >(null);
   const aiPreviewDocument = React.useMemo(
     () =>
       aiPreviewDocumentPath
@@ -855,9 +855,7 @@ export function WorkspaceLayout({
         : 44;
   const macSidebarHeaderOffset =
     isTauriRuntime && isMacRuntime
-      ? macChromeContentTop -
-        WORKSPACE_PANEL_MARGIN -
-        workspaceMainHeaderHeight
+      ? macChromeContentTop - WORKSPACE_PANEL_MARGIN - workspaceMainHeaderHeight
       : undefined;
   const drawingEditorHeaderHeight =
     isTauriRuntime && isWindowsRuntime
@@ -865,6 +863,11 @@ export function WorkspaceLayout({
       : (isTauriRuntime && isMacRuntime
           ? macChromeContentTop
           : WEB_SIDEBAR_TITLEBAR_SPACER) - WORKSPACE_PANEL_MARGIN;
+  const drawingHeaderToolsReservePx = getDrawingOverlayToolsReservePx({
+    enabled: drawingDetailOpen && isTauriRuntime && isWindowsRuntime,
+    showGitLogEntry: appSettings.appearance.showGitLogEntry,
+    showGitPanelEntry: appSettings.appearance.showGitPanelEntry,
+  });
   const flushActiveDrawing = drawings.flush;
   const prepareForAppUpdateInstall = React.useCallback(async () => {
     const confirmed = await confirmAction({
@@ -942,7 +945,8 @@ export function WorkspaceLayout({
       void openDrawingFromLibrary(drawingId);
     };
     window.addEventListener('markune:open-drawing', handleOpenDrawing);
-    return () => window.removeEventListener('markune:open-drawing', handleOpenDrawing);
+    return () =>
+      window.removeEventListener('markune:open-drawing', handleOpenDrawing);
   }, [clearCurrentDocument, openDrawingFromLibrary, showWorkspaceSidebar]);
   const [treeRevealRequest, setTreeRevealRequest] = React.useState<{
     absolutePath: string;
@@ -976,20 +980,22 @@ export function WorkspaceLayout({
     [],
   );
   const [gitLogFiles, setGitLogFiles] = React.useState<GitCommitFile[]>([]);
-  const [gitLogSelectedHash, setGitLogSelectedHash] = React.useState<string | null>(
-    null,
-  );
+  const [gitLogSelectedHash, setGitLogSelectedHash] = React.useState<
+    string | null
+  >(null);
   const [gitLogError, setGitLogError] = React.useState<string | null>(null);
   const [gitLogLoading, setGitLogLoading] = React.useState(false);
   const [terminalTabs, setTerminalTabs] = React.useState<TerminalTab[]>([]);
-  const [terminalActiveTabId, setTerminalActiveTabId] =
-    React.useState<string | null>(null);
+  const [terminalActiveTabId, setTerminalActiveTabId] = React.useState<
+    string | null
+  >(null);
   const [terminalError, setTerminalError] = React.useState<string | null>(null);
   const terminalTabsRef = React.useRef<TerminalTab[]>([]);
   const [terminalOutputStore] = React.useState(createTerminalOutputStore());
   const terminalSpawnInFlightRef = React.useRef(false);
-  const pendingDocumentOpenTimerRef =
-    React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingDocumentOpenTimerRef = React.useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const gitLogOpen = bottomPanelMode === 'git-log';
   const terminalOpen = bottomPanelMode === 'terminal';
 
@@ -1052,80 +1058,15 @@ export function WorkspaceLayout({
 
   React.useEffect(() => observeWorkspaceLongTasks(), []);
 
-  React.useEffect(() => {
-    if (typeof Worker === 'undefined') {
-      return;
-    }
-
-    const worker = new Worker(
-      new URL('./workspace-search-worker.ts', import.meta.url),
-    );
-    globalSearchWorkerRef.current = worker;
-    worker.onmessage = (
-      event: MessageEvent<
-        | { rootPath: string; type: 'indexed' }
-        | {
-            requestId: number;
-            results: WorkspaceGlobalSearchResult[];
-            rootPath: string;
-            type: 'results';
-          }
-      >,
-    ) => {
-      const message = event.data;
-
-      if (message.type === 'indexed') {
-        setGlobalSearchState((current) =>
-          current.rootPath === message.rootPath
-            ? { ...current, index: null, results: [], status: 'ready' }
-            : current,
-        );
-        return;
-      }
-
-      if (message.requestId !== globalSearchRequestIdRef.current) {
-        return;
-      }
-
-      setGlobalSearchState((current) =>
-        current.rootPath === message.rootPath
-          ? { ...current, results: message.results }
-          : current,
-      );
-    };
-
-    return () => {
-      worker.terminate();
-      if (globalSearchWorkerRef.current === worker) {
-        globalSearchWorkerRef.current = null;
-      }
-    };
-  }, []);
+  const refreshKnowledge = knowledge.refresh;
+  const searchKnowledge = knowledge.search;
+  const refreshKnowledgeTree = workspace.refreshWorkspaceTree;
   const openGlobalSearch = React.useCallback(() => {
     setGlobalSearchOpen(true);
-    if (globalSearchState.rootPath !== workspaceRootPath) {
+    if (globalSearchState.rootPath !== workspaceRootPath)
       setGlobalSearchQuery('');
-    }
-    setGlobalSearchState((current) => {
-      if (!workspaceRootPath) {
-        return current;
-      }
-
-      if (
-        current.rootPath === workspaceRootPath &&
-        current.status !== 'idle'
-      ) {
-        return current;
-      }
-
-      return {
-        index: null,
-        results: [],
-        rootPath: workspaceRootPath,
-        status: 'indexing',
-      };
-    });
-  }, [globalSearchState.rootPath, workspaceRootPath]);
+    void refreshKnowledge();
+  }, [globalSearchState.rootPath, workspaceRootPath, refreshKnowledge]);
   const loadDailyNotesForMonth = dailyNotes.loadMonth;
 
   React.useEffect(() => {
@@ -1161,101 +1102,27 @@ export function WorkspaceLayout({
   }, []);
 
   React.useEffect(() => {
-    if (
-      !globalSearchOpen ||
-      !isTauriRuntime ||
-      !workspace.snapshot ||
-      activeGlobalSearchStatus !== 'indexing'
-    ) {
+    if (!globalSearchOpen || !workspaceRootPath || knowledge.status !== 'ready')
       return;
-    }
-
-    const snapshot = workspace.snapshot;
-    let cancelled = false;
-
-    const perf = startWorkspacePerformanceMeasure('workspace.global_search.index');
-
-    void readWorkspaceSearchDocuments(snapshot)
-      .then((documents) => {
-        if (cancelled) {
-          return;
-        }
-
-        const worker = globalSearchWorkerRef.current;
-
-        if (worker) {
-          worker.postMessage({
-            documents,
-            rootPath: snapshot.rootPath,
-            type: 'index',
-          });
-          perf.finish({
-            documents: documents.length,
-            execution: 'worker',
-            rootDocuments: flattenDocuments(snapshot.nodes).length,
-          });
-          return;
-        }
-
+    let active = true;
+    void searchKnowledge(globalSearchQuery).then((results) => {
+      if (active)
         setGlobalSearchState({
-          index: buildWorkspaceSearchIndex(documents),
-          results: [],
-          rootPath: snapshot.rootPath,
+          results,
+          rootPath: workspaceRootPath,
           status: 'ready',
         });
-        perf.finish({
-          documents: documents.length,
-          rootDocuments: flattenDocuments(snapshot.nodes).length,
-        });
-      })
-      .catch(() => {
-        if (cancelled) {
-          return;
-        }
-
-        setGlobalSearchState({
-          index: null,
-          results: [],
-          rootPath: snapshot.rootPath,
-          status: 'error',
-        });
-      });
-
+    });
     return () => {
-      cancelled = true;
+      active = false;
     };
   }, [
-    activeGlobalSearchStatus,
     globalSearchOpen,
-    isTauriRuntime,
-    workspace.snapshot,
-  ]);
-
-  React.useEffect(() => {
-    const worker = globalSearchWorkerRef.current;
-
-    if (
-      !worker ||
-      activeGlobalSearchStatus !== 'ready' ||
-      !workspaceRootPath ||
-      globalSearchState.rootPath !== workspaceRootPath
-    ) {
-      return;
-    }
-
-    const requestId = globalSearchRequestIdRef.current + 1;
-    globalSearchRequestIdRef.current = requestId;
-    worker.postMessage({
-      query: globalSearchQuery,
-      requestId,
-      rootPath: workspaceRootPath,
-      type: 'search',
-    });
-  }, [
-    activeGlobalSearchStatus,
     globalSearchQuery,
-    globalSearchState.rootPath,
     workspaceRootPath,
+    knowledge.status,
+    knowledge.revision,
+    searchKnowledge,
   ]);
 
   React.useEffect(() => {
@@ -1289,7 +1156,6 @@ export function WorkspaceLayout({
         void startInboxCapture();
         return;
       }
-
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -1467,13 +1333,19 @@ export function WorkspaceLayout({
     [appSettings, isTauriRuntime],
   );
 
-  const handleLeftSidebarResize = React.useCallback((nextWidth: number) => {
-    setLeftSidebarWidth(nextWidth);
-  }, [setLeftSidebarWidth]);
+  const handleLeftSidebarResize = React.useCallback(
+    (nextWidth: number) => {
+      setLeftSidebarWidth(nextWidth);
+    },
+    [setLeftSidebarWidth],
+  );
 
-  const handleRightPanelResize = React.useCallback((nextWidth: number) => {
-    setActiveRightPanelWidth(nextWidth);
-  }, [setActiveRightPanelWidth]);
+  const handleRightPanelResize = React.useCallback(
+    (nextWidth: number) => {
+      setActiveRightPanelWidth(nextWidth);
+    },
+    [setActiveRightPanelWidth],
+  );
   const refreshGitStatus = React.useCallback(async () => {
     if (!workspaceRootPath) {
       setGitProbeState(null);
@@ -1492,7 +1364,9 @@ export function WorkspaceLayout({
       if (probe.isRepository) {
         const status = await gitStatus(workspaceRootPath);
         setGitStatusState(status);
-        setGitSelectedPaths(new Set(status.changes.map((change) => change.path)));
+        setGitSelectedPaths(
+          new Set(status.changes.map((change) => change.path)),
+        );
       } else {
         setGitStatusState(null);
         setGitSelectedPaths(new Set());
@@ -1562,7 +1436,11 @@ export function WorkspaceLayout({
 
       try {
         setGitDiffState(
-          await gitCommitFileDiff(workspaceRootPath, gitLogSelectedHash, file.path),
+          await gitCommitFileDiff(
+            workspaceRootPath,
+            gitLogSelectedHash,
+            file.path,
+          ),
         );
         setGitDiffLabel('提交差异');
       } catch (error) {
@@ -1887,10 +1765,95 @@ export function WorkspaceLayout({
     };
   }, [isTauriRuntime, settingsVersion, workspaceRootPath]);
 
-  // Reflect files pulled by a sync back into the UI: incrementally refresh the
-  // affected tree nodes and reload the open document through the conflict-safe
-  // path. Without this the editor keeps stale in-memory content and the next
-  // autosave would overwrite the just-pulled remote changes. author: liyao
+  // Reconcile all disk-change sources without discarding editor drafts. author: refinex
+  const synchronizeWorkspace = React.useCallback(
+    async (request: WorkspaceRefreshRequest, isCurrent: () => boolean) => {
+      if (!workspaceRootPath || !isCurrent()) return;
+      const root = workspaceRootPath;
+      if (request.full) {
+        await workspace.refreshWorkspaceTree();
+      } else {
+        if (request.paths.length)
+          await workspace.refreshWorkspaceNodes(request.paths);
+        for (const node of request.nodes) {
+          if (!isCurrent()) return;
+          await workspace.refreshWorkspaceNode(node, { reloadDocument: false });
+        }
+      }
+      if (!isCurrent()) return;
+      setGraphRevision((current) => current + 1);
+      const scopePaths = [
+        ...request.paths,
+        ...request.nodes.map((node) => node.absolutePath),
+      ];
+      const paths = documentEditorLayoutRef.current.tabs.flatMap((tab) =>
+        tab.kind === 'document' &&
+        (request.full ||
+          scopePaths.some(
+            (path) =>
+              tab.absolutePath === path ||
+              isDescendantPath(tab.absolutePath, path),
+          ))
+          ? [tab.absolutePath]
+          : [],
+      );
+      const activePath = currentDocumentPathRef.current;
+      if (
+        activePath &&
+        (request.full ||
+          scopePaths.some(
+            (path) => activePath === path || isDescendantPath(activePath, path),
+          ))
+      )
+        paths.push(activePath);
+      await workspace.waitForPendingSave();
+      if (!isCurrent()) return;
+      const failures = await reconcileWorkspaceDocuments({
+        paths,
+        read: (path) => workspace.readExternalMarkdownDocument(root, path),
+        captureDraft: () => flushActiveMarkdownEditor('external-refresh'),
+        getActivePath: () => currentDocumentPathRef.current,
+        synchronizeActive: (document) =>
+          syncExternalMarkdownDocumentRef.current(document),
+        isCurrent,
+        applySessions: (documents) =>
+          setEditorSessions((current) => {
+            if (!isCurrent()) return current;
+            let next = current;
+            for (const document of documents) {
+              const session = current[document.path];
+              if (session && session.markdown !== document.content) {
+                if (next === current) next = { ...current };
+                next[document.path] = {
+                  documentVersion: (session.documentVersion ?? 0) + 1,
+                  markdown: document.content,
+                };
+              }
+            }
+            return next;
+          }),
+      });
+      if (!isCurrent()) return;
+      if (failures.length) {
+        if (failures.includes(currentDocumentPathRef.current ?? ''))
+          workspace.markExternalDocumentUnavailable();
+        throw new Error(
+          '部分已打开文档无法读取，可能已被移走或删除；已保留编辑内容，请重试。',
+        );
+      }
+      // Resume a captured dirty draft only after its disk baseline was checked. author: refinex
+      if (paths.includes(currentDocumentPathRef.current ?? ''))
+        await workspace.saveCurrentDocumentNow();
+    },
+    [flushActiveMarkdownEditor, workspace, workspaceRootPath],
+  );
+
+  const workspaceRefresh = useWorkspaceRefresh({
+    rootPath: workspaceRootPath,
+    enabled: isTauriRuntime,
+    synchronize: synchronizeWorkspace,
+  });
+
   const reconcileGitPulledChanges = React.useCallback(
     async (rootPath: string, changedPaths: string[]) => {
       if (changedPaths.length === 0) {
@@ -1900,33 +1863,11 @@ export function WorkspaceLayout({
       const changedAbsolutePaths = changedPaths.map((path) =>
         resolveWorkspaceEntryAbsolutePath(rootPath, path),
       );
-      await workspace.refreshWorkspaceNodes(changedAbsolutePaths);
-
-      const openDocumentPath = getActiveDocumentPath(documentEditorLayout);
-
-      if (!openDocumentPath) {
-        return;
-      }
-
-      const openRelativePath = toRepoRelativePosixPath(
-        rootPath,
-        openDocumentPath,
-      );
-
-      if (!openRelativePath || !changedPaths.includes(openRelativePath)) {
-        return;
-      }
-
-      const openNode = findWorkspaceDocumentByPath(
-        workspace.snapshot?.nodes ?? [],
-        openDocumentPath,
-      );
-
-      if (openNode) {
-        await workspace.refreshWorkspaceNode(openNode);
+      if (workspaceRootPathRef.current === rootPath) {
+        await workspaceRefresh.refreshPaths(changedAbsolutePaths);
       }
     },
-    [documentEditorLayout, workspace],
+    [workspaceRefresh],
   );
 
   const runGitSync = React.useCallback(async () => {
@@ -2120,10 +2061,12 @@ export function WorkspaceLayout({
 
       const entry = toRecentDocument(node);
 
-      setRecentDocuments((current) => [
-        entry,
-        ...current.filter((item) => item.absolutePath !== entry.absolutePath),
-      ].slice(0, RECENT_DOCUMENT_LIMIT));
+      setRecentDocuments((current) =>
+        [
+          entry,
+          ...current.filter((item) => item.absolutePath !== entry.absolutePath),
+        ].slice(0, RECENT_DOCUMENT_LIMIT),
+      );
 
       if (isTauriRuntime && workspaceRootPath) {
         void recordRecentDocument(workspaceRootPath, node.absolutePath).catch(
@@ -2314,6 +2257,7 @@ export function WorkspaceLayout({
 
   const openDocumentNode = React.useCallback(
     async (node: WorkspaceNode) => {
+      locationRequestRef.current += 1;
       if (node.kind !== 'document') {
         return;
       }
@@ -2331,9 +2275,102 @@ export function WorkspaceLayout({
   );
 
   React.useEffect(() => {
+    const open = (event: Event) => {
+      const detail = (event as CustomEvent<PdfSourceRequest>).detail;
+      if (
+        !detail?.documentPath ||
+        !workspaceRootPath ||
+        !isDescendantPath(detail.documentPath, workspaceRootPath)
+      )
+        return;
+      setPdfResearchRequest(detail);
+    };
+    window.addEventListener('markune:read-pdf', open);
+    return () => window.removeEventListener('markune:read-pdf', open);
+  }, [workspaceRootPath]);
+
+  const openKnowledgeLocation = React.useCallback(
+    async (location: KnowledgeLocation) => {
+      const rootAtStart = workspaceRootPath;
+      let node = findWorkspaceDocumentByRelativePath(
+        workspace.snapshot?.nodes ?? [],
+        location.relativePath,
+      );
+      if (!node) {
+        const snapshot = await refreshKnowledgeTree();
+        if (workspaceRootPathRef.current !== rootAtStart) return;
+        node = findWorkspaceDocumentByRelativePath(
+          snapshot?.nodes ?? [],
+          location.relativePath,
+        );
+      }
+      if (!node) {
+        toast.warning('文档已移动或删除，请刷新后重试');
+        return;
+      }
+      const id = locationRequestRef.current + 1;
+      await openDocumentNode(node);
+      if (!location.line && !location.hash) return;
+      const started = Date.now();
+      const root = workspaceRootPath;
+      while (
+        Date.now() - started < 15000 &&
+        locationRequestRef.current === id &&
+        workspaceRootPathRef.current === root
+      ) {
+        const editor = activeMarkdownEditorRef.current;
+        if (
+          currentDocumentPathRef.current === node.absolutePath &&
+          editor?.getDocumentPath?.() === node.absolutePath
+        ) {
+          const isCurrent = () =>
+            locationRequestRef.current === id &&
+            currentDocumentPathRef.current === node.absolutePath &&
+            workspaceRootPathRef.current === root;
+          if (await editor.revealLocation({ ...location, isCurrent })) return;
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 100));
+        }
+        await new Promise<void>((resolve) =>
+          window.requestAnimationFrame(() => resolve()),
+        );
+      }
+    },
+    [
+      openDocumentNode,
+      workspace.snapshot?.nodes,
+      refreshKnowledgeTree,
+      workspaceRootPath,
+    ],
+  );
+
+  const openAiEvidence = React.useCallback(
+    async (location: KnowledgeLocation) => {
+      if (systemPage !== 'codex') {
+        await openKnowledgeLocation(location);
+        return;
+      }
+      const node = findWorkspaceDocumentByRelativePath(
+        workspace.snapshot?.nodes ?? [],
+        location.relativePath,
+      );
+      if (!node) {
+        toast.warning('来源文档已移动或删除，请刷新后重试');
+        return;
+      }
+      setAiPreviewLocation(location);
+      setAiPreviewDocumentPath(node.absolutePath);
+    },
+    [systemPage, openKnowledgeLocation, workspace.snapshot?.nodes],
+  );
+
+  React.useEffect(() => {
     const handleOpenDocument = (event: Event) => {
       const detail = (
-        event as CustomEvent<{ relativePath?: string }>
+        event as CustomEvent<{
+          relativePath?: string;
+          hash?: string | null;
+          line?: number;
+        }>
       ).detail;
       const relativePath = detail?.relativePath;
       if (!relativePath) return;
@@ -2350,23 +2387,20 @@ export function WorkspaceLayout({
         absolutePath: node.absolutePath,
         requestId: Date.now(),
       });
-      void openDocumentNode(node);
+      void openKnowledgeLocation({
+        relativePath,
+        hash: detail?.hash,
+        line: detail?.line,
+      });
     };
 
-    window.addEventListener(
-      OPEN_WORKSPACE_DOCUMENT_EVENT,
-      handleOpenDocument,
-    );
+    window.addEventListener(OPEN_WORKSPACE_DOCUMENT_EVENT, handleOpenDocument);
     return () =>
       window.removeEventListener(
         OPEN_WORKSPACE_DOCUMENT_EVENT,
         handleOpenDocument,
       );
-  }, [
-    openDocumentNode,
-    showWorkspaceSidebar,
-    workspace.snapshot?.nodes,
-  ]);
+  }, [openKnowledgeLocation, showWorkspaceSidebar, workspace.snapshot?.nodes]);
 
   const handleOpenNodeInFileManager = React.useCallback(
     (node: WorkspaceNode) => {
@@ -2403,7 +2437,10 @@ export function WorkspaceLayout({
                 }
 
                 return (
-                  await readMarkdownDocument(workspaceRootPath, node.absolutePath)
+                  await readMarkdownDocument(
+                    workspaceRootPath,
+                    node.absolutePath,
+                  )
                 ).content;
               },
             }),
@@ -2493,6 +2530,7 @@ export function WorkspaceLayout({
         );
 
         if (document) {
+          setAiPreviewLocation(undefined);
           setAiPreviewDocumentPath(document.absolutePath);
         }
         return;
@@ -2510,8 +2548,16 @@ export function WorkspaceLayout({
 
     setAiPreviewDocumentPath(null);
     revealNodeInWorkspaceTree(aiPreviewDocument.absolutePath);
-    void openDocumentNode(aiPreviewDocument);
-  }, [aiPreviewDocument, openDocumentNode, revealNodeInWorkspaceTree]);
+    void openKnowledgeLocation({
+      ...aiPreviewLocation,
+      relativePath: aiPreviewDocument.relativePath,
+    });
+  }, [
+    aiPreviewDocument,
+    openKnowledgeLocation,
+    aiPreviewLocation,
+    revealNodeInWorkspaceTree,
+  ]);
 
   const handleSelectGlobalSearchResult = React.useCallback(
     (result: WorkspaceGlobalSearchResult) => {
@@ -2525,27 +2571,20 @@ export function WorkspaceLayout({
         void openDrawingFromLibrary(result.document.drawingId);
         return;
       }
-      const node = findWorkspaceDocumentByPath(
-        workspace.snapshot?.nodes ?? [],
-        result.document.absolutePath,
-      );
-
-      if (!node) {
-        return;
-      }
-
       setGlobalSearchOpen(false);
       setGlobalSearchQuery('');
-      revealNodeInWorkspaceTree(node.absolutePath);
-      void openDocumentNode(node);
+      revealNodeInWorkspaceTree(result.document.absolutePath);
+      void openKnowledgeLocation({
+        relativePath: result.document.relativePath,
+        line: result.snippet?.line,
+      });
     },
     [
       clearCurrentDocument,
       openDrawingFromLibrary,
-      openDocumentNode,
+      openKnowledgeLocation,
       revealNodeInWorkspaceTree,
       showWorkspaceSidebar,
-      workspace.snapshot?.nodes,
     ],
   );
 
@@ -2563,40 +2602,146 @@ export function WorkspaceLayout({
     [rememberRecentDocument, workspace],
   );
 
-  const handleRenameWorkspaceNode = React.useCallback(
-    async (node: WorkspaceNode, newName: string) => {
-      const renamed = await workspace.renameNode(node, newName);
-
-      if (!renamed || node.kind !== 'document' || renamed.kind !== 'document') {
-        return renamed;
+  const handleMoveWorkspaceNode = React.useCallback(
+    async (request: WorkspaceMoveRequest) => {
+      if (!(await flushActiveMarkdownEditor('document-switch'))) return;
+      const moved = await workspace.moveNode(request);
+      if (!moved) return;
+      const updates: Array<{
+        oldPath: string;
+        node: WorkspaceNode;
+        content: MarkdownDocumentContent;
+      }> = [];
+      for (const tab of documentEditorLayoutRef.current.tabs) {
+        if (tab.kind !== 'document') continue;
+        const path = getMovedNodePath(tab.absolutePath, request);
+        if (path === tab.absolutePath) continue;
+        const node = findWorkspaceDocumentByPath(moved.nodes, path);
+        if (node)
+          updates.push({
+            oldPath: tab.absolutePath,
+            node,
+            content: await readMarkdownDocument(moved.rootPath, path),
+          });
       }
-
+      documentEditorLayoutRef.current = updates.reduce(
+        (layout, item) => renameDocumentTab(layout, item.oldPath, item.node),
+        documentEditorLayoutRef.current,
+      );
+      const migratedActive = updates.find(
+        (item) => item.oldPath === currentDocumentPathRef.current,
+      );
+      if (migratedActive)
+        currentDocumentPathRef.current = migratedActive.node.absolutePath;
       setDocumentEditorLayout((current) =>
-        renameDocumentTab(current, node.absolutePath, renamed),
+        updates.reduce(
+          (layout, item) => renameDocumentTab(layout, item.oldPath, item.node),
+          current,
+        ),
       );
       setEditorSessions((current) => {
-        const session = current[node.absolutePath];
-
-        if (!session || node.absolutePath === renamed.absolutePath) {
-          return current;
-        }
-
         const next = { ...current };
-        delete next[node.absolutePath];
-        next[renamed.absolutePath] = session;
+        for (const item of updates) {
+          const previous = next[item.oldPath];
+          delete next[item.oldPath];
+          next[item.node.absolutePath] = {
+            markdown: item.content.content,
+            documentVersion: (previous?.documentVersion ?? 0) + 1,
+          };
+        }
         return next;
       });
       setRecentDocuments((current) =>
-        current.map((document) =>
-          document.absolutePath === node.absolutePath
-            ? toRecentDocument(renamed)
-            : document,
+        current.map((item) => {
+          const node = findWorkspaceDocumentByPath(
+            moved.nodes,
+            getMovedNodePath(item.absolutePath, request),
+          );
+          return node ? toRecentDocument(node) : item;
+        }),
+      );
+      await workspaceRefresh.refresh();
+    },
+    [flushActiveMarkdownEditor, workspace, workspaceRefresh],
+  );
+
+  const handleRenameWorkspaceNode = React.useCallback(
+    async (node: WorkspaceNode, newName: string) => {
+      if (!(await flushActiveMarkdownEditor('document-switch'))) return null;
+      const renamed = await workspace.renameNode(node, newName);
+      if (!renamed || renamed.absolutePath === node.absolutePath)
+        return renamed;
+      const updates: Array<{
+        oldPath: string;
+        node: WorkspaceNode;
+        content: MarkdownDocumentContent;
+      }> = [];
+      for (const tab of documentEditorLayoutRef.current.tabs) {
+        if (
+          tab.kind !== 'document' ||
+          (tab.absolutePath !== node.absolutePath &&
+            !isDescendantPath(tab.absolutePath, node.absolutePath))
+        )
+          continue;
+        const nextPath =
+          renamed.absolutePath +
+          tab.absolutePath.slice(node.absolutePath.length);
+        const nextNode = findWorkspaceDocumentByPath([renamed], nextPath);
+        if (nextNode && workspaceRootPath)
+          updates.push({
+            oldPath: tab.absolutePath,
+            node: nextNode,
+            content: await readMarkdownDocument(workspaceRootPath, nextPath),
+          });
+      }
+      documentEditorLayoutRef.current = updates.reduce(
+        (layout, item) => renameDocumentTab(layout, item.oldPath, item.node),
+        documentEditorLayoutRef.current,
+      );
+      const migratedActive = updates.find(
+        (item) => item.oldPath === currentDocumentPathRef.current,
+      );
+      if (migratedActive)
+        currentDocumentPathRef.current = migratedActive.node.absolutePath;
+      setDocumentEditorLayout((current) =>
+        updates.reduce(
+          (layout, item) => renameDocumentTab(layout, item.oldPath, item.node),
+          current,
         ),
       );
-
+      setEditorSessions((current) => {
+        const next = { ...current };
+        for (const item of updates) {
+          const previous = next[item.oldPath];
+          delete next[item.oldPath];
+          next[item.node.absolutePath] = {
+            markdown: item.content.content,
+            documentVersion: (previous?.documentVersion ?? 0) + 1,
+          };
+        }
+        return next;
+      });
+      setRecentDocuments((current) =>
+        current.map((item) => {
+          if (
+            item.absolutePath !== node.absolutePath &&
+            !isDescendantPath(item.absolutePath, node.absolutePath)
+          )
+            return item;
+          const nextNode = findWorkspaceDocumentByPath(
+            [renamed],
+            renamed.absolutePath +
+              item.absolutePath.slice(node.absolutePath.length),
+          );
+          return nextNode ? toRecentDocument(nextNode) : item;
+        }),
+      );
+      if (node.kind === 'directory' && migratedActive)
+        await workspace.openDocument(migratedActive.node);
+      await workspaceRefresh.refresh();
       return renamed;
     },
-    [workspace],
+    [flushActiveMarkdownEditor, workspace, workspaceRootPath, workspaceRefresh],
   );
 
   const handleOpenDailyNote = React.useCallback(
@@ -2624,27 +2769,10 @@ export function WorkspaceLayout({
 
   const handleDailyContentSaved = React.useCallback(
     (content: MarkdownDocumentContent, date: string) => {
-      const syncResult = workspace.syncExternalMarkdownDocument(content);
-      setEditorSessions((current) => {
-        if (!(content.path in current)) return current;
-        if (
-          content.path === currentDocumentPath &&
-          syncResult !== 'reloaded'
-        ) {
-          return current;
-        }
-        return {
-          ...current,
-          [content.path]: {
-            documentVersion: content.modifiedAt,
-            markdown: content.content,
-          },
-        };
-      });
-      void workspace.refreshWorkspaceTree();
+      void workspaceRefresh.refreshPaths([content.path]).catch(() => undefined);
       void loadDailyNotesForMonth(createDateFromDailyDate(date));
     },
-    [currentDocumentPath, loadDailyNotesForMonth, workspace],
+    [loadDailyNotesForMonth, workspaceRefresh],
   );
 
   const handleDailyMonthChange = React.useCallback(
@@ -2653,7 +2781,11 @@ export function WorkspaceLayout({
       const currentSelection = createDateFromDailyDate(selectedDailyDate);
       const day = Math.min(
         currentSelection.getDate(),
-        new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate(),
+        new Date(
+          nextMonth.getFullYear(),
+          nextMonth.getMonth() + 1,
+          0,
+        ).getDate(),
       );
 
       setDailyCalendarMonth(nextMonth);
@@ -2761,34 +2893,13 @@ export function WorkspaceLayout({
     (daily: DailyNoteDocument) => {
       const today = new Date();
       setSelectedDailyDate(formatDailyDate(today));
-      setDailyCalendarMonth(
-        new Date(today.getFullYear(), today.getMonth(), 1),
-      );
-      const syncResult = workspace.syncExternalMarkdownDocument(daily.content);
-      setEditorSessions((current) => {
-        if (!(daily.content.path in current)) return current;
-        if (
-          daily.content.path === currentDocumentPath &&
-          syncResult !== 'reloaded'
-        ) {
-          return current;
-        }
-        return {
-          ...current,
-          [daily.content.path]: {
-            documentVersion: daily.content.modifiedAt,
-            markdown: daily.content.content,
-          },
-        };
-      });
-      void workspace.refreshWorkspaceTree();
+      setDailyCalendarMonth(new Date(today.getFullYear(), today.getMonth(), 1));
+      void workspaceRefresh
+        .refreshPaths([daily.content.path])
+        .catch(() => undefined);
       void loadDailyNotesForMonth(today);
     },
-    [
-      currentDocumentPath,
-      loadDailyNotesForMonth,
-      workspace,
-    ],
+    [loadDailyNotesForMonth, workspaceRefresh],
   );
 
   const handleOpenInboxDaily = React.useCallback(
@@ -2904,7 +3015,9 @@ export function WorkspaceLayout({
       origin?: MarkdownEditorChangeOrigin,
       reason?: MarkdownEditorFlushReason,
     ) => {
-      const perf = startWorkspacePerformanceMeasure('workspace.editor.markdown_change');
+      const perf = startWorkspacePerformanceMeasure(
+        'workspace.editor.markdown_change',
+      );
 
       setEditorSessions((current) => {
         const currentSession = current[documentPath];
@@ -2922,10 +3035,13 @@ export function WorkspaceLayout({
 
       if (documentPath === currentDocumentPath) {
         rememberRecentDocumentByPath(documentPath);
-        saveResult = workspace.updateMarkdown(markdown, {
-          preserveSource: origin === 'source',
-          saveImmediately: reason !== undefined,
-        }) ?? true;
+        saveResult =
+          workspace.updateMarkdown(markdown, {
+            preserveSource: origin === 'source',
+            saveImmediately:
+              reason !== undefined && reason !== 'external-refresh',
+            deferSave: reason === 'external-refresh',
+          }) ?? true;
       }
 
       perf.finish({
@@ -2958,123 +3074,23 @@ export function WorkspaceLayout({
 
   const flushAiWorkspaceChanges = React.useCallback(
     async (includeOpenTabs: boolean) => {
-      if (!workspaceRootPath) return;
-      const refreshRootPath = workspaceRootPath;
       const changes = [...pendingAiWorkspaceChangesRef.current.values()];
       pendingAiWorkspaceChangesRef.current.clear();
-
-      const removedPaths = new Set(
-        changes.flatMap((change) =>
-          change.absolutePath &&
-          (change.kind === 'delete' || Boolean(change.movePath))
-            ? [change.absolutePath]
-            : [],
-        ),
-      );
-      const reloadPaths = new Set(
-        changes.flatMap((change) =>
-          change.absolutePath &&
-          change.kind !== 'delete' &&
-          !change.movePath &&
-          change.absolutePath.toLocaleLowerCase().endsWith('.md')
-            ? [change.absolutePath]
-            : [],
-        ),
-      );
-      if (includeOpenTabs) {
-        for (const tab of documentEditorLayoutRef.current.tabs) {
-          if (tab.kind !== 'document') continue;
-          if (!removedPaths.has(tab.absolutePath)) {
-            reloadPaths.add(tab.absolutePath);
-          }
-        }
-      }
-
-      let failedReads = 0;
-      const documents = (
-        await Promise.all(
-          [...reloadPaths].map(async (documentPath) => {
-            try {
-              return await readMarkdownDocument(workspaceRootPath, documentPath);
-            } catch {
-              failedReads += 1;
-              return null;
-            }
-          }),
-        )
-      ).filter((document): document is NonNullable<typeof document> => Boolean(document));
-      if (workspaceRootPathRef.current !== refreshRootPath) return;
-      if (failedReads > 0) {
-        console.warn('重新读取 Codex 修改的文档失败', { count: failedReads });
-      }
-
-      const refreshedSessions = new Map<string, DocumentEditorSession>();
-      const activeDocumentPath = currentDocumentPathRef.current;
-      for (const document of documents) {
-        const syncResult = syncExternalMarkdownDocumentRef.current(document);
-        if (
-          document.path !== activeDocumentPath ||
-          syncResult === 'reloaded'
-        ) {
-          refreshedSessions.set(document.path, {
-            documentVersion: document.modifiedAt,
-            markdown: document.content,
-          });
-        }
-      }
-
-      setEditorSessions((current) => {
-        const next = { ...current };
-        for (const path of removedPaths) delete next[path];
-        for (const [path, session] of refreshedSessions) {
-          if (path in current || path === activeDocumentPath) {
-            next[path] = session;
-          }
-        }
-        return next;
-      });
-
-      // Only refresh the directories Codex actually touched (source + move
-      // destination) instead of rescanning the whole tree; the hook falls back
-      // to a full rescan when a top-level entry changed. author: liyao
-      const changedEntryPaths = new Set<string>();
+      const paths = new Set<string>();
       for (const change of changes) {
-        if (change.absolutePath) {
-          changedEntryPaths.add(change.absolutePath);
-        }
-        if (change.movePath) {
-          changedEntryPaths.add(
-            resolveWorkspaceEntryAbsolutePath(refreshRootPath, change.movePath),
+        if (change.absolutePath) paths.add(change.absolutePath);
+        if (change.movePath && workspaceRootPath)
+          paths.add(
+            resolveWorkspaceEntryAbsolutePath(
+              workspaceRootPath,
+              change.movePath,
+            ),
           );
-        }
       }
-
-      const nextSnapshot = await refreshWorkspaceNodes([...changedEntryPaths]);
-      if (!nextSnapshot || workspaceRootPathRef.current !== refreshRootPath) return;
-      const latestLayout = documentEditorLayoutRef.current;
-      const unavailablePaths = new Set(removedPaths);
-      for (const tab of latestLayout.tabs) {
-        if (tab.kind !== 'document') continue;
-        if (!findWorkspaceDocumentByPath(nextSnapshot.nodes, tab.absolutePath)) {
-          unavailablePaths.add(tab.absolutePath);
-        }
-      }
-      if (unavailablePaths.size > 0) {
-        let nextLayout = latestLayout;
-        for (const path of unavailablePaths) {
-          nextLayout = closeDocumentTab(nextLayout, path);
-        }
-        if (nextLayout !== latestLayout) {
-          documentEditorLayoutRef.current = nextLayout;
-          applyDocumentEditorLayout(nextLayout);
-        }
-      }
+      if (includeOpenTabs) await workspaceRefresh.refresh();
+      else if (paths.size) await workspaceRefresh.refreshPaths([...paths]);
     },
-    [
-      applyDocumentEditorLayout,
-      refreshWorkspaceNodes,
-      workspaceRootPath,
-    ],
+    [workspaceRefresh, workspaceRootPath],
   );
 
   const queueAiWorkspaceRefresh = React.useCallback(
@@ -3174,42 +3190,25 @@ export function WorkspaceLayout({
     ],
   );
 
-  const handleResolveAiDocumentConflict = React.useCallback(
+  const handleResolveExternalDocumentConflict = React.useCallback(
     async (resolution: 'external' | 'local') => {
       const conflict = workspace.externalDocumentConflict;
-      const localDraft = workspace.draftDocument;
       if (!conflict) return;
       const confirmed = await confirmAction({
         confirmLabel:
-          resolution === 'external' ? '加载 AI 版本' : '覆盖 AI 版本',
+          resolution === 'external' ? '加载磁盘版本' : '覆盖磁盘版本',
         description:
           resolution === 'external'
-            ? '加载 Codex 写入的磁盘版本会丢弃当前未保存草稿。'
-            : '当前草稿将覆盖 Codex 写入的磁盘版本。',
-        title:
-          resolution === 'external' ? '放弃当前草稿？' : '覆盖 AI 版本？',
+            ? '加载 外部修改后的磁盘版本会丢弃当前未保存草稿。'
+            : '当前草稿将覆盖 外部修改后的磁盘版本。',
+        title: resolution === 'external' ? '放弃当前草稿？' : '覆盖磁盘版本？',
         variant: 'destructive',
       });
       if (!confirmed) return;
-      const resolved = await workspace.resolveExternalDocumentConflict(resolution);
-      if (!resolved) return;
-      const content =
-        resolution === 'external'
-          ? conflict.externalDocument.content
-          : localDraft?.markdown;
-      if (content === undefined) return;
-      setEditorSessions((current) => ({
-        ...current,
-        [conflict.path]: {
-          documentVersion:
-            resolution === 'external'
-              ? conflict.externalDocument.modifiedAt
-              : Date.now(),
-          markdown: content,
-        },
-      }));
+      if (!(await flushActiveMarkdownEditor('external-refresh'))) return;
+      await workspace.resolveExternalDocumentConflict(resolution);
     },
-    [confirmAction, workspace],
+    [confirmAction, flushActiveMarkdownEditor, workspace],
   );
 
   React.useEffect(
@@ -3296,10 +3295,7 @@ export function WorkspaceLayout({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [
-    applyDocumentEditorLayout,
-    documentEditorLayout,
-  ]);
+  }, [applyDocumentEditorLayout, documentEditorLayout]);
 
   const handleRemoveWorkspace = React.useCallback(
     (rootPath: string) => {
@@ -3338,12 +3334,9 @@ export function WorkspaceLayout({
     [applyDocumentEditorLayout, documentEditorLayout],
   );
 
-  const handleCloseAllDocumentTabs = React.useCallback(
-    () => {
-      applyDocumentEditorLayout(closeAllDocumentTabs());
-    },
-    [applyDocumentEditorLayout],
-  );
+  const handleCloseAllDocumentTabs = React.useCallback(() => {
+    applyDocumentEditorLayout(closeAllDocumentTabs());
+  }, [applyDocumentEditorLayout]);
 
   const handleCloseDocumentTabsToLeft = React.useCallback(
     (tabId: string) => {
@@ -3415,110 +3408,146 @@ export function WorkspaceLayout({
   }, [workspace]);
   return (
     <WorkspaceDocumentIndexProvider nodes={workspace.snapshot?.nodes ?? []}>
-    <main
-      className="relative flex h-screen w-full overflow-hidden bg-sidebar text-foreground antialiased"
-      data-chrome="workspace"
-      data-testid="workspace-shell"
-    >
-      {isTauriRuntime && isWindowsRuntime ? (
-        <div
-          className="absolute inset-x-0 top-0 z-40 flex h-8 items-stretch border-b border-sidebar-border/60 bg-sidebar"
-          data-tauri-drag-region="deep"
-          data-testid="workspace-titlebar-drag-region"
-        >
-          <WindowsTitlebarControls />
-        </div>
-      ) : null}
-
-      {systemPage === 'settings' ? null : (
-        <SidebarChromeToggle
-          collapsed={workspace.isSidebarCollapsed}
-          macChromeOffset={isTauriRuntime && isMacRuntime}
-          macChromeControlsTop={macChromeControlsTop}
-          windowsChromeInset={isTauriRuntime && isWindowsRuntime}
-          onToggle={toggleLeftSidebar}
-        />
-      )}
-
-      <WorkspaceGlobalSearchDialog
-        indexStatus={activeGlobalSearchStatus}
-        open={globalSearchOpen}
-        query={globalSearchQuery}
-        results={globalSearchResults}
-        onOpenChange={setGlobalSearchOpen}
-        onQueryChange={setGlobalSearchQuery}
-        onSelectResult={handleSelectGlobalSearchResult}
-      />
-
-      <WorkspaceBrandMigrationDialog
-        key={
-          workspace.pendingBrandMigration
-            ? `${workspace.pendingBrandMigration.rootPath}:${workspace.pendingBrandMigration.state}`
-            : 'none'
-        }
-        migration={workspace.pendingBrandMigration}
-        onCancel={workspace.cancelBrandMigration}
-        onMigrate={workspace.migratePendingBrandWorkspace}
-      />
-
-      <div
-        className={cn(
-          'flex min-h-0 min-w-0 flex-1 overflow-hidden',
-          isTauriRuntime && isWindowsRuntime && 'pt-8',
-        )}
-        data-testid="workspace-main-blocks"
+      <main
+        className="relative flex h-screen w-full overflow-hidden bg-sidebar text-foreground antialiased"
+        data-chrome="workspace"
+        data-testid="workspace-shell"
       >
-        {systemPage === 'settings' ? (
-          <WorkspaceSettingsPage
-            appUpdate={appUpdate}
-            header={
-              <header
-                className="h-11 shrink-0"
-                data-tauri-drag-region="deep"
-                data-testid="workspace-settings-header"
-              />
-            }
-            initialSettings={appSettings}
-            initialSectionId={settingsInitialSectionId}
-            macChromeContentTop={
-              isTauriRuntime && isMacRuntime
-                ? macChromeContentTop
-                : undefined
-            }
-            sidebarResize={{
-              max: LEFT_PANEL_WIDTH.max,
-              min: LEFT_PANEL_WIDTH.min,
-              onResize: handleLeftSidebarResize,
-            }}
-            sidebarWidth={leftSidebarWidth}
-            sessionCache={settingsSessionCache}
+        {isTauriRuntime && isWindowsRuntime ? (
+          <div
+            className="absolute inset-x-0 top-0 z-40 flex h-8 items-stretch border-b border-sidebar-border/60 bg-sidebar"
+            data-tauri-drag-region="deep"
+            data-testid="workspace-titlebar-drag-region"
+          >
+            <WindowsTitlebarControls />
+          </div>
+        ) : null}
+
+        {systemPage === 'settings' ? null : (
+          <SidebarChromeToggle
+            collapsed={workspace.isSidebarCollapsed}
+            macChromeOffset={isTauriRuntime && isMacRuntime}
+            macChromeControlsTop={macChromeControlsTop}
             windowsChromeInset={isTauriRuntime && isWindowsRuntime}
-            workspaceRootPath={workspace.snapshot?.rootPath ?? null}
-            onBack={() => {
-              setSystemPage(null);
-              openActiveDocumentForLayout(documentEditorLayout);
-            }}
-            onSettingsSaved={(settings) => {
-              if (!settings.appearance.showGitPanelEntry) {
-                setLeftPanelMode('workspace');
-              }
-              if (!settings.appearance.showGitLogEntry) {
-                setBottomPanelMode((current) =>
-                  current === 'git-log' ? null : current,
-                );
-              }
-              setAppSettings(settings);
-              setPageWidthMode(settings.appearance.pageWidthMode);
-              setSystemNavCollapsed(settings.appearance.systemNavCollapsed);
-              setSystemNavLayout(settings.appearance.systemNavLayout);
-              setAppearanceFonts(settings.appearance.fonts);
-              setSettingsVersion((current) => current + 1);
+            onToggle={toggleLeftSidebar}
+          />
+        )}
+
+        <WorkspaceGlobalSearchDialog
+          warnings={knowledge.warnings}
+          indexStatus={activeGlobalSearchStatus}
+          open={globalSearchOpen}
+          query={globalSearchQuery}
+          results={globalSearchResults}
+          onOpenChange={setGlobalSearchOpen}
+          onQueryChange={setGlobalSearchQuery}
+          onSelectResult={handleSelectGlobalSearchResult}
+        />
+
+        {workspaceRootPath && pdfResearchRequest ? (
+          <PdfResearchDialog
+            key={`${workspaceRootPath}:${pdfResearchRequest === 'file' ? 'file' : pdfResearchRequest.source}`}
+            rootPath={workspaceRootPath}
+            request={pdfResearchRequest}
+            onClose={() => setPdfResearchRequest(null)}
+            onCreated={async (node) => {
+              await workspace.refreshWorkspaceTree();
+              await knowledge.refresh();
+              await openDocumentNode(node);
             }}
           />
-        ) : (
-        <div className="flex min-w-0 flex-1 overflow-hidden">
+        ) : null}
+        {workspaceRootPath && templateParentPath !== null ? (
+          <WorkspaceTemplateDialog
+            key={workspaceRootPath}
+            rootPath={workspaceRootPath}
+            parentPath={templateParentPath}
+            knowledge={knowledge}
+            open
+            onOpenChange={(open) => {
+              if (!open) setTemplateParentPath(null);
+            }}
+            onCreated={async (node) => {
+              await workspace.refreshWorkspaceTree();
+              await openDocumentNode(node);
+            }}
+          />
+        ) : null}
+        <WorkspaceBrandMigrationDialog
+          key={
+            workspace.pendingBrandMigration
+              ? `${workspace.pendingBrandMigration.rootPath}:${workspace.pendingBrandMigration.state}`
+              : 'none'
+          }
+          migration={workspace.pendingBrandMigration}
+          onCancel={workspace.cancelBrandMigration}
+          onMigrate={workspace.migratePendingBrandWorkspace}
+        />
+
+        <div
+          className={cn(
+            'flex min-h-0 min-w-0 flex-1 overflow-hidden',
+            isTauriRuntime && isWindowsRuntime && 'pt-8',
+          )}
+          data-testid="workspace-main-blocks"
+        >
+          {systemPage === 'settings' ? (
+            <WorkspaceSettingsPage
+              appUpdate={appUpdate}
+              header={
+                <header
+                  className="h-11 shrink-0"
+                  data-tauri-drag-region="deep"
+                  data-testid="workspace-settings-header"
+                />
+              }
+              initialSettings={appSettings}
+              initialSectionId={settingsInitialSectionId}
+              macChromeContentTop={
+                isTauriRuntime && isMacRuntime ? macChromeContentTop : undefined
+              }
+              sidebarResize={{
+                max: LEFT_PANEL_WIDTH.max,
+                min: LEFT_PANEL_WIDTH.min,
+                onResize: handleLeftSidebarResize,
+              }}
+              sidebarWidth={leftSidebarWidth}
+              sessionCache={settingsSessionCache}
+              windowsChromeInset={isTauriRuntime && isWindowsRuntime}
+              workspaceRootPath={workspace.snapshot?.rootPath ?? null}
+              onBack={() => {
+                setSystemPage(null);
+                openActiveDocumentForLayout(documentEditorLayout);
+              }}
+              onSettingsSaved={(settings) => {
+                if (!settings.appearance.showGitPanelEntry) {
+                  setLeftPanelMode('workspace');
+                }
+                if (!settings.appearance.showGitLogEntry) {
+                  setBottomPanelMode((current) =>
+                    current === 'git-log' ? null : current,
+                  );
+                }
+                setAppSettings(settings);
+                setPageWidthMode(settings.appearance.pageWidthMode);
+                setSystemNavCollapsed(settings.appearance.systemNavCollapsed);
+                setSystemNavLayout(settings.appearance.systemNavLayout);
+                setAppearanceFonts(settings.appearance.fonts);
+                setSettingsVersion((current) => current + 1);
+              }}
+            />
+          ) : null}
+          <div
+            className={cn(
+              'flex min-w-0 flex-1 overflow-hidden',
+              systemPage === 'settings' && 'hidden',
+            )}
+            inert={systemPage === 'settings' ? true : undefined}
+            aria-hidden={systemPage === 'settings' ? true : undefined}
+          >
             {leftPanelMode === 'workspace' ? (
               <WorkspaceSidebar
+                onCreateTemplate={setTemplateParentPath}
                 appUpdateAvailable={appUpdate.available}
                 dailyCalendar={
                   workspace.snapshot ? (
@@ -3590,15 +3619,16 @@ export function WorkspaceLayout({
                 pinnedNodes={pinnedNodes}
                 onOpenViews={handleOpenViewsPage}
                 onRefreshWorkspaceTree={() =>
-                  workspace.refreshWorkspaceTree().catch(() => null)
+                  workspaceRefresh.refresh().catch(() => undefined)
                 }
                 onRefreshWorkspaceNode={(node) =>
-                  workspace.refreshWorkspaceNode(node).catch(() => null)
+                  workspaceRefresh.refresh(node).catch(() => undefined)
                 }
                 onOpenInFileManager={handleOpenNodeInFileManager}
                 onOpenSettings={openSettingsPage}
                 onRemoveWorkspace={handleRemoveWorkspace}
                 onDeleteNode={handleDeleteWorkspaceNode}
+                onMoveNode={handleMoveWorkspaceNode}
                 onRenameNode={handleRenameWorkspaceNode}
                 revealNodePath={treeRevealRequest?.absolutePath ?? null}
                 revealNodeRequestId={treeRevealRequest?.requestId}
@@ -3701,350 +3731,430 @@ export function WorkspaceLayout({
                 className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-background"
                 data-testid="workspace-editor-column"
               >
-              <section
-                className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
-                data-chrome="workspace-main-surface"
-                data-testid="workspace-editor-block"
-              >
-                <WorkspaceMainHeader
-                  documentTabs={
-                    showDocumentTabs ? (
-                      <DocumentTabBar
-                        activeTabId={documentEditorLayout.activeTabId}
-                        tabs={documentEditorLayout.tabs}
-                        onCloseAllTabs={handleCloseAllDocumentTabs}
-                        onCloseOtherTabs={handleCloseOtherDocumentTabs}
-                        onCloseTab={handleCloseDocumentTab}
-                        onCloseTabsToLeft={handleCloseDocumentTabsToLeft}
-                        onCloseTabsToRight={handleCloseDocumentTabsToRight}
-                        onExportTab={
-                          documentExport.available
-                            ? handleExportDocumentTab
-                            : undefined
-                        }
-                        onSelectTab={handleSelectDocumentTab}
-                      />
-                    ) : null
-                  }
-                  gitLogOpen={gitLogOpen}
-                  headerHeight={workspaceMainHeaderHeight}
-                  leftPanelMode={leftPanelMode}
-                  macChromeInset={
-                    isTauriRuntime &&
-                    isMacRuntime &&
-                    workspace.isSidebarCollapsed
-                  }
-                  overlayContent={
-                    drawingDetailOpen &&
-                    isTauriRuntime &&
-                    isWindowsRuntime
-                  }
-                  showGitLogEntry={appSettings.appearance.showGitLogEntry}
-                  showGitPanelEntry={appSettings.appearance.showGitPanelEntry}
-                  terminalOpen={terminalOpen}
-                  windowsChromeInset={isTauriRuntime && isWindowsRuntime}
-                  onOpenGitPanel={openGitPanel}
-                  onToggleGitLog={toggleGitLogDrawer}
-                  onToggleTerminal={toggleTerminalPanel}
+                <section
+                  className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
+                  data-chrome="workspace-main-surface"
+                  data-testid="workspace-editor-block"
                 >
-                  <RightToolRail
-                    mode={effectiveRightPanelMode}
-                    orientation="header"
-                    showSettingsButton={false}
-                    onModeChange={handleRightPanelModeChange}
-                    onOpenSettings={() => openSettingsPage('appearance')}
-                  />
-                </WorkspaceMainHeader>
-
-                <div className="flex min-h-0 flex-1 overflow-hidden">
-                  <div
-                    className={cn(
-                      'min-h-0 min-w-0 flex-1 overflow-hidden',
-                      systemPage === 'codex' && 'hidden',
-                    )}
+                  <WorkspaceMainHeader
+                    documentTabs={
+                      showDocumentTabs ? (
+                        <DocumentTabBar
+                          activeTabId={documentEditorLayout.activeTabId}
+                          tabs={documentEditorLayout.tabs}
+                          onCloseAllTabs={handleCloseAllDocumentTabs}
+                          onCloseOtherTabs={handleCloseOtherDocumentTabs}
+                          onCloseTab={handleCloseDocumentTab}
+                          onCloseTabsToLeft={handleCloseDocumentTabsToLeft}
+                          onCloseTabsToRight={handleCloseDocumentTabsToRight}
+                          onExportTab={
+                            documentExport.available
+                              ? handleExportDocumentTab
+                              : undefined
+                          }
+                          onSelectTab={handleSelectDocumentTab}
+                        />
+                      ) : null
+                    }
+                    gitLogOpen={gitLogOpen}
+                    headerHeight={workspaceMainHeaderHeight}
+                    leftPanelMode={leftPanelMode}
+                    macChromeInset={
+                      isTauriRuntime &&
+                      isMacRuntime &&
+                      workspace.isSidebarCollapsed
+                    }
+                    overlayContent={
+                      drawingDetailOpen && isTauriRuntime && isWindowsRuntime
+                    }
+                    showGitLogEntry={appSettings.appearance.showGitLogEntry}
+                    showGitPanelEntry={appSettings.appearance.showGitPanelEntry}
+                    terminalOpen={terminalOpen}
+                    windowsChromeInset={isTauriRuntime && isWindowsRuntime}
+                    onOpenGitPanel={openGitPanel}
+                    onToggleGitLog={toggleGitLogDrawer}
+                    onToggleTerminal={toggleTerminalPanel}
                   >
-                    {systemPage === 'pinned' && pinnedOverviewDirectory ? (
-                      <DirectoryPage
-                        key={`pinned-overview:${pinnedOverviewDirectory.absolutePath}`}
-                        directory={pinnedOverviewDirectory}
-                        variant="pinned-overview"
-                        workspaceRootPath={pinnedOverviewDirectory.absolutePath}
-                        onOpenDocument={openDocumentNode}
-                        onSelectDirectory={handleSelectWorkspaceDirectory}
-                      />
-                    ) : systemPage === 'folders' && workspaceOverviewDirectory ? (
-                      <DirectoryPage
-                        key={`workspace-overview:${workspaceOverviewDirectory.absolutePath}`}
-                        directory={workspaceOverviewDirectory}
-                        variant="workspace-overview"
-                        workspaceRootPath={workspaceOverviewDirectory.absolutePath}
-                        onOpenDocument={openDocumentNode}
-                        onSelectDirectory={handleSelectWorkspaceDirectory}
-                      />
-                    ) : systemPage === 'daily' && workspace.snapshot ? (
-                      <DailyNotesPage
-                        entries={dailyNotes.entries}
-                        error={dailyNotes.error}
-                        inspectorWidth={dailyNotesInspectorWidth}
-                        isLoading={dailyNotes.isLoading}
-                        month={dailyCalendarMonth}
-                        pageWidthMode={pageWidthMode}
-                        rootPath={workspace.snapshot.rootPath}
-                        selectedDate={selectedDailyDate}
-                        sidebarHeaderOffset={macSidebarHeaderOffset}
-                        viewMode={dailyNotesViewMode}
-                        onCreateDaily={(date) => void handleOpenDailyNote(date)}
-                        onDailyContentSaved={handleDailyContentSaved}
-                        onExportDaily={
-                          documentExport.available
-                            ? handleExportDailyNote
-                            : undefined
-                        }
-                        onInspectorResize={setDailyNotesInspectorWidth}
-                        onMonthChange={handleDailyMonthChange}
-                        onOpenDaily={(entry) =>
-                          void handleOpenDailyNote(entry.date)
-                        }
-                        onRefresh={() =>
-                          void loadDailyNotesForMonth(dailyCalendarMonth)
-                        }
-                        onSelectDate={setSelectedDailyDate}
-                        onViewModeChange={setDailyNotesViewMode}
-                      />
-                    ) : systemPage === 'drawings' && workspace.snapshot ? (
-                      <DrawingWorkspacePage
-                        controller={drawings}
-                        editorHeaderHeight={drawingEditorHeaderHeight}
-                        rootPath={workspace.snapshot.rootPath}
-                        theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
-                      />
-                    ) : systemPage === 'inbox' && workspace.snapshot ? (
-                      <InboxPage
-                        controller={inbox}
-                        pageWidthMode={pageWidthMode}
-                        rootPath={workspace.snapshot.rootPath}
-                      />
-                    ) : systemPage === 'views' && workspace.snapshot ? (
-                      <WorkspaceViewsPage
-                        sidebarHeaderOffset={macSidebarHeaderOffset}
-                        nodes={filterRegularWorkspaceNodes(
-                          workspace.snapshot.nodes,
-                        )}
-                        onOpenNode={handleOpenWorkspaceViewNode}
-                        onRefresh={() => void workspace.refreshWorkspaceTree()}
-                        onToggleLocked={handleToggleNodeLocked}
-                        onTogglePinned={handleToggleNodePinned}
-                      />
-                    ) : systemPage === 'graph' && workspace.snapshot ? (
-                      <WorkspaceGraphPage
-                        key={workspace.snapshot.rootPath}
-                        nodes={filterRegularWorkspaceNodes(
-                          workspace.snapshot.nodes,
-                        )}
-                        rootPath={workspace.snapshot.rootPath}
-                        sidebarHeaderOffset={macSidebarHeaderOffset}
-                        onOpenNode={handleOpenWorkspaceViewNode}
-                      />
-                    ) : leftPanelMode === 'git' ? (
-                      <GitDiffView
-                        diff={gitDiffState}
-                        error={gitError}
-                        isLoading={gitLoading && Boolean(gitSelectedPath)}
-                        label={gitDiffLabel}
-                      />
-                    ) : !workspace.snapshot ? (
-                      <EditorPane
-                        currentDirectory={null}
-                        currentDocument={null}
-                        directoryContent={null}
-                        documentLoadError={null}
-                        documentLoadState="idle"
-                        hasWorkspace={false}
-                        isWorkspaceEmpty={false}
-                        workspaceOpenError={workspace.error?.message ?? null}
-                        workspaceRootPath=""
-                        onCreateDirectory={() => undefined}
-                        onCreateDocument={() => undefined}
-                        onImportMarkdown={() => undefined}
-                        onOpenRecentDocument={handleOpenRecentDocument}
-                        onOpenWorkspace={workspace.openWorkspace}
-                        onRetryDocument={workspace.retryCurrentDocument}
-                        recentDocuments={[]}
-                      >
-                        {null}
-                      </EditorPane>
-                    ) : activeEditorTab?.kind === 'plan' ||
-                      workspace.currentDocument ||
-                      (!workspace.currentDirectory && hasOpenDocumentTabs) ? (
-                      <DocumentEditorSurface
-                        activeDocumentPath={activePanelDocumentPath}
-                        activeEditorRef={activeMarkdownEditorRef}
-                        askAiHandler={askAiHandler}
-                        currentDocumentPath={currentDocumentPath}
-                        documentEditorLayout={documentEditorLayout}
-                        documentLoadError={workspace.documentLoadError}
-                        documentLoadState={workspace.documentLoadState}
-                        documentVersion={workspace.documentVersion}
-                        draftMarkdown={workspace.draftDocument?.markdown ?? null}
-                        editorSessions={editorSessions}
-                        pageWidthMode={pageWidthMode}
-                        warmDocumentPaths={warmDocumentPaths}
-                        workspaceRootPath={workspace.snapshot?.rootPath ?? null}
-                        getDocumentReadOnly={getDocumentReadOnly}
-                        onActiveSourceModeChange={setActiveEditorSourceMode}
-                        onMarkdownChange={handleEditorMarkdownChange}
-                        onRetryDocument={workspace.retryCurrentDocument}
-                        onSaveRequested={() =>
-                          void saveCurrentDocumentNow()
-                        }
-                        onSelectTab={handleSelectDocumentTab}
-                      />
-                    ) : (
-                      <EditorPane
-                        currentDirectory={workspace.currentDirectory}
-                        currentDocument={workspace.currentDocument}
-                        directoryContent={
-                          workspace.currentDirectory ? (
-                            <DirectoryPage
-                              key={workspace.currentDirectory.absolutePath}
-                              directory={workspace.currentDirectory}
-                              workspaceRootPath={
-                                workspace.snapshot?.rootPath ?? ''
-                              }
-                              onOpenDocument={openDocumentNode}
-                              onSelectDirectory={(node) =>
-                                void workspace.selectDirectory(node)
-                              }
-                            />
-                          ) : null
-                        }
-                        documentLoadError={workspace.documentLoadError}
-                        documentLoadState={workspace.documentLoadState}
-                        hasWorkspace={workspace.snapshot !== null}
-                        isWorkspaceEmpty={isWorkspaceEmpty}
-                        workspaceOpenError={workspace.error?.message ?? null}
-                        workspaceRootPath={workspace.snapshot?.rootPath ?? ''}
-                        onCreateDirectory={() => void workspace.createDirectory('')}
-                        onCreateDocument={() => void handleCreateDocument('')}
-                        onImportMarkdown={() =>
-                          void documentImport.importDocuments('', 'markdown')
-                        }
-                        onOpenRecentDocument={handleOpenRecentDocument}
-                        onOpenWorkspace={workspace.openWorkspace}
-                        onRetryDocument={workspace.retryCurrentDocument}
-                        recentDocuments={visibleRecentDocuments}
-                      >
-                        {null}
-                      </EditorPane>
-                    )}
+                    <RightToolRail
+                      mode={effectiveRightPanelMode}
+                      orientation="header"
+                      showSettingsButton={false}
+                      onModeChange={handleRightPanelModeChange}
+                      onOpenSettings={() => openSettingsPage('appearance')}
+                    />
+                  </WorkspaceMainHeader>
+
+                  <div className="flex min-h-0 flex-1 overflow-hidden">
+                    <div
+                      className={cn(
+                        'min-h-0 min-w-0 flex-1 overflow-hidden',
+                        systemPage === 'codex' && 'hidden',
+                      )}
+                    >
+                      {systemPage === 'pinned' && pinnedOverviewDirectory ? (
+                        <DirectoryPage
+                          key={`pinned-overview:${pinnedOverviewDirectory.absolutePath}`}
+                          directory={pinnedOverviewDirectory}
+                          variant="pinned-overview"
+                          workspaceRootPath={
+                            pinnedOverviewDirectory.absolutePath
+                          }
+                          onOpenDocument={openDocumentNode}
+                          onSelectDirectory={handleSelectWorkspaceDirectory}
+                        />
+                      ) : systemPage === 'folders' &&
+                        workspaceOverviewDirectory ? (
+                        <DirectoryPage
+                          key={`workspace-overview:${workspaceOverviewDirectory.absolutePath}`}
+                          directory={workspaceOverviewDirectory}
+                          variant="workspace-overview"
+                          workspaceRootPath={
+                            workspaceOverviewDirectory.absolutePath
+                          }
+                          onOpenDocument={openDocumentNode}
+                          onSelectDirectory={handleSelectWorkspaceDirectory}
+                        />
+                      ) : systemPage === 'daily' && workspace.snapshot ? (
+                        <DailyNotesPage
+                          entries={dailyNotes.entries}
+                          error={dailyNotes.error}
+                          inspectorWidth={dailyNotesInspectorWidth}
+                          isLoading={dailyNotes.isLoading}
+                          month={dailyCalendarMonth}
+                          pageWidthMode={pageWidthMode}
+                          rootPath={workspace.snapshot.rootPath}
+                          selectedDate={selectedDailyDate}
+                          sidebarHeaderOffset={macSidebarHeaderOffset}
+                          viewMode={dailyNotesViewMode}
+                          onCreateDaily={(date) =>
+                            void handleOpenDailyNote(date)
+                          }
+                          onDailyContentSaved={handleDailyContentSaved}
+                          onExportDaily={
+                            documentExport.available
+                              ? handleExportDailyNote
+                              : undefined
+                          }
+                          onInspectorResize={setDailyNotesInspectorWidth}
+                          onMonthChange={handleDailyMonthChange}
+                          onOpenDaily={(entry) =>
+                            void handleOpenDailyNote(entry.date)
+                          }
+                          onRefresh={() =>
+                            void loadDailyNotesForMonth(dailyCalendarMonth)
+                          }
+                          onSelectDate={setSelectedDailyDate}
+                          onViewModeChange={setDailyNotesViewMode}
+                        />
+                      ) : systemPage === 'drawings' && workspace.snapshot ? (
+                        <DrawingWorkspacePage
+                          controller={drawings}
+                          editorHeaderHeight={drawingEditorHeaderHeight}
+                          headerToolsReservePx={drawingHeaderToolsReservePx}
+                          rootPath={workspace.snapshot.rootPath}
+                          theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
+                        />
+                      ) : systemPage === 'inbox' && workspace.snapshot ? (
+                        <InboxPage
+                          controller={inbox}
+                          pageWidthMode={pageWidthMode}
+                          rootPath={workspace.snapshot.rootPath}
+                        />
+                      ) : systemPage === 'views' && workspace.snapshot ? (
+                        isTauriRuntime ? (
+                          <WorkspaceKnowledgeViews
+                            key={workspace.snapshot.rootPath}
+                            rootPath={workspace.snapshot.rootPath}
+                            knowledge={knowledge}
+                            onCreateTemplate={() => setTemplateParentPath('')}
+                            research={
+                              <WorkspaceResearchPanel
+                                rootPath={workspace.snapshot.rootPath}
+                                knowledge={knowledge}
+                                onOpen={(location) =>
+                                  void openKnowledgeLocation(location)
+                                }
+                                onReadPdf={() => setPdfResearchRequest('file')}
+                                onCreated={async (node) => {
+                                  await workspace.refreshWorkspaceTree();
+                                  await openDocumentNode(node);
+                                }}
+                                onDraft={(request) => {
+                                  setResearchDraft(request);
+                                  workspace.setRightPanelMode('ai');
+                                }}
+                              />
+                            }
+                            sidebarHeaderOffset={macSidebarHeaderOffset}
+                            onOpen={(location) =>
+                              void openKnowledgeLocation(location)
+                            }
+                            onRefresh={() => workspaceRefresh.refresh()}
+                            isReadOnly={(path) =>
+                              getDocumentReadOnly(
+                                `${workspace.snapshot!.rootPath}/${path}`,
+                              )
+                            }
+                            resources={
+                              <WorkspaceResourcePanel
+                                key={workspace.snapshot.rootPath}
+                                rootPath={workspace.snapshot.rootPath}
+                                documents={knowledge.documents}
+                                onOpen={(location) =>
+                                  void openKnowledgeLocation(location)
+                                }
+                                onReadPdf={setPdfResearchRequest}
+                              />
+                            }
+                          />
+                        ) : (
+                          <WorkspaceViewsPage
+                            sidebarHeaderOffset={macSidebarHeaderOffset}
+                            nodes={filterRegularWorkspaceNodes(
+                              workspace.snapshot.nodes,
+                            )}
+                            onOpenNode={handleOpenWorkspaceViewNode}
+                            onRefresh={() =>
+                              void workspaceRefresh
+                                .refresh()
+                                .catch(() => undefined)
+                            }
+                            onToggleLocked={handleToggleNodeLocked}
+                            onTogglePinned={handleToggleNodePinned}
+                          />
+                        )
+                      ) : systemPage === 'graph' && workspace.snapshot ? (
+                        <WorkspaceGraphPage
+                          key={workspace.snapshot.rootPath}
+                          nodes={workspace.snapshot.nodes}
+                          revision={graphRevision}
+                          currentDocumentPath={
+                            workspace.currentDocument?.relativePath
+                          }
+                          rootPath={workspace.snapshot.rootPath}
+                          sidebarHeaderOffset={macSidebarHeaderOffset}
+                          onOpenNode={handleOpenWorkspaceViewNode}
+                        />
+                      ) : leftPanelMode === 'git' ? (
+                        <GitDiffView
+                          diff={gitDiffState}
+                          error={gitError}
+                          isLoading={gitLoading && Boolean(gitSelectedPath)}
+                          label={gitDiffLabel}
+                        />
+                      ) : !workspace.snapshot ? (
+                        <EditorPane
+                          currentDirectory={null}
+                          currentDocument={null}
+                          directoryContent={null}
+                          documentLoadError={null}
+                          documentLoadState="idle"
+                          hasWorkspace={false}
+                          isWorkspaceEmpty={false}
+                          workspaceOpenError={workspace.error?.message ?? null}
+                          workspaceRootPath=""
+                          onCreateDirectory={() => undefined}
+                          onCreateDocument={() => undefined}
+                          onImportMarkdown={() => undefined}
+                          onOpenRecentDocument={handleOpenRecentDocument}
+                          onOpenWorkspace={workspace.openWorkspace}
+                          onRetryDocument={workspace.retryCurrentDocument}
+                          recentDocuments={[]}
+                        >
+                          {null}
+                        </EditorPane>
+                      ) : activeEditorTab?.kind === 'plan' ||
+                        workspace.currentDocument ||
+                        (!workspace.currentDirectory && hasOpenDocumentTabs) ? (
+                        <DocumentEditorSurface
+                          activeDocumentPath={activePanelDocumentPath}
+                          activeEditorRef={activeMarkdownEditorRef}
+                          currentDocumentPath={currentDocumentPath}
+                          documentEditorLayout={documentEditorLayout}
+                          documentLoadError={workspace.documentLoadError}
+                          documentLoadState={workspace.documentLoadState}
+                          documentVersion={workspace.documentVersion}
+                          draftMarkdown={
+                            workspace.draftDocument?.markdown ?? null
+                          }
+                          editorSessions={editorSessions}
+                          pageWidthMode={pageWidthMode}
+                          warmDocumentPaths={warmDocumentPaths}
+                          workspaceRootPath={
+                            workspace.snapshot?.rootPath ?? null
+                          }
+                          getDocumentReadOnly={getDocumentReadOnly}
+                          onActiveSourceModeChange={setActiveEditorSourceMode}
+                          onMarkdownChange={handleEditorMarkdownChange}
+                          onRetryDocument={workspace.retryCurrentDocument}
+                          onSaveRequested={() => void saveCurrentDocumentNow()}
+                          onSelectTab={handleSelectDocumentTab}
+                        />
+                      ) : (
+                        <EditorPane
+                          currentDirectory={workspace.currentDirectory}
+                          currentDocument={workspace.currentDocument}
+                          directoryContent={
+                            workspace.currentDirectory ? (
+                              <DirectoryPage
+                                key={workspace.currentDirectory.absolutePath}
+                                directory={workspace.currentDirectory}
+                                workspaceRootPath={
+                                  workspace.snapshot?.rootPath ?? ''
+                                }
+                                onOpenDocument={openDocumentNode}
+                                onSelectDirectory={(node) =>
+                                  void workspace.selectDirectory(node)
+                                }
+                              />
+                            ) : null
+                          }
+                          documentLoadError={workspace.documentLoadError}
+                          documentLoadState={workspace.documentLoadState}
+                          hasWorkspace={workspace.snapshot !== null}
+                          isWorkspaceEmpty={isWorkspaceEmpty}
+                          workspaceOpenError={workspace.error?.message ?? null}
+                          workspaceRootPath={workspace.snapshot?.rootPath ?? ''}
+                          onCreateDirectory={() =>
+                            void workspace.createDirectory('')
+                          }
+                          onCreateDocument={() => void handleCreateDocument('')}
+                          onImportMarkdown={() =>
+                            void documentImport.importDocuments('', 'markdown')
+                          }
+                          onOpenRecentDocument={handleOpenRecentDocument}
+                          onOpenWorkspace={workspace.openWorkspace}
+                          onRetryDocument={workspace.retryCurrentDocument}
+                          recentDocuments={visibleRecentDocuments}
+                        >
+                          {null}
+                        </EditorPane>
+                      )}
+                    </div>
                   </div>
 
-                </div>
+                  {workspaceRefresh.error ? (
+                    <div
+                      role="status"
+                      className="flex shrink-0 items-center gap-3 border-t px-4 py-2 text-xs text-muted-foreground"
+                    >
+                      <span className="flex-1">{workspaceRefresh.error}</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void workspaceRefresh.refresh().catch(() => undefined)
+                        }
+                      >
+                        重试刷新
+                      </button>
+                    </div>
+                  ) : null}
+                  {workspace.externalDocumentConflict ? (
+                    <ExternalDocumentConflictBanner
+                      onKeepLocal={() =>
+                        void handleResolveExternalDocumentConflict('local')
+                      }
+                      onLoadExternal={() =>
+                        void handleResolveExternalDocumentConflict('external')
+                      }
+                    />
+                  ) : null}
 
-                {workspace.externalDocumentConflict ? (
-                  <ExternalDocumentConflictBanner
-                    onKeepLocal={() =>
-                      void handleResolveAiDocumentConflict('local')
+                  <WorkspaceStatusBar
+                    characterCount={documentCharacterCount}
+                    lineCount={documentLineCount}
+                    saveError={workspace.saveError}
+                    saveState={workspace.saveState}
+                    sourceMode={activeEditorSourceMode}
+                    visible={
+                      systemPage !== 'codex' &&
+                      activeEditorTab?.kind !== 'plan' &&
+                      Boolean(workspace.currentDocument) &&
+                      workspace.documentLoadState === 'loaded'
                     }
-                    onLoadExternal={() =>
-                      void handleResolveAiDocumentConflict('external')
-                    }
+                    wordCount={documentWordCount}
+                  />
+                </section>
+                {gitLogOpen ? (
+                  <WorkspaceHorizontalResizeHandle
+                    aria-label="调整 Git 日志高度"
+                    max={GIT_LOG_HEIGHT.max}
+                    min={GIT_LOG_HEIGHT.min}
+                    value={gitLogHeight}
+                    onResize={setGitLogHeight}
                   />
                 ) : null}
-
-                <WorkspaceStatusBar
-                  characterCount={documentCharacterCount}
-                  lineCount={documentLineCount}
-                  saveError={workspace.saveError}
-                  saveState={workspace.saveState}
-                  sourceMode={activeEditorSourceMode}
-                  visible={
-                    systemPage !== 'codex' &&
-                    activeEditorTab?.kind !== 'plan' &&
-                    Boolean(workspace.currentDocument) &&
-                    workspace.documentLoadState === 'loaded'
-                  }
-                  wordCount={documentWordCount}
+                {terminalOpen ? (
+                  <WorkspaceHorizontalResizeHandle
+                    aria-label="调整终端高度"
+                    max={GIT_LOG_HEIGHT.max}
+                    min={GIT_LOG_HEIGHT.min}
+                    value={terminalHeight}
+                    onResize={setTerminalHeight}
+                  />
+                ) : null}
+                <GitLogDrawer
+                  branches={gitLogBranches}
+                  branchWidth={gitLogBranchWidth}
+                  commits={gitLogCommits}
+                  detailsHeight={gitLogDetailHeight}
+                  detailsWidth={gitLogDetailWidth}
+                  error={gitLogError}
+                  files={gitLogFiles}
+                  height={gitLogHeight}
+                  isLoading={gitLogLoading}
+                  open={gitLogOpen}
+                  selectedCommitHash={gitLogSelectedHash}
+                  onClose={() => setBottomPanelMode(null)}
+                  onRefresh={refreshGitLog}
+                  onResizeBranchWidth={setGitLogBranchWidth}
+                  onResizeDetailsHeight={setGitLogDetailHeight}
+                  onResizeDetailsWidth={setGitLogDetailWidth}
+                  onSelectCommit={(hash) => void loadGitLogCommitFiles(hash)}
+                  onSelectFile={(file) => void handleGitLogSelectFile(file)}
                 />
-              </section>
-              {gitLogOpen ? (
-                <WorkspaceHorizontalResizeHandle
-                  aria-label="调整 Git 日志高度"
-                  max={GIT_LOG_HEIGHT.max}
-                  min={GIT_LOG_HEIGHT.min}
-                  value={gitLogHeight}
-                  onResize={setGitLogHeight}
-                />
-              ) : null}
-              {terminalOpen ? (
-                <WorkspaceHorizontalResizeHandle
-                  aria-label="调整终端高度"
-                  max={GIT_LOG_HEIGHT.max}
-                  min={GIT_LOG_HEIGHT.min}
-                  value={terminalHeight}
-                  onResize={setTerminalHeight}
-                />
-              ) : null}
-              <GitLogDrawer
-                branches={gitLogBranches}
-                branchWidth={gitLogBranchWidth}
-                commits={gitLogCommits}
-                detailsHeight={gitLogDetailHeight}
-                detailsWidth={gitLogDetailWidth}
-                error={gitLogError}
-                files={gitLogFiles}
-                height={gitLogHeight}
-                isLoading={gitLogLoading}
-                open={gitLogOpen}
-                selectedCommitHash={gitLogSelectedHash}
-                onClose={() => setBottomPanelMode(null)}
-                onRefresh={refreshGitLog}
-                onResizeBranchWidth={setGitLogBranchWidth}
-                onResizeDetailsHeight={setGitLogDetailHeight}
-                onResizeDetailsWidth={setGitLogDetailWidth}
-                onSelectCommit={(hash) => void loadGitLogCommitFiles(hash)}
-                onSelectFile={(file) => void handleGitLogSelectFile(file)}
-              />
-              {shouldRenderTerminalPanel ? (
-                <div
-                  className={cn(
-                    'min-h-0 w-full min-w-0 max-w-full shrink-0 overflow-hidden',
-                    !terminalOpen && 'hidden',
-                  )}
-                >
-                  <TerminalPanel
-                    activeTabId={terminalActiveTabId}
-                    error={terminalError}
-                    height={terminalHeight}
-                    isTauriRuntime={isTauriRuntime}
-                    rootPath={workspaceRootPath}
-                    tabs={terminalTabs}
-                    onClose={() => setBottomPanelMode(null)}
-                    onCloseTab={handleTerminalCloseTab}
-                    onNewTab={() => void createTerminalTab()}
-                    onSelectTab={setTerminalActiveTabId}
+                {shouldRenderTerminalPanel ? (
+                  <div
+                    className={cn(
+                      'min-h-0 w-full min-w-0 max-w-full shrink-0 overflow-hidden',
+                      !terminalOpen && 'hidden',
+                    )}
                   >
-                    {terminalTabs.map((tab) => (
-                      <div
-                        className={cn(
-                          'h-full min-h-0',
-                          tab.id !== terminalActiveTabId && 'hidden',
-                        )}
-                        key={tab.id}
-                      >
-                        <XtermTerminal
-                          isActive={terminalOpen && tab.id === terminalActiveTabId}
-                          outputStore={terminalOutputStore}
-                          sessionId={tab.id}
-                          themeMode={terminalThemeMode}
-                          onData={handleTerminalData}
-                          onResize={handleTerminalResize}
-                        />
-                      </div>
-                    ))}
-                  </TerminalPanel>
-                </div>
-              ) : null}
+                    <TerminalPanel
+                      activeTabId={terminalActiveTabId}
+                      error={terminalError}
+                      height={terminalHeight}
+                      isTauriRuntime={isTauriRuntime}
+                      rootPath={workspaceRootPath}
+                      tabs={terminalTabs}
+                      onClose={() => setBottomPanelMode(null)}
+                      onCloseTab={handleTerminalCloseTab}
+                      onNewTab={() => void createTerminalTab()}
+                      onSelectTab={setTerminalActiveTabId}
+                    >
+                      {terminalTabs.map((tab) => (
+                        <div
+                          className={cn(
+                            'h-full min-h-0',
+                            tab.id !== terminalActiveTabId && 'hidden',
+                          )}
+                          key={tab.id}
+                        >
+                          <XtermTerminal
+                            isActive={
+                              terminalOpen && tab.id === terminalActiveTabId
+                            }
+                            outputStore={terminalOutputStore}
+                            sessionId={tab.id}
+                            themeMode={terminalThemeMode}
+                            onData={handleTerminalData}
+                            onResize={handleTerminalResize}
+                          />
+                        </div>
+                      ))}
+                    </TerminalPanel>
+                  </div>
+                ) : null}
               </div>
 
               {systemPage !== 'codex' && workspace.rightPanelMode ? (
@@ -4060,13 +4170,23 @@ export function WorkspaceLayout({
               ) : null}
 
               <RightSidePanel
-                activeDrawing={activeAiDrawing}
-                aiPresentation={
-                  systemPage === 'codex' ? 'workspace' : 'panel'
+                onArtifactCreated={async (node) => {
+                  await workspace.refreshWorkspaceTree();
+                  await openDocumentNode(node);
+                }}
+                onArtifactDraft={(text) =>
+                  setResearchDraft({ id: crypto.randomUUID(), text })
                 }
+                researchDraft={researchDraft}
+                onResearchDraftConsumed={() => setResearchDraft(null)}
+                knowledge={knowledge}
+                onOpenLocation={openAiEvidence}
+                activeDrawing={activeAiDrawing}
+                aiPresentation={systemPage === 'codex' ? 'workspace' : 'panel'}
                 aiWorkspacePreview={
                   systemPage === 'codex' && aiPreviewDocument ? (
                     <AiDocumentPreview
+                      location={aiPreviewLocation}
                       document={aiPreviewDocument}
                       markdownOverride={aiPreviewMarkdownOverride}
                       pageWidthMode={pageWidthMode}
@@ -4101,16 +4221,12 @@ export function WorkspaceLayout({
                 mode={effectiveRightPanelMode}
                 width={rightPanelWidth}
                 workspaceRootPath={workspaceRootPath}
-                getActiveEditorAiEditController={
-                  getActiveEditorAiEditController
-                }
                 onBeforeTurnStart={handleBeforeAiTurnStart}
                 onDrawingToolCall={handleAiDrawingToolCall}
                 onAiWorkspacePreviewResize={setAiWorkspacePreviewWidth}
                 onOpenDocument={handleOpenAiDocument}
                 onOpenPlanPreview={handleOpenPlanPreview}
                 onOpenCodexSettings={() => openSettingsPage('codex')}
-                onAskAiHandlerChange={handleAskAiHandlerChange}
                 onWorkspaceChanged={handleAiWorkspaceChanged}
                 onToggleDocumentReadOnly={
                   systemPage === 'codex' || !activePanelDocument
@@ -4122,16 +4238,15 @@ export function WorkspaceLayout({
                 }
               />
             </div>
+          </div>
         </div>
-        )}
-      </div>
-      {documentExport.renderer}
-      {documentImport.reportDialog}
-      <ConfirmationDialog
-        request={confirmationRequest}
-        onResolve={resolveConfirmation}
-      />
-    </main>
+        {documentExport.renderer}
+        {documentImport.reportDialog}
+        <ConfirmationDialog
+          request={confirmationRequest}
+          onResolve={resolveConfirmation}
+        />
+      </main>
     </WorkspaceDocumentIndexProvider>
   );
 }
@@ -4378,20 +4493,25 @@ function WorkspaceMainHeader({
       className={cn(
         'relative flex shrink-0 items-center gap-1 pr-3',
         overlayContent
-          ? 'absolute inset-x-0 top-0 z-10 h-11'
+          ? 'absolute right-0 top-0 z-10 h-11'
           : windowsChromeInset
             ? 'h-8'
             : 'h-11',
-        macChromeInset ? 'pl-44' : 'pl-3',
+        !overlayContent && (macChromeInset ? 'pl-44' : 'pl-3'),
       )}
       data-tauri-drag-region="deep"
       data-testid="workspace-main-header"
       style={overlayContent ? undefined : { height: headerHeight }}
     >
-      <div className="min-w-0 flex-1">{documentTabs}</div>
+      {overlayContent ? null : (
+        <div className="min-w-0 flex-1">{documentTabs}</div>
+      )}
       <TooltipProvider>
         <div
-          className="z-10 ml-auto flex items-center gap-0.5"
+          className={cn(
+            'z-10 flex items-center gap-0.5',
+            !overlayContent && 'ml-auto',
+          )}
           data-testid="right-header-tools"
         >
           <ThemeQuickMenu />
@@ -4490,9 +4610,21 @@ function ThemeQuickMenu() {
             setOpen(false);
           }}
         >
-          <ThemeQuickMenuItem icon={<Airplay size={14} />} label="跟随系统" value="system" />
-          <ThemeQuickMenuItem icon={<Sun size={14} />} label="亮色" value="light" />
-          <ThemeQuickMenuItem icon={<Moon size={14} />} label="暗色" value="dark" />
+          <ThemeQuickMenuItem
+            icon={<Airplay size={14} />}
+            label="跟随系统"
+            value="system"
+          />
+          <ThemeQuickMenuItem
+            icon={<Sun size={14} />}
+            label="亮色"
+            value="light"
+          />
+          <ThemeQuickMenuItem
+            icon={<Moon size={14} />}
+            label="暗色"
+            value="dark"
+          />
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -4521,7 +4653,9 @@ function isThemeMode(value: unknown): value is ThemeMode {
 }
 
 function buildFontStack(primaryFont: string, fallbackStack: string) {
-  const sanitizedFont = primaryFont.replace(/[\u0000-\u001f\u007f]/g, '').trim();
+  const sanitizedFont = primaryFont
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .trim();
   const font = sanitizedFont || 'inherit';
 
   return `${quoteCssFontFamily(font)}, ${fallbackStack}`;
@@ -4538,10 +4672,28 @@ function headerToolButtonClassName(active: boolean) {
   );
 }
 
+function getDrawingOverlayToolsReservePx({
+  enabled,
+  showGitLogEntry,
+  showGitPanelEntry,
+}: {
+  enabled: boolean;
+  showGitLogEntry: boolean;
+  showGitPanelEntry: boolean;
+}) {
+  if (!enabled) return 0;
+
+  const toolCount = 4 + Number(showGitLogEntry) + Number(showGitPanelEntry);
+  return (
+    toolCount * HEADER_TOOL_BUTTON_PX +
+    Math.max(0, toolCount - 1) * HEADER_TOOL_GAP_PX +
+    DRAWING_OVERLAY_TOOLS_EXTRA_PX
+  );
+}
+
 export function DocumentEditorSurface({
   activeDocumentPath,
   activeEditorRef,
-  askAiHandler = null,
   currentDocumentPath,
   documentEditorLayout,
   documentLoadError,
@@ -4561,7 +4713,6 @@ export function DocumentEditorSurface({
 }: {
   activeDocumentPath: string | null;
   activeEditorRef: React.RefObject<MarkdownEditorHandle | null>;
-  askAiHandler?: MarkweaveAskAiHandler | null;
   currentDocumentPath: string | null;
   documentEditorLayout: DocumentEditorLayout;
   documentLoadError: string | null;
@@ -4588,13 +4739,12 @@ export function DocumentEditorSurface({
   const activeTabPath =
     activeTab?.kind === 'document' ? activeTab.absolutePath : null;
   const cachedSession = activeTabPath
-    ? editorSessions[activeTabPath] ?? null
+    ? (editorSessions[activeTabPath] ?? null)
     : null;
   const liveSession =
     activeTabPath === currentDocumentPath && draftMarkdown !== null
       ? {
-          documentVersion:
-            cachedSession?.documentVersion ?? documentVersion,
+          documentVersion: cachedSession?.documentVersion ?? documentVersion,
           markdown: draftMarkdown,
         }
       : null;
@@ -4612,8 +4762,7 @@ export function DocumentEditorSurface({
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {renderedDocumentPaths.map((documentPath) => {
           const isActive = activeTabPath === documentPath;
-          const cachedDocumentSession =
-            editorSessions[documentPath] ?? null;
+          const cachedDocumentSession = editorSessions[documentPath] ?? null;
           const liveDocumentSession =
             documentPath === currentDocumentPath && draftMarkdown !== null
               ? {
@@ -4622,8 +4771,7 @@ export function DocumentEditorSurface({
                   markdown: draftMarkdown,
                 }
               : null;
-          const documentSession =
-            liveDocumentSession ?? cachedDocumentSession;
+          const documentSession = liveDocumentSession ?? cachedDocumentSession;
 
           if (!documentSession) {
             return null;
@@ -4634,9 +4782,7 @@ export function DocumentEditorSurface({
               aria-hidden={!isActive}
               className={cn(
                 'absolute inset-0 min-h-0',
-                isActive
-                  ? 'visible z-10'
-                  : 'invisible z-0 pointer-events-none',
+                isActive ? 'visible z-10' : 'invisible z-0 pointer-events-none',
               )}
               data-active={isActive ? 'true' : 'false'}
               data-document-editor-path={documentPath}
@@ -4644,8 +4790,6 @@ export function DocumentEditorSurface({
             >
               <DocumentEditorInstance
                 activeEditorRef={isActive ? activeEditorRef : undefined}
-                aiEnabled={isActive}
-                askAiHandler={askAiHandler}
                 documentPath={documentPath}
                 editorSession={documentSession}
                 pageWidthMode={pageWidthMode}
@@ -4710,7 +4854,10 @@ function renderDocumentEditorContent({
 
   if (activeTab.kind === 'plan') {
     return (
-      <div className="relative h-full min-h-0" data-testid="plan-preview-editor">
+      <div
+        className="relative h-full min-h-0"
+        data-testid="plan-preview-editor"
+      >
         <MarkdownEditor
           documentKey={activeTab.id}
           markdown={activeTab.markdown}
@@ -4779,8 +4926,6 @@ function renderDocumentEditorContent({
 
 function DocumentEditorInstance({
   activeEditorRef,
-  aiEnabled,
-  askAiHandler,
   documentPath,
   editorSession,
   pageWidthMode,
@@ -4791,8 +4936,6 @@ function DocumentEditorInstance({
   onSaveRequested,
 }: {
   activeEditorRef?: React.RefObject<MarkdownEditorHandle | null>;
-  aiEnabled: boolean;
-  askAiHandler: MarkweaveAskAiHandler | null;
   documentPath: string;
   editorSession: DocumentEditorSession;
   pageWidthMode: PageWidthMode;
@@ -4818,8 +4961,7 @@ function DocumentEditorInstance({
   return (
     <div className="relative h-full min-h-0">
       <MarkdownEditor
-        aiEnabled={aiEnabled && !readOnly}
-        askAiHandler={askAiHandler}
+        aiEnabled={false}
         documentKey={`${documentPath}:${editorSession.documentVersion}:${pageWidthMode}:${readOnly ? 'view' : 'live'}`}
         documentPath={documentPath}
         markdown={editorSession.markdown}
@@ -4936,7 +5078,8 @@ function useStoredPanelWidth(
   max: number,
 ) {
   const subscribe = React.useCallback(
-    (onStoreChange: () => void) => subscribeStoredPanelWidth(key, onStoreChange),
+    (onStoreChange: () => void) =>
+      subscribeStoredPanelWidth(key, onStoreChange),
     [key],
   );
   const getSnapshot = React.useCallback(
@@ -4962,10 +5105,7 @@ function useStoredPanelWidth(
   return [width, setWidth] as const;
 }
 
-function subscribeStoredPanelWidth(
-  key: string,
-  onStoreChange: () => void,
-) {
+function subscribeStoredPanelWidth(key: string, onStoreChange: () => void) {
   if (typeof window === 'undefined') {
     return () => {};
   }
@@ -4988,66 +5128,6 @@ function subscribeStoredPanelWidth(
 
 function clampPanelWidth(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
-}
-
-async function readWorkspaceSearchDocuments(
-  snapshot: WorkspaceSnapshot,
-): Promise<WorkspaceSearchDocument[]> {
-  const documents = flattenDocuments(snapshot.nodes);
-  const results: WorkspaceSearchDocument[] = [];
-  let cursor = 0;
-
-  async function readNextDocument() {
-    while (cursor < documents.length) {
-      const index = cursor;
-      cursor += 1;
-      const document = documents[index];
-
-      try {
-        const content = await readMarkdownDocument(
-          snapshot.rootPath,
-          document.absolutePath,
-        );
-
-        results[index] = {
-          ...document,
-          content: content.content,
-          kind: 'document',
-        };
-      } catch {
-        results[index] = {
-          ...document,
-          content: '',
-          kind: 'document',
-        };
-      }
-    }
-  }
-
-  await Promise.all(
-    Array.from({
-      length: Math.min(GLOBAL_SEARCH_READ_CONCURRENCY, documents.length),
-    }).map(() => readNextDocument()),
-  );
-
-  let drawingDocuments: WorkspaceSearchDocument[] = [];
-  try {
-    const drawingLibrary = await loadDrawingLibrary(snapshot.rootPath);
-    drawingDocuments = drawingLibrary.drawings.map((drawing) => ({
-      absolutePath: '',
-      content: drawing.searchText,
-      drawingId: drawing.id,
-      id: drawing.id,
-      kind: 'drawing',
-      name: drawing.title,
-      relativePath: drawing.albumPath || '未归类',
-      title: drawing.title,
-    }));
-  } catch {
-    // A drawing index failure must not prevent Markdown search.
-  }
-
-  return [...results.filter(Boolean), ...drawingDocuments];
 }
 
 // Resolve a Codex-reported entry path (which may be workspace-relative) to an
@@ -5075,31 +5155,6 @@ function resolveWorkspaceEntryAbsolutePath(
   const normalizedEntry = trimmed.replace(/^[/\\]+/, '');
 
   return `${normalizedRoot}${separator}${normalizedEntry}`;
-}
-
-// Convert an absolute workspace path to a git repo-relative, forward-slash path
-// so it can be matched against the changed-path list returned by a sync (git
-// always reports POSIX-style relative paths). Returns null when the path is not
-// inside the root. Case-insensitive root match tolerates Windows drive letters.
-// author: liyao
-function toRepoRelativePosixPath(
-  rootPath: string,
-  absolutePath: string,
-): string | null {
-  const normalizedRoot = rootPath.replace(/\\/g, '/').replace(/\/+$/, '');
-  const normalizedAbsolute = absolutePath.replace(/\\/g, '/');
-  const prefix = `${normalizedRoot}/`;
-  const caseInsensitive = rootPath.includes('\\');
-  const comparableAbsolute = caseInsensitive
-    ? normalizedAbsolute.toLowerCase()
-    : normalizedAbsolute;
-  const comparablePrefix = caseInsensitive ? prefix.toLowerCase() : prefix;
-
-  if (!comparableAbsolute.startsWith(comparablePrefix)) {
-    return null;
-  }
-
-  return normalizedAbsolute.slice(prefix.length);
 }
 
 function findWorkspaceDocumentByPath(
@@ -5150,7 +5205,9 @@ function findWorkspaceDocumentByRelativePath(
     }
   }
 
-  const lowerCandidates = candidates.map((candidate) => candidate.toLowerCase());
+  const lowerCandidates = candidates.map((candidate) =>
+    candidate.toLowerCase(),
+  );
   const insensitive = documents.find((node) =>
     lowerCandidates.includes(node.relativePath.toLowerCase()),
   );
@@ -5267,9 +5324,7 @@ function withDefaultWorkspaceGitSyncSettings(
     DEFAULT_WORKSPACE_GIT_SYNC_SETTINGS.conflictResolution;
 
   return {
-    conflictResolution: isWorkspaceGitSyncConflictResolution(
-      conflictResolution,
-    )
+    conflictResolution: isWorkspaceGitSyncConflictResolution(conflictResolution)
       ? conflictResolution
       : DEFAULT_WORKSPACE_GIT_SYNC_SETTINGS.conflictResolution,
     enabled: settings?.enabled ?? DEFAULT_WORKSPACE_GIT_SYNC_SETTINGS.enabled,
@@ -5297,14 +5352,14 @@ function ExternalDocumentConflictBanner({
     <div className="flex shrink-0 items-center gap-3 border-t border-amber-500/30 bg-amber-500/8 px-4 py-2 text-xs">
       <AlertTriangle className="shrink-0 text-amber-600" size={15} />
       <span className="min-w-0 flex-1 text-foreground/80">
-        当前草稿与 Codex 写入的磁盘版本发生冲突，Markune 已暂停自动保存。
+        当前草稿与 外部修改后的磁盘版本发生冲突，Markune 已暂停自动保存。
       </span>
       <button
         className="shrink-0 rounded-md px-2 py-1 text-muted-foreground outline-none hover:bg-background/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/30"
         type="button"
         onClick={onLoadExternal}
       >
-        加载 AI 版本
+        加载磁盘版本
       </button>
       <button
         className="shrink-0 rounded-md border border-amber-500/35 bg-background px-2 py-1 font-medium outline-none hover:bg-amber-500/10 focus-visible:ring-2 focus-visible:ring-ring/30"

@@ -92,6 +92,7 @@ test('release workflow verifies source before native tag builds', async () => {
   );
   assert.deepEqual(parsedTauriConfig.bundle.externalBin, [
     'binaries/codex',
+    'binaries/codex-code-mode-host',
     'binaries/pandoc',
     'binaries/typst',
   ]);

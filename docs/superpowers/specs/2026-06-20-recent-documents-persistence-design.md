@@ -1,7 +1,8 @@
 ---
 owner: refinex
 updated: 2026-06-20
-status: active
+status: deprecated
+referenced_by: docs/README.md
 ---
 # 最近文档持久化设计
 

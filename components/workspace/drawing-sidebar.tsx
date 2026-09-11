@@ -287,7 +287,7 @@ export function DrawingSidebar({
           </div>
         </div>
 
-        <div className="shrink-0 border-t border-sidebar-border/50 pt-1">
+        <div className="shrink-0 pt-1" data-testid="drawing-trash-section">
           <CollectionRow
             active={isCollectionActive(controller, 'trash')}
             count={

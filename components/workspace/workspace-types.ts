@@ -253,6 +253,7 @@ export interface TreeNodeAppearance {
 }
 
 export interface WorkspaceSnapshot {
+  warnings?: string[];
   rootPath: string;
   rootName: string;
   nodes: WorkspaceNode[];
@@ -263,6 +264,7 @@ export type WorkspaceGraphNodeKind =
   | 'note'
   | 'property'
   | 'tag'
+  | 'unresolved'
   | 'weekly';
 
 export type WorkspaceGraphEdgeKind = 'link' | 'property' | 'tag';
@@ -273,6 +275,9 @@ export interface WorkspaceGraphNode {
   kind: WorkspaceGraphNodeKind;
   relativePath: string | null;
   degree: number;
+  inDegree?: number;
+  outDegree?: number;
+  contentIndexed?: boolean;
 }
 
 export interface WorkspaceGraphEdge {
@@ -288,6 +293,7 @@ export interface WorkspaceGraphSnapshot {
   edges: WorkspaceGraphEdge[];
   documentCount: number;
   warnings: string[];
+  fingerprint?: string;
 }
 
 export interface WorkspaceHistoryItem {
@@ -402,8 +408,25 @@ export interface AppSettings {
   calendar: CalendarSettings;
   storage: {
     defaultProvider: 'local';
+    attachments?: AttachmentStorageSettings;
   };
   appearance: AppearanceSettings;
+}
+
+export interface AttachmentStorageSettings {
+  mode: 'managed' | 'document' | 'assets' | 'filename-assets' | 'custom';
+  customPath: string;
+  applyToLocalImages: boolean;
+  applyToRemoteImages: boolean;
+  preferRelativePath: boolean;
+  addDotSlash: boolean;
+}
+
+export interface StoredDocumentAsset {
+  src: string;
+  name?: string;
+  mimeType?: string;
+  size?: number;
 }
 
 export interface UploadWorkspaceAssetInput {

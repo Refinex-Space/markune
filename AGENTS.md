@@ -1,14 +1,14 @@
 # AGENTS.md
 
 ## Project
-Markune is a local knowledge-base desktop app built with Next.js App Router, React, TypeScript, Tauri v2, and a Markdown-first editor powered by `@refinex/markora`.
+Markune is a local knowledge-base desktop app built with Next.js App Router, React, TypeScript, Tauri v2, and a Markdown-first editor powered by `@markweave/react`.
 
 ## Environment And Commands
 - Install: `pnpm install`
 - Web dev: `pnpm dev`
 - Desktop dev: `pnpm desktop:dev`
 - Frontend tests: `pnpm test:run`
-- Focused Vitest: `pnpm test:run -- <path-or-pattern>`
+- Focused Vitest: `pnpm exec vitest run <path-or-pattern>`
 - Lint: `pnpm lint`
 - Web build: `pnpm build`
 - Desktop web export: `pnpm build:desktop:web`
@@ -32,6 +32,7 @@ Markune is a local knowledge-base desktop app built with Next.js App Router, Rea
 - Unrelated dirty work is preserved.
 
 ## Knowledge Map
+- Codex runtime, task ownership, writing, research and contract gates -> read `docs/architecture/codex.md` before Codex changes.
 - Architecture and module boundaries -> read `docs/architecture/overview.md` before design, refactor, editor/workspace shell, or Tauri boundary changes.
 - Config and environment -> read `docs/config/reference.md` before changing env vars, package scripts, Next/Tauri config, storage defaults, or desktop build behavior.
 - Coding standards -> read `docs/standards/coding.md` before implementation or test changes.

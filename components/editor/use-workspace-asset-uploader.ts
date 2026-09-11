@@ -11,6 +11,9 @@ import type {
 import {
   isTauriRuntime,
   readWorkspaceAssetData,
+  readDocumentAssetData,
+  resolveDocumentAssets,
+  storeDocumentAsset,
   resolveWorkspaceAssets,
   selectWorkspaceAssetDownloadPath,
   uploadWorkspaceAsset,
@@ -29,6 +32,7 @@ import {
   getDrawingClipboardAssetReference,
   normalizeDrawingClipboardAssetReferences,
 } from '@/components/editor/drawing-markdown-reference';
+import { extractDocumentFileReferences, isDocumentFileReference } from '@/components/workspace/document-asset-references';
 
 export interface WorkspaceAssetUploadBridge {
   editorMarkdown: string;
@@ -39,8 +43,10 @@ export interface WorkspaceAssetUploadBridge {
 }
 
 export interface WorkspaceMediaSourceRequest {
+  attempt?: number;
   kind: 'attachment' | 'image' | 'video';
   priority: 'background' | 'nearby' | 'visible';
+  reason?: 'image-error' | 'initial' | 'output' | 'retry' | 'viewport';
   signal: AbortSignal;
   src: string;
 }
@@ -58,13 +64,28 @@ export type WorkspaceMediaSourceResolver = (
   | null
   | Promise<WorkspaceMediaSourceResult | null>;
 
+interface WorkspaceAssetResolverCacheEntry {
+  expiresAt: number | null;
+  result: WorkspaceMediaSourceResult | null;
+  status: 'missing' | 'resolved' | 'unreadable';
+}
+
+interface WorkspaceAssetResolverPendingEntry {
+  forceRefresh: boolean;
+  promise: Promise<WorkspaceMediaSourceResult | null>;
+  token: object;
+}
+
 interface WorkspaceAssetResolverCache {
-  pending: Map<string, Promise<WorkspaceMediaSourceResult | null>>;
-  results: Map<string, WorkspaceMediaSourceResult | null>;
+  pending: Map<string, WorkspaceAssetResolverPendingEntry>;
+  results: Map<string, WorkspaceAssetResolverCacheEntry>;
 }
 
 const WORKSPACE_ASSET_CACHE_ROOT_LIMIT = 8;
 const WORKSPACE_ASSET_CACHE_ENTRY_LIMIT = 8_192;
+const WORKSPACE_ASSET_NEGATIVE_CACHE_TTL_MS = 5_000;
+const WORKSPACE_ASSET_RESOLVE_BATCH_LIMIT = 2_048;
+const DOCUMENT_RECOVERY_COALESCE_MS = 750;
 const workspaceAssetResolverCaches = new Map<
   string,
   WorkspaceAssetResolverCache
@@ -111,9 +132,20 @@ function setWorkspaceAssetResolverResult(
   cache: WorkspaceAssetResolverCache,
   assetId: string,
   result: WorkspaceMediaSourceResult | null,
+  status: WorkspaceAssetResolverCacheEntry['status'] = result
+    ? 'resolved'
+    : 'missing',
 ) {
+  const entry: WorkspaceAssetResolverCacheEntry = {
+    expiresAt:
+      status === 'resolved'
+        ? null
+        : Date.now() + WORKSPACE_ASSET_NEGATIVE_CACHE_TTL_MS,
+    result,
+    status,
+  };
   cache.results.delete(assetId);
-  cache.results.set(assetId, result);
+  cache.results.set(assetId, entry);
 
   while (cache.results.size > WORKSPACE_ASSET_CACHE_ENTRY_LIMIT) {
     const oldestAssetId = cache.results.keys().next().value;
@@ -126,110 +158,265 @@ function setWorkspaceAssetResolverResult(
   }
 }
 
-async function resolveWorkspaceAssetIds(
+function getWorkspaceAssetResolverResult(
+  cache: WorkspaceAssetResolverCache,
+  assetId: string,
+) {
+  const entry = cache.results.get(assetId);
+
+  if (!entry) {
+    return undefined;
+  }
+
+  if (entry.expiresAt !== null && entry.expiresAt <= Date.now()) {
+    cache.results.delete(assetId);
+    return undefined;
+  }
+
+  cache.results.delete(assetId);
+  cache.results.set(assetId, entry);
+  return entry;
+}
+
+function startWorkspaceAssetResolutionBatch(
+  cache: WorkspaceAssetResolverCache,
   rootPath: string,
   assetIds: readonly string[],
+  forceRefresh: boolean,
 ) {
-  const uniqueAssetIds = Array.from(new Set(assetIds));
-  const cache = getWorkspaceAssetResolverCache(rootPath);
-  const unresolvedAssetIds = uniqueAssetIds.filter(
-    (assetId) =>
-      !cache.results.has(assetId) && !cache.pending.has(assetId),
+  const token = {};
+  const requestedAssetIds = new Set(assetIds);
+  const perf = startWorkspacePerformanceMeasure(
+    'workspace.assets.resolve_batch',
   );
+  incrementWorkspacePerformanceCounter('workspace.assets.ipc_count');
 
-  if (unresolvedAssetIds.length > 0) {
-    const requestedAssetIds = new Set(unresolvedAssetIds);
-    const perf = startWorkspacePerformanceMeasure(
-      'workspace.assets.resolve_batch',
-    );
-    incrementWorkspacePerformanceCounter('workspace.assets.ipc_count');
-    const batchPromise = resolveWorkspaceAssets(rootPath, unresolvedAssetIds)
-      .then((result) => {
-        let missingCount = 0;
-        let resolvedCount = 0;
-        let unreadableCount = 0;
+  const batchPromise = Promise.resolve(
+    resolveWorkspaceAssets(rootPath, [...assetIds]),
+  )
+    .then((resolution) => {
+      let missingCount = 0;
+      let resolvedCount = 0;
+      let unreadableCount = 0;
+      const batchResults = new Map<
+        string,
+        WorkspaceMediaSourceResult | null
+      >();
+      const itemById = new Map(
+        resolution.items
+          .filter((item) => requestedAssetIds.has(item.id))
+          .map((item) => [item.id, item] as const),
+      );
 
-        for (const assetId of unresolvedAssetIds) {
-          if (!cache.results.has(assetId)) {
-            setWorkspaceAssetResolverResult(cache, assetId, null);
-          }
+      for (const assetId of assetIds) {
+        if (cache.pending.get(assetId)?.token !== token) {
+          continue;
         }
 
-        for (const item of result.items) {
-          if (!requestedAssetIds.has(item.id)) {
-            continue;
-          }
+        const item = itemById.get(assetId);
 
-          if (item.status === 'missing') {
-            missingCount += 1;
-          } else if (item.status === 'unreadable') {
-            unreadableCount += 1;
-          }
-
-          if (item.status !== 'resolved' || !item.asset) {
-            continue;
-          }
-
+        if (item?.status === 'resolved' && item.asset) {
           resolvedCount += 1;
-          setWorkspaceAssetResolverResult(cache, item.id, {
+          const result = {
             height: item.asset.height,
             src: convertFileSrc(item.asset.absolutePath),
             width: item.asset.width,
-          });
+          };
+          batchResults.set(assetId, result);
+          setWorkspaceAssetResolverResult(cache, assetId, result);
+          continue;
         }
 
-        if (unreadableCount > 0) {
-          console.warn('部分工作区资产无法读取。', {
-            count: unreadableCount,
-          });
-        }
+        const status = item?.status === 'unreadable'
+          ? 'unreadable'
+          : 'missing';
 
-        perf.finish({
-          missing: missingCount,
-          requested: unresolvedAssetIds.length,
-          resolved: resolvedCount,
-          unreadable: unreadableCount,
+        if (status === 'unreadable') {
+          unreadableCount += 1;
+        } else {
+          missingCount += 1;
+        }
+        batchResults.set(assetId, null);
+        setWorkspaceAssetResolverResult(cache, assetId, null, status);
+      }
+
+      if (unreadableCount > 0) {
+        console.warn('部分工作区资产无法读取。', {
+          count: unreadableCount,
         });
-      })
-      .catch((error) => {
-        perf.finish({
-          requested: unresolvedAssetIds.length,
-          status: 'failed',
-        });
-        throw error;
+      }
+
+      perf.finish({
+        missing: missingCount,
+        requested: assetIds.length,
+        resolved: resolvedCount,
+        unreadable: unreadableCount,
       });
+      return batchResults;
+    })
+    .catch((error) => {
+      perf.finish({
+        requested: assetIds.length,
+        status: 'failed',
+      });
+      throw error;
+    });
 
-    for (const assetId of unresolvedAssetIds) {
-      const pending = batchPromise
-        .then(() => cache.results.get(assetId) ?? null)
-        .finally(() => {
-          if (cache.pending.get(assetId) === pending) {
-            cache.pending.delete(assetId);
-          }
-        });
-      cache.pending.set(assetId, pending);
+  for (const assetId of assetIds) {
+    const entry: WorkspaceAssetResolverPendingEntry = {
+      forceRefresh,
+      promise: Promise.resolve(null),
+      token,
+    };
+    entry.promise = batchPromise
+      .then((batchResults) => batchResults.get(assetId) ?? null)
+      .finally(() => {
+        if (cache.pending.get(assetId) === entry) {
+          cache.pending.delete(assetId);
+        }
+      });
+    cache.pending.set(assetId, entry);
+  }
+}
+
+async function resolveWorkspaceAssetIds(
+  rootPath: string,
+  assetIds: readonly string[],
+  options: {
+    forceRefresh?: boolean;
+  } = {},
+) {
+  const uniqueAssetIds = Array.from(new Set(assetIds));
+  const cache = getWorkspaceAssetResolverCache(rootPath);
+  const forceRefresh = options.forceRefresh === true;
+
+  if (forceRefresh) {
+    const ordinaryPending = uniqueAssetIds
+      .map((assetId) => cache.pending.get(assetId))
+      .filter(
+        (entry): entry is WorkspaceAssetResolverPendingEntry =>
+          Boolean(entry && !entry.forceRefresh),
+      );
+
+    if (ordinaryPending.length > 0) {
+      await Promise.allSettled(ordinaryPending.map((entry) => entry.promise));
+      return resolveWorkspaceAssetIds(rootPath, uniqueAssetIds, {
+        forceRefresh: true,
+      });
     }
+  }
+
+  const unresolvedAssetIds = uniqueAssetIds.filter((assetId) => {
+    if (cache.pending.has(assetId)) {
+      return false;
+    }
+
+    return forceRefresh || !getWorkspaceAssetResolverResult(cache, assetId);
+  });
+
+  for (
+    let offset = 0;
+    offset < unresolvedAssetIds.length;
+    offset += WORKSPACE_ASSET_RESOLVE_BATCH_LIMIT
+  ) {
+    startWorkspaceAssetResolutionBatch(
+      cache,
+      rootPath,
+      unresolvedAssetIds.slice(
+        offset,
+        offset + WORKSPACE_ASSET_RESOLVE_BATCH_LIMIT,
+      ),
+      forceRefresh,
+    );
   }
 
   const resolved = new Map<string, WorkspaceMediaSourceResult | null>();
   await Promise.all(
     uniqueAssetIds.map(async (assetId) => {
-      if (!cache.results.has(assetId)) {
-        await cache.pending.get(assetId);
+      const pending = cache.pending.get(assetId);
+
+      if (pending) {
+        resolved.set(assetId, await pending.promise);
+        return;
       }
-      resolved.set(assetId, cache.results.get(assetId) ?? null);
+      resolved.set(
+        assetId,
+        getWorkspaceAssetResolverResult(cache, assetId)?.result ?? null,
+      );
     }),
   );
 
   return resolved;
 }
 
+function waitForMediaResolutionOrAbort<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+) {
+  if (signal.aborted) {
+    return Promise.resolve<T | null>(null);
+  }
+
+  return new Promise<T | null>((resolve, reject) => {
+    let settled = false;
+    const finish = (value: T | null) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      signal.removeEventListener('abort', aborted);
+      resolve(value);
+    };
+    const fail = (error: unknown) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      signal.removeEventListener('abort', aborted);
+      reject(error);
+    };
+    const aborted = () => finish(null);
+
+    signal.addEventListener('abort', aborted, { once: true });
+    void promise.then(finish, fail);
+    if (signal.aborted) {
+      aborted();
+    }
+  });
+}
+
 export function useWorkspaceAssetUploader(
   rootPath: string | null,
   storageMarkdown: string,
+  documentPath: string | null = null,
 ): WorkspaceAssetUploadBridge {
   const displayToStorageRef = React.useRef(new Map<string, string>());
   const cacheRootPathRef = React.useRef(rootPath);
+  const documentContextRef = React.useRef(documentPath);
+  const localReferences = React.useMemo(() => documentPath ? extractDocumentFileReferences(storageMarkdown) : [], [documentPath, storageMarkdown]);
+  const localResolutionRef = React.useRef<{ key: string; expires: number; startedAt: number; pending: Promise<Map<string, string>> } | null>(null);
+  React.useLayoutEffect(() => { documentContextRef.current = documentPath; }, [documentPath]);
+  const resolveLocalReference = React.useCallback(async (src: string, force: boolean) => {
+    if (!rootPath || !documentPath) return null;
+    const sources = [...new Set([...localReferences, src])];
+    const key = `${rootPath}\0${documentPath}\0${sources.join('\0')}`;
+    let entry = localResolutionRef.current;
+    if (!entry || entry.key !== key || Date.now() > entry.expires || (force && Date.now() - entry.startedAt > DOCUMENT_RECOVERY_COALESCE_MS)) {
+      const pending = (async () => {
+        const results = new Map<string, string>();
+        for (let offset = 0; offset < sources.length; offset += 2048) {
+          const items = await resolveDocumentAssets(rootPath, documentPath, sources.slice(offset, offset + 2048));
+          for (const item of items) if (item.absolutePath) results.set(item.src, convertFileSrc(item.absolutePath));
+        }
+        return results;
+      })();
+      entry = { key, pending, expires: Date.now() + 5000, startedAt: Date.now() };
+      localResolutionRef.current = entry;
+    }
+    const results = await entry.pending;
+    if (documentContextRef.current !== documentPath || cacheRootPathRef.current !== rootPath) return null;
+    return results.has(src) ? { src: results.get(src)! } : null;
+  }, [documentPath, localReferences, rootPath]);
 
   React.useEffect(() => {
     if (cacheRootPathRef.current === rootPath) {
@@ -261,35 +448,85 @@ export function useWorkspaceAssetUploader(
     [assetIds, rootPath],
   );
   const documentResolutionRef = React.useRef<{
+    forceRefresh: boolean;
     key: string;
     promise: Promise<Map<string, WorkspaceMediaSourceResult | null>>;
+    settledAt: number | null;
   } | null>(null);
-  const ensureDocumentAssetsResolved = React.useCallback(() => {
+  const ensureDocumentAssetsResolved = React.useCallback((
+    forceRefresh = false,
+  ) => {
     if (!rootPath || assetIds.length === 0) {
       return Promise.resolve(
         new Map<string, WorkspaceMediaSourceResult | null>(),
       );
     }
 
-    if (documentResolutionRef.current?.key === documentResolutionKey) {
-      return documentResolutionRef.current.promise;
+    const current = documentResolutionRef.current;
+
+    if (current?.key === documentResolutionKey) {
+      if (current.settledAt === null) {
+        if (!forceRefresh || current.forceRefresh) {
+          return current.promise;
+        }
+
+        const request = current.promise
+          .catch(() => undefined)
+          .then(() =>
+            resolveWorkspaceAssetIds(rootPath, assetIds, {
+              forceRefresh: true,
+            }),
+          );
+        return storeDocumentResolution(request, true);
+      }
+
+      if (
+        current.forceRefresh &&
+        Date.now() - current.settledAt <= DOCUMENT_RECOVERY_COALESCE_MS
+      ) {
+        return current.promise;
+      }
     }
 
-    const request = resolveWorkspaceAssetIds(rootPath, assetIds);
-    const promise = request.catch((error) => {
-      if (
-        documentResolutionRef.current?.key === documentResolutionKey &&
-        documentResolutionRef.current.promise === promise
-      ) {
-        documentResolutionRef.current = null;
-      }
-      throw error;
-    });
-    documentResolutionRef.current = {
-      key: documentResolutionKey,
-      promise,
-    };
-    return promise;
+    return storeDocumentResolution(
+      resolveWorkspaceAssetIds(rootPath, assetIds, { forceRefresh }),
+      forceRefresh,
+    );
+
+    function storeDocumentResolution(
+      request: Promise<Map<string, WorkspaceMediaSourceResult | null>>,
+      isForced: boolean,
+    ) {
+      const entry = {
+        forceRefresh: isForced,
+        key: documentResolutionKey,
+        promise: Promise.resolve(
+          new Map<string, WorkspaceMediaSourceResult | null>(),
+        ),
+        settledAt: null as number | null,
+      };
+      const promise = request.then(
+        (resolved) => {
+          entry.settledAt = Date.now();
+          if (
+            !entry.forceRefresh &&
+            documentResolutionRef.current === entry
+          ) {
+            documentResolutionRef.current = null;
+          }
+          return resolved;
+        },
+        (error) => {
+          if (documentResolutionRef.current === entry) {
+            documentResolutionRef.current = null;
+          }
+          throw error;
+        },
+      );
+      entry.promise = promise;
+      documentResolutionRef.current = entry;
+      return promise;
+    }
   }, [assetIds, documentResolutionKey, rootPath]);
 
   React.useEffect(() => {
@@ -319,6 +556,9 @@ export function useWorkspaceAssetUploader(
       );
 
       if (!assetId) {
+        if (documentPath && isDocumentFileReference(request.src)) {
+          return waitForMediaResolutionOrAbort(resolveLocalReference(request.src, request.reason === 'retry' || request.reason === 'image-error'), request.signal);
+        }
         return { src: request.src };
       }
 
@@ -327,26 +567,45 @@ export function useWorkspaceAssetUploader(
       }
 
       const cache = getWorkspaceAssetResolverCache(rootPath);
+      const forceRefresh =
+        (request.attempt ?? 1) > 1 ||
+        request.reason === 'image-error' ||
+        request.reason === 'output' ||
+        request.reason === 'retry';
+      const cached = forceRefresh
+        ? undefined
+        : getWorkspaceAssetResolverResult(cache, assetId);
 
-      if (cache.results.has(assetId)) {
-        const cached = cache.results.get(assetId) ?? null;
-
-        if (cached && cacheRootPathRef.current === rootPath) {
+      if (cached) {
+        if (cached.result && cacheRootPathRef.current === rootPath) {
           displayToStorageRef.current.set(
-            cached.src,
+            cached.result.src,
             `${LOCAL_ASSET_URL_PREFIX}${assetId}`,
           );
         }
 
-        return cached;
+        return cached.result;
       }
 
-      const resolved = assetIdSet.has(assetId)
-        ? await ensureDocumentAssetsResolved()
-        : await resolveWorkspaceAssetIds(rootPath, [assetId]);
+      const resolution = assetIdSet.has(assetId)
+        ? ensureDocumentAssetsResolved(forceRefresh)
+        : resolveWorkspaceAssetIds(rootPath, [assetId], { forceRefresh });
+      const resolved = await waitForMediaResolutionOrAbort(
+        resolution,
+        request.signal,
+      );
+
+      if (
+        !resolved ||
+        cacheRootPathRef.current !== rootPath ||
+        getWorkspaceAssetResolverCache(rootPath) !== cache
+      ) {
+        return null;
+      }
+
       const result = resolved.get(assetId) ?? null;
 
-      if (result && cacheRootPathRef.current === rootPath) {
+      if (result) {
         displayToStorageRef.current.set(
           result.src,
           `${LOCAL_ASSET_URL_PREFIX}${assetId}`,
@@ -355,7 +614,7 @@ export function useWorkspaceAssetUploader(
 
       return request.signal.aborted ? null : result;
     },
-    [assetIdSet, ensureDocumentAssetsResolved, rootPath],
+    [assetIdSet, ensureDocumentAssetsResolved, rootPath, documentPath, resolveLocalReference],
   );
 
   const toStorageMarkdown = React.useCallback(
@@ -380,7 +639,7 @@ export function useWorkspaceAssetUploader(
           continue;
         }
 
-        if (cache?.results.get(assetId)) {
+        if (cache && getWorkspaceAssetResolverResult(cache, assetId)?.result) {
           legacyReplacements.set(
             reference,
             `${LOCAL_ASSET_URL_PREFIX}${assetId}`,
@@ -396,6 +655,9 @@ export function useWorkspaceAssetUploader(
   const onSlashCommandUpload = React.useCallback<MarkweaveSlashCommandUploadHandler>(
     async (request) => {
       if (request.source.type !== 'file') {
+        if (rootPath && documentPath) {
+          return storeDocumentAsset(rootPath, documentPath, { kind: request.kind, sourceType: request.source.type, value: request.source.value, mediaType: request.source.mimeType });
+        }
         return createDirectUploadResult(
           request.source.value,
           request.source.mimeType,
@@ -424,6 +686,13 @@ export function useWorkspaceAssetUploader(
         total,
       });
 
+      if (documentPath) {
+        const uploaded = await storeDocumentAsset(rootPath, documentPath, {
+          kind: request.kind, sourceType: 'file', fileName: getUploadFileName(file), mediaType: file.type || 'application/octet-stream', value: base64Data,
+        });
+        if (documentContextRef.current !== documentPath || cacheRootPathRef.current !== rootPath) throw new Error('文档已切换，附件未插入。');
+        return uploaded;
+      }
       const uploaded = await uploadWorkspaceAsset(rootPath, {
         fileName: getUploadFileName(file),
         mediaType: file.type || 'application/octet-stream',
@@ -458,7 +727,7 @@ export function useWorkspaceAssetUploader(
         size: uploaded.size,
       };
     },
-    [rootPath],
+    [rootPath, documentPath],
   );
 
   const onAttachmentDownload = React.useCallback<MarkweaveAttachmentDownloadHandler>(
@@ -475,11 +744,11 @@ export function useWorkspaceAssetUploader(
         projectedStorageReference ?? attachment.src,
       );
 
-      if (!assetId) {
+      if (!assetId && !documentPath) {
         throw new Error('无法识别附件资源定位符。');
       }
 
-      const data = await readWorkspaceAssetData(rootPath, assetId);
+      const data = assetId ? await readWorkspaceAssetData(rootPath, assetId) : await readDocumentAssetData(rootPath, documentPath!, attachment.src);
       const fileName = attachment.name?.trim() || data.name;
       const targetPath = await selectWorkspaceAssetDownloadPath(
         fileName,
@@ -501,7 +770,7 @@ export function useWorkspaceAssetUploader(
         data.base64Data,
       );
     },
-    [rootPath],
+    [rootPath, documentPath],
   );
 
   return {

@@ -1,11 +1,17 @@
 ---
 owner: refinex
-updated: 2026-08-15
+updated: 2026-09-09
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
 
 # API Standards
+
+## Workspace Graph
+
+`load_workspace_graph({ rootPath })` 返回只读图谱：`nodes`、`edges`、`documentCount`、有限 `warnings` 和内容投影 `fingerprint`。节点新增 `unresolved` 类型、`inDegree` / `outDegree`、`contentIndexed`；`relativePath` 仅文件节点有值。节点/边 ID 为稳定且带命名空间的不透明身份，渲染器不得把 ID 当文件路径。边 `source → target` 保留方向，`weight` 为同方向引用次数，`degree` 计唯一邻居，不等于权重和。标签与属性边是归属关系。
+
+没有目标、目标歧义和未被扫描的引用统一标为未解析，不能仅据此断言磁盘文件不存在；文件存在但内容不可读/超限时保留节点并标记 `contentIndexed: false`。刷新失败不应清空上一快照；根目录切换后旧请求结果必须丢弃。同一指纹可复用现有投影和布局。
 
 ## Next.js API Routes
 
@@ -27,6 +33,21 @@ referenced_by: AGENTS.md#knowledge-map
 - `system_fonts.rs` 仅可返回字体家族名称与推荐元数据，不得暴露字体文件路径或内容。
 - 桌面端网络功能应走 Tauri 命令；生产桌面构建使用静态导出，不包含 Next API routes。
 
+### Document Attachment Commands
+
+- `store_document_asset(rootPath, documentPath, input)`：输入 `kind` 与 `sourceType/value/fileName/mediaType`，校验 Markdown/MDX 上下文并读取原生存储设置，返回持久化 `src/name/mimeType/size`。来源支持 File 的 Base64、Data URI、HTTP(S) URL、绝对和相对本地路径；不把普通文件伪装成托管资产 ID。
+- `resolve_document_assets(rootPath, documentPath, sources)`：每批最多 2,048 个普通本地引用，仅返回校验通过的精确文件路径供媒体 resolver 显示；不执行复制或下载。
+- `read_document_asset_data(rootPath, documentPath, source)`：下载/导出读取最多 100 MB 的授权文件，返回原有资源数据结构；拒绝目录、私有路径和未授权位置。
+- `select_attachment_directory()`：原生目录选择建立用户级持久授权，取消不改变授权。授权与当前存储策略分离，恢复默认或切换策略不破坏历史附件可读性。
+- `storage.attachments` 新字段具有 Serde 和前端默认值，旧配置无新字段时保留内置存储。保存设置与资产索引使用原子替换。
+
+### Workspace Refresh Commands
+
+- `watch_workspace(rootPath, onChange: Channel) -> watchId` 在后台校验 canonical 工作区并建立当前窗口的原生递归监听。事件为 `{ rootPath, paths, rescan, watchError }`，只包含有界失效路径；`unwatch_workspace(watchId)` 只能释放调用窗口匹配的会话，迟到的清理不能停止新监听。窗口销毁时原生层主动释放。
+- `refresh_workspace_node(rootPath, nodePath)` 对目录返回递归子树，对文档返回最新树描述；缺失返回 `null`，权限或读取失败必须返回错误。前端协调器另行重读范围内已打开标签的完整正文。
+- `save_markdown_document` 新增可选 `expectedContent`，编辑器保存与冲突覆盖均提交所读取的正文基线；即使修改时间相同，也必须拒绝覆盖不同的磁盘内容。该参数只用于内存比较，不写日志或额外持久化。
+- `external-refresh` 是编辑器内部 flush 原因，必须只捕获输入，不触发磁盘保存或标题重命名；随后由外部版本比较决定重载、保持草稿或进入冲突。
+
 ### Daily Commands
 
 - `open_daily_note(rootPath, date)` 只允许严格的 `YYYY-MM-DD`，并在用户显式打开已有 Daily 或确认创建空白日期时调用；日程总览的月份切换和日期选择不得隐式调用该命令。
@@ -43,13 +64,15 @@ referenced_by: AGENTS.md#knowledge-map
 
 ## Codex App Server Bridge
 
+- 不再注册 `validate_codex_document_proposal` 或接受 `markuneWritingMode`。文档问答与编辑直接使用标准 Agent；新建和恢复会话均提供当前宿主操作指令，恢复不覆盖权限配置。
+
 - Codex 协议封装位于 `components/workspace/codex-app-server.ts` 与 `src-tauri/src/codex.rs`；不得从 React 组件直接启动进程或写入 stdio。
 - Windows 上的 Codex 版本探测与 App Server sidecar 必须复用无窗口命令构造入口，设置 `CREATE_NO_WINDOW`；不得让控制台子系统的 `codex.exe` 拉起独立终端窗口。
 - 客户端请求必须由 Rust allowlist 限制。当前允许账户、模型、线程、turn、MCP inventory/OAuth、skills、按工作区受控的 `plugin/installed`，以及只读的 `collaborationMode/list`、`permissionProfile/list`、`configRequirements/read`、`experimentalFeature/list`、受控的 `thread/settings/update` 和 `thread/compact/start`；禁止向渲染器暴露通用 App Server `fs/*`、`command/exec`、`thread/shellCommand`、`config/read` 或配置写入方法。`thread/compact/start` 参数必须是仅含非空、无控制字符 `threadId` 的对象，不得接受额外配置或客户端压缩提示词。
 - App Server 的响应、通知与 server request 使用统一 `codex:event` 事件。前端必须按 JSON-RPC `id` 关联请求，并在运行时退出时拒绝所有 pending 请求。
 - `thread/tokenUsage/updated` 必须保留 `total`、`last` 与 `modelContextWindow` 的协议区别；当前上下文占比只使用 `last.totalTokens`。手动或自动压缩状态以 `contextCompaction` item 为权威，`thread/compacted` 只作旧协议完成兼容；不得通过累计 token 自行推断或触发压缩。
 - 消息与工具通知必须按首次到达顺序保存在同一会话流中；同一 item 的完成通知只更新原位置，不得把工具记录统一追加到回答末尾。`thread/name/updated` 必须同步当前标题与历史列表。
-- 历史投影只能消费 App Server 返回的 thread items。固定 sidecar `0.144.4` 不得通过直接读取 Codex JSONL、SQLite 或维护第二份 Markune 会话日志来弥补 `thread/read` / `thread/turns/list` 缺失的工具 item；sidecar 升级后应以 `thread/items/list` 或等价官方接口补齐并重新运行契约测试。
+- 历史投影只能消费 App Server 返回的 thread items。固定 sidecar `0.153.4` 不得通过直接读取 Codex JSONL、SQLite 或维护第二份 Markune 会话日志来弥补 `thread/read` / `thread/turns/list` 缺失的工具 item；sidecar 升级后应以 `thread/items/list` 或等价官方接口补齐并重新运行契约测试。
 - 前端必须保留 turn 的 `startedAt`、`completedAt`、`durationMs` 和 agent message phase。`commentary` 只进入处理过程，`final_answer` 独立展示；phase 缺失时不得推断或改写旧消息语义。
 - `item/commandExecution/outputDelta`、`item/commandExecution/terminalInteraction`、`item/fileChange/patchUpdated`、`item/mcpToolCall/progress`、`turn/plan/updated` 与 `turn/diff/updated` 必须更新对应 turn/item，不得创建伪造工具记录。`item/plan/delta` 必须按 item ID 累积，随后由 `item/completed(plan)` 的完整正文覆盖；正式 plan item 不得与 `turn/plan/updated` 的执行检查清单合并。命令输出必须使用有界首尾缓冲并在界面标明省略行数。
 - `item/fileChange/patchUpdated` 不得触发编辑器重载。只有状态成功的 `item/completed(fileChange)` 可以提交结构化路径刷新事件；失败或拒绝的修改不能刷新文档。`turn/completed` 必须执行最终目录树刷新并复核已打开 Markdown 标签。前端必须保留此前收到的 `turn/diff/updated`，不能在完成通知中把聚合 diff 重置为空。
@@ -59,14 +82,11 @@ referenced_by: AGENTS.md#knowledge-map
 - 审批请求必须保存 `turnId`、`itemId` 和服务端原始候选，并尽量附着到对应工具 item。Rust 将字符串决定、execpolicy amendment、network policy amendment 与 permissions grant 投影为可展示的 opaque choice id；界面只能回传该 id，Rust 必须在对应 pending request 内重新映射，不能接受前端提交的任意结构化决定。
 - 命令审批必须区分 `decline`（拒绝并继续 turn）与 `cancel`（拒绝并中断 turn），并按服务端候选显示一次允许、会话允许和规则授权。`item/permissions/requestApproval` 的允许响应只能复制服务端原始 permissions，可选择 turn、session 或 strict auto-review；拒绝固定返回空 permissions 和 turn scope。
 - `thread/start` 使用命名 `permissions`、`approvalPolicy`、`approvalsReviewer` 与 `runtimeWorkspaceRoots` 建立权限状态，且不得同时发送 legacy `sandbox`。`thread/resume` 不覆盖权限，`turn/start` 不发送安全字段；切换模式只用 `thread/settings/update`，且不得同时发送 `sandboxPolicy`。界面以 `thread/settings/updated` 和 start/resume response 为真实状态来源。
-- Markweave AI 预编辑只使用 Markune 内部组件协议，不新增公开 HTTP API。编辑器内置 `askAi` 与 AI 面板取得的 `MarkweaveAiEditController` 复用同一窗口级 runner；controller 只可从当前活动、可编辑的 Live 正式文档取得，切换到 Source/View/只读、隐藏缓存编辑器或卸载时必须撤销或返回 `null`。
-- 每次预编辑固定新建 `ephemeral: true` 的 `thread/start`，同时提交 `permissions: ":read-only"`、`approvalPolicy: "on-request"`、`approvalsReviewer: "user"`、`config.web_search: "disabled"`、空 `environments` 与唯一工作区根。`turn/start` 只包含固定开发者约束、用户指令和 Markweave 目标，不得携带 `markuneDocumentReferences`、`markuneDrawingReferences`、附件、原生 mention、Plugin、Skill、Goal、当前会话或 collaboration mode。
-- 内联 runner 必须用 thread/turn ID 声明事件所有权，只转发 `agentMessage.phase=final_answer`，忽略 commentary。AI 面板不得归约 ephemeral 线程或其他非当前可见线程的 token、Goal、消息、工具、文件变更和工作区刷新事件。任何工具/文件 item、审批或用户追问都必须中断内联 turn 并判定失败；终态后调用 `thread/delete`，删除失败只显示脱敏诊断。
-- AI 面板宿主预编辑先调用 `captureSelection({ controls: "default" })`，流式响应必须把累计完整 Markdown 交给 `updateProposal(..., status: "streaming")`，结束后再提交 `complete`。宿主 V1 对表格、代码块、媒体、NodeSelection、CellSelection 和空选区失败关闭；表格只能使用编辑器内置 `askAi` 的精确 scope/resultShape 协议。
+- `thread/read` 默认 `includeTurns: true`。若 App Server 返回 `paginated_threads is not supported yet`，必须立即重试 `includeTurns: false`，并将 `thread/resume` 降级为 `excludeTurns: true`。自动恢复优先选择非 paginated 线程；用户手动打开仍失败时只显示中文说明，不得升级为全局 runtime crash。
 - 协作模式必须先通过实验接口 `collaborationMode/list` 发现 Plan 与 Default 预设；缺少任一预设时降级到 Default。模式可用后，每个 `turn/start` 必须显式发送 `{ collaborationMode: { mode, settings: { model, reasoning_effort, developer_instructions: null } } }`，且不得同时发送顶层 `model`、`effort` 或开发者指令。Plan 的 `reasoning_effort` 固定为 `medium`；模式名、模型和推理强度均由 Rust 再校验。
 - Markdown 文档不得作为 Codex 原生 `mention` 输入发送；该类型只用于 `app://` 与 `plugin://` 目标。显式文档提及必须把带引号的工作区相对路径写入文本，并用 `text_elements.placeholder` 保存显示标题；`byteRange` 使用替换后文本的 UTF-8 字节偏移。插件输入框节点可以只显示名称和真实图标，但模型文本必须恢复 `@Plugin` 与对应 `text_elements`，并额外发送名称和 `plugin://{id}` 原生 mention。
 - Drawing 不得伪装为 Codex 原生 mention。显式图稿提及必须把规范 `markune-drawing://<uuid>` 写入文本、用 `text_elements.placeholder` 保留标题，并通过私有 `markuneDrawingReferences` 提交 active/mention 角色。`inspect_drawing({ drawingId })` 只能消费当前 turn 授权的 UUID，响应正文限制为 16 KiB，预览只允许 Markune 读取的 2 MiB 内 PNG/WebP Data URL。
-- 核心运行时就绪后必须自动调用一次 `plugin/installed`，请求参数固定为当前工作区根目录的单元素 `cwds` 与空 `installSuggestionPluginNames`；同一运行时代际成功后不得重复请求，失败时允许用户从加号菜单重试。不得借加载安装建议或查询其他目录；结果只展示 installed、enabled 且 `availability` 非 `DISABLED_BY_ADMIN` 的插件。该接口在固定 sidecar `0.144.4` 中仍标记为开发中，升级时必须重新生成 schema 并验证降级行为。
+- 核心运行时就绪后必须自动调用一次 `plugin/installed`，请求参数固定为当前工作区根目录的单元素 `cwds` 与空 `installSuggestionPluginNames`；同一运行时代际成功后不得重复请求，失败时允许用户从加号菜单重试。不得借加载安装建议或查询其他目录；结果只展示 installed、enabled 且 `availability` 非 `DISABLED_BY_ADMIN` 的插件。该接口在固定 sidecar `0.153.4` 中仍标记为开发中，升级时必须重新生成 schema 并验证降级行为。
 - `read_codex_plugin_icon(path) -> { mediaType, base64Data }` 只服务最近一次成功关联的 `plugin/installed` 响应。Rust 必须先按客户端请求 ID 关联响应，只登记其中 `composerIcon`、`logo`、`logoDark` 声明且可 canonicalize 的普通文件；命令仅接受与登记结果完全相同的 canonical path，限制 1 MiB，并按内容签名识别 PNG、JPEG、GIF、WebP 或 SVG。重新请求插件清单时先清空旧授权，运行时重启、停止或工作区切换后不得沿用。
 - 插件图标解析顺序固定为 `composerIcon` / `composerIconUrl`、当前主题 `logoDark` / `logo`、当前主题 `logoUrlDark` / `logoUrl`。本地资源读取失败后可以继续尝试下一候选；远程候选只接受 HTTPS，渲染时必须使用 `referrerPolicy="no-referrer"`，加载错误降级为通用插件图标且不得把整个插件清单标记为失败。
 - 核心运行时就绪后必须调用 `skills/list`，参数固定为当前工作区根目录的单元素 `cwds` 与 `forceReload: false`；收到 `skills/changed` 后使用相同 `cwds` 和 `forceReload: true` 刷新。只展示 enabled Skill，名称优先使用 `interface.displayName`，描述优先使用 `interface.shortDescription`，来源由 `scope` 映射。输入框选择结果必须把模型文本编码为 `$skill-name` 并带 UTF-8 `text_elements`，同时追加精确的 `{ type: "skill", name, path }` 原生输入。
@@ -82,7 +102,11 @@ referenced_by: AGENTS.md#knowledge-map
 
 ## Local Files And Assets
 
-工作区文档 API 必须保留 Markdown 源文件。`upload_workspace_asset` 返回的 `markune-asset://{assetId}` 是新资源唯一的 Markdown 持久化引用；`.markune/assets/files/...` 只描述索引中的平台无关物理文件相对位置。`resolve_workspace_assets(rootPath, assetIds)` 单次最多接收 2,048 个合法资源 ID，只 canonicalize 工作区并读取一次索引，按输入唯一 ID 返回 `resolved | missing | unreadable`、既有资产信息和可读取图片的固有尺寸；旧 `resolve_workspace_asset` 保留一个兼容周期。上传与单/批量解析都只能在索引、canonicalize 和资源目录边界校验成功后，将最终解析出的单个文件加入当前进程的资源协议范围，以支持用户目录外、Windows 非系统盘和 macOS 外置卷上的工作区。预览、引用扫描和清理必须兼容旧相对路径引用，成功解析后可在下一次文档保存时规范化为协议引用，解析失败时不得改写原文。
+工作区文档 API 必须保留 Markdown 源文件。`upload_workspace_asset` 返回的 `markune-asset://{assetId}` 是新资源唯一的 Markdown 持久化引用；`.markune/assets/files/...` 只描述索引中的平台无关物理文件相对位置。`resolve_workspace_assets(rootPath, assetIds)` 单次最多接收 2,048 个合法资源 ID，只 canonicalize 工作区并读取一次索引，按输入唯一 ID 返回 `resolved | missing | unreadable`、既有资产信息和可读取图片的固有尺寸；旧 `resolve_workspace_asset` 保留一个兼容周期。前端必须对超过 2,048 个唯一 ID 的文档分片调用并合并，单片失败只能使该片保持可重试，不能把其他片结果降级为缺失，也不能提交超过原生上限的请求。
+
+`resolveMediaSource` 遵循 Markweave 0.10.3 request：`attempt` 与 `reason` 均为可选，旧调用仍有效。普通请求可以复用有界正缓存；`missing` / `unreadable` 负结果最多保留 5 秒；`reason` 为 `retry | image-error | output` 或 `attempt > 1` 时必须重新调用受校验的资产解析，同一文档 750 ms 内共享恢复波。Abort 或工作区 generation 变化后，前端必须向调用方返回 `null` 并忽略晚到投影；底层共享 IPC 可以完成并写入仍有效的当前工作区缓存。resolver 返回 URL 只表示候选，真实图片/视频 load 才能提交视觉成功。
+
+上传与单/批量解析都只能在索引、canonicalize 和资源目录边界校验成功后，将最终解析出的单个文件加入当前进程的资源协议范围，以支持用户目录外、Windows 非系统盘和 macOS 外置卷上的工作区。预览、引用扫描和清理必须兼容旧相对路径引用，成功解析后可在下一次文档保存时规范化为协议引用，解析失败时不得改写原文。本地视频桥接只在 DOM 上替换展示 `src` 并响应 Markweave output barrier，不新增 Tauri 命令、协议、持久化字段或权限。
 
 ## Inbox Commands
 
@@ -155,3 +179,17 @@ interface DocumentExportRuntimeInfo {
 - `cancel_document_import(sessionId)` 与 `release_document_import_grant(grantId)`：幂等清理当前 staging 或释放源授权。
 
 源授权有效期 15 分钟，提交会话有效期 30 分钟；过期 staging 在后续导入启动时清理。旧 `read_markdown_source_files`、`read_import_source_files` 和 `create_imported_plate_documents` 不得重新注册。
+
+
+## Knowledge Index And Mutation Commands
+
+- `load_workspace_index`：接收 rootPath、sinceRevision、cursor、snapshotRevision、changedPaths、force；返回 revision/reset、变更 documents、removed、warnings、nextCursor、total。游标必须与快照版本和 sinceRevision 一致，分页失败时丢弃本轮部分结果并请求完整快照。全文只在分页记录中，UI 摘要剥离 content。
+- `find_workspace_mentions`：接收工作区目标相对路径和至多 64 篇候选，返回最多 200 个正文提及及行号/上下文，不执行改写。
+- `rename_workspace_node`：统一事务改写明确入链/出链/附件和 workspace.json；`rename_workspace_document_path` 使用同样事务但保持正文标题。已有 move 命令复用相同逻辑。工作区快照可携带可选 warnings，包含待检查的中断移动。
+- `create_workspace_document_from_content`：最多 4 MiB Markdown；可选 sourcePath 必须为当前工作区内既有文档，仅用于模板/来源副本的相对路径重定位。目标采用唯一文件名并原子创建，不覆盖已有文件。
+- `set_workspace_task_checked`：documentPath、UTF-8 字节 offset、完整内容 fingerprint 与 checked；校验并只修改真实任务标记。行号为一基，不能用 JS UTF-16 偏移替代原生字节 offset。
+- `read_workspace_views` / `save_workspace_views`：读写 `.markune/views.json` 的 views 与 fingerprint；最多 64 个视图、配置 256 KiB。删除视图即以原指纹保存删去该 ID 的列表，不删除笔记。
+
+PDF 来源及网页来源采用普通 frontmatter 的 `source` 对象：type/title/quote/capturedAt，网页有 url，PDF 有 page/fingerprint/reference。reference 是标准 Markdown 来源链接。quote 不参加自动链接修复，已捕获证据保持原文。
+
+新增内部命令：`read_codex_artifact(rootPath, relativePath?|assetId?)` 返回有界只读预览；`read_codex_instruction_manifest(rootPath)` 只返回指令文件路径、大小与指纹。`codex_app_server_respond_elicitation` 必须提供原 `sessionId`、requestId 和 accept/decline/cancel，Rust 校验原请求 schema。provider 的 set/clear/auth-mode 更新必须提供 `expectedFingerprint`。更详细的协议与预算见 [专项架构](../architecture/codex.md)。

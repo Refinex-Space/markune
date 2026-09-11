@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-08-15
+updated: 2026-09-11
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -12,7 +12,7 @@ Markune 是一个以本地 Markdown 文档为核心的桌面知识库，使用 N
 ## Runtime Shape
 
 - Web shell：Next.js App Router 与 React client components。
-- Editor：`components/editor/markdown-editor.tsx` 以非受控 `defaultContent` 包装 `@markweave/react` / `markweave`；编辑事务只保留惰性 payload 和 dirty 状态，完整 Markdown 字符串边界只位于 load/flush。源码模式动态加载 CodeMirror 6，Live/Source 切换只在边界互转一次。Slash 附件经 `onSlashCommandUpload` 写入工作区资产并以 `markune-asset://` 持久化，激活下载由 `onAttachmentDownload` 处理。
+- Editor：`components/editor/markdown-editor.tsx` 以非受控 `defaultContent` 包装 `@markweave/react@0.10.4` / `markweave@0.10.4`；Markweave 对正文执行一次 canonical whole-document parse，并在严格 Schema 校验前把混合 Markdown 段落中的块图片提升为有序兄弟节点，避免大文档因图片与相邻文本共处段落而加载失败。首次加载与后续 Markdown 更新共用同一规范化逻辑，图片开头的列表项保留必要首段落；无序列表与表格在需要时通过 HTML 回退保留块媒体结构。HTTP(S) 页面可以使用完整 Markdown lexer Worker，`tauri:` 等桌面自定义协议立即走同语义的主线程解析，避免 WKWebView 构造 Blob Worker 后静默等待超时。只有文本、选择、撤销、搜索与 TOC 完成 `ready` 后才开放编辑，视觉资源再按视口渐进补齐；`parsing`、`mounting` 与 `finalizing` 显示明确进度，加载失败时 Markune 保留本地正文并提供重新加载与源码模式恢复，不再显示无诊断白板。序列化遵循 GFM 词中下划线规则，标识符如 `doc_review_agent` 不再写成 `doc\_review\_agent`。编辑事务只保留惰性 payload 和 dirty 状态，完整 Markdown 字符串边界只位于 load/flush。源码模式动态加载 CodeMirror 6，Live/Source 切换只在边界互转一次。Slash 附件经 `onSlashCommandUpload` 写入工作区资产并以 `markune-asset://` 持久化，激活下载由 `onAttachmentDownload` 处理。
 - Workspace shell：`components/workspace/workspace-layout.tsx` 管理文档树、编辑器标签、全文搜索、Git、终端、设置、文档元信息与 AI 侧栏。左侧顶部系统入口（笔记、日程、Inbox、画板、视图、图谱、Codex）由 `workspace-system-nav.tsx` 渲染，排列与折叠偏好写入全局 `appearance.systemNavLayout` / `appearance.systemNavCollapsed`；文档树“文件夹”标题切换到复用 `directory-page.tsx` 的工作区根级总览，根级文件夹卡片继续进入既有目录详情。
 - Native boundary：前端经 `components/workspace/workspace-api.ts` 调用 Tauri 命令；实现位于 `src-tauri/src`。macOS 原生 `Markune` 菜单中的“设置…”（`⌘,`）与“检查更新…”只发出前端事件：前者复用现有设置页，后者打开“版本”并调用既有 updater 检查，不创建第二个设置窗口，也不自动安装更新。`window_chrome.rs` 只读取 macOS AppKit 红绿灯在 WKWebView 中的垂直中心数值，使 Web 标题栏控件不依赖构建 SDK 的固定偏移；`window_opacity.rs` 通过 macOS AppKit 或 Windows 分层窗口接口调整整个原生窗口的合成透明度，Web 页面不使用 CSS `opacity` 模拟该能力。
 - Codex runtime：`components/workspace/codex-app-server.ts` 只消费协议消息；`src-tauri/src/codex.rs` 启动随应用打包的 Codex App Server sidecar，并通过 stdio JSONL 传递允许的方法、通知与审批请求。
@@ -40,6 +40,30 @@ Markune 是一个以本地 Markdown 文档为核心的桌面知识库，使用 N
 - `components/ui/`：共享 UI 原语。
 - `src-tauri/src/`：资源、Git、设置、系统字体、终端与工作区文件系统命令。
 
+## Attachment Storage
+
+全局 `storage.attachments` 决定新插入附件的保存位置：`managed` 默认保持 `.markune/assets/files` 与 `markune-asset://`；`document`、`assets`、`filename-assets` 和 `custom` 分别保存到文档目录、其 `assets/`、`${filename}.assets/` 或指定目录。普通图片、视频和文件上传使用同一位置策略；目录图标、图稿、Inbox 无正式文档上下文的附件及整篇文档导入仍使用内置资产事务。更改策略或恢复默认只改变后续行为，不迁移历史附件或重写正文。
+
+`document_assets.rs` 接收已存在的 Markdown/MDX 文档路径，原生层从当前应用设置读取策略，不接受前端任意覆盖存储选项。普通文件通过 `create_new` 避免重名覆盖，Markdown 持久化为普通相对路径或 `file://` 地址，不加入内置 SHA 索引或无引用自动清理。已存在的内置资产继续使用原批量解析、稳定 ID 和清理规则；托管索引写入按工作区串行并原子提交，避免批量粘贴丢记录。
+
+本地图片规则默认开启，网络图片规则默认关闭。已有本地路径可选择保留引用；剪贴板位图和无来源路径的 File 必须落盘。网络规则只作用于明确的粘贴/插入，不在文档打开或预览时批量下载。宿主补齐 Markweave 网络图片粘贴绕过上传回调的路径，只替换该次粘贴新插入且仍存在的图片节点；网络规则关闭时每次粘贴只读取一次设置，失败保留原 URL。图片和视频预览使用媒体 resolver，显示地址不写入 Markdown；普通文件解析按文档批量完成。
+
+内置模式隐藏路径语法选项；指定目录输入只在 `custom` 下显示。相对路径默认开启，`./` 默认关闭；关闭相对路径后禁用 `./`，保留其选择但不生效。`${filename}` 使用真实文档文件名去扩展名，`./` 只添加在当前目录及其子目录引用前，跨 Windows 盘符回退绝对文件地址。
+
+文档或目录移动时，以 `pulldown-cmark` 语法范围重算本地附件引用，保留代码示例、标题、引用定义和旧托管定位符，不移动共享附件。目录内资源随目录一起移动时映射到新位置；单篇文档改名保持旧资产目录与有效引用，后续上传使用新 `${filename}`。重写与普通保存共享文档锁，暂存提交前检查源内容，最终使用系统“不覆盖目标”的移动操作；失败仅恢复本次仍未被外部再次修改的内容。预览、附件下载与导出共用受授权的本地文件解析，导出将普通文件复制进原便携 sidecar/转换暂存流程。
+
+## Workspace Refresh
+
+目录右键刷新重建该目录及全部子目录的树描述，同时重读范围内已打开的 Markdown；文档右键刷新只复核该文档，树空白区域刷新复核全工作区及所有已打开标签。空白区域的菜单覆盖目录树剩余高度，提供刷新、新建文档、新建目录，两个创建动作以根目录为空父路径。折叠、搜索和行内重命名继续由现有树组件管理。
+
+`workspace_watch.rs` 使用固定 `notify 8.2.0` 原生递归监听，由窗口持有会话，工作区切换和窗口销毁时释放。回调只累积失效路径，跳过树扫描排除的隐藏/依赖目录和自身暂存文件，不跟随符号链接；150 ms 静默窗口合并事件，最长等待 1 秒，最多 512 个路径，溢出或监听错误转为全量复核。监听不向渲染器提供文件正文，不扩大 Tauri capability。树扫描同样跳过符号链接，只有 `NotFound` 才解释为节点删除。
+
+`use-workspace-refresh.ts` 合并原生、手动、AI、Git 拉取及 Daily 写入请求并串行运行，扫描期间到达的变化留待下一批；每批文档读取并发上限为 4。首次订阅后、窗口恢复可见/聚焦时补偿复核，可见期间每 30 秒复核一次，监听不可用时降级为每 3 秒复核、每 30 秒重试监听。切换工作区后丢弃迟到结果。目录扫描只读取文档头用于树描述，完整正文只读取已打开标签；不以 frontmatter 的 `updatedAt` 判断磁盘内容变化。
+
+外部读取完成后，编辑器通过 `external-refresh` flush 把最新 Live/Source 输入移入内存草稿，该步骤不保存或重命名。磁盘正文等于已保存基线时保留本地输入、选区和 EditorView；正文变化才更新干净标签及其缓存。dirty、保存失败或已经冲突的草稿不会因重复刷新被覆盖。确认加载磁盘版本时重新读取当前文件，确认覆盖时仍校验展示给用户的外部基线。读取失败或文件删除只报告错误并保留编辑内容，不自动关闭标签。
+
+保存同时校验 `expectedModifiedAt` 与可选 `expectedContent` 正文基线，同文档写入在原生层串行，提交前再次核对磁盘正文。原子写使用 `create_new` 随机暂存文件、保留权限并同步后替换，避免多个保存请求共用固定临时文件。普通文件 API 无法对不协作的外部写入者提供完全原子的版本比较与替换；网络文件系统、超大目录及各平台监听仍需真实环境验收。
+
 ## Inbox Capture Boundary
 
 Inbox 是工作区级快速捕获与分拣入口，不属于正式文档树、全局文档搜索或任务系统。每条 Capture 以独立 Markdown 文件保存在 `.markune/inbox/{capture-id}.md`，正文继续复用 Markdown 编辑器和工作区资产能力；列表、搜索和未处理徽标直接从这些文件计算，不修改 `.markune/workspace.json` schema。
@@ -60,9 +84,17 @@ Git Sync 由 `useGitAutoSync`（`components/workspace/use-git-auto-sync.ts`）�
 
 ## Knowledge Graph Boundary
 
-图谱是工作区级只读 `systemPage`，入口位于左侧顶部导航。它不建立数据库、不修改 Markdown，也不把图布局写回工作区。`src-tauri/src/graph.rs` 在有界后台任务中一次扫描工作区 Markdown/MDX，跳过 `.markune`、`.git`、依赖和构建目录，只向渲染器返回相对文档路径、显示标题、节点类型、聚合边与有限警告；单篇文件、文档总数和关系总数都有硬上限。标准 Markdown `.md/.mdx` 链接与 `[[Wiki Link]]` 只在图谱读取层解析，后者不改变编辑器或持久化格式。节点包含普通笔记、`Daily/`、`Weekly/`、标签和 frontmatter 属性字段；`title`、`tags`、时间戳、`refinexDialect`、`aliases` 等系统字段不会生成属性中心节点。
+图谱是工作区级只读 `systemPage`，不建立数据库、不修改 Markdown、不持久化布局。默认读取复用 `workspace_index.rs` 的增量关系投影；`graph.rs` 负责节点/边构建和图谱预算，`graph_parse.rs` 复用 pulldown-cmark 解析正文，`graph_metadata.rs` 在 YAML 展开成本检查后读取 frontmatter，`graph_resolve.rs` 负责文件身份解析。单篇 4 MiB、文档 50,000、目录条目 200,000、深度 64、关系 200,000、辅助节点 20,000、图谱关系投影 32 MiB。独立限额扫描还限制每次读取 128 MiB；默认共享索引的正文缓存为 32 MiB、属性/关系模型预算为 128 MiB。跳过隐藏目录/文件、依赖/构建目录、符号链接及非普通文件。不可读或超限文档保留文件节点并标为内容未完整索引，警告最多 20 条。
 
-`workspace-graph-page.tsx` 通过 `workspace-api.ts` 的单次 Tauri 调用取得快照，继续复用现有工作区树节点完成“打开文档”，不接受原生层返回的绝对路径或全文。`workspace-graph-canvas.tsx` 使用 D3 force/zoom/drag/quadtree 与单个高 DPI Canvas：物理模拟在数据或力参数改变时重启并自然停止，绘制由 `requestAnimationFrame` 合并，边按类型批量描画，标签只在缩放阈值以上且节点位于视口内时显示，命中检测使用四叉树。搜索只高亮并聚焦匹配节点；类型筛选和隐藏孤立节点只投影可见数组，不重新读取工作区。力参数、显示类型和标签阈值仅以工作区路径散列后的 key 保存在浏览器 local storage，不保存原始路径。
+关系以文件为身份，`file:<relativePath>` 与 `tag:`、`property:`、`unresolved:` 分开。标准 Markdown 行内/引用式链接按文档目录解析，`/` 开头按工作区根解析；Wiki 带目录路径从根解析，显式 `./`、`../` 按当前目录解析，裸文件名先同目录再查全局唯一文件名。Markdown URL 严格百分号解码，Wiki 保留字面百分号；标题和别名只供显示，`[[文件|显示名]]` 的目标始终是文件部分。支持无扩展名、标题/块锚点、Wiki 文档嵌入及编辑器保存的 `markweave://doc/…` 相对引用。路径越界和附件/目录引用不生成文档关系，限定目录查找失败不回退同名文件；不确定目标保留为“未解析”，不会提供打开操作。Wiki 允许唯一的不区分大小写匹配，标准 Markdown 路径采用精确大小写。
+
+图谱先执行严格 YAML 解析。仅在语法解析失败且文档明确含 `refinexDialect: 1` 时，允许在内存中为单个未加引号的 `title` 补上字符串引号，再重新执行全部解析与资源限制；不写回文件、不改写其他字段、不覆盖有效 YAML 别名语义。无法恢复的语法错误报告 frontmatter 行、列；递归与展开超限不能因兼容处理而绕过。
+
+代码、数学内容、HTML 注释/块和 `%%` 注释不建立关系。正文标签与 YAML 标签合并并按大小写去重，保留 `topic/sub` 层级；YAML 标量标签继续兼容已有 Markune 数据。非系统 frontmatter 字段中的显式链接参与引用，属性辅助层仅聚合同名字段，不投影任意属性值；属性字段默认隐藏。普通笔记、`Daily/`、`Weekly/` 是文件节点分类。双向引用保留为两条有向边，`weight` 表示单方向出现次数；`degree` 是唯一邻居数，`inDegree` / `outDegree` 是文档引用的唯一来源/目标数，过滤后重新计算。
+
+`workspace-graph-page.tsx` 复用完整工作区树打开文档（包含 Daily），不接受原生绝对路径或全文。工作区统一刷新队列完成树同步后更新图谱版本，当前图谱页合并 300 ms 内变化并串行读取；过期请求不覆盖新工作区，失败保留上次快照。原生 `fingerprint` 只反映图谱事实变化，相同快照不重启 Canvas。当前仍是有界全量扫描，不是常驻增量索引。
+
+Canvas 继续使用 D3 force/zoom/drag/quadtree、高 DPI 与合并绘制；更新时复用存活节点坐标和缩放/平移，双向边共用一条物理约束。文档节点大小随唯一入链数变化，引用可显示方向箭头，暗色节点使用独立颜色。详情分批显示邻居并区分引用方向、次数和归属；筛选不读取磁盘。显示偏好仍按工作区路径散列后的 local storage key 保存，既有显式偏好保留，恢复默认关闭属性字段、启用未解析节点和方向箭头。
 
 ## Drawing Workspace Boundary
 
@@ -88,7 +120,7 @@ Markdown/HTML 相对图片只能从已授权源文档目录内读取；跨工作
 
 单文档导出由 `components/workspace/use-document-export.tsx` 统一编排。入口包括文档树右键/省略号菜单、日程检查器「导出」菜单，以及文档标签右键「导出」子菜单；上述入口只传入文档节点和格式。导出源按当前未保存草稿、已打开标签缓存、磁盘 Markdown 的顺序解析，继续保持 Markdown-first 边界。日程导出通过 `toDailyExportNode` 把 `DailyNoteEntry` 映射为最小 `WorkspaceNode`（文件名 stem 优先使用 `YYYY-MM-DD`），不因导出调用 `open_daily_note` 创建空文件，也不新增批量/整月导出协议。
 
-`document-export-core.ts` 负责可移植 Markdown 资源包、只读 Markweave DOM 快照与静态 HTML 清理。HTML 跟随当前主题并使用 64 rem 标准正文宽度；导出快照必须移除编辑器目录、工具栏、大文档 `content-visibility` 属性和其他运行时 UI，但保留正文语义与内联图片。`document-export-professional.ts` 是 Markune 方言到通用 Markdown 的受控适配层：本地资产只映射到 staging，相同的 frontmatter 标题/H1 去重，Wiki 链接转为可读文本，远程图片转为普通链接，已成功渲染的 Mermaid 预览转为静态 PNG。
+`document-export-core.ts` 负责可移植 Markdown 资源包、只读 Markweave DOM 快照与静态 HTML 清理。DOM 快照必须先等待编辑器 `ready`，再调用 Markweave 0.10.4 官方 output barrier 强制 materialize 全文并等待图片、视频、Mermaid、数学、字体和稳定布局；barrier 报告的缺失、不可读与超时资源转为显式警告或占位，不能通过固定延时猜测完成。HTML 跟随当前主题并使用 64 rem 标准正文宽度；导出快照必须移除编辑器目录、工具栏、大文档 `content-visibility` 属性和其他运行时 UI，但保留正文语义与内联图片。`document-export-professional.ts` 是 Markune 方言到通用 Markdown 的受控适配层：本地资产只映射到 staging，相同的 frontmatter 标题/H1 去重，Wiki 链接转为可读文本，远程图片转为普通链接，已成功渲染的 Mermaid 预览转为静态 PNG。
 
 Word 与 PDF 默认使用固定版本 sidecar：Pandoc 3.10.1 负责 Markdown AST、DOCX writer 和 Typst writer，Word 套用固定 `reference.docx`，PDF 再由 Typst 0.15.1 和固定 A4 模板排版。运行时缺失、平台没有可用中文字体或显式设置 legacy 开关时，Word 回退到 `document-export-word.ts` 的兼容 DOCX writer，PDF 回退到平台 WebView 原生打印；兼容链保留一个迁移周期，不作为继续堆叠专业排版能力的主线。HTML 不经过 Pandoc，文档导入仍维持 Mammoth/PDF.js 的现有安全与交互边界，避免在同一变更中重写成熟的批量导入提交协议。
 
@@ -96,11 +128,11 @@ Word 与 PDF 默认使用固定版本 sidecar：Pandoc 3.10.1 负责 Markdown AS
 
 ## Codex AI Boundary
 
-AI 面板是工作区级客户端，不在浏览器渲染器中运行 Node.js SDK，也不持有供应商 API key。Tauri 启动固定版本的 `codex app-server --listen stdio://`，账户登录、线程历史、模型目录、MCP、联网搜索、工具调用和文件变更由 App Server 提供。前端仅能调用 `src-tauri/src/codex.rs` 与受控的 `codex_provider.rs` 命令；通用 `config/read|write` 仍不在 allowlist。自定义 Responses 兼容端点由宿主写入 `CODEX_HOME/config.toml` 的固定 provider `markune_custom`，API Key 只进入 OS keyring，并在 sidecar 启动时注入进程环境变量 `MARKUNE_CODEX_PROVIDER_API_KEY`；渲染器、`settings.json`、localStorage 与日志不得保存明文 Key。ChatGPT OAuth 与自定义模式互斥，切换后需重启 App Server。会话消息、计划、命令、文件修改与 MCP 事件按协议到达顺序写入统一会话流；助手消息使用禁用原始 HTML 的 GFM 渲染。
+AI 面板是工作区级 App Server 客户端。固定 0.153.4 的协议、运行时监督、任务隔离、文档读写、研究证据与安全 renderer 详见 [Codex 专项架构](codex.md)。应用级 listener 在设置、紧凑面板与全宽工作区之间持续存在；会话投影按 threadId 隔离，旧进程通知按代际拒绝。后台任务的审批、追问和动态工具仍被处理。
 
-Markweave 0.5.2 的 AI 预编辑由两条互补路径组成。可编辑的活动 Live 文档通过 `askAi` 启用编辑器内置入口，覆盖普通文本以及单元格、行、列、多单元格选区和整表；AI 面板通过活动 `MarkdownEditorHandle` 取得 `MarkweaveAiEditController`，仅对普通文本选区发起宿主驱动预编辑。Source、View、只读文档、Plan/AI 预览和隐藏缓存编辑器不发布可用 controller。两条路径都由 Markweave 持有临时差异、冲突检测、接受、舍弃、停止和一次 Undo；接受结果沿既有 `onUpdate`、500 ms 惰性 flush 与 Markdown 保存链路提交，不调用全量 `setContent`。
+新任务默认使用工作区 Agent 与原生请求审批：问答直接回答，修改按用户意图直接调用工具。不提供额外文档预审、回答追加或全文替换动作，也不强制套用内置写作质量标准。编辑器关闭 AI 内联预审，未采纳状态可清除；文件更新继续经过既有工作区刷新与草稿冲突处理。
 
-`components/workspace/codex-inline-ai.ts` 为每次预编辑创建独立的 Codex `ephemeral` 线程，使用当前模型和非 Plan 推理强度，固定 `:read-only + on-request + user`、禁用 Web Search 与 Environment。请求只包含用户指令和 Markweave 提供的目标 Markdown/表格结构，不附加当前会话、整篇文档、文档/图稿引用、附件、mention、Plugin、Skill 或 Goal。runner 只消费自己 thread/turn 的 `final_answer` 增量；AI 面板拒绝归约 ephemeral 或非当前可见线程事件。目标中止、冲突、文档/工作区切换和运行时退出会中断 turn，终态后 best-effort 删除线程；Rust 对 `ephemeral: true` 的 thread 不注入 Markune Drawing 动态工具。
+自定义 provider 选择写入 Markune 专用 overlay，不修改共享 Codex 全局模型。API Key 使用版本化 OS keyring account，只在 sidecar 启动时注入环境；渲染器与日志不保存明文。
 
 AI 画图是宿主内的受控 Codex 能力，不接入远程 Excalidraw MCP UI。随应用打包的 `markune-diagram` Skill 负责检查当前或显式提及图稿、收敛单一视角、选择图型和质量 profile、编排 Mermaid，并根据预览最多修复两轮；Rust 在新线程中固定注入 `markune_drawing.inspect_drawing`、两类 preview 工具、`markune_drawing.apply_preview_to_active` 与 `markune_drawing.create_from_preview`，渲染器不能提供其他 dynamic tools。`inspect_drawing` 只接受当前 turn 已授权的 Drawing UUID，返回去除 files/blob 的有界元素结构和可选 PNG/WebP 预览。Mermaid 编译器只在工具调用时动态加载，成功结果必须是可编辑 Excalidraw 元素，SVG/image fallback 会作为失败返回；编译后按 `architecture | flow | default` profile 计算交叉、穿越节点、关系和分组预算、扇出、转折、逆向关系、重叠、标签裁切与画布比例，返回确定性的 grade、blockers 和 repair suggestions。预览按工作区和 turn 保存在前端内存中，最多 3 个且 10 分钟有效；未达 A 级或存在 blocker 的预览保留供模型检查，但应用和创建都必须失败关闭。模型只能提交 opaque `previewId`：活动图稿改写由 Rust 注入本 turn 绑定的 Drawing ID、kind 与 revision，前端再次校验后复用普通原子保存、备份和冲突机制；显式提及图稿始终只读。用户明确要求新建或副本、或没有活动图稿时才走 generated-create。
 
@@ -108,7 +140,7 @@ AI 画图是宿主内的受控 Codex 能力，不接入远程 Excalidraw MCP UI�
 
 生成图稿继续复用 Drawing Raw IPC，但使用独立 generated-create session。场景与 PNG/WebP 预览完整暂存并通过 Rust 校验后，revision 1 bundle 才从 `.staging` 原子 rename 到当前普通图集或未归类根目录；任何失败都不创建空白 bundle。成功后前端刷新图稿库、切换到 Drawings system page 并打开结果，后续保存、备份、冲突和导出完全复用普通图稿流程。
 
-Codex 运行时在工作区根目录就绪后后台预热，关闭右侧 AI 面板只隐藏视图，不卸载会话组件或终止 App Server。启动采用分层加载：App Server、账户与权限约束构成可发送消息的核心就绪条件，模型目录、线程历史、当前工作区的已安装插件与 Skill 在核心就绪后后台加载。Markune 不为输入框菜单预取或展示 MCP inventory。模型、历史、插件或 Skill 加载慢或失败都不得退回全屏“正在连接”状态，也不得阻塞使用服务端默认模型发送消息。用户在核心握手期间可以编辑并提交，提交操作等待同一个启动 Promise，核心成功后继续执行，失败时保留草稿并显示错误。
+Codex 运行时在工作区根目录就绪后后台预热，关闭右侧 AI 面板只隐藏视图，不卸载会话组件或终止 App Server。启动采用分层加载：App Server、账户与权限约束构成可发送消息的核心就绪条件，模型目录、线程历史、当前工作区的已安装插件与 Skill 在核心就绪后后台加载。Markune 不为输入框菜单预取 MCP inventory，也不在普通 Agent 任务开始前额外禁用用户的连接器或插件。模型、历史、插件或 Skill 加载慢或失败都不得退回全屏“正在连接”状态，也不得阻塞使用服务端默认模型发送消息。用户在核心握手期间可以编辑并提交，提交操作等待同一个启动 Promise，核心成功后继续执行，失败时保留草稿并显示错误。
 
 Codex 同时提供右侧紧凑面板和主工作区两种展示形态，但两者必须复用同一个持续挂载的 `AiPanel` 实例；从左侧固定的“Codex”入口进入主工作区时，只切换 presentation，不新建运行时、线程或消息状态，也不清空当前文档与已打开标签。主工作区中的文档动作先打开右侧只读预览检查器，不立即替换编辑器当前文档；预览优先使用当前未保存草稿或已缓存编辑器 session，否则通过既有 `readMarkdownDocument` 读取磁盘内容。用户只有显式选择“在编辑器中打开”时，才把该文档提升为普通编辑器标签。预览宽度只保存在浏览器 local storage，不属于工作区或 AI 会话状态。
 
@@ -120,13 +152,13 @@ Codex 同时提供右侧紧凑面板和主工作区两种展示形态，但两�
 
 上下文用量只消费 App Server 的 `thread/tokenUsage/updated`：输入框显示 `last.totalTokens / modelContextWindow`，累计的 `total.totalTokens` 不作为当前窗口占比。最新用量按 thread ID 保留在面板运行时内存中，用于线程恢复通知与界面切换，不写入 Markune 数据库、local storage 或会话副本。手动压缩只调用受控的 `thread/compact/start { threadId }`，并以 `contextCompaction` item 的 started/completed 生命周期展示状态；旧 `thread/compacted` 仅作完成兼容。自动压缩阈值及触发时机由 Codex Core 和 `model_auto_compact_token_limit` 配置所有，Markune 不创建第二套阈值、定时器或重试循环。
 
-AI 文件修改以 App Server 事件为刷新事实源。`item/fileChange/patchUpdated` 只更新处理中预览；成功的 `item/completed(fileChange)` 才按路径合并并触发短延迟重读，`turn/completed` 再刷新目录树并复核所有已打开 Markdown 标签，以覆盖通过 shell 直接写盘但未形成 fileChange item 的情况。发送 turn 前必须先完成当前草稿保存，避免 Codex 读取旧磁盘内容。磁盘重读继续使用受工作区边界保护的 `read_markdown_document`，不增加通用文件监听或 Tauri capability。
+AI 文件修改以 App Server 事件为刷新事实源。`item/fileChange/patchUpdated` 只更新处理中预览；成功的 `item/completed(fileChange)` 才按路径合并并触发短延迟重读，`turn/completed` 再刷新目录树并复核所有已打开 Markdown 标签，以覆盖通过 shell 直接写盘但未形成 fileChange item 的情况。发送 turn 前必须先完成当前草稿保存，避免 Codex 读取旧磁盘内容。AI 事件进入与原生文件监听、手动刷新共用的串行刷新队列；磁盘重读继续使用受工作区边界保护的 `read_markdown_document`。
 
-当 Codex 写盘期间用户又修改了同一当前文档，Markune 不自动选择任一版本，也不继续自动保存：编辑器保留本地草稿并进入显式冲突状态，用户只能确认“加载 AI 版本”或“用我的版本覆盖”。完成 turn 的聚合 diff 优先生成确定性的“已编辑 N 个文件”摘要、净增删行数和可展开文件列表；Markdown 路径只有在已解析到当前工作区时才可点击。摘要不发起第二次模型调用，也不提供缺少 turn 快照保障的一键撤销。
+当 Codex 写盘期间用户又修改了同一当前文档，Markune 不自动选择任一版本，也不继续自动保存：编辑器保留本地草稿并进入显式冲突状态，用户只能确认“加载磁盘版本”或“用我的版本覆盖”。完成 turn 的聚合 diff 优先生成确定性的“已编辑 N 个文件”摘要、净增删行数和可展开文件列表；Markdown 路径只有在已解析到当前工作区时才可点击。摘要不发起第二次模型调用，也不提供缺少 turn 快照保障的一键撤销。
 
 工具组及技术详情默认折叠，只保留语义摘要、状态与耗时；执行失败不会自动展开详情，拒绝和待审批活动仍自动展开，用户手动 disclosure 状态不会被后续增量或完成通知重置。消息视口只在用户位于底部时跟随流式更新，用户上滚后显示轻量“回到最新消息”按钮；发送新消息或显式点击后恢复跟随。输入编辑区从紧凑高度开始随内容增长，并在达到面板合理上限后改为内部滚动。
 
-历史恢复以 App Server 实际返回的 thread items 为上限。固定 sidecar `0.144.4` 的 `thread/read` 与 `thread/turns/list` 当前不会回放已完成 turn 的命令和其他工具 item，`thread/items/list` 也尚未实现；因此 Markune 可以恢复 commentary、最终回答和 App Server 返回的持久 item，但不能通过读取 Codex JSONL 或维护第二份日志补齐缺失的历史工具明细。升级 sidecar 后必须重新验证该投影能力。
+历史恢复以 App Server 实际返回的 thread items 为上限。固定 sidecar `0.144.4` 的 `thread/read` 与 `thread/turns/list` 当前不会回放已完成 turn 的命令和其他工具 item，`thread/items/list` 也尚未实现；因此 Markune 可以恢复 commentary、最终回答和 App Server 返回的持久 item，但不能通过读取 Codex JSONL 或维护第二份日志补齐缺失的历史工具明细。升级 sidecar 后必须重新验证该投影能力。共享 `~/.codex` 中由更新版 Codex 写入的 `historyMode=paginated` 线程会让 sidecar 拒绝 `thread/read includeTurns=true` 和默认 `thread/resume`；前端必须降级为 `includeTurns=false` / `excludeTurns=true`，仍失败时自动恢复跳过该线程并显示中文说明，不得把 `paginated_threads is not supported yet` 变成未捕获运行时崩溃。
 
 线程以当前工作区根目录作为 `cwd`，默认选择 Codex 命名权限配置 `:workspace`、`on-request` 审批策略和 `user` reviewer。用户可以切换为自动风险审查、`:danger-full-access`、`:read-only` 或 App Server 从 `config.toml` 返回的自定义 permission profile；模式切换统一走 `thread/settings/update`，后续 `turn/start` 不再重复覆盖线程权限。自动审查只改变审批 reviewer，不扩大 permission profile；完全访问必须经过显式风险确认，并固定为 `:danger-full-access + never + user`。
 
@@ -158,19 +190,25 @@ Plan turn 的 `item/plan/delta` 只用于流式展示，`item/completed` 的完�
 
 提及候选只来自当前已加载的 Markdown 文档索引，并在前端按标题、文件名和工作区相对路径进行确定性的 Unicode 模糊排序。匹配同时识别忽略空格与常用路径分隔符的紧凑前缀；当前文档在真实命中后获得有限排序加权并显式标记，但不会压过更高等级的文本匹配；只有已显式插入输入框的文档从候选中排除。编辑器基于真实光标位置识别空白分隔的 `@token`，候选列表支持方向键循环选择、选中项就近滚动、Enter/Tab 确认和 Escape 关闭。固定 sidecar 虽提供通用 `fuzzyFileSearch`，但 Markune 不向渲染器开放该文件系统枚举接口，避免绕过文档索引和工作区路径边界。
 
-Codex App Server 是 AI 会话持久化的唯一所有者。Markune 默认把 sidecar 绑定到共享的 `~/.codex`，允许的 `CODEX_HOME` 覆盖必须是工作区之外的既有绝对目录；该进程的 `sqlite_home` 固定为同一目录。Codex 管理 `sessions/**/*.jsonl` 会话记录、`session_index.jsonl` 追加索引和 SQLite 查询投影，Markune 只能通过 `thread/start`、`thread/resume`、`thread/list`、`thread/read`、`thread/name/set`、`thread/archive` 与 `thread/delete` 访问线程，禁止直接读写这些内部文件或数据库。
+Codex App Server 是 AI 会话持久化的唯一所有者。Markune 默认把 sidecar 绑定到共享的 `~/.codex`，允许的 `CODEX_HOME` 覆盖必须是工作区之外的既有绝对目录；该进程的 `sqlite_home` 固定为同一目录。Codex 管理 `sessions/**/*.jsonl` 会话记录、`session_index.jsonl` 追加索引和 SQLite 查询投影，Markune 只能通过允许的原生 thread API（含列表、分页、分支、恢复与归档）访问线程，禁止直接读写这些内部文件或数据库。
 
 工作区 `.markune` 只保存工作区元数据和资产，不保存 AI 消息。历史 `.markune/ai-sessions` JSON 方案已经废弃，不得重新引入，也不得为 Codex 会话维护第二份本地镜像。
 
 ## Storage And Editor Boundary
 
-持久化文档始终为 Markdown 文件。磁盘格式、内存草稿和编辑器输入/输出必须保持 Markdown 字符串边界，禁止重新引入富文本投影层。
+持久化文档始终为 Markdown 文件。磁盘格式、内存草稿和编辑器输入/输出必须保持 Markdown 字符串边界，禁止重新引入富文本投影层。文档树标题来自文件头 frontmatter 或 H1，读取时收起词中 `\_`，与 Markweave 0.10.4 的 GFM 序列化规则对齐。
 
-Markweave 只接收 frontmatter 解析后的正文；保存时必须重新序列化受保护的 frontmatter。停止输入 500 ms、手动保存、切换标签/模式、导出、AI 发送和应用退出统一调用 `flushDraft(reason)`；flush 才读取一次 `payload.markdown`、恢复图稿引用、更新 `updatedAt` 并进入原子保存，失败会中止后续动作并保留草稿。新上传资源的物理文件写入工作区根目录下的 `.markune/assets/files/{shard}/{hash}.{ext}`，Markdown 持久化引用统一使用 `markune-asset://{assetId}`。正文挂载不等待资源预检；打开后的资源预检按唯一 ID 调用一次 `resolve_workspace_assets`，前端通过有界的工作区级缓存跨 Tab 复用成功、缺失、不可读与进行中结果。NodeView 只在展示层按视口解析 URL，不再把全部展示 URL 写回整篇 Markdown，也不通过 DOM 扫描触发文档事务。旧 `.markune/assets/files/...` 引用保持只读兼容，并在成功解析后的下一次保存中规范化为协议引用。资产存活扫描覆盖正式 Markdown 和 `.markune/inbox/*.md`，但不扫描 `.markune` 下其他私有 Markdown。
+受控 `title` 写入必须按 YAML 字符串转义，前端 `markdown-frontmatter.ts` 与原生 `document_frontmatter.rs` 保持同一规则；加粗标记、冒号、引号、反斜杠、换行、数字或布尔样式标题不能直接插值进 YAML。重新读取时解码 JSON 兼容双引号和 YAML 单引号，避免转义字符泄漏到树标题。普通标题保持原有简洁表示，未知字段不因标题修复被整体重写。
+
+Markweave 只接收 frontmatter 解析后的正文；保存正文时必须复用 frontmatter 原文，只为明确改变的字段修改值区间。停止输入 500 ms、手动保存、切换标签/模式、导出、AI 发送和应用退出统一调用 `flushDraft(reason)`；flush 才读取一次 `payload.markdown`、恢复图稿引用、更新已有 `updatedAt` 并进入原子保存，失败会中止后续动作并保留草稿。默认内置存储把新资源写入 `.markune/assets/files/{shard}/{hash}.{ext}`，Markdown 使用 `markune-asset://{assetId}`；用户选择其他附件存储模式时使用既有普通文件引用与授权边界。
+
+正文 canonical 挂载不等待视觉资源解析。宿主按文档唯一资产 ID 发起解析波，每个 `resolve_workspace_assets` IPC 最多 2,048 项并合并全部分片；工作区级缓存最多保留 8 个 root、每个 8,192 个结果及共享中的请求。`resolved` 正结果有界复用，`missing` / `unreadable` 只负缓存 5 秒；Markweave 0.10.4 resolver request 的可选 `attempt` / `reason` 在 `retry`、`image-error`、`output` 或 `attempt > 1` 时强制重新校验，同一文档 750 ms 内的恢复请求合并，单个分片失败不污染其他分片或形成永久失败。
+
+图片候选 URL 只有在真实 `<img load>` 后才算成功，resolver 返回本身不能提交成功缓存。图片仍由 Markweave NodeView 按视口调度；本地视频由 `markweave-video-media-bridge.ts` 在 DOM 层解析、超时、重试和响应 output barrier，只投影 `<video src>` 与 `data-media-state`，不修改 ProseMirror 文档、Markdown 或撤销历史。所有晚到结果都必须校验 Abort、工作区 generation 与当前持久化 source。旧 `.markune/assets/files/...` 引用保持只读兼容，并在成功解析后的下一次保存中规范化为协议引用。资产存活扫描覆盖正式 Markdown 和 `.markune/inbox/*.md`，但不扫描 `.markune` 下其他私有 Markdown。
 
 ## Large-document Performance Boundary
 
-Markune 的每次按键不得读取 `payload.markdown`、复制完整草稿到父级状态或产生资产 IPC。`?markunePerf=1` 开启脱敏诊断，`window.__MarkunePerformanceReport()` 返回仅含数量、耗时、原因和状态的 JSON；不得记录正文或路径。Markweave 0.3 在大 Markdown 上使用安全标题边界的渐进解析、增量 TOC、轻量媒体 DOM NodeView、受控 `content-visibility` 与无事务级 React 重渲染。工作区以 LRU 方式保留最近 3 个已打开文档的 EditorView；切换 Tab 只改变可见性和活动编辑器 ref，关闭或超过上限才销毁实例，文档版本键必须在 live draft 与缓存 session 之间保持稳定。Markune 的 0.3 集成必须先通过本地 tarball 验证，npm 发布与 Markune 依赖升级仍是独立发布动作。
+Markune 的每次按键不得读取 `payload.markdown`、复制完整草稿到父级状态或产生资产 IPC。`?markunePerf=1` 开启脱敏诊断，`window.__MarkunePerformanceReport()` 返回仅含数量、耗时、原因和状态的 JSON；不得记录正文或路径。Markweave 0.10.4 以 canonical whole-document parse 保证完整 ProseMirror 语义，再通过复杂度分层、增量 TOC/搜索、视口协调、轻量媒体 NodeView、受控 `content-visibility` 和 output barrier 隔离结构就绪与视觉补齐；Markune 不恢复按 Markdown 文本块独立解析。工作区以 LRU 方式保留最近 3 个已打开文档的 EditorView；切换 Tab 只改变可见性和活动编辑器 ref，关闭或超过上限才销毁实例，文档版本键必须在 live draft 与缓存 session 之间保持稳定。依赖升级必须先核对 npm tarball、锁文件中的单运行时解析和 React/Vue 发布边界，再执行 Markune 的浏览器与真实桌面验收。
 
 ## Desktop Update Boundary
 
@@ -183,3 +221,28 @@ Markune 的每次按键不得读取 `payload.markdown`、复制完整草稿到�
 ## Desktop Build Boundary
 
 `scripts/stage-document-import-runtime.mjs` 在开发和构建前从锁定依赖复制 PDF Worker、CMap、标准字体、WASM、Tesseract Worker 与中英文模型到忽略版本控制的 `public/import-runtime`；任一源文件缺失都会使启动或构建失败。`scripts/build-tauri-web.mjs` 在 Tauri 静态导出时临时移出 `app/api`，设置 `NEXT_OUTPUT=export`，运行 Web build 后在 `finally` 中恢复。改动此流程时必须同时验证 Web build 与桌面静态导出。
+
+
+## Metadata Fidelity And Document Moves
+
+`markdown-frontmatter-source.ts` 用固定 YAML 解析器维护原文与类型化属性两个视图。未改字段、注释、顺序、别名、块字符串、BOM 和 CRLF 不因正文保存重写；同形嵌套属性递归修改值区间，显式增删集合项只重排该集合并保留注释。无效 YAML 仍可查看和保存正文，但拒绝结构化字段修改。打开普通 Markdown 不补写 frontmatter/H1；只有原文已有 `title` / `updatedAt` 时普通编辑才更新对应系统字段。Source 编辑器把 CodeMirror 的 LF 坐标映射回原始换行，只替换发生编辑的区间，保存不会重建撤销栈。
+
+重命名/移动由 `document_links.rs` 统一解析当前工作区的明确文档引用，并以移动前后 Lookup 保护目标身份。支持 Markdown、引用定义、Wiki、嵌入、HTML 文档链接和 `markweave://doc/`，同时重算移动文档中的普通附件路径。代码、注释、未解析/歧义引用和附件卡片不作为普通文档链接改写。原生更新根层 title 与正文 H1，保留 MDX 扩展名，大小写改名先验证同一文件系统条目并同步引用拼写；自动文件名同步使用保留标题的独立命令。模板复制只重定位副本的出链和附件，不修改模板或其他笔记。
+
+移动先持有操作锁和受影响文件保存锁，校验文件清单/内容、目标不存在及文档锁定状态，再提交内容与 workspace.json，最后执行不覆盖目标的路径移动。`document_move_journal.rs` 在 `.markune/moves/<uuid>/` 临时记录原文副本和 SHA-256；该目录自带 Git 忽略规则。打开工作区或再次移动时检查中断记录：尚未移动则只回退仍匹配本次写入指纹的文件；最终路径移动已完成则清理记录。外部改动、损坏副本或路径异常不被覆盖，工作区保留可读且展示警告，后续移动暂停至现场检查。它不是笔记历史或回收站。
+
+## Shared Knowledge Index And Views
+
+`workspace_index.rs` 以路径、文件状态和 SHA-256 维护一个活动工作区缓存，文件监听及应用保存使对应路径失效；未变文件复用解析投影，文件清单变化才重新解析引用目标。分页传输变更文档和删除路径，最多 64 篇 / 16 MiB；最多保留 4 组未完成快照，切换根目录不破坏已开始的分页。超出正文缓存的文件按页读取并核对指纹；失败保留上一份前端摘要，下次从完整快照恢复。读失败负缓存 5 秒；强制刷新会重建受限模型。
+
+前端 `use-workspace-knowledge.ts` 将正文送入 Worker 搜索索引，UI 只保留属性/关联摘要；Worker 不可用时复用相同算法。索引增删只更新相应倒排项，正文与词项按估算 128 MiB 预算分配，超限笔记保留标题/路径/属性检索并明确提示。高级条件包括路径、嵌套标签、属性、修改日期、笔记类型和精确短语；搜索结果、任务与关联上下文可定位原文行。未链接提及先检索至多 64 篇候选，再原生排除 YAML、代码、注释和已链接位置，不自动建边。局部图谱以文档链接做 1–3 层扩展，标签等辅助节点仅作为叶节点。
+
+关联面板以索引中的文档标题呈现入链、出链和未链接提及，完整路径只用于悬停提示，同名笔记补充所在文件夹。上下文经有界 Markdown 纯文本转换，截断的链接目标不进入可见摘录；标题单行、摘录最多两行。提及查询保留 16 个检索名称和 64 篇候选上限，重复请求合并，文档切换后丢弃旧结果；列表每批显示 100 项，打开文档、行号和锚点仍沿用现有导航回调。
+
+视图页复用同一索引提供列、排序、分组、属性筛选及跨笔记任务。`.markune/views.json` 只保存用户命名的视图配置，以指纹防止多窗口覆盖；笔记属性仍写回原 Markdown。属性修改使用全文预期值，任务更新以 SHA-256 和重新解析的任务标记位置保护，只改复选框字符。锁定/只读文档禁止这些写入。内置模板及 `Templates/`、`模板/`、`markuneTemplate: true` 文档支持 title/date/time 变量。
+
+## Resources And Research Sources
+
+附件页按托管资产身份或解析后的相对位置聚合引用，以缩略图、文件名、格式和已知大小呈现资源；完整路径仅通过复制路径或在文件夹中显示操作提供。图片支持大图预览、方向键切换、适应窗口和原始尺寸，关闭时恢复触发控件焦点。本地资源下载复用受控读取、原生保存对话框和导出写入，取消或工作区已切换时不继续写入。工具栏仅保留搜索，无法读取或预览的资源在对应条目内显示状态；网络图片仅在用户打开大图时加载，也可打开原图，列表不自动请求网络资源。外部目录仍受既有附件授权约束。PDF 阅读复用离线 PDF.js，限制 50 MiB / 300 页，Canvas 与可选文字层同步渲染。摘录保存原文、页码、采集时间和 PDF SHA-256；网页摘录保存用户提供的原文和 HTTP(S) 来源。原文 quote 作为资料数据保真保存，不参与文档关系改写；仅 `source.reference` 是可随移动更新的来源引用。来源面板可回到 PDF 页码或网页，并提示 PDF 指纹变化。
+
+研究页从用户选择的 1–8 篇文档读取最新内容，生成带文件路径、指纹与有界预览的研究草稿，追加到既有 AI 输入框并保留提及节点。用户决定发送；此步骤不请求模型、不启动会话，也不自动修改笔记。提示要求 AI 实际读取原文、核实行号并区分证据/推断/待核实，不能把它描述为已自动验证模型回答的引用正确性。

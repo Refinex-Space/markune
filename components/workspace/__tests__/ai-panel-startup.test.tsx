@@ -1,5 +1,12 @@
 import * as React from 'react';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -8,6 +15,7 @@ const bridge = vi.hoisted(() => ({
   pasteAttachments: vi.fn(),
   readAttachmentPreview: vi.fn(),
   readPluginIcon: vi.fn(),
+  readDocument: vi.fn(),
   releaseAttachments: vi.fn(),
   rejectPending: vi.fn(),
   request: vi.fn(),
@@ -16,8 +24,7 @@ const bridge = vi.hoisted(() => ({
 }));
 
 vi.mock('../codex-app-server', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('../codex-app-server')>();
+  const actual = await importOriginal<typeof import('../codex-app-server')>();
   return {
     ...actual,
     codexAppServerClient: {
@@ -25,7 +32,7 @@ vi.mock('../codex-app-server', async (importOriginal) => {
       request: bridge.request,
       subscribe: bridge.subscribe,
     },
-    listenCodexEventsUntilDisposed: bridge.listen,
+    ensureCodexMessageBridge: bridge.listen,
     pasteCodexContextAttachments: bridge.pasteAttachments,
     readCodexContextAttachmentPreview: bridge.readAttachmentPreview,
     readCodexPluginIcon: bridge.readPluginIcon,
@@ -40,10 +47,12 @@ vi.mock('../workspace-api', async (importOriginal) => {
     ...actual,
     isTauriRuntime: () => true,
     openUrlInDefaultBrowser: vi.fn(),
+    readMarkdownDocument: bridge.readDocument,
   };
 });
 
 import { AiPanel } from '../ai-panel';
+import { CodexTaskStore } from '../codex-task-store';
 import type { CodexProtocolMessage } from '../codex-app-server';
 
 const activeDocument = {
@@ -112,10 +121,16 @@ function defaultResponse(method: string) {
     return {
       data: [
         { name: 'Plan', mode: 'plan', model: null, reasoning_effort: 'medium' },
-        { name: 'Default', mode: 'default', model: null, reasoning_effort: null },
+        {
+          name: 'Default',
+          mode: 'default',
+          model: null,
+          reasoning_effort: null,
+        },
       ],
     };
   }
+  if (method === 'mcpServerStatus/list') return { data: [], nextCursor: null };
   if (method === 'thread/list') {
     return { data: [], nextCursor: null };
   }
@@ -123,7 +138,13 @@ function defaultResponse(method: string) {
     return { data: [] };
   }
   if (method === 'permissionProfile/list') {
-    return { data: [], nextCursor: null };
+    return {
+      data: [
+        { id: ':read-only', allowed: true, description: null },
+        { id: ':workspace', allowed: true, description: null },
+      ],
+      nextCursor: null,
+    };
   }
   if (method === 'configRequirements/read') {
     return { requirements: null };
@@ -210,6 +231,12 @@ function renderPanel(
 
 beforeEach(() => {
   window.sessionStorage.clear();
+  for (const method of ['hasPointerCapture', 'setPointerCapture', 'releasePointerCapture', 'scrollIntoView']) {
+    Object.defineProperty(HTMLElement.prototype, method, {
+      configurable: true,
+      value: vi.fn(() => false),
+    });
+  }
   Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
     configurable: true,
     value: vi.fn(),
@@ -218,20 +245,27 @@ beforeEach(() => {
   bridge.pasteAttachments.mockReset().mockResolvedValue(null);
   bridge.readAttachmentPreview.mockReset();
   bridge.readPluginIcon.mockReset();
+  bridge.readDocument.mockReset().mockResolvedValue({ content: '原文' });
   bridge.releaseAttachments.mockReset().mockResolvedValue(undefined);
   bridge.rejectPending.mockReset();
   bridge.start.mockReset().mockResolvedValue(runtime);
-  protocolSubscriber = null;
+  const subscribers = new Set<(message: CodexProtocolMessage) => void>();
+  protocolSubscriber = (message) => {
+    for (const subscriber of subscribers) subscriber(message);
+  };
   bridge.subscribe.mockReset().mockImplementation((subscriber) => {
-    protocolSubscriber = subscriber;
-    return vi.fn();
+    subscribers.add(subscriber);
+    return () => subscribers.delete(subscriber);
   });
-  bridge.request.mockReset().mockImplementation((method: string) =>
-    Promise.resolve(defaultResponse(method)),
-  );
+  bridge.request
+    .mockReset()
+    .mockImplementation((method: string) =>
+      Promise.resolve(defaultResponse(method)),
+    );
 });
 
 describe('AI panel startup lifecycle', () => {
+
   it('点击发送后立即回显消息并清空输入框，不等待文档保存完成', async () => {
     const user = userEvent.setup();
     const beforeTurnStart = deferred<boolean>();
@@ -303,7 +337,9 @@ describe('AI panel startup lifecycle', () => {
       relativePath: activeDocument.relativePath,
       title: activeDocument.title,
     };
-    renderPanel(vi.fn().mockResolvedValue(true), null, null, [mentionedDocument]);
+    renderPanel(vi.fn().mockResolvedValue(true), null, null, [
+      mentionedDocument,
+    ]);
 
     await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
     const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
@@ -319,9 +355,9 @@ describe('AI panel startup lifecycle', () => {
     expect(screen.getByText('发送失败')).toBeTruthy();
     expect(editor.textContent).toContain('检查内容');
     expect(screen.getAllByRole('link', { name: 'Test.md' })).toHaveLength(2);
-    expect(
-      bridge.request.mock.calls.some(([method]) => method === 'turn/start'),
-    ).toBe(false);
+    expect(bridge.request.mock.calls.some(([method]) => method === 'turn/start')).toBe(
+      false,
+    );
   });
 
   it('图片粘贴进入附件栏，turn 接受前保留并在成功后释放授权', async () => {
@@ -362,7 +398,9 @@ describe('AI panel startup lifecycle', () => {
       ),
     );
     expect(screen.getAllByText('粘贴图片.png').length).toBeGreaterThan(0);
-    expect(bridge.releaseAttachments).not.toHaveBeenCalledWith(['image-grant-1']);
+    expect(bridge.releaseAttachments).not.toHaveBeenCalledWith([
+      'image-grant-1',
+    ]);
 
     turnStart.resolve({ turn: { id: 'turn-image' } });
     await waitFor(() =>
@@ -402,7 +440,9 @@ describe('AI panel startup lifecycle', () => {
     expect(editor.textContent).toBe('请审阅附件');
     expect(screen.getByText('发送失败')).toBeTruthy();
     expect(screen.getAllByText('CONTRIBUTING.md').length).toBeGreaterThan(1);
-    expect(bridge.releaseAttachments).not.toHaveBeenCalledWith(['file-grant-1']);
+    expect(bridge.releaseAttachments).not.toHaveBeenCalledWith([
+      'file-grant-1',
+    ]);
     expect(bridge.request).toHaveBeenCalledWith('thread/delete', {
       threadId: 'thread-1',
     });
@@ -449,15 +489,17 @@ describe('AI panel startup lifecycle', () => {
     expect(
       screen.getByRole('button', { name: '图片 截图.png 暂无安全预览' }),
     ).toBeTruthy();
-    expect(
-      bridge.request.mock.calls.some(([method]) => method === 'turn/start'),
-    ).toBe(false);
+    expect(bridge.request.mock.calls.some(([method]) => method === 'turn/start')).toBe(
+      false,
+    );
   });
 
   it('每个 turn 感知当前活跃图稿并在发送前刷新保存', async () => {
     const user = userEvent.setup();
     const onBeforeTurnStart = vi.fn().mockResolvedValue(true);
-    renderPanel(onBeforeTurnStart, null, null, [], activeDrawing, [activeDrawing]);
+    renderPanel(onBeforeTurnStart, null, null, [], activeDrawing, [
+      activeDrawing,
+    ]);
 
     await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
     expect(screen.getAllByText(activeDrawing.title).length).toBeGreaterThan(0);
@@ -482,8 +524,12 @@ describe('AI panel startup lifecycle', () => {
   it('通过 @ 搜索并提及图稿，发送稳定 Drawing URI 和结构化引用', async () => {
     const user = userEvent.setup();
     const openDrawing = vi.fn();
-    window.addEventListener('markune:open-drawing', openDrawing, { once: true });
-    renderPanel(vi.fn().mockResolvedValue(true), null, null, [], null, [activeDrawing]);
+    window.addEventListener('markune:open-drawing', openDrawing, {
+      once: true,
+    });
+    renderPanel(vi.fn().mockResolvedValue(true), null, null, [], null, [
+      activeDrawing,
+    ]);
 
     await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
     const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
@@ -512,9 +558,7 @@ describe('AI panel startup lifecycle', () => {
         }),
       ),
     );
-    await user.click(
-      screen.getByRole('link', { name: activeDrawing.title }),
-    );
+    await user.click(screen.getByRole('link', { name: activeDrawing.title }));
     expect(openDrawing).toHaveBeenCalledWith(
       expect.objectContaining({
         detail: { drawingId: activeDrawing.id },
@@ -551,7 +595,9 @@ describe('AI panel startup lifecycle', () => {
     await user.click(editor);
     await user.type(editor, '@SpringB');
 
-    const options = screen.getAllByRole('option');
+    const options = screen
+      .getAllByRole('option')
+      .filter((option) => option.hasAttribute('aria-label'));
     expect(options[0].getAttribute('aria-label')).toBe(
       '提及 Spring Boot 介绍，当前文档',
     );
@@ -755,6 +801,7 @@ describe('AI panel startup lifecycle', () => {
     );
     await waitFor(() =>
       expect(bridge.request).toHaveBeenCalledWith('thread/resume', {
+        developerInstructions: expect.stringContaining('使用工作区工具直接完成相应操作'),
         threadId: 'thread-latest',
       }),
     );
@@ -772,6 +819,217 @@ describe('AI panel startup lifecycle', () => {
             'thread-older',
       ),
     ).toHaveLength(0);
+  });
+
+  it('自动恢复时跳过无法打开的分页历史会话', async () => {
+    bridge.request.mockImplementation(
+      (method: string, params?: Record<string, unknown>) => {
+        if (method === 'thread/list') {
+          return Promise.resolve({
+            data: [
+              {
+                id: 'thread-paginated',
+                name: '分页会话',
+                preview: '新格式',
+                createdAt: 3,
+                updatedAt: 30,
+                cwd: '/workspace',
+                historyMode: 'paginated',
+                status: 'idle',
+                turns: [],
+              },
+              {
+                id: 'thread-legacy',
+                name: '兼容会话',
+                preview: '可恢复',
+                createdAt: 2,
+                updatedAt: 20,
+                cwd: '/workspace',
+                historyMode: 'legacy',
+                status: 'idle',
+                turns: [],
+              },
+            ],
+            nextCursor: null,
+          });
+        }
+        if (method === 'thread/read') {
+          if (params?.threadId === 'thread-paginated') {
+            return Promise.reject(
+              new Error('paginated_threads is not supported yet'),
+            );
+          }
+          return Promise.resolve({
+            thread: {
+              id: params?.threadId,
+              name: '兼容会话',
+              preview: '可恢复',
+              createdAt: 2,
+              updatedAt: 20,
+              cwd: '/workspace',
+              status: 'idle',
+              turns: [
+                {
+                  id: 'turn-legacy',
+                  status: 'completed',
+                  items: [
+                    {
+                      id: 'msg-legacy',
+                      type: 'agentMessage',
+                      phase: 'final_answer',
+                      text: '这是兼容会话内容',
+                    },
+                  ],
+                },
+              ],
+            },
+          });
+        }
+        if (method === 'thread/resume') {
+          if (params?.threadId === 'thread-paginated') {
+            return Promise.reject(
+              new Error('paginated_threads is not supported yet'),
+            );
+          }
+          return Promise.resolve({
+            activePermissionProfile: { extends: null, id: ':workspace' },
+            approvalPolicy: 'on-request',
+            approvalsReviewer: 'user',
+            model: 'gpt-5.4',
+            reasoningEffort: 'medium',
+            thread: {
+              id: params?.threadId,
+              name: '兼容会话',
+              preview: '可恢复',
+              createdAt: 2,
+              updatedAt: 20,
+              cwd: '/workspace',
+              status: 'idle',
+              turns: [],
+            },
+          });
+        }
+        if (method === 'thread/goal/get') {
+          return Promise.resolve({ goal: null });
+        }
+        return Promise.resolve(defaultResponse(method));
+      },
+    );
+
+    renderPanel();
+
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith(
+        'thread/read',
+        expect.objectContaining({ threadId: 'thread-legacy' }),
+      ),
+    );
+    expect(
+      await screen.findByText('这是兼容会话内容'),
+    ).toBeTruthy();
+    expect(screen.queryByText('paginated_threads is not supported yet')).toBeNull();
+    expect(
+      bridge.request.mock.calls.filter(
+        ([method, params]) =>
+          method === 'thread/read' &&
+          (params as { threadId?: string } | undefined)?.threadId ===
+            'thread-paginated',
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('分页会话读取 turn 页面并以 excludeTurns 恢复', async () => {
+    bridge.request.mockImplementation(
+      (method: string, params?: Record<string, unknown>) => {
+        if (method === 'thread/list') {
+          return Promise.resolve({
+            data: [
+              {
+                id: 'thread-paginated',
+                name: '分页会话',
+                preview: '新格式',
+                createdAt: 3,
+                updatedAt: 30,
+                cwd: '/workspace',
+                historyMode: 'paginated',
+                status: 'idle',
+                turns: [],
+              },
+            ],
+            nextCursor: null,
+          });
+        }
+        if (method === 'thread/turns/list')
+          return Promise.resolve({ data: [], nextCursor: null });
+        if (method === 'thread/read') {
+          if (params?.includeTurns === true) {
+            return Promise.reject(
+              new Error('paginated_threads is not supported yet'),
+            );
+          }
+          return Promise.resolve({
+            thread: {
+                id: 'thread-paginated',
+                name: '分页会话',
+                preview: '新格式',
+                createdAt: 3,
+                updatedAt: 30,
+                cwd: '/workspace',
+                historyMode: 'paginated',
+                status: 'idle',
+                turns: [],
+              },
+          });
+        }
+        if (method === 'thread/resume') {
+          if (params?.excludeTurns !== true) {
+            return Promise.reject(
+              new Error('paginated_threads is not supported yet'),
+            );
+          }
+          return Promise.resolve({
+            activePermissionProfile: { extends: null, id: ':workspace' },
+            approvalPolicy: 'on-request',
+            approvalsReviewer: 'user',
+            model: 'gpt-5.4',
+            reasoningEffort: 'medium',
+            thread: {
+                id: 'thread-paginated',
+                name: '分页会话',
+                preview: '新格式',
+                createdAt: 3,
+                updatedAt: 30,
+                cwd: '/workspace',
+                historyMode: 'paginated',
+                status: 'idle',
+                turns: [],
+              },
+          });
+        }
+        if (method === 'thread/goal/get') {
+          return Promise.resolve({ goal: null });
+        }
+        return Promise.resolve(defaultResponse(method));
+      },
+    );
+
+    renderPanel();
+
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith('thread/resume', {
+        developerInstructions: expect.stringContaining('使用工作区工具直接完成相应操作'),
+        excludeTurns: true,
+        threadId: 'thread-paginated',
+      }),
+    );
+    expect(bridge.request).toHaveBeenCalledWith(
+      'thread/read',
+      expect.objectContaining({
+        includeTurns: false,
+        threadId: 'thread-paginated',
+      }),
+    );
+    expect(screen.queryByText('paginated_threads is not supported yet')).toBeNull();
   });
 
   it('点击新任务后保持空会话，不会再次自动恢复历史', async () => {
@@ -1139,13 +1397,18 @@ describe('AI panel startup lifecycle', () => {
     await waitFor(() => expect(bridge.readPluginIcon).toHaveBeenCalledOnce());
     await user.click(screen.getByRole('button', { name: '添加上下文与工具' }));
 
-    const browserItem = screen.getByText('Browser').closest('[role="menuitem"]');
+    const browserItem = screen
+      .getByText('Browser')
+      .closest('[role="menuitem"]');
     expect(browserItem?.querySelector('img')?.getAttribute('src')).toBe(
       'https://example.com/browser.png',
     );
     expect(screen.getByText('Unsafe Icon')).toBeTruthy();
     expect(
-      screen.getByText('Unsafe Icon').closest('[role="menuitem"]')?.querySelector('img'),
+      screen
+        .getByText('Unsafe Icon')
+        .closest('[role="menuitem"]')
+        ?.querySelector('img'),
     ).toBeNull();
   });
 
@@ -1378,8 +1641,13 @@ describe('AI panel startup lifecycle', () => {
     });
   });
 
-  it('正式计划可作为完整首条消息在新 Default 任务实施', async () => {
+  it('正式计划可作为完整首条消息在新 Default 任务实施', async ({
+    onTestFinished,
+  }) => {
     const user = userEvent.setup();
+    const writes = vi.spyOn(CodexTaskStore.prototype, 'set');
+    onTestFinished(() => writes.mockRestore());
+    let threadCount = 0;
     let turnCount = 0;
     bridge.request.mockImplementation((method: string) => {
       if (method === 'model/list') {
@@ -1387,7 +1655,43 @@ describe('AI panel startup lifecycle', () => {
       }
       if (method === 'turn/start') {
         turnCount += 1;
+        if (turnCount === 2) {
+          protocolSubscriber?.({
+            method: 'turn/started',
+            params: {
+              threadId: 'thread-2',
+              turn: { id: 'turn-2', status: 'inProgress', items: [] },
+            },
+          });
+          protocolSubscriber?.({
+            method: 'item/completed',
+            params: {
+              threadId: 'thread-2',
+              turnId: 'turn-2',
+              item: {
+                id: 'early-answer',
+                type: 'agentMessage',
+                phase: 'final_answer',
+                text: '提前到达的实施回答',
+              },
+            },
+          });
+          protocolSubscriber?.({
+            method: 'turn/completed',
+            params: {
+              threadId: 'thread-2',
+              turn: { id: 'turn-2', status: 'completed', items: [] },
+            },
+          });
+        }
         return Promise.resolve({ turn: { id: `turn-${turnCount}` } });
+      }
+      if (method === 'thread/start') {
+        const response = defaultResponse(method) as { thread: { id: string } };
+        return Promise.resolve({
+          ...response,
+          thread: { ...response.thread, id: `thread-${++threadCount}` },
+        });
       }
       return Promise.resolve(defaultResponse(method));
     });
@@ -1435,8 +1739,21 @@ describe('AI panel startup lifecycle', () => {
           text: expect.stringContaining('# 计划\n\n1. 新任务实施'),
         }),
       ],
-      threadId: 'thread-1',
+      threadId: 'thread-2',
     });
+    expect(await screen.findByText('提前到达的实施回答')).toBeTruthy();
+    const store = writes.mock.contexts.at(-1)!;
+    expect(store.get('thread-1')?.entries).toContainEqual(
+      expect.objectContaining({ role: 'user', text: '设计实施方案' }),
+    );
+    expect(store.get('thread-1')?.entries).not.toContainEqual(
+      expect.objectContaining({
+        text: expect.stringContaining('Implement the following plan'),
+      }),
+    );
+    expect(store.get('thread-2')?.activeTurnId).toBeNull();
+    expect(screen.queryByLabelText('后台任务')).toBeNull();
+    expect(screen.queryByText('任务', { exact: true })).toBeNull();
   });
 
   it('每个 turn 把编辑器活跃文档标记为独立上下文角色', async () => {
@@ -1455,9 +1772,7 @@ describe('AI panel startup lifecycle', () => {
       expect(bridge.request).toHaveBeenCalledWith(
         'turn/start',
         expect.objectContaining({
-          input: [
-            expect.objectContaining({ text: '当前文档是什么？' }),
-          ],
+          input: [expect.objectContaining({ text: '当前文档是什么？' })],
           markuneDocumentReferences: [
             {
               path: '/workspace/Test.md',
@@ -1565,5 +1880,254 @@ describe('AI panel startup lifecycle', () => {
     await user.click(screen.getByRole('button', { name: '历史记录' }));
     await waitFor(() => expect(screen.getByText('新工作区任务')).toBeTruthy());
     expect(screen.queryByText('旧工作区任务')).toBeNull();
+  });
+});
+
+it('new tasks keep background tasks accessible through history without a permanent task strip', async () => {
+  const user = userEvent.setup();
+  const historyDescription = () =>
+    within(screen.getByRole('banner')).queryByRole('status')?.textContent ?? '';
+  bridge.request.mockImplementation((method: string) => {
+    if (method === 'thread/read' || method === 'thread/resume') {
+      const response = defaultResponse('thread/start') as {
+        thread: Record<string, unknown>;
+      };
+      return Promise.resolve({
+        ...response,
+        thread: { ...response.thread, name: '后台任务验证' },
+      });
+    }
+    return Promise.resolve(defaultResponse(method));
+  });
+  renderPanel();
+  await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+  const composer = screen.getByRole('textbox', { name: '向 Codex 提问' });
+  fireEvent.input(composer, { target: { textContent: '后台任务验证' } });
+  await user.click(screen.getByRole('button', { name: '发送', exact: true }));
+  await waitFor(() =>
+    expect(bridge.request).toHaveBeenCalledWith(
+      'turn/start',
+      expect.anything(),
+    ),
+  );
+  await user.click(screen.getByRole('button', { name: '新任务', exact: true }));
+  expect(
+    screen.getByRole('button', { name: '权限模式：请求审批' }),
+  ).toBeTruthy();
+  expect(screen.queryByLabelText('后台任务')).toBeNull();
+  expect(screen.queryByText('任务', { exact: true })).toBeNull();
+  expect(historyDescription()).toContain('1 个任务运行中');
+  await user.click(screen.getByRole('button', { name: '历史记录' }));
+  await waitFor(() =>
+    expect(
+      bridge.request.mock.calls.filter(([method]) => method === 'thread/list')
+        .length,
+    ).toBeGreaterThan(1),
+  );
+  expect(
+    screen.getByRole('button', { name: /后台任务验证.*运行中/ }),
+  ).toBeTruthy();
+  act(() =>
+    protocolSubscriber?.({
+      id: 99,
+      method: 'item/fileChange/requestApproval',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'background-edit',
+      },
+    }),
+  );
+  expect(historyDescription()).toContain('1 个任务待处理');
+  expect(
+    screen.getByRole('button', { name: /后台任务验证.*待处理 1/ }),
+  ).toBeTruthy();
+  act(() =>
+    protocolSubscriber?.({
+      method: 'serverRequest/resolved',
+      params: { threadId: 'thread-1', requestId: 99 },
+    }),
+  );
+  act(() =>
+    protocolSubscriber?.({
+      method: 'turn/completed',
+      params: {
+        threadId: 'thread-1',
+        turn: { id: 'turn-1', status: 'completed', items: [] },
+      },
+    }),
+  );
+  expect(historyDescription()).toContain('1 个未读任务');
+  await user.click(screen.getByRole('button', { name: /后台任务验证.*未读/ }));
+  await waitFor(() =>
+    expect(bridge.request).toHaveBeenCalledWith(
+      'thread/resume',
+      expect.objectContaining({ threadId: 'thread-1' }),
+    ),
+  );
+  await waitFor(() => expect(historyDescription()).toBe(''));
+  expect(screen.queryByLabelText('后台任务')).toBeNull();
+});
+
+it('新任务首条消息在命名与运行通知到达时持续显示，不闪回欢迎页', async () => {
+  const turnReply = deferred<{ turn: { id: string } }>();
+  bridge.request.mockImplementation((method: string) =>
+    method === 'turn/start'
+      ? turnReply.promise
+      : Promise.resolve(defaultResponse(method)),
+  );
+  const user = userEvent.setup();
+  renderPanel(vi.fn().mockResolvedValue(true), activeDocument);
+  await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+  fireEvent.input(screen.getByRole('textbox', { name: '向 Codex 提问' }), {
+    target: { textContent: '总结当前文档' },
+  });
+  await user.click(screen.getByRole('button', { name: '发送', exact: true }));
+  await waitFor(() =>
+    expect(bridge.request).toHaveBeenCalledWith(
+      'turn/start',
+      expect.anything(),
+    ),
+  );
+  expect(screen.getByTestId('user-message-bubble').textContent).toContain(
+    '总结当前文档',
+  );
+  expect(screen.queryByRole('heading', { name: /想如何处理/ })).toBeNull();
+  act(() =>
+    protocolSubscriber?.({
+      method: 'thread/name/updated',
+      params: { threadId: 'thread-1', threadName: '总结当前文档' },
+    }),
+  );
+  expect(screen.getByTestId('user-message-bubble').textContent).toContain(
+    '总结当前文档',
+  );
+  expect(screen.queryByRole('heading', { name: /想如何处理/ })).toBeNull();
+  act(() =>
+    protocolSubscriber?.({
+      method: 'turn/started',
+      params: {
+        threadId: 'thread-1',
+        turn: { id: 'turn-1', status: 'inProgress', items: [] },
+      },
+    }),
+  );
+  expect(screen.queryByRole('heading', { name: /想如何处理/ })).toBeNull();
+  expect(screen.getByRole('button', { name: '停止生成' })).toBeTruthy();
+  const pending = bridge.request.mock.calls.find(
+    ([method]) => method === 'turn/start',
+  )?.[1];
+  act(() =>
+    protocolSubscriber?.({
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: {
+          id: 'native-user-message',
+          clientId: pending.clientUserMessageId,
+          type: 'userMessage',
+          content: [{ type: 'text', text: '总结当前文档' }],
+        },
+      },
+    }),
+  );
+  expect(screen.queryByRole('heading', { name: /想如何处理/ })).toBeNull();
+  expect(screen.getByTestId('user-message-bubble').textContent).toContain(
+    '总结当前文档',
+  );
+  await act(async () => turnReply.resolve({ turn: { id: 'turn-1' } }));
+  expect(screen.getAllByTestId('user-message-bubble')).toHaveLength(1);
+});
+
+it('新任务接管消息后发送失败，仍保留失败消息并恢复输入', async () => {
+  const user = userEvent.setup();
+  bridge.request.mockImplementation((method: string) => {
+    if (method === 'turn/start') {
+      protocolSubscriber?.({
+        method: 'thread/name/updated',
+        params: { threadId: 'thread-1', threadName: '发送失败验证' },
+      });
+      return Promise.reject(new Error('turn rejected'));
+    }
+    return Promise.resolve(defaultResponse(method));
+  });
+  renderPanel();
+  await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+  const input = screen.getByRole('textbox', { name: '向 Codex 提问' });
+  fireEvent.input(input, { target: { textContent: '发送失败验证' } });
+  await user.click(screen.getByRole('button', { name: '发送', exact: true }));
+  expect(await screen.findByText('发送失败')).toBeTruthy();
+  expect(screen.getByTestId('user-message-bubble').textContent).toContain(
+    '发送失败验证',
+  );
+  expect(input.textContent).toBe('发送失败验证');
+  expect(screen.queryByRole('heading')).toBeNull();
+});
+
+it('keeps full-access confirmation in the unified permission menu', async () => {
+  const user = userEvent.setup();
+  bridge.request.mockImplementation((method: string) =>
+    Promise.resolve(
+      method === 'permissionProfile/list'
+        ? {
+            data: [
+              { id: ':read-only', allowed: true },
+              { id: ':workspace', allowed: true },
+              { id: ':danger-full-access', allowed: true },
+            ],
+            nextCursor: null,
+          }
+        : defaultResponse(method),
+    ),
+  );
+  renderPanel();
+  await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+  const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+  fireEvent.input(editor, { target: { textContent: '不要丢失输入' } });
+  await user.click(screen.getByRole('button', { name: '权限模式：请求审批' }));
+  await user.click(screen.getByRole('menuitemradio', { name: /完全访问权限/ }));
+  expect(await screen.findByRole('alertdialog')).toBeTruthy();
+  expect(
+    bridge.request.mock.calls.some(
+      ([method]) => method === 'thread/settings/update',
+    ),
+  ).toBe(false);
+  await user.click(screen.getByRole('button', { name: '取消', exact: true }));
+  expect(
+    screen.getByRole('button', { name: '权限模式：请求审批' }),
+  ).toBeTruthy();
+  expect(editor.textContent).toBe('不要丢失输入');
+});
+
+it('uses one ordinary Agent for document questions and edits without review controls or writing gates', async () => {
+  const user = userEvent.setup();
+  renderPanel(vi.fn().mockResolvedValue(true), activeDocument);
+  await waitFor(() => expect(screen.queryByText('正在准备')).toBeNull());
+  expect(screen.getByRole('button', { name: '权限模式：请求审批' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: '预审文档修改' })).toBeNull();
+  expect(screen.queryByRole('button', { name: '上下文检查' })).toBeNull();
+  const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
+  fireEvent.input(editor, { target: { textContent: '总结当前文档' } });
+  await user.click(screen.getByRole('button', { name: '发送', exact: true }));
+  await waitFor(() => expect(bridge.request).toHaveBeenCalledWith('turn/start', expect.anything()));
+  const start = bridge.request.mock.calls.find(([method]) => method === 'thread/start')![1];
+  expect(start).toMatchObject({ permissions: ':workspace', approvalPolicy: 'on-request', approvalsReviewer: 'user', config: { web_search: 'live' } });
+  expect(start).not.toHaveProperty('markuneWritingMode');
+  expect(start.developerInstructions).not.toMatch(/预审|质量门禁|必须保留.*引用/);
+  expect(start.config).not.toHaveProperty('features.apps');
+  act(() => {
+    protocolSubscriber?.({ method: 'item/completed', params: { threadId: 'thread-1', turnId: 'turn-1', item: { id: 'answer', type: 'agentMessage', phase: 'final_answer', text: '文档主要介绍工作流程。' } } });
+    protocolSubscriber?.({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed', items: [] } } });
+  });
+  expect(await screen.findByText('文档主要介绍工作流程。')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /预审|添加到文末|全文替换|更多文档操作/ })).toBeNull();
+  fireEvent.input(editor, { target: { textContent: '把第二段改短一点，直接修改文档' } });
+  await user.click(screen.getByRole('button', { name: '发送', exact: true }));
+  await waitFor(() => expect(bridge.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(2));
+  expect(bridge.request.mock.calls.filter(([method]) => method === 'thread/start')).toHaveLength(1);
+  expect(bridge.request.mock.calls.filter(([method]) => method === 'turn/start')[1][1]).toMatchObject({
+    threadId: 'thread-1', input: [expect.objectContaining({ text: '把第二段改短一点，直接修改文档' })],
+    markuneDocumentReferences: [{ path: '/workspace/Test.md', role: 'active' }],
   });
 });

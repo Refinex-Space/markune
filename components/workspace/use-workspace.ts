@@ -56,7 +56,6 @@ import type {
   TreeNodeAppearance,
 } from './workspace-types';
 
-const FRONTMATTER_OPENING_PATTERN = /^---\r?\n/;
 
 export interface ExternalDocumentConflict {
   externalDocument: MarkdownDocumentContent;
@@ -69,10 +68,15 @@ export interface PendingWorkspaceBrandMigration {
 }
 
 export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
-  const [snapshot, setSnapshot] = React.useState<WorkspaceSnapshot | null>(
+  const [snapshot, setSnapshotState] = React.useState<WorkspaceSnapshot | null>(
     initialSnapshot ?? null,
   );
   const snapshotRef = React.useRef<WorkspaceSnapshot | null>(snapshot);
+  const setSnapshot = React.useCallback((next: WorkspaceSnapshot | null) => {
+    snapshotRef.current = next;
+    setSnapshotState(next);
+  }, []);
+  const treeRefreshIdRef = React.useRef(0);
   const [currentDocument, setCurrentDocument] =
     React.useState<WorkspaceNode | null>(null);
   const [currentDirectoryPath, setCurrentDirectoryPath] = React.useState<
@@ -97,6 +101,12 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   const [lastSavedAt, setLastSavedAt] = React.useState<number | null>(null);
   const [externalDocumentConflict, setExternalDocumentConflict] =
     React.useState<ExternalDocumentConflict | null>(null);
+  const conflictRef = React.useRef(externalDocumentConflict);
+  const currentDocumentRef = React.useRef(currentDocument);
+  React.useLayoutEffect(() => {
+    conflictRef.current = externalDocumentConflict;
+    currentDocumentRef.current = currentDocument;
+  }, [currentDocument, externalDocumentConflict]);
   const [searchQuery, setSearchQuery] = React.useState('');
   const [pendingRenameNodePath, setPendingRenameNodePath] = React.useState<
     string | null
@@ -122,6 +132,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
 
   const suppressNextAutoRestoreRef = React.useRef(false);
   const loadWorkspaceRequestIdRef = React.useRef(0);
+  const documentOpenRequestIdRef = React.useRef(0);
   const autoRestoreAttemptedRef = React.useRef(false);
   const currentDirectory = React.useMemo(() => {
     if (!snapshot || !currentDirectoryPath) {
@@ -173,6 +184,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   }, []);
 
   const resetDocumentState = React.useCallback(() => {
+    documentOpenRequestIdRef.current += 1;
     clearPendingSave();
     clearPendingRename();
     isRenamingRef.current = false;
@@ -186,6 +198,10 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     setSaveState('idle');
     setSaveError(null);
     setLastSavedAt(null);
+    conflictRef.current = null;
+    currentDocumentRef.current = null;
+    documentContentRef.current = null;
+    draftDocumentRef.current = null;
     setExternalDocumentConflict(null);
     setPendingRenameNodePath(null);
     lastSavedMarkdownRef.current = '';
@@ -193,19 +209,26 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   }, [clearPendingSave, clearPendingRename]);
 
   const refreshWorkspaceTree = React.useCallback(async () => {
-    if (!snapshot) {
-      return null;
-    }
-
-    const nextSnapshot = await loadWorkspaceTree(snapshot.rootPath);
+    const base = snapshotRef.current;
+    if (!base) return null;
+    const requestId = ++treeRefreshIdRef.current;
+    const generation = loadWorkspaceRequestIdRef.current;
+    const nextSnapshot = await loadWorkspaceTree(base.rootPath);
+    if (
+      snapshotRef.current?.rootPath !== base.rootPath ||
+      generation !== loadWorkspaceRequestIdRef.current ||
+      requestId !== treeRefreshIdRef.current
+    )
+      return snapshotRef.current;
     setSnapshot(nextSnapshot);
     return nextSnapshot;
-  }, [snapshot]);
+  }, [setSnapshot]);
 
   // Incrementally refresh only the workspace directories affected by a set of
   // changed entry paths (used by CRUD/AI auto-refresh). Falls back to a full
   // rescan when a top-level entry changes, since the tree root itself has no
   // single node to rebuild. Never reads document contents. author: liyao
+
   const refreshWorkspaceNodes = React.useCallback(
     async (entryPaths: string[]) => {
       const base = snapshotRef.current;
@@ -215,6 +238,8 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       }
 
       const rootPath = base.rootPath;
+      const generation = loadWorkspaceRequestIdRef.current;
+      const requestId = ++treeRefreshIdRef.current;
       const targets = new Set<string>();
 
       for (const entryPath of entryPaths) {
@@ -246,16 +271,16 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
 
       const latest = snapshotRef.current;
 
-      if (!latest || latest.rootPath !== rootPath) {
+      if (!latest || latest.rootPath !== rootPath || generation !== loadWorkspaceRequestIdRef.current || requestId !== treeRefreshIdRef.current) {
         return latest;
       }
 
       let nextNodes = latest.nodes;
 
+      if (results.some((result) => !result.ok)) {
+        throw new Error('部分目录刷新失败，请重试');
+      }
       for (const result of results) {
-        if (!result.ok) {
-          continue;
-        }
 
         nextNodes = result.node
           ? replaceWorkspaceNodeInList(nextNodes, result.path, result.node)
@@ -270,7 +295,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       setSnapshot(nextSnapshot);
       return nextSnapshot;
     },
-    [refreshWorkspaceTree],
+    [refreshWorkspaceTree, setSnapshot],
   );
 
   const loadWorkspace = React.useCallback(
@@ -283,6 +308,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     ) => {
       const requestId = ++loadWorkspaceRequestIdRef.current;
       const reason = options?.reason ?? 'user';
+      treeRefreshIdRef.current += 1;
       setIsLoading(true);
       setError(null);
 
@@ -350,7 +376,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         }
       }
     },
-    [resetDocumentState],
+    [resetDocumentState, setSnapshot],
   );
 
   const saveCurrentDocumentNow = React.useCallback(
@@ -359,6 +385,8 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         const saved = await saveInFlightRef.current;
         if (!saved) return false;
       }
+      const snapshot = snapshotRef.current;
+      const currentDocument = currentDocumentRef.current;
       if (!snapshot || !currentDocument || currentDocument.kind !== 'document') {
         return true;
       }
@@ -368,6 +396,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       if (!draft) {
         return true;
       }
+      if (draft.path !== currentDocument.absolutePath) return false;
 
       clearPendingSave();
 
@@ -375,7 +404,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         setSaveState('saved');
         return true;
       }
-      if (externalDocumentConflict?.path === currentDocument.absolutePath) {
+      if (conflictRef.current?.path === currentDocument.absolutePath) {
         return false;
       }
 
@@ -389,7 +418,14 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
             currentDocument.absolutePath,
             draft.markdown,
             documentContentRef.current?.modifiedAt ?? null,
+            documentContentRef.current?.content,
           );
+          if (
+            snapshotRef.current?.rootPath !== snapshot.rootPath ||
+            currentDocumentRef.current?.absolutePath !==
+              currentDocument.absolutePath
+          )
+            return true;
 
           lastSavedMarkdownRef.current = draft.markdown;
           const nextContent = {
@@ -403,18 +439,33 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
             path: meta.path,
           };
           documentContentRef.current = nextContent;
-          draftDocumentRef.current = nextDraft;
+          const latestDraft = draftDocumentRef.current;
+          const hasNewerDraft =
+            latestDraft && latestDraft.markdown !== draft.markdown;
+          const retainedDraft = hasNewerDraft
+            ? { ...latestDraft, modifiedAt: meta.modifiedAt }
+            : nextDraft;
+          draftDocumentRef.current = retainedDraft;
           setDocumentContent(nextContent);
-          setDraftDocument(nextDraft);
+          setDraftDocument(retainedDraft);
           setLastSavedAt(meta.modifiedAt);
-          setSaveState('saved');
+          setSaveState(hasNewerDraft ? 'dirty' : 'saved');
           return true;
         } catch (saveDocumentError) {
+          if (
+            snapshotRef.current?.rootPath !== snapshot.rootPath ||
+            currentDocumentRef.current?.absolutePath !==
+              currentDocument.absolutePath
+          )
+            return false;
           setSaveState('error');
           setSaveError(
             saveDocumentError instanceof Error
               ? saveDocumentError.message
-              : '无法保存 Markdown 文档内容',
+              : getWorkspaceErrorMessage(
+                  saveDocumentError,
+                  '无法保存 Markdown 文档内容',
+                ),
           );
           return false;
         }
@@ -428,12 +479,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         }
       }
     },
-    [
-      clearPendingSave,
-      currentDocument,
-      externalDocumentConflict,
-      snapshot,
-    ],
+    [clearPendingSave],
   );
 
   const openDocument = React.useCallback(
@@ -442,13 +488,17 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         return;
       }
 
-      if (saveState === 'dirty' || saveState === 'saving') {
-        await saveCurrentDocumentNow(draftDocument);
-      }
+      if (conflictRef.current) return null;
+      if (!(await saveCurrentDocumentNow())) return null;
+      if (snapshotRef.current?.rootPath !== snapshot.rootPath) return null;
+      const requestId = ++documentOpenRequestIdRef.current;
 
       clearPendingSave();
       clearPendingRename();
       setCurrentDirectoryPath(null);
+      currentDocumentRef.current = node;
+      documentContentRef.current = null;
+      draftDocumentRef.current = null;
       setCurrentDocument(node);
       setDocumentContent(null);
       setDraftDocument(null);
@@ -463,15 +513,16 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
           snapshot.rootPath,
           node.absolutePath,
         );
-        const rawDraft = createMarkdownDraft(rawContent, node.name);
+        if (
+          requestId !== documentOpenRequestIdRef.current ||
+          snapshotRef.current?.rootPath !== snapshot.rootPath
+        )
+          return null;
+        const content = rawContent;
+        const draft = createMarkdownDraft(content, node.name);
 
-        const { draft, content } = await compensateMarkdownDocument(
-          snapshot.rootPath,
-          node,
-          rawContent,
-          rawDraft,
-        );
-
+        documentContentRef.current = content;
+        draftDocumentRef.current = draft;
         setDocumentContent(content);
         setDraftDocument(draft);
         lastSavedMarkdownRef.current = content.content;
@@ -487,6 +538,11 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         setLastSavedAt(content.modifiedAt);
         return draft;
       } catch (documentError) {
+        if (
+          requestId !== documentOpenRequestIdRef.current ||
+          snapshotRef.current?.rootPath !== snapshot.rootPath
+        )
+          return null;
         setDocumentContent(null);
         setDraftDocument(null);
         lastSavedMarkdownRef.current = '';
@@ -499,14 +555,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         return null;
       }
     },
-    [
-      clearPendingSave,
-      clearPendingRename,
-      draftDocument,
-      saveCurrentDocumentNow,
-      saveState,
-      snapshot,
-    ],
+    [clearPendingSave, clearPendingRename, saveCurrentDocumentNow, snapshot],
   );
 
   const prepareCurrentDocumentForAi = React.useCallback(async () => {
@@ -561,49 +610,63 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
 
   const syncExternalMarkdownDocument = React.useCallback(
     (document: MarkdownDocumentContent) => {
-      if (currentDocument?.absolutePath !== document.path) {
+      const node = currentDocumentRef.current;
+      const draft = draftDocumentRef.current;
+      if (node?.absolutePath !== document.path || !draft)
         return 'ignored' as const;
-      }
+      // A watcher is an invalidation signal; unchanged disk bytes are not a conflict.
+      // Preserve dirty drafts and EditorViews on self-save/focus echoes. author: refinex
       if (
-        (saveState === 'dirty' ||
-          saveState === 'saving' ||
-          (aiTurnDocumentBaselinesRef.current?.has(document.path) === true &&
-            draftDocument?.markdown !==
-              aiTurnDocumentBaselinesRef.current.get(document.path))) &&
-        draftDocument?.markdown !== document.content
+        document.content === lastSavedMarkdownRef.current &&
+        !conflictRef.current
+      ) {
+        const baseline = { ...document };
+        documentContentRef.current = baseline;
+        setDocumentContent(baseline);
+        return 'unchanged' as const;
+      }
+      const aiBaseline = aiTurnDocumentBaselinesRef.current?.get(document.path);
+      if (
+        (conflictRef.current?.path === document.path ||
+          draft.markdown !== lastSavedMarkdownRef.current ||
+          (aiBaseline !== undefined && draft.markdown !== aiBaseline)) &&
+        draft.markdown !== document.content
       ) {
         clearPendingSave();
-        setExternalDocumentConflict({
-          externalDocument: document,
-          path: document.path,
-        });
+        clearPendingRename();
+        const conflict = { externalDocument: document, path: document.path };
+        conflictRef.current = conflict;
+        setExternalDocumentConflict(conflict);
         setSaveState('error');
-        setSaveError('文档已被 Codex 修改，请选择保留本地草稿或加载磁盘版本。');
+        setSaveError('文档已在外部修改，请选择保留本地草稿或加载磁盘版本。');
         return 'conflict' as const;
       }
-
-      const modifiedAt = document.modifiedAt ?? Date.now();
-      const normalized = { ...document, modifiedAt };
-      setDocumentContent(normalized);
-      setDraftDocument(createMarkdownDraft(normalized, currentDocument.name));
+      const nextDraft = createMarkdownDraft(document, node.name);
+      const changed = draft.markdown !== document.content;
+      documentContentRef.current = document;
+      draftDocumentRef.current = nextDraft;
+      setDocumentContent(document);
+      setDraftDocument(nextDraft);
       lastSavedMarkdownRef.current = document.content;
-      setDocumentVersion((version) => version + 1);
+      if (changed) setDocumentVersion((version) => version + 1);
       setSaveState('saved');
       setSaveError(null);
-      setLastSavedAt(modifiedAt);
+      setLastSavedAt(document.modifiedAt);
+      conflictRef.current = null;
       setExternalDocumentConflict(null);
       clearPendingSave();
-      return 'reloaded' as const;
+      return changed ? ('reloaded' as const) : ('unchanged' as const);
     },
-    [clearPendingSave, currentDocument, draftDocument, saveState],
+    [clearPendingSave, clearPendingRename],
   );
 
   // Manual node-scoped refresh (right-click a directory or document). Rebuilds
   // just that subtree/node and, for the currently open document, re-aligns its
   // on-screen content with disk through the conflict-safe external sync path.
   // author: liyao
+
   const refreshWorkspaceNode = React.useCallback(
-    async (node: WorkspaceNode) => {
+    async (node: WorkspaceNode, options?: { reloadDocument?: boolean }) => {
       const base = snapshotRef.current;
 
       if (!base) {
@@ -612,10 +675,19 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
 
       const rootPath = base.rootPath;
       const targetPath = node.absolutePath;
+      const generation = loadWorkspaceRequestIdRef.current;
+      const requestId = ++treeRefreshIdRef.current;
       const refreshed = await refreshWorkspaceNodeApi(rootPath, targetPath);
       const latest = snapshotRef.current;
 
-      if (latest && latest.rootPath === rootPath) {
+      if (
+        !latest ||
+        latest.rootPath !== rootPath ||
+        generation !== loadWorkspaceRequestIdRef.current ||
+        requestId !== treeRefreshIdRef.current
+      )
+        return null;
+      if (latest) {
         const nextNodes = refreshed
           ? replaceWorkspaceNodeInList(latest.nodes, targetPath, refreshed)
           : removeWorkspaceNodeFromList(latest.nodes, targetPath);
@@ -625,82 +697,136 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         }
       }
 
+      const activePath = currentDocumentRef.current?.absolutePath;
       if (
-        node.kind === 'document' &&
-        currentDocument?.absolutePath === targetPath
+        options?.reloadDocument !== false &&
+        activePath &&
+        (activePath === targetPath ||
+          (node.kind === 'directory' && isDescendantPath(activePath, targetPath)))
       ) {
-        if (!refreshed) {
-          resetDocumentState();
-        } else {
-          try {
-            const freshContent = await readMarkdownDocument(
-              rootPath,
-              targetPath,
-            );
-            syncExternalMarkdownDocument(freshContent);
-          } catch {
-            // Leave the in-memory document untouched when the reload fails.
-          }
+        const freshContent = await readMarkdownDocument(rootPath, activePath);
+        if (
+          snapshotRef.current?.rootPath === rootPath &&
+          generation === loadWorkspaceRequestIdRef.current
+        ) {
+          syncExternalMarkdownDocument(freshContent);
         }
       }
 
       return refreshed;
     },
-    [
-      currentDocument?.absolutePath,
-      resetDocumentState,
-      syncExternalMarkdownDocument,
-    ],
+    [setSnapshot, syncExternalMarkdownDocument],
   );
+
+  const waitForPendingSave = React.useCallback(async () => {
+    while (saveInFlightRef.current) await saveInFlightRef.current;
+  }, []);
+  const readExternalMarkdownDocument = React.useCallback(
+    async (root: string, path: string) => {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await waitForPendingSave();
+        const baseline = documentContentRef.current;
+        const content = await readMarkdownDocument(root, path);
+        if (
+          currentDocumentRef.current?.absolutePath !== path ||
+          (!saveInFlightRef.current && baseline === documentContentRef.current)
+        )
+          return content;
+      }
+      throw new Error('文档正在保存，请稍后重试刷新');
+    },
+    [waitForPendingSave],
+  );
+
+  const markExternalDocumentUnavailable = React.useCallback(() => {
+    clearPendingSave();
+    clearPendingRename();
+    setSaveState('error');
+    setSaveError('无法读取磁盘文档，已保留当前内容，请重试刷新或复制草稿。');
+  }, [clearPendingSave, clearPendingRename]);
 
   const resolveExternalDocumentConflict = React.useCallback(
     async (resolution: 'external' | 'local') => {
-      const conflict = externalDocumentConflict;
+      const conflict = conflictRef.current;
+      const draftDocument = draftDocumentRef.current;
       if (!conflict || !snapshot || !currentDocument || !draftDocument) {
         return false;
       }
 
-      if (resolution === 'external') {
-        const modifiedAt = conflict.externalDocument.modifiedAt ?? Date.now();
-        const normalized = { ...conflict.externalDocument, modifiedAt };
-        setDocumentContent(normalized);
-        setDraftDocument(createMarkdownDraft(normalized, currentDocument.name));
-        lastSavedMarkdownRef.current = normalized.content;
-        setDocumentVersion((version) => version + 1);
-        setSaveState('saved');
-        setSaveError(null);
-        setLastSavedAt(modifiedAt);
-        setExternalDocumentConflict(null);
-        return true;
-      }
-
       try {
+        if (resolution === 'external') {
+          const normalized = await readMarkdownDocument(
+            snapshot.rootPath,
+            conflict.path,
+          );
+          if (
+            snapshotRef.current?.rootPath !== snapshot.rootPath ||
+            currentDocumentRef.current?.absolutePath !== conflict.path
+          )
+            return false;
+          if (draftDocumentRef.current?.markdown !== draftDocument.markdown) {
+            setSaveError('确认后草稿又有新的编辑，请重新选择要保留的版本。');
+            return false;
+          }
+          const modifiedAt = normalized.modifiedAt;
+          documentContentRef.current = normalized;
+          draftDocumentRef.current = createMarkdownDraft(
+            normalized,
+            currentDocument.name,
+          );
+          conflictRef.current = null;
+          setDocumentContent(normalized);
+          setDraftDocument(createMarkdownDraft(normalized, currentDocument.name));
+          lastSavedMarkdownRef.current = normalized.content;
+          setDocumentVersion((version) => version + 1);
+          setSaveState('saved');
+          setSaveError(null);
+          setLastSavedAt(modifiedAt);
+          setExternalDocumentConflict(null);
+          return true;
+        }
+
         const meta = await saveMarkdownDocument(
           snapshot.rootPath,
           currentDocument.absolutePath,
           draftDocument.markdown,
           conflict.externalDocument.modifiedAt,
+          conflict.externalDocument.content,
         );
+        if (
+          snapshotRef.current?.rootPath !== snapshot.rootPath ||
+          currentDocumentRef.current?.absolutePath !== conflict.path
+        )
+          return false;
         const content = {
           content: draftDocument.markdown,
           modifiedAt: meta.modifiedAt,
           path: meta.path,
         };
+        documentContentRef.current = content;
+        const latestDraft = draftDocumentRef.current ?? draftDocument;
+        const hasNewerDraft = latestDraft.markdown !== draftDocument.markdown;
+        draftDocumentRef.current = {
+          ...latestDraft,
+          modifiedAt: meta.modifiedAt,
+        };
+        conflictRef.current = null;
         setDocumentContent(content);
-        setDraftDocument({ ...draftDocument, modifiedAt: meta.modifiedAt });
+        setDraftDocument(draftDocumentRef.current);
         lastSavedMarkdownRef.current = draftDocument.markdown;
         setDocumentVersion((version) => version + 1);
-        setSaveState('saved');
+        setSaveState(hasNewerDraft ? 'dirty' : 'saved');
         setSaveError(null);
         setLastSavedAt(meta.modifiedAt);
         setExternalDocumentConflict(null);
         return true;
       } catch (error) {
         setSaveState('error');
-        setSaveError(getWorkspaceErrorMessage(error, '无法覆盖 Codex 修改后的文档'));
+        setSaveError(getWorkspaceErrorMessage(error, '无法覆盖外部修改后的文档'));
         return false;
       }
-    }, [currentDocument, draftDocument, externalDocumentConflict, snapshot],
+    },
+    [currentDocument, snapshot],
   );
 
   const selectDirectory = React.useCallback(
@@ -709,29 +835,12 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         return;
       }
 
-      if (saveState === 'dirty' || saveState === 'saving') {
-        await saveCurrentDocumentNow(draftDocument);
-      }
+      if (conflictRef.current || !(await saveCurrentDocumentNow())) return;
 
-      clearPendingSave();
-      setCurrentDocument(null);
+      resetDocumentState();
       setCurrentDirectoryPath(node.absolutePath);
-      setDocumentContent(null);
-      setDraftDocument(null);
-      setDocumentLoadState('idle');
-      setDocumentLoadError(null);
-      setSaveState('idle');
-      setSaveError(null);
-      setLastSavedAt(null);
-      lastSavedMarkdownRef.current = '';
     },
-    [
-      clearPendingSave,
-      draftDocument,
-      saveCurrentDocumentNow,
-      saveState,
-      snapshot,
-    ],
+    [resetDocumentState, saveCurrentDocumentNow, snapshot],
   );
 
   const renameNode = React.useCallback(
@@ -745,18 +854,14 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       }
 
       const activeDraft = draftOverride ?? draftDocument;
-
-      if (
-        currentDocument?.absolutePath === node.absolutePath &&
-        (saveState === 'dirty' || saveState === 'saving')
-      ) {
-        await saveCurrentDocumentNow(activeDraft);
-      }
+      if (conflictRef.current) return null;
+      if (!(await saveCurrentDocumentNow(activeDraft))) return null;
 
       const renamed = await renameWorkspaceNode(
         snapshot.rootPath,
         node.absolutePath,
         newName,
+        isRenamingRef.current,
       );
 
       // Incremental update: swap the renamed subtree in place. Rename keeps the
@@ -779,40 +884,16 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         if (renamed.kind === 'document') {
           setCurrentDocument(renamed);
 
-          if (isRenamingRef.current && activeDraft) {
-            // H1 同步：保持内存 draft（保留原始 H1），保存到新路径覆盖 Rust 规范化内容
-            const saveMeta = await saveMarkdownDocument(
-              snapshot.rootPath,
-              renamed.absolutePath,
-              activeDraft.markdown,
-              null,
-            );
-            setDocumentContent({
-              content: activeDraft.markdown,
-              modifiedAt: saveMeta.modifiedAt,
-              path: saveMeta.path,
-            });
-            setDraftDocument((prev) =>
-              prev
-                ? { ...prev, modifiedAt: saveMeta.modifiedAt, path: saveMeta.path }
-                : null,
-            );
-            lastSavedMarkdownRef.current = activeDraft.markdown;
-            setLastSavedAt(saveMeta.modifiedAt);
-            setSaveState('saved');
-          } else if (draftDocument) {
-            // 文件树重命名：从磁盘读取 Rust 更新后的内容，平滑更新编辑器
-            const freshContent = await readMarkdownDocument(
-              snapshot.rootPath,
-              renamed.absolutePath,
-            );
-            const freshDraft = createMarkdownDraft(freshContent, renamed.name);
-            setDocumentContent(freshContent);
-            setDraftDocument(freshDraft);
-            lastSavedMarkdownRef.current = freshContent.content;
-            setLastSavedAt(freshContent.modifiedAt);
-            setSaveState('saved');
-          }
+          const freshContent = await readMarkdownDocument(snapshot.rootPath, renamed.absolutePath);
+          const freshDraft = createMarkdownDraft(freshContent, renamed.name);
+          currentDocumentRef.current = renamed;
+          documentContentRef.current = freshContent;
+          draftDocumentRef.current = freshDraft;
+          setDocumentContent(freshContent);
+          setDraftDocument(freshDraft);
+          lastSavedMarkdownRef.current = freshContent.content;
+          setLastSavedAt(freshContent.modifiedAt);
+          setSaveState('saved');
         } else {
           resetDocumentState();
         }
@@ -828,15 +909,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
 
       return renamed;
     },
-    [
-      currentDocument?.absolutePath,
-      currentDirectoryPath,
-      draftDocument,
-      resetDocumentState,
-      saveCurrentDocumentNow,
-      saveState,
-      snapshot,
-    ],
+    [snapshot, draftDocument, currentDocument?.absolutePath, currentDirectoryPath, saveCurrentDocumentNow, setSnapshot, resetDocumentState],
   );
 
   const updateMarkdown = React.useCallback(
@@ -845,6 +918,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       options?: {
         readonly preserveSource?: boolean;
         readonly saveImmediately?: boolean;
+        readonly deferSave?: boolean;
       },
     ) => {
       const currentDraft = draftDocumentRef.current;
@@ -887,7 +961,8 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       setSaveState('dirty');
       setSaveError(null);
       clearPendingSave();
-      if (externalDocumentConflict?.path === currentDocument?.absolutePath) {
+      if (options?.deferSave || conflictRef.current?.path === currentDocument?.absolutePath) {
+        clearPendingRename();
         return;
       }
 
@@ -922,14 +997,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         }
       }
     },
-    [
-      clearPendingSave,
-      clearPendingRename,
-      currentDocument,
-      externalDocumentConflict,
-      renameNode,
-      saveCurrentDocumentNow,
-    ],
+    [clearPendingSave, clearPendingRename, currentDocument, renameNode, saveCurrentDocumentNow],
   );
 
   const createDocument = React.useCallback(
@@ -959,7 +1027,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
 
       return created.node;
     },
-    [openDocument, refreshWorkspaceTree, snapshot],
+    [openDocument, refreshWorkspaceTree, setSnapshot, snapshot],
   );
 
   const createDirectory = React.useCallback(
@@ -984,7 +1052,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
 
       return created;
     },
-    [refreshWorkspaceTree, snapshot],
+    [refreshWorkspaceTree, setSnapshot, snapshot],
   );
   const currentDocumentPath = currentDocument?.absolutePath ?? null;
 
@@ -1031,12 +1099,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         setCurrentDirectoryPath(null);
       }
     },
-    [
-      currentDocumentPath,
-      currentDirectoryPath,
-      resetDocumentState,
-      snapshot,
-    ],
+    [snapshot, currentDocumentPath, currentDirectoryPath, setSnapshot, resetDocumentState],
   );
 
   const moveNode = React.useCallback(
@@ -1045,9 +1108,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         return;
       }
 
-      if (saveState === 'dirty' || saveState === 'saving') {
-        await saveCurrentDocumentNow(draftDocument);
-      }
+      if (conflictRef.current || !(await saveCurrentDocumentNow())) return null;
 
       const movedSnapshot = await moveWorkspaceNode(snapshot.rootPath, request);
       setSnapshot(movedSnapshot);
@@ -1070,7 +1131,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       }
 
       if (!currentDocument) {
-        return;
+        return movedSnapshot;
       }
 
       const movedDocumentPath = getMovedNodePath(
@@ -1084,22 +1145,25 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
 
       if (movedDocument?.kind === 'document') {
         setCurrentDocument(movedDocument);
-        return;
+        currentDocumentRef.current = movedDocument;
+        if (movedDocument.absolutePath !== currentDocument.absolutePath) {
+          const content = await readMarkdownDocument(snapshot.rootPath, movedDocument.absolutePath);
+          const draft = createMarkdownDraft(content, movedDocument.name);
+          documentContentRef.current = content; draftDocumentRef.current = draft;
+          setDocumentContent(content); setDraftDocument(draft);
+          lastSavedMarkdownRef.current = content.content;
+          setDocumentVersion((version) => version + 1);
+          setLastSavedAt(content.modifiedAt);
+        }
+        return movedSnapshot;
       }
 
       if (!findNodeByAbsolutePath(movedSnapshot.nodes, currentDocument.absolutePath)) {
         resetDocumentState();
       }
+      return movedSnapshot;
     },
-    [
-      currentDocument,
-      currentDirectoryPath,
-      draftDocument,
-      resetDocumentState,
-      saveCurrentDocumentNow,
-      saveState,
-      snapshot,
-    ],
+    [snapshot, setSnapshot, currentDirectoryPath, currentDocument, saveCurrentDocumentNow, resetDocumentState],
   );
 
   const updateNodeState = React.useCallback(
@@ -1140,7 +1204,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
 
       return nextNode;
     },
-    [currentDirectoryPath, currentDocument?.absolutePath, snapshot],
+    [currentDirectoryPath, currentDocument?.absolutePath, setSnapshot, snapshot],
   );
 
   const updateTreeNodeAppearance = React.useCallback(
@@ -1158,7 +1222,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
 
       return findNodeByAbsolutePath(nextSnapshot.nodes, node.absolutePath);
     },
-    [snapshot],
+    [setSnapshot, snapshot],
   );
 
   const workspaceHistory = React.useMemo(() => {
@@ -1177,7 +1241,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         setError(null);
       }
     },
-    [resetDocumentState, snapshot?.rootPath],
+    [resetDocumentState, setSnapshot, snapshot?.rootPath],
   );
 
   const openWorkspace = React.useCallback(async () => {
@@ -1236,7 +1300,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         setIsLoading(false);
       }
     },
-    [resetDocumentState],
+    [resetDocumentState, setSnapshot],
   );
 
   const chooseWorkspaceParentDirectory = React.useCallback(async () => {
@@ -1313,6 +1377,9 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   }, [clearPendingSave, clearPendingRename]);
 
   return {
+    readExternalMarkdownDocument,
+    waitForPendingSave,
+    markExternalDocumentUnavailable,
     brandMigrationReport,
     cancelBrandMigration,
     chooseWorkspaceParentDirectory,
@@ -1406,71 +1473,16 @@ function createMarkdownDraft(
   };
 }
 
-function withUpdatedMarkdown(
-  draft: MarkdownDraft,
-  markdown: string,
-): MarkdownDraft {
-  const parsed = parseMarkdownMetadata(markdown, '');
+function withUpdatedMarkdown(draft: MarkdownDraft, markdown: string): MarkdownDraft {
+  const fileName = getBaseName(draft.path);
+  const parsed = parseMarkdownMetadata(markdown, fileName);
   const h1Text = extractH1FromMarkdown(parsed.body);
-  const metadata = {
-    ...draft.metadata,
-    updatedAt: new Date().toISOString(),
-    ...(h1Text !== null && h1Text !== '' ? { title: h1Text } : {}),
+  const updates = {
+    ...(parsed.source && Object.hasOwn(parsed.source.properties, 'updatedAt') ? { updatedAt: new Date().toISOString() } : {}),
+    ...(parsed.source && Object.hasOwn(parsed.source.properties, 'title') && h1Text ? { title: h1Text } : {}),
   };
-
-  const nextMarkdown = serializeFrontmatter({ body: parsed.body, metadata });
-
-  return {
-    ...draft,
-    markdown: nextMarkdown,
-    metadata,
-  };
-}
-
-async function compensateMarkdownDocument(
-  rootPath: string,
-  node: WorkspaceNode,
-  content: MarkdownDocumentContent,
-  draft: MarkdownDraft,
-): Promise<{ draft: MarkdownDraft; content: MarkdownDocumentContent }> {
-  const fileStem = node.name.replace(/\.md$/i, '');
-  const parsed = parseMarkdownMetadata(content.content, node.name);
-  const needsFrontmatter = !FRONTMATTER_OPENING_PATTERN.test(content.content);
-  const hasH1InBody = /^#{1}\s+\S/m.test(parsed.body);
-  const needsH1 = !hasH1InBody;
-
-  if (!needsH1 && !needsFrontmatter) {
-    return { draft, content };
-  }
-
-  const title = draft.metadata.title || fileStem;
-  const h1Prefix = needsH1 ? `# ${title}\n\n` : '';
-  const body = needsH1 ? `${h1Prefix}${parsed.body}` : parsed.body;
-  const metadata = {
-    ...draft.metadata,
-    title,
-    createdAt: draft.metadata.createdAt ?? new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  const markdown = serializeFrontmatter({ body, metadata });
-
-  const meta = await saveMarkdownDocument(
-    rootPath,
-    node.absolutePath,
-    markdown,
-    content.modifiedAt,
-  );
-
-  const compensatedContent: MarkdownDocumentContent = {
-    content: markdown,
-    modifiedAt: meta.modifiedAt,
-    path: meta.path,
-  };
-
-  return {
-    content: compensatedContent,
-    draft: createMarkdownDraft(compensatedContent, node.name),
-  };
+  const nextMarkdown = parsed.source ? serializeFrontmatter({ body: parsed.body, metadata: updates, source: parsed.source }) : markdown;
+  return { ...draft, markdown: nextMarkdown, metadata: parseMarkdownMetadata(nextMarkdown, fileName).metadata };
 }
 
 function findNodeByAbsolutePath(
@@ -1684,7 +1696,7 @@ function insertWorkspaceNodeIntoChildren(
   return inserted ? nextNodes : null;
 }
 
-function getMovedNodePath(
+export function getMovedNodePath(
   currentPath: string,
   request: WorkspaceMoveRequest,
 ) {

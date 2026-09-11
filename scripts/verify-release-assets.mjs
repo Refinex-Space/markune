@@ -134,7 +134,7 @@ export function validateReleaseSnapshot({
       const updaterAsset = assetsByName.get(expected.assetName);
       if (
         !updaterAsset ||
-        platform.url !== updaterAsset.browser_download_url
+        !isExpectedUpdaterAssetUrl(platform.url, updaterAsset)
       ) {
         errors.push(
           `${platformName} URL does not reference ${expected.assetName} in this release`,
@@ -310,6 +310,13 @@ function isExpectedAssetApiUrl(value, assetId) {
     typeof value === 'string' &&
     value ===
       `${GITHUB_API_ROOT}/repos/${DISTRIBUTION_OWNER}/${DISTRIBUTION_REPO}/releases/assets/${assetId}`
+  );
+}
+
+function isExpectedUpdaterAssetUrl(value, asset) {
+  return (
+    value === asset.browser_download_url ||
+    (value === asset.url && isExpectedAssetApiUrl(asset.url, asset.id))
   );
 }
 

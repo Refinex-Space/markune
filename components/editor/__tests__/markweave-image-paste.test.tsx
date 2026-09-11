@@ -2,13 +2,18 @@ import * as React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {
   MarkweaveEditor,
+  type MarkweaveDocumentLoadState,
   type MarkweaveEditorUpdatePayload,
   type MarkweaveSlashCommandUploadHandler,
 } from '@markweave/react';
+import { getMarkweaveDocumentViewportCoordinatorForElement } from 'markweave';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createDrawingMarkdownReferenceHtml } from '@/components/editor/drawing-markdown-reference';
-import { MarkdownEditor } from '@/components/editor/markdown-editor';
+import {
+  MarkdownEditor,
+  type MarkdownEditorHandle,
+} from '@/components/editor/markdown-editor';
 
 vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: vi.fn((path: string) => `asset://${path}`),
@@ -32,6 +37,9 @@ vi.mock('@/components/workspace/workspace-api', () => {
       }),
     ),
     uploadWorkspaceAsset: vi.fn(),
+    storeDocumentAsset: vi.fn(),
+    resolveDocumentAssets: vi.fn(),
+    readAppSettings: vi.fn(),
   };
 });
 
@@ -42,6 +50,9 @@ import {
 import {
   resolveWorkspaceAsset,
   uploadWorkspaceAsset,
+  storeDocumentAsset,
+  resolveDocumentAssets,
+  readAppSettings,
 } from '@/components/workspace/workspace-api';
 
 function WorkspaceAssetEditor({
@@ -84,10 +95,8 @@ function DrawingReferenceEditor({ markdown }: { markdown: string }) {
 
 function ControlledWorkspaceAssetEditor({
   markdown,
-  onEditor,
 }: {
   markdown: string;
-  onEditor?: (editor: MarkweaveEditorUpdatePayload['editor']) => void;
 }) {
   const [value, setValue] = React.useState(markdown);
   const { editorMarkdown, onSlashCommandUpload, toStorageMarkdown } =
@@ -100,7 +109,6 @@ function ControlledWorkspaceAssetEditor({
         contentFormat="markdown"
         onSlashCommandUpload={onSlashCommandUpload}
         onUpdate={(payload) => {
-          onEditor?.(payload.editor);
           setValue(toStorageMarkdown(payload.markdown));
         }}
       />
@@ -114,6 +122,149 @@ describe('Markweave image integration', () => {
     vi.clearAllMocks();
     clearWorkspaceAssetResolverCache();
   });
+
+  it.each(['standard', 'large'] as const)(
+    '图片开头的列表与表格在 %s 文档中加载、编辑、保存和重开后保持结构',
+    async (tier) => {
+      const image = `![预览](markune-asset://${'a'.repeat(64)})`;
+      const link = '[查看说明](https://example.com/guide)';
+      const markdown = [
+        '---',
+        'title: 图片结构回归',
+        'custom: keep-me',
+        '---',
+        '# 图片结构回归',
+        '',
+        `- ${image}${link}`,
+        '- 后续列表项',
+        '',
+        `1. ${image}${link}`,
+        '2. 后续有序项',
+        '',
+        `- [x] ${image}${link}`,
+        '- [ ] 后续任务',
+        '',
+        '| 预览 |',
+        '| --- |',
+        `| ${image}${link} |`,
+        '',
+        tier === 'large' ? '文档正文 padding '.repeat(20_000) : '文档正文。',
+      ].join('\n');
+      const states: MarkweaveDocumentLoadState[] = [];
+      const ref = React.createRef<MarkdownEditorHandle>();
+      const onMarkdownChange = vi.fn();
+      const view = render(
+        <MarkdownEditor
+          ref={ref}
+          markdown={markdown}
+          onMarkdownChange={onMarkdownChange}
+          onDocumentLoadStateChange={(state) => states.push(state)}
+        />,
+      );
+      await waitFor(() => expect(states.at(-1)?.phase).toBe('ready'), {
+        timeout: 15_000,
+      });
+      expect(states.at(-1)?.tier).toBe(tier);
+      expect(states.some((state) => state.phase === 'error')).toBe(false);
+      expect(onMarkdownChange).not.toHaveBeenCalled();
+
+      const surface = screen.getByTestId('markweave-editor-surface');
+      const editor = getMarkweaveDocumentViewportCoordinatorForElement(surface)!.editor;
+      expect(() => editor.state.doc.check()).not.toThrow();
+      expect(editor.getHTML().match(/src="markune-asset:/g)).toHaveLength(4);
+      expect(editor.getHTML().match(/href="https:\/\/example.com\/guide"/g)).toHaveLength(4);
+
+      await act(async () => {
+        editor.commands.insertContentAt(editor.state.doc.content.size, '\n\n追加正文。', {
+          contentType: 'markdown',
+        });
+      });
+      const editedDocument = editor.getJSON();
+      await act(async () => {
+        expect(await ref.current!.flushDraft('manual-save')).toBe(true);
+      });
+      const saved = onMarkdownChange.mock.calls.at(-1)![0] as string;
+      expect(saved).toContain('custom: keep-me');
+      expect(saved).toContain('追加正文。');
+      expect(saved).toContain(`markune-asset://${'a'.repeat(64)}`);
+      expect(saved).not.toContain('asset://localhost');
+      view.unmount();
+
+      states.length = 0;
+      onMarkdownChange.mockClear();
+      render(
+        <MarkdownEditor
+          markdown={saved}
+          onMarkdownChange={onMarkdownChange}
+          onDocumentLoadStateChange={(state) => states.push(state)}
+        />,
+      );
+      await waitFor(() => expect(states.at(-1)?.phase).toBe('ready'), {
+        timeout: 15_000,
+      });
+      const reopened = getMarkweaveDocumentViewportCoordinatorForElement(
+        screen.getByTestId('markweave-editor-surface'),
+      )!.editor;
+      expect(reopened.getJSON()).toEqual(editedDocument);
+      expect(onMarkdownChange).not.toHaveBeenCalled();
+    },
+    30_000,
+  );
+
+  it('真实编辑器的网络图片粘贴遵循存储规则并持久化相对引用', async () => {
+    vi.mocked(readAppSettings).mockResolvedValue({ storage: { attachments: { applyToRemoteImages: true } } } as never);
+    vi.mocked(storeDocumentAsset).mockResolvedValue({ src: './a.assets/picture.png', mimeType: 'image/png', name: 'picture.png', size: 2 });
+    vi.mocked(resolveDocumentAssets).mockResolvedValue([{ src: './a.assets/picture.png', absolutePath: '/ws/root/notes/a.assets/picture.png' }]);
+    const onMarkdownChange = vi.fn();
+    render(<MarkdownEditor documentKey="relative-asset-test" documentPath="/ws/root/notes/a.md" workspaceRootPath="/ws/root" markdown="# 图片" onMarkdownChange={onMarkdownChange} />);
+    await waitFor(() => expect(document.querySelector('[contenteditable="true"]')).toBeTruthy());
+    const editor = document.querySelector('[contenteditable="true"]')!;
+    fireEvent.paste(editor, { clipboardData: { files: [], getData: (type: string) => type === 'text/html' ? '<img src="https://example.com/picture.png">' : 'https://example.com/picture.png' } });
+    await waitFor(() => expect(storeDocumentAsset).toHaveBeenCalledWith('/ws/root', '/ws/root/notes/a.md', expect.objectContaining({ kind: 'image', sourceType: 'url', value: 'https://example.com/picture.png' })));
+    await waitFor(() => expect(document.querySelector('img[src="asset:///ws/root/notes/a.assets/picture.png"]')).toBeTruthy());
+    await waitFor(() => expect(onMarkdownChange).toHaveBeenCalled(), { timeout: 2000 });
+    const stored = onMarkdownChange.mock.calls.at(-1)?.[0] as string;
+    expect(stored).toContain('./a.assets/picture.png');
+    expect(stored).not.toContain('asset:///');
+    expect(readAppSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('0.10.3 可加载超过 20 万字符的混合块图片文档并保持可编辑', async () => {
+    const assetIds = ['a', 'b', 'c'].map((value) => value.repeat(64));
+    const states: MarkweaveDocumentLoadState[] = [];
+    const markdown = [
+      `![第一张图](markune-asset://${assetIds[0]})`,
+      '图片后的正文仍需保留。',
+      '',
+      `![第二张图](markune-asset://${assetIds[1]}) ![第三张图](markune-asset://${assetIds[2]})`,
+      '',
+      'large document padding '.repeat(12_000),
+    ].join('\n');
+
+    render(
+      <MarkweaveEditor
+        defaultContent={markdown}
+        defaultContentFormat="markdown"
+        onDocumentLoadStateChange={(state) => states.push(state)}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(states.at(-1)?.phase).toBe('ready');
+    }, { timeout: 15_000 });
+
+    const surface = screen.getByTestId('markweave-editor-surface');
+    expect(states.some((state) => state.phase === 'error')).toBe(false);
+    expect(states.at(-1)?.tier).toBe('large');
+    expect(
+      surface.querySelectorAll('[data-testid="markweave-image-node"]'),
+    ).toHaveLength(3);
+    expect(surface.textContent).toContain('图片后的正文仍需保留。');
+    expect(
+      getMarkweaveDocumentViewportCoordinatorForElement(surface)?.editor
+        .isEditable,
+    ).toBe(true);
+  }, 20_000);
 
   it('把剪贴板图片交给 Markune 提供的上传处理器并展示返回地址', async () => {
     const file = new File([new Uint8Array([1, 2, 3])], 'screenshot.png', {
@@ -184,15 +335,13 @@ describe('Markweave image integration', () => {
     let editor: MarkweaveEditorUpdatePayload['editor'] | null = null;
 
     render(
-      <ControlledWorkspaceAssetEditor
-        markdown={existingMarkdown}
-        onEditor={(nextEditor) => {
-          editor = nextEditor;
-        }}
-      />,
+      <ControlledWorkspaceAssetEditor markdown={existingMarkdown} />,
     );
     const surface = await screen.findByTestId('markweave-editor-surface');
     await waitFor(() => {
+      editor =
+        getMarkweaveDocumentViewportCoordinatorForElement(surface)?.editor ??
+        null;
       expect(surface.querySelectorAll('img')).toHaveLength(1);
       expect(editor).not.toBeNull();
     });
@@ -219,6 +368,62 @@ describe('Markweave image integration', () => {
     ).toContain(`markune-asset://${uploadedAssetId}`);
   });
 
+  it('本地图片首次缺失后可由节点选择强制重新解析并以真实 load 确认成功', async () => {
+    const assetId = 'd'.repeat(64);
+    let available = false;
+    vi.mocked(resolveWorkspaceAsset).mockImplementation(async () =>
+      available
+        ? {
+            absolutePath: `/ws/.markune/assets/files/dd/${assetId}.png`,
+            id: assetId,
+            mediaType: 'image/png',
+            name: 'recovered.png',
+            size: 10,
+          }
+        : null,
+    );
+
+    render(
+      <WorkspaceAssetEditor
+        documentKey="recover-image.md"
+        markdown={`![恢复图片](markune-asset://${assetId})`}
+      />,
+    );
+
+    await screen.findByTestId('markweave-editor-surface');
+    const imageNode = await waitFor(() => {
+      const node = document.querySelector<HTMLElement>(
+        '[data-markweave-lightweight-image="true"]',
+      );
+
+      expect(node).not.toBeNull();
+      expect(resolveWorkspaceAsset).toHaveBeenCalled();
+      return node!;
+    });
+    available = true;
+    vi.mocked(resolveWorkspaceAsset).mockClear();
+
+    fireEvent.mouseDown(imageNode, { button: 0 });
+
+    await waitFor(() => {
+      expect(resolveWorkspaceAsset).toHaveBeenCalled();
+      expect(
+        imageNode.querySelector('img')?.getAttribute('src'),
+      ).toContain(assetId);
+    });
+    const image = imageNode.querySelector<HTMLImageElement>('img');
+    expect(image).not.toBeNull();
+    Object.defineProperties(image!, {
+      naturalHeight: { configurable: true, value: 36 },
+      naturalWidth: { configurable: true, value: 64 },
+    });
+    fireEvent.load(image!);
+
+    await waitFor(() => {
+      expect(imageNode.dataset.mediaState).toBe('resolved');
+    });
+  });
+
   it('含本地图片的有序列表连续回车只新增一项并正常退出', async () => {
     const assetId = 'c'.repeat(64);
     const markdown =
@@ -234,15 +439,13 @@ describe('Markweave image integration', () => {
     let editor: MarkweaveEditorUpdatePayload['editor'] | null = null;
 
     render(
-      <ControlledWorkspaceAssetEditor
-        markdown={markdown}
-        onEditor={(nextEditor) => {
-          editor = nextEditor;
-        }}
-      />,
+      <ControlledWorkspaceAssetEditor markdown={markdown} />,
     );
     const surface = await screen.findByTestId('markweave-editor-surface');
     await waitFor(() => {
+      editor =
+        getMarkweaveDocumentViewportCoordinatorForElement(surface)?.editor ??
+        null;
       expect(surface.querySelector('img')?.getAttribute('src')).toContain(
         assetId,
       );

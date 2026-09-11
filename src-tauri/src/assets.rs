@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{self, Cursor};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_dialog::DialogExt;
@@ -250,7 +251,7 @@ fn validate_raster_tree_icon(
     Ok(())
 }
 
-fn validate_safe_svg(bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn validate_safe_svg(bytes: &[u8]) -> Result<(), String> {
     use quick_xml::events::Event;
 
     let source = std::str::from_utf8(bytes).map_err(|_| "SVG 必须使用 UTF-8 编码".to_string())?;
@@ -447,6 +448,21 @@ pub(crate) fn upload_workspace_asset_impl(
         .map(|(uploaded, _)| uploaded)
 }
 
+fn asset_index_lock(root: &Path) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<BTreeMap<PathBuf, Weak<Mutex<()>>>>> = OnceLock::new();
+    let mut locks = LOCKS
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    locks.retain(|_, value| value.strong_count() > 0);
+    if let Some(lock) = locks.get(root).and_then(Weak::upgrade) {
+        return lock;
+    }
+    let lock = Arc::new(Mutex::new(()));
+    locks.insert(root.to_path_buf(), Arc::downgrade(&lock));
+    lock
+}
+
 pub(crate) fn store_workspace_asset_bytes_impl(
     root_path: String,
     file_name: String,
@@ -454,6 +470,8 @@ pub(crate) fn store_workspace_asset_bytes_impl(
     bytes: Vec<u8>,
 ) -> Result<(UploadedWorkspaceAsset, bool), String> {
     let root = canonical_workspace_root(&root_path)?;
+    let lock = asset_index_lock(&root);
+    let _guard = lock.lock().map_err(|_| "资产索引状态不可用")?;
     let original_name = validate_file_name(&file_name)?;
 
     if bytes.is_empty() {
@@ -623,7 +641,10 @@ pub(crate) fn resolve_workspace_asset_impl(
     })
 }
 
-fn allow_asset_protocol_file<R: Runtime>(app: &AppHandle<R>, path: &Path) -> Result<(), String> {
+pub(crate) fn allow_asset_protocol_file<R: Runtime>(
+    app: &AppHandle<R>,
+    path: &Path,
+) -> Result<(), String> {
     app.asset_protocol_scope()
         .allow_file(path)
         .map_err(|_| "无法授权资产文件访问".to_string())
@@ -698,6 +719,8 @@ pub fn cleanup_unreferenced_assets(
         return Ok(());
     }
 
+    let lock = asset_index_lock(root);
+    let _guard = lock.lock().map_err(|_| "资产索引状态不可用")?;
     let referenced = collect_workspace_asset_references(root)?;
     let mut index = read_asset_index(root).map_err(|_| "无法读取资产索引".to_string())?;
 
@@ -906,7 +929,7 @@ fn write_asset_index(root: &Path, index: &WorkspaceAssetIndex) -> io::Result<()>
     fs::create_dir_all(&dir)?;
     let json = serde_json::to_string_pretty(index)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-    fs::write(dir.join("index.json"), format!("{json}\n"))
+    crate::workspace::write_text_atomic(&dir.join("index.json"), &format!("{json}\n"))
 }
 
 fn canonical_workspace_root(root_path: &str) -> Result<PathBuf, String> {

@@ -2,6 +2,7 @@
 //! API keys stay in the OS keyring and are injected only into the sidecar env.
 //! Author: refinex
 
+use fs2::FileExt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -30,6 +31,7 @@ const MAX_API_KEY_LEN: usize = 8_192;
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexCustomProviderInfo {
+    pub fingerprint: String,
     pub base_url: Option<String>,
     pub model: Option<String>,
     pub has_api_key: bool,
@@ -57,6 +59,7 @@ pub struct CodexConnectionStatus {
 
 #[derive(Clone, Debug)]
 struct CustomProviderConfig {
+    credential_id: Option<String>,
     base_url: Option<String>,
     model: Option<String>,
     model_provider: Option<String>,
@@ -66,8 +69,9 @@ struct CustomProviderConfig {
 pub fn codex_custom_provider_get(app: AppHandle) -> Result<CodexCustomProviderInfo, String> {
     let storage = resolve_codex_storage(&app, None)?;
     let config = read_custom_provider_config(&storage.root)?;
-    let has_api_key = api_key_stored()?;
+    let has_api_key = read_config_key(&config)?.is_some();
     Ok(CodexCustomProviderInfo {
+        fingerprint: provider_fingerprint(&storage.root)?,
         base_url: config.base_url,
         model: config.model,
         has_api_key,
@@ -84,33 +88,53 @@ pub fn codex_custom_provider_set(
     base_url: String,
     model: String,
     api_key: Option<String>,
+    expected_fingerprint: String,
 ) -> Result<CodexCustomProviderInfo, String> {
     let storage = resolve_codex_storage(&app, None)?;
     let normalized_url = validate_base_url(&base_url)?;
     let normalized_model = validate_model(&model)?;
 
-    if let Some(key) = api_key {
-        let normalized_key = validate_api_key(&key)?;
-        store_api_key(&normalized_key)?;
-    } else if !api_key_stored()? {
-        return Err("请提供 API Key".to_string());
-    }
-
-    patch_custom_provider_config(
+    let _lock = lock_provider(&storage.root)?;
+    check_provider_fingerprint(&storage.root, &expected_fingerprint)?;
+    let old = read_custom_provider_config(&storage.root)?;
+    let key = match api_key {
+        Some(key) => validate_api_key(&key)?,
+        None => read_config_key(&old)?.ok_or("请提供 API Key")?,
+    };
+    let credential_id = uuid::Uuid::new_v4().to_string();
+    versioned_secret(&credential_id, Some(&key), false)?;
+    let result = patch_custom_provider_config_with_credential(
         &storage.root,
         Some(&normalized_url),
         Some(&normalized_model),
         true,
-    )?;
+        Some(&credential_id),
+    );
+    if result.is_err() {
+        let _ = versioned_secret(&credential_id, None, true);
+    }
+    result?;
+    if let Some(id) = old.credential_id {
+        let _ = versioned_secret(&id, None, true);
+    }
 
     codex_custom_provider_get(app)
 }
 
 #[tauri::command]
-pub fn codex_custom_provider_clear(app: AppHandle) -> Result<CodexCustomProviderInfo, String> {
+pub fn codex_custom_provider_clear(
+    app: AppHandle,
+    expected_fingerprint: String,
+) -> Result<CodexCustomProviderInfo, String> {
     let storage = resolve_codex_storage(&app, None)?;
-    clear_api_key()?;
-    patch_custom_provider_config(&storage.root, None, None, false)?;
+    let _lock = lock_provider(&storage.root)?;
+    check_provider_fingerprint(&storage.root, &expected_fingerprint)?;
+    let old = read_custom_provider_config(&storage.root)?;
+    patch_custom_provider_config_with_credential(&storage.root, None, None, false, Some(""))?;
+    if let Some(id) = old.credential_id {
+        versioned_secret(&id, None, true)?;
+    }
+    // Legacy shared credentials stay untouched. author: refinex
     codex_custom_provider_get(app)
 }
 
@@ -118,8 +142,11 @@ pub fn codex_custom_provider_clear(app: AppHandle) -> Result<CodexCustomProvider
 pub fn codex_auth_mode_set(
     app: AppHandle,
     mode: String,
+    expected_fingerprint: String,
 ) -> Result<CodexCustomProviderInfo, String> {
     let storage = resolve_codex_storage(&app, None)?;
+    let _lock = lock_provider(&storage.root)?;
+    check_provider_fingerprint(&storage.root, &expected_fingerprint)?;
     let normalized = mode.trim().to_ascii_lowercase();
     match normalized.as_str() {
         "chatgpt" | "openai" => {
@@ -134,7 +161,7 @@ pub fn codex_auth_mode_set(
             {
                 return Err("请先配置自定义 Base URL".to_string());
             }
-            if !api_key_stored()? {
+            if read_config_key(&config)?.is_none() {
                 return Err("请先保存自定义 API Key".to_string());
             }
             set_model_provider(&storage.root, CUSTOM_PROVIDER_ID)?;
@@ -173,6 +200,7 @@ pub fn codex_connection_status(
     // Do not talk to App Server here — settings must not hang on RPC.
     let mut runtime = match resolve_codex_binary(&app) {
         Ok(binary) => CodexRuntimeInfo {
+            session_id: None,
             available: true,
             running: false,
             binary_source: Some(binary.source),
@@ -185,12 +213,13 @@ pub fn codex_connection_status(
     };
 
     let config = read_custom_provider_config(&storage.root).unwrap_or(CustomProviderConfig {
+        credential_id: None,
         base_url: None,
         model: None,
         model_provider: None,
     });
     let auth = read_auth_snapshot(&storage.root);
-    let has_api_key = api_key_stored().unwrap_or(false);
+    let has_api_key = read_config_key(&config).ok().flatten().is_some();
     let enabled = config.model_provider.as_deref() == Some(CUSTOM_PROVIDER_ID);
     let custom_configured = config.base_url.is_some() && has_api_key;
     let auth_mode = if enabled {
@@ -233,7 +262,7 @@ pub fn load_sidecar_api_key(codex_home: &Path) -> Result<Option<String>, String>
         return Ok(None);
     }
 
-    match read_api_key()? {
+    match read_config_key(&config)? {
         Some(key) => Ok(Some(key)),
         None => Err(
             "自定义 Codex provider 已启用，但系统钥匙串中没有 API Key。请在设置中重新保存。"
@@ -243,7 +272,7 @@ pub fn load_sidecar_api_key(codex_home: &Path) -> Result<Option<String>, String>
 }
 
 fn config_toml_path(codex_home: &Path) -> PathBuf {
-    codex_home.join("config.toml")
+    codex_home.join("markune-provider.toml")
 }
 
 #[derive(Clone, Debug, Default)]
@@ -339,9 +368,15 @@ fn email_from_jwt(token: &str) -> Option<String> {
 }
 
 fn read_custom_provider_config(codex_home: &Path) -> Result<CustomProviderConfig, String> {
-    let path = config_toml_path(codex_home);
+    let owned = config_toml_path(codex_home);
+    let path = if owned.exists() {
+        owned
+    } else {
+        codex_home.join("config.toml")
+    };
     if !path.exists() {
         return Ok(CustomProviderConfig {
+            credential_id: None,
             base_url: None,
             model: None,
             model_provider: None,
@@ -352,7 +387,7 @@ fn read_custom_provider_config(codex_home: &Path) -> Result<CustomProviderConfig
         .map_err(|error| format!("读取 Codex config.toml 失败: {error}"))?;
     let document = raw
         .parse::<DocumentMut>()
-        .map_err(|error| format!("解析 Codex config.toml 失败: {error}"))?;
+        .map_err(|_| "Codex 配置 TOML 格式无效，请检查文件".to_string())?;
 
     let model = document
         .get("model")
@@ -372,28 +407,50 @@ fn read_custom_provider_config(codex_home: &Path) -> Result<CustomProviderConfig
         .map(str::to_string);
 
     Ok(CustomProviderConfig {
+        credential_id: document
+            .get("markune_credential_id")
+            .and_then(Item::as_str)
+            .map(str::to_owned),
         base_url,
         model,
         model_provider,
     })
 }
 
+#[cfg(test)]
 fn patch_custom_provider_config(
     codex_home: &Path,
     base_url: Option<&str>,
     model: Option<&str>,
     enable: bool,
 ) -> Result<(), String> {
+    patch_custom_provider_config_with_credential(codex_home, base_url, model, enable, None)
+}
+fn patch_custom_provider_config_with_credential(
+    codex_home: &Path,
+    base_url: Option<&str>,
+    model: Option<&str>,
+    enable: bool,
+    credential_id: Option<&str>,
+) -> Result<(), String> {
     let path = config_toml_path(codex_home);
+    let baseline = match fs::read(&path) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => return Err("无法读取 API 配置".into()),
+    };
     let mut document = if path.exists() {
         let raw = fs::read_to_string(&path)
             .map_err(|error| format!("读取 Codex config.toml 失败: {error}"))?;
         raw.parse::<DocumentMut>()
-            .map_err(|error| format!("解析 Codex config.toml 失败: {error}"))?
+            .map_err(|_| "Codex 配置 TOML 格式无效，请检查文件".to_string())?
     } else {
         DocumentMut::new()
     };
 
+    if let Some(id) = credential_id {
+        document["markune_credential_id"] = value(id);
+    }
     if let Some(model) = model {
         document["model"] = value(model);
     }
@@ -433,36 +490,62 @@ fn patch_custom_provider_config(
         }
     }
 
-    write_config_atomically(&path, &document)
+    write_config_atomically(&path, &document, baseline.as_deref())
 }
 
 fn set_model_provider(codex_home: &Path, provider: &str) -> Result<(), String> {
     let path = config_toml_path(codex_home);
+    let baseline = match fs::read(&path) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => return Err("无法读取 API 配置".into()),
+    };
     let mut document = if path.exists() {
         let raw = fs::read_to_string(&path)
             .map_err(|error| format!("读取 Codex config.toml 失败: {error}"))?;
         raw.parse::<DocumentMut>()
-            .map_err(|error| format!("解析 Codex config.toml 失败: {error}"))?
+            .map_err(|_| "Codex 配置 TOML 格式无效，请检查文件".to_string())?
     } else {
-        DocumentMut::new()
+        let current = read_custom_provider_config(codex_home)?;
+        let mut document = DocumentMut::new();
+        if let Some(model) = current.model {
+            document["model"] = value(model);
+        }
+        if let Some(url) = current.base_url {
+            document["model_providers"][CUSTOM_PROVIDER_ID]["base_url"] = value(url);
+        }
+        document
     };
 
     document["model_provider"] = value(provider);
-    write_config_atomically(&path, &document)
+    write_config_atomically(&path, &document, baseline.as_deref())
 }
 
-fn write_config_atomically(path: &Path, document: &DocumentMut) -> Result<(), String> {
+fn write_config_atomically(
+    path: &Path,
+    document: &DocumentMut,
+    baseline: Option<&[u8]>,
+) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| format!("创建 Codex 配置目录失败: {error}"))?;
     }
 
-    let temp_path = path.with_extension("toml.markune.tmp");
-    let serialized = document.to_string();
-    fs::write(&temp_path, serialized)
-        .map_err(|error| format!("写入 Codex config.toml 临时文件失败: {error}"))?;
-    fs::rename(&temp_path, path)
-        .map_err(|error| format!("替换 Codex config.toml 失败: {error}"))?;
-    Ok(())
+    crate::workspace::write_text_atomic_guarded(path, &document.to_string(), || {
+        let current = match fs::read(path) {
+            Ok(raw) => Some(raw),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error),
+        };
+        if current.as_deref() != baseline {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "provider changed",
+            ));
+        }
+        Ok(())
+    })
+    .map(|_| ())
+    .map_err(|_| "API 配置发生冲突或无法原子保存，请刷新后重试".into())
 }
 
 #[cfg(not(test))]
@@ -511,22 +594,9 @@ mod secret_store {
             Err(error) => Err(format!("读取系统钥匙串失败: {error}")),
         }
     }
-
-    pub fn store_api_key(api_key: &str) -> Result<(), String> {
-        keyring_entry()?
-            .set_password(api_key)
-            .map_err(|error| format!("写入系统钥匙串失败: {error}"))
-    }
-
-    pub fn clear_api_key() -> Result<(), String> {
-        match keyring_entry()?.delete_credential() {
-            Ok(()) => Ok(()),
-            Err(keyring::Error::NoEntry) => Ok(()),
-            Err(error) => Err(format!("清除系统钥匙串失败: {error}")),
-        }
-    }
 }
 
+#[cfg(test)]
 fn api_key_stored() -> Result<bool, String> {
     Ok(secret_store::read_api_key()?.is_some())
 }
@@ -535,10 +605,12 @@ fn read_api_key() -> Result<Option<String>, String> {
     secret_store::read_api_key()
 }
 
+#[cfg(test)]
 fn store_api_key(api_key: &str) -> Result<(), String> {
     secret_store::store_api_key(api_key)
 }
 
+#[cfg(test)]
 fn clear_api_key() -> Result<(), String> {
     secret_store::clear_api_key()
 }
@@ -785,5 +857,161 @@ command = "demo"
         let snapshot = read_auth_snapshot(home.path());
         assert!(!snapshot.signed_in);
         assert!(snapshot.account_type.is_none());
+    }
+}
+
+fn lock_provider(home: &Path) -> Result<fs::File, String> {
+    fs::create_dir_all(home).map_err(|_| "无法访问 Codex 配置目录")?;
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(home.join("markune-provider.lock"))
+        .map_err(|_| "无法锁定 API 配置")?;
+    file.try_lock_exclusive()
+        .map_err(|_| "另一个窗口正在更新 API 配置，请稍后重试")?;
+    Ok(file)
+}
+fn provider_fingerprint(home: &Path) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    let owned = config_toml_path(home);
+    let path = if owned.exists() {
+        owned
+    } else {
+        home.join("config.toml")
+    };
+    let raw = match fs::read(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(_) => return Err("无法读取 API 配置版本".into()),
+    };
+    Ok(format!("{:x}", Sha256::digest(raw)))
+}
+fn check_provider_fingerprint(home: &Path, expected: &str) -> Result<(), String> {
+    if provider_fingerprint(home)? != expected {
+        return Err("API 配置已被其他窗口修改，请刷新后重试".into());
+    }
+    Ok(())
+}
+fn read_config_key(config: &CustomProviderConfig) -> Result<Option<String>, String> {
+    match &config.credential_id {
+        Some(id) if id.is_empty() => Ok(None),
+        Some(id) => versioned_secret(id, None, false),
+        None => read_api_key(),
+    }
+}
+#[cfg(not(test))]
+fn versioned_secret(id: &str, write: Option<&str>, delete: bool) -> Result<Option<String>, String> {
+    uuid::Uuid::parse_str(id).map_err(|_| "API 凭据标识无效")?;
+    let entry = keyring::Entry::new(KEYRING_SERVICE, &format!("api-key-{id}"))
+        .map_err(|_| "无法打开系统钥匙串")?;
+    if let Some(key) = write {
+        entry.set_password(key).map_err(|_| "无法保存 API 凭据")?;
+        return Ok(None);
+    }
+    if delete {
+        return match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(None),
+            Err(_) => Err("无法移除旧 API 凭据".into()),
+        };
+    }
+    match entry.get_password() {
+        Ok(key) => Ok(Some(key)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(_) => Err("无法读取 API 凭据".into()),
+    }
+}
+#[cfg(test)]
+fn versioned_secret(id: &str, write: Option<&str>, delete: bool) -> Result<Option<String>, String> {
+    use std::sync::{LazyLock, Mutex};
+    static KEYS: LazyLock<Mutex<std::collections::HashMap<String, String>>> =
+        LazyLock::new(|| Mutex::new(Default::default()));
+    let mut keys = KEYS.lock().unwrap();
+    if let Some(key) = write {
+        keys.insert(id.into(), key.into());
+    }
+    if delete {
+        keys.remove(id);
+    }
+    Ok(keys.get(id).cloned())
+}
+pub fn sidecar_provider_overrides(home: &Path) -> Result<Vec<String>, String> {
+    let config = read_custom_provider_config(home)?;
+    let mut values = Vec::new();
+    let custom = config.model_provider.as_deref() == Some(CUSTOM_PROVIDER_ID);
+    if custom {
+        let url = validate_base_url(config.base_url.as_deref().ok_or("自定义 API 缺少地址")?)?;
+        let model = validate_model(config.model.as_deref().ok_or("自定义 API 缺少模型")?)?;
+        for (name, value) in [
+            ("model".to_string(), serde_json::json!(model)),
+            (
+                "model_provider".into(),
+                serde_json::json!(CUSTOM_PROVIDER_ID),
+            ),
+            (
+                format!("model_providers.{CUSTOM_PROVIDER_ID}"),
+                serde_json::json!({"name":PROVIDER_DISPLAY_NAME,"base_url":url,"env_key":CUSTOM_PROVIDER_ENV_KEY,"wire_api":"responses","requires_openai_auth":false}),
+            ),
+        ] {
+            let encoded = if value.is_object() {
+                format!("{{ name = {}, base_url = {}, env_key = {}, wire_api = \"responses\", requires_openai_auth = false }}",serde_json::to_string(PROVIDER_DISPLAY_NAME).unwrap(),serde_json::to_string(value["base_url"].as_str().unwrap()).unwrap(),serde_json::to_string(CUSTOM_PROVIDER_ENV_KEY).unwrap())
+            } else {
+                value.to_string()
+            };
+            values.extend(["-c".into(), format!("{name}={encoded}")]);
+        }
+    } else if config_toml_path(home).exists() {
+        values.extend(["-c".into(), "model_provider=\"openai\"".into()]);
+    }
+    Ok(values)
+}
+
+#[cfg(test)]
+mod consistency_tests {
+    use super::*;
+    #[test]
+    fn overlay_preserves_shared_config_and_separates_credentials() {
+        let home = tempfile::tempdir().unwrap();
+        let shared = home.path().join("config.toml");
+        let original = "model = \"shared-model\"\n[model_providers.other]\nname=\"Other\"\n";
+        fs::write(&shared, original).unwrap();
+        let before = provider_fingerprint(home.path()).unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
+        versioned_secret(&id, Some("synthetic-test-key"), false).unwrap();
+        patch_custom_provider_config_with_credential(
+            home.path(),
+            Some("https://example.invalid/v1"),
+            Some("test-model"),
+            true,
+            Some(&id),
+        )
+        .unwrap();
+        assert_eq!(fs::read_to_string(shared).unwrap(), original);
+        assert!(check_provider_fingerprint(home.path(), &before).is_err());
+        assert_eq!(
+            load_sidecar_api_key(home.path()).unwrap().as_deref(),
+            Some("synthetic-test-key")
+        );
+        let overrides = sidecar_provider_overrides(home.path()).unwrap().join(" ");
+        assert!(overrides.contains("markune_custom"));
+        assert!(!overrides.contains("synthetic-test-key"));
+        patch_custom_provider_config_with_credential(home.path(), None, None, false, Some(""))
+            .unwrap();
+        assert!(load_sidecar_api_key(home.path()).unwrap().is_none());
+        versioned_secret(&id, None, true).unwrap();
+    }
+    #[test]
+    fn refuses_conflicting_replace_and_serializes_windows() {
+        let home = tempfile::tempdir().unwrap();
+        let guard = lock_provider(home.path()).unwrap();
+        assert!(lock_provider(home.path()).is_err());
+        drop(guard);
+        assert!(lock_provider(home.path()).is_ok());
+        let path = config_toml_path(home.path());
+        fs::write(&path, "model=\"external\"\n").unwrap();
+        assert!(
+            write_config_atomically(&path, &DocumentMut::new(), Some(b"model=\"old\"\n")).is_err()
+        );
+        assert!(fs::read_to_string(path).unwrap().contains("external"));
     }
 }

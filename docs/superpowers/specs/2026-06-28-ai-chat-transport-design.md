@@ -1,3 +1,10 @@
+---
+owner: refinex
+updated: 2026-09-06
+status: deprecated
+referenced_by: docs/README.md
+---
+
 # AI 面板统一传输层设计（B 子项目）
 
 - 日期：2026-06-28

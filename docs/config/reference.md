@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-08-15
+updated: 2026-09-09
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -11,7 +11,7 @@ referenced_by: AGENTS.md#knowledge-map
 
 - `pnpm dev`：先执行 `pnpm runtime:stage`，再在固定的 `3000` 端口启动 Next.js 开发服务；端口已被占用时直接失败，不回退到其他端口。
 - `pnpm desktop:dev`：先在 Tauri 文件监听启动前准备 Codex 与专业文档导出 sidecar，再启动 Tauri 开发模式。
-- `pnpm codex:stage`：从固定版本 `@openai/codex` 平台包复制当前目标的原生 Codex sidecar，并执行版本探测。
+- `pnpm codex:stage`：从固定版本 `@openai/codex` 平台包同时复制 `codex` 与 `codex-code-mode-host`，校验主程序版本、两项 SHA256 和可执行性。
 - `pnpm document-export:stage`：下载并校验当前目标的 Pandoc 3.10.1、Typst 0.15.1 及对应许可证文本，生成被 Git 忽略的 Tauri sidecar；成功缓存后重复执行是幂等的。
 - `pnpm test:run`：运行一次 Vitest。
 - `pnpm lint`：运行 ESLint。
@@ -27,7 +27,19 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 
 `pnpm-workspace.yaml` 的 `minimumReleaseAgeExclude` 只豁免 Markune 已完成源码、发布包和真实桌面验收的 Markweave 版本。升级 `markweave` 与 `@markweave/react` 时必须同步更新两个版本范围，并保持二者版本一致，避免刚发布的受控版本在全新安装中被 pnpm 发布年龄策略拒绝。
 
-`.github/workflows/release.yml` 的 verify 和 publish job 固定使用 Node.js 24、pnpm 11.16.0 与当前锁定 Actions major。release 关键文件推送到 `dev` 时只运行 verify；`v*` Tag 在当前仓库生成 9 资产 GitHub Draft，不会自动转为正式 Release。维护者检查 Draft 后手工触发 `.github/workflows/publish-release.yml`，该工作流核对 9 个资产、6 个 updater target、当前 Tag commit、下载 URL 与签名内容，再正式发布 Draft。完整 Cargo 测试仍是本机 Tag 前门禁，不加入 Linux release verify。
+`.github/workflows/release.yml` 的 verify 和 publish job 固定使用 Node.js 24、pnpm 11.16.0 与当前锁定 Actions major。release 关键文件推送到 `dev` 时只运行 verify；`v*` Tag 在当前仓库生成 9 资产 GitHub Draft，不会自动转为正式 Release。维护者检查 Draft 后手工触发 `.github/workflows/publish-release.yml`，该工作流核对 9 个资产、6 个 updater target、当前 Tag commit、签名内容，以及每个 target 是否精确引用同名资产的浏览器下载 URL 或 GitHub Assets API URL，再正式发布 Draft。完整 Cargo 测试仍是本机 Tag 前门禁，不加入 Linux release verify。
+
+## Attachment Storage Defaults
+
+`storage.attachments` 默认值为 `mode: managed`、`customPath: ./assets`、`applyToLocalImages: true`、`applyToRemoteImages: false`、`preferRelativePath: true`、`addDotSlash: false`。内置模式使用原有资产库；其他模式以文档目录计算路径。自定义目录支持相对/绝对路径和 `${filename}`，不解释 shell 环境变量或命令。外部目录需通过原生选择建立授权。
+
+新增直接依赖 `pulldown-cmark 0.13.4` 用于保持原文格式的引用重算；Unix `libc` 调用系统无覆盖移动，Tokio `time` 约束域名解析预算，后两者复用既有依赖树。静态 Tauri 资源协议范围不变；普通附件经受限解析后仅动态授权具体文件。
+
+## Graph Defaults
+
+图谱默认显示普通笔记、日记、周记、标签、未解析节点；默认隐藏属性字段，不隐藏孤立节点，启用方向箭头。旧的合法显示偏好继续保留，恢复默认设置会应用新默认。图谱配置仅保存在工作区路径散列后的 local storage key，不写入文档或工作区配置。
+
+原生层新增精确锁定 `yaml-rust2 = 0.11.0`（关闭默认 encoding 特性），用于正确解析图谱 frontmatter。该版本及本次新增传递依赖的声明 MSRV 不高于项目的 Rust 1.77.2；不提升项目工具链要求。单次 frontmatter 输入最多 64 KiB，嵌套最多 16 层，先限制别名展开成本再构建 YAML 值，拒绝循环引用和超限内容。
 
 ## Environment Variables
 
@@ -51,13 +63,13 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 - `frontendDist` 为 `../out`，桌面构建依赖静态导出产物。
 - 资源协议的静态范围仅允许 `$HOME/**/.markune/assets/files/**/*`。对于用户目录外、Windows 非系统盘或 macOS 外置卷上的工作区，Rust 仅在资产已经通过当前工作区索引、canonicalize 和 `.markune/assets/files` 边界校验后，向当前进程动态授权解析出的单个文件；不得授权整个工作区、磁盘或卷。
 - opener 插件关闭了自动接管 `target="_blank"` 链接的全局点击脚本；桌面外链必须显式调用 `openUrl`，避免覆盖编辑器自身的链接交互规则。
-- `bundle.externalBin` 包含 `binaries/codex`、`binaries/pandoc` 和 `binaries/typst`。`desktop:dev` 会在 Tauri 文件监听启动前运行幂等 staging，避免写入 `src-tauri` 时触发重复启动；桌面构建仍在 `beforeBuildCommand` 中 staging。生成的目标平台二进制位于 `src-tauri/binaries/*-{target-triple}` 且被 Git 忽略。
+- `bundle.externalBin` 包含 `binaries/codex`、`binaries/codex-code-mode-host`、`binaries/pandoc` 和 `binaries/typst`。Codex 主程序与辅助宿主必须随包放在同一目录。`desktop:dev` 会在 Tauri 文件监听启动前运行幂等 staging，避免写入 `src-tauri` 时触发重复启动；桌面构建仍在 `beforeBuildCommand` 中 staging。生成的目标平台二进制位于 `src-tauri/binaries/*-{target-triple}` 且被 Git 忽略。
 - Codex 运行时优先使用应用随附 sidecar；开发诊断时才依次检查 `MARKUNE_CODEX_BIN`、PATH 和 macOS ChatGPT App 内置 Codex。
-- 自定义 Responses 端点使用固定 provider ID `markune_custom`：设置页通过 `codex_custom_provider_*` / `codex_auth_mode_set` 写入受控 `config.toml` 键与 keyring，保存后重启 App Server；不开放任意 config 键。
+- 自定义 Responses 端点使用固定 provider ID `markune_custom`：设置页通过 `codex_custom_provider_*` / `codex_auth_mode_set` 写入 `CODEX_HOME/markune-provider.toml` 与版本化 keyring，使用 fingerprint 防止并发覆盖；启动时通过受控 `-c` overlay 应用，不修改共享 `config.toml`，保存后重启 App Server；不开放任意 config 键。
 - 专业 Word/PDF 模板和第三方通知位于 `src-tauri/resources/document-export`。PDF 启用前必须由 Typst 字体清单确认平台存在受支持的中文字体；否则只降级 PDF，不影响专业 Word。兼容 PDF 注册内部 `markune-export://` 协议，但不扩大 `capabilities/default.json` 或 `assetProtocol.scope`。
 - 多格式导入不新增文件协议或 capability。源文件访问只通过 `src-tauri/src/import.rs` 的限时授权与 Raw IPC；`assetProtocol.scope` 保持不变。
 - 画板不新增文件协议或 capability。图稿场景、预览和组件库只通过 `src-tauri/src/drawings.rs` 的受限 Raw IPC 传输；缩略图以可撤销 Blob URL 展示，`assetProtocol.scope` 保持不变。
-- `src-tauri/resources/skills/` 作为只读 Tauri bundle resource 随应用发布。运行时只接受同时包含 `markune-diagram` 与 `markune-mindmap` 的完整内置 Skill 根目录，并要求两者同时具有 `SKILL.md` 与 `agents/openai.yaml`；开发态暂存资源不完整时回退到源码资源目录，不读取渲染器提供的 Skill 物理路径。
+- `src-tauri/resources/skills/` 作为只读 Tauri bundle resource 随应用发布。运行时只接受同时包含 `markune-diagram` 与 `markune-mindmap` 的完整内置 Skill 根目录，并要求每项同时具有 `SKILL.md` 与 `agents/openai.yaml`；注册时只提供这两个 Skill 子目录，避免旧暂存目录中的已移除 Skill 被继续加载；开发态暂存资源不完整时回退到源码资源目录，不读取渲染器提供的 Skill 物理路径。
 - 基础 `src-tauri/tauri.conf.json` 使用 `endpoints: []` 与空 `pubkey` 保留结构有效但不可用的 updater 配置。Tag 发布时生成的 release override 注入 `https://github.com/Refinex-Space/markune/releases/latest/download/latest.json`、公钥、updater artifacts、macOS ad-hoc identity `-` 和 Windows passive 模式。渲染器不能覆盖 endpoint。
 - Rust 侧 Tauri 依赖固定在 `2.11.x`，以约束 `with_webview` 平台类型；Windows 直接使用与当前 Wry 对齐的 `webview2-com 0.38.2`，macOS 使用 `objc2 0.6.4` 与 `objc2-*-kit 0.3.2`。Word 生成依赖精确锁定为 `docx 9.7.1`。
 
@@ -67,7 +79,13 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 
 ## Editor Dependency Integration
 
-`markweave@0.8.0` 与 `@markweave/react@0.8.0` 必须保持同版本。该版本继续包含 Markune 图片剪贴板桥接：只解析受控 `markune-asset://` 地址，并识别严格匹配 64 位资产 ID 与 UUID Drawing ID 的规范图稿引用；不得借此接受 `asset://`、`file://` 或任意自定义协议。Slash 附件经统一 `onSlashCommandUpload`（`kind: "attachment"`）写入工作区资产，文档持久化为不透明 `markune-asset://` 定位符与 `name`/`mimeType`/`size`；激活下载走宿主 `onAttachmentDownload`，不依赖 `http(s)` fallback。0.8.0 在 Live 模式由 Markweave 核心统一处理链接点击：普通点击保留在编辑器中并显示行内 Markdown 源码或链接菜单，`Ctrl/Cmd + 点击` 才打开链接；View 模式仍直接打开安全链接，宿主不得重复拦截同一点击。该版本同时提供内置 `askAi` 文本/表格请求和宿主驱动 `MarkweaveAiEditController`，保留大文档轻量图片能力。Markune 只在活动、可编辑的 Live 正式文档上接入 AI 预编辑；该能力不增加环境变量、持久化 schema、HTTP API 或 Tauri capability。Markune 不应用历史 `markweave@0.2.6` 本地补丁。升级 Markweave 时必须核对 npm tarball 与上游源码一致，并执行链接点击、AI 文本/表格、图稿富文本、附件上传下载和纯文本粘贴回归测试。
+Markweave 0.10.4 将所有 `@tiptap/*` 运行时固定为 `3.29.2`；`pnpm-workspace.yaml` 的 `@tiptap/markdown` override 必须同步为 `3.29.2`，不得把 Markdown 扩展降级到旧 minor 后再与新版 Core/PM 混装。
+
+`markweave@0.10.4` 与 `@markweave/react@0.10.4` 必须保持同版本。0.10.4 对 Markdown 执行 canonical whole-document parse，首次加载、后续 Markdown 更新与大文档加载共用规范化逻辑，在严格 Schema 校验前拆分包含块图片与相邻文本的混合段落，并保留列表项所需的首段落；图片开头的无序列表与含块媒体的表格保存时使用原生 HTML 回退，重开后保持结构；HTTP(S) 页面可以使用 Blob Worker，`tauri:` 等自定义桌面协议立即走同语义主线程解析，避免 WKWebView 静默等待 Worker 超时。文本、选择、撤销、搜索和 TOC 完整 `ready` 后才开放编辑；序列化遵循 GFM 词中下划线规则，已写入磁盘的 `doc\_review\_agent` 会在重新保存时收成 `doc_review_agent`。Markune 必须消费 `onDocumentLoadStateChange`：`parsing | mounting | finalizing` 显示明确进度，`error` 显示有界诊断、重新加载和源码模式恢复，不能把加载过程或解析异常静默为空编辑器。DOM 导出必须在 `ready` 后调用官方 `prepareMarkweaveEditorForOutput`，不能以固定等待或直接克隆未补齐 DOM 代替。媒体 resolver request 保留可选 `attempt` / `reason`；Markune 以 5 秒负缓存、恢复原因强制刷新、750 ms 文档恢复波合并、每批最多 2,048 个资产和 8 root / 8,192 entry 缓存边界接入。resolver URL 只是候选，图片只有真实 `load` 才确认成功；本地视频的 DOM-only bridge 复用同一 resolver 和 output 事件，但不得修改 PM 文档或持久化 Markdown。
+
+Markune 图片剪贴板桥接只解析受控 `markune-asset://` 地址，并识别严格匹配 64 位资产 ID 与 UUID Drawing ID 的规范图稿引用；不得借此接受 `asset://`、`file://` 或任意自定义协议。Slash 附件经统一 `onSlashCommandUpload`（`kind: "attachment"`）写入工作区资产，文档持久化为不透明 `markune-asset://` 定位符与 `name`/`mimeType`/`size`；激活下载走宿主 `onAttachmentDownload`，不依赖 `http(s)` fallback。Live 模式由 Markweave 核心统一处理链接点击：普通链接不渲染原生 `target="_blank"`，同一次鼠标手势只允许一次安全 opener，`Ctrl/Cmd + 点击` 不得同时打开整行链接 composer；View 模式仍直接打开安全链接。内置 `/details` 折叠块、`askAi` 文本/表格请求和宿主驱动 `MarkweaveAiEditController` 保持原契约，均不增加环境变量、持久化 schema、HTTP API 或 Tauri capability。Markune 不应用历史本地补丁。升级 Markweave 时必须核对 npm tarball 与上游源码一致，并执行 canonical parse、ready、output barrier、图片/视频失败恢复、链接点击、AI 文本/表格、图稿富文本、附件上传下载、折叠块往返和纯文本粘贴回归测试。
+
+`MarkdownEditor` 根级 capture 只对 HTTP(S) anchor 提前执行 `preventDefault()`，用于阻止 WKWebView 在 Markweave 冒泡处理前启动原生导航；事件必须继续传播，浏览器打开、链接源码、整行 composer 与 View 模式仍由 Markweave 决定。
 
 目录图标注册表使用固定版本 `@iconify-json/tabler@1.2.37`（Tabler Icons 3.45.0），只在首次打开内置图标标签时动态加载本地数据，不请求 CDN，也不维护手工全量图标清单。其 MIT 许可文本随 Web/桌面静态资源保存在 `public/licenses/tabler-icons.txt`。
 
@@ -83,7 +101,7 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 
 Markune 不在自身设置或 `.markune` 中复制 Codex 权限配置。权限目录由共享 `CODEX_HOME/config.toml` 管理，App Server 通过 `permissionProfile/list` 返回内置 `:workspace`、`:read-only`、`:danger-full-access` 及用户定义的 `[permissions.<id>]` profile；`allowed: false` 的 profile 在界面中保持可见但不可选。
 
-默认模式为 `:workspace + on-request + user`。替我审批使用同一 `:workspace` profile，仅把 reviewer 切换为 `auto_review`；完全访问使用 `:danger-full-access + never + user`；只读访问使用 `:read-only + on-request + user`。企业级 `requirements.toml` / MDM 限制由 `configRequirements/read` 读取，Markune 不开放 `config/read`、`config/value/write`、`config/batchWrite` 或实验功能写入接口。
+新任务默认“请求审批”，使用 `:workspace + on-request + user`。替我审批使用同一 `:workspace` profile，仅把 reviewer 切换为 `auto_review`；完全访问使用 `:danger-full-access + never + user`；只读访问使用 `:read-only + on-request + user`。普通 Agent 根据用户请求问答或直接编辑，不附加单独写作模式。历史任务保持其保存的权限；切换权限不清空当前会话与输入。企业级 `requirements.toml` / MDM 限制仍由原生运行时校验。
 
 ## Workspace Metadata
 
@@ -96,3 +114,14 @@ Inbox Capture 独立保存在 `.markune/inbox/cap_YYYYMMDD_HHMMSS_SSS_<uuid8>.md
 `.markune` 不保存 AI 消息或 Codex 线程副本。旧 `.markune/ai-sessions` 路径已经停用，应在知识库中忽略；AI 会话的新建、恢复、命名、归档和删除完全由用户级 Codex Home 与 App Server 管理。
 
 右侧元信息宽度继续保存在 `markune:workspace:right-panel-width`；AI 面板使用独立的 `markune:workspace:ai-panel-width`，避免两个面板的尺寸互相覆盖。
+
+
+## Knowledge Views And Research Defaults
+
+元数据解析固定使用 `yaml@2.9.0`；不在打开笔记时迁移或自动补全 YAML。默认视图列是标题、路径、修改时间、标签，按修改时间降序、不分组；任务默认展示未完成项，文档/任务每页先展示 100 条。命名视图存入工作区 `.markune/views.json`，没有额外数据库。
+
+模板入口位于文件树根目录空白区、目录菜单和视图页加号。内置空白、会议、项目、研究与阅读模板；用户模板来自 `Templates/`、`模板/` 或 `markuneTemplate: true`，复制时该标记变为 false。全局搜索支持 `path:`、`tag:`、`prop:`、`after:`、`before:`、`type:`，字段前加 `-` 表示排除，双引号表示精确短语；日期按 UTC 日界解释。
+
+PDF 阅读使用既有 `public/import-runtime` 离线资源，不增加远程 Worker。研究资料默认只形成 AI 草稿，保留既有输入，等待用户发送。网页摘录由用户填写 HTTP(S) 来源及原文。普通笔记的回收站与本地版本历史未增加；移动恢复文件是短期事务现场，正常完成即清理。
+
+Codex 的三个验证入口为 `test:codex:contract`、`test:codex:probe` 和 `test:codex:eval`，具体边界见 [专项架构](../architecture/codex.md)。

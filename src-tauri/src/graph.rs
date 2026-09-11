@@ -1,12 +1,17 @@
+use crate::graph_parse::{Projection, Reference};
+use crate::graph_resolve::{Lookup, Resolution};
 use serde::Serialize;
-use std::collections::BTreeMap;
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 const MAX_DOCUMENT_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_DOCUMENTS: usize = 50_000;
 const MAX_EDGES: usize = 200_000;
 const MAX_WARNINGS: usize = 20;
+static GRAPH_LOAD_PERMITS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -15,6 +20,7 @@ pub struct WorkspaceGraphSnapshot {
     pub edges: Vec<WorkspaceGraphEdge>,
     pub document_count: usize,
     pub warnings: Vec<String>,
+    pub fingerprint: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -25,6 +31,9 @@ pub struct WorkspaceGraphNode {
     pub kind: WorkspaceGraphNodeKind,
     pub relative_path: Option<String>,
     pub degree: usize,
+    pub in_degree: usize,
+    pub out_degree: usize,
+    pub content_indexed: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -35,6 +44,7 @@ pub enum WorkspaceGraphNodeKind {
     Weekly,
     Tag,
     Property,
+    Unresolved,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -55,17 +65,47 @@ pub enum WorkspaceGraphEdgeKind {
     Property,
 }
 
-#[derive(Debug)]
-struct ParsedDocument {
-    id: String,
-    label: String,
-    kind: WorkspaceGraphNodeKind,
-    raw: String,
-    tags: Vec<String>,
-    properties: Vec<String>,
+pub(crate) struct ParsedDocument {
+    pub path: String,
+    pub projection: Projection,
+    pub indexed: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy)]
+struct Limits {
+    document_bytes: u64,
+    total_bytes: u64,
+    documents: usize,
+    entries: usize,
+    edges: usize,
+    hubs: usize,
+    projection_bytes: usize,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            document_bytes: MAX_DOCUMENT_BYTES,
+            total_bytes: 128 * 1024 * 1024,
+            documents: MAX_DOCUMENTS,
+            entries: 200_000,
+            edges: MAX_EDGES,
+            hubs: 20_000,
+            projection_bytes: 32 * 1024 * 1024,
+        }
+    }
+}
+
+struct Scan {
+    documents: Vec<ParsedDocument>,
+    warnings: Vec<String>,
+    entries: usize,
+    bytes: u64,
+    projection_bytes: usize,
+    limits: Limits,
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
 struct EdgeKey {
     source: String,
     target: String,
@@ -74,161 +114,212 @@ struct EdgeKey {
 
 #[tauri::command]
 pub async fn load_workspace_graph(root_path: String) -> Result<WorkspaceGraphSnapshot, String> {
-    tauri::async_runtime::spawn_blocking(move || load_workspace_graph_sync(&root_path))
+    let permit = GRAPH_LOAD_PERMITS
+        .acquire()
         .await
-        .map_err(|_| "工作区图谱读取任务失败".to_string())?
+        .map_err(|_| "图谱读取服务不可用".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _permit = permit;
+        load_workspace_graph_sync(&root_path)
+    })
+    .await
+    .map_err(|_| "工作区图谱读取任务失败".to_string())?
 }
 
 fn load_workspace_graph_sync(root_path: &str) -> Result<WorkspaceGraphSnapshot, String> {
-    let root = canonical_workspace_root(root_path)?;
-    let mut documents = Vec::new();
-    let mut warnings = Vec::new();
-    collect_documents(&root, &root, &mut documents, &mut warnings)
-        .map_err(|error| format!("读取工作区图谱失败：{error}"))?;
+    let root = crate::workspace::canonical_workspace_root(root_path)?;
+    let (indexed, warnings) = crate::workspace_index::documents(&root)?;
+    let mut scan = Scan {
+        documents: Vec::new(),
+        warnings,
+        entries: 0,
+        bytes: 0,
+        projection_bytes: 0,
+        limits: Limits::default(),
+    };
+    for document in indexed {
+        let mut projection = (*document.projection).clone();
+        let mut truncated = false;
+        projection
+            .references
+            .retain(|reference| retain_value(&reference.value, &mut scan, &mut truncated));
+        projection
+            .tags
+            .retain(|value| retain_value(value, &mut scan, &mut truncated));
+        projection
+            .properties
+            .retain(|value| retain_value(value, &mut scan, &mut truncated));
+        if truncated {
+            push_warning(
+                &mut scan.warnings,
+                "图谱关系投影超过内存预算，部分内容未索引".into(),
+            );
+        }
+        scan.documents.push(ParsedDocument {
+            path: document.relative_path.clone(),
+            projection,
+            indexed: document.errors.is_empty() && !truncated,
+        });
+    }
+    build_graph(scan)
+}
 
-    let document_count = documents.len();
-    let id_lookup = build_unique_lookup(
-        documents
-            .iter()
-            .map(|document| (document.id.to_lowercase(), document.id.as_str())),
-    );
-    let stem_lookup = build_unique_lookup(documents.iter().map(|document| {
-        (
-            Path::new(&document.id)
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .unwrap_or_default()
-                .to_lowercase(),
-            document.id.as_str(),
-        )
-    }));
-    let title_lookup = build_unique_lookup(
-        documents
-            .iter()
-            .map(|document| (document.label.to_lowercase(), document.id.as_str())),
-    );
+fn load_with_limits(root_path: &str, limits: Limits) -> Result<WorkspaceGraphSnapshot, String> {
+    let root = PathBuf::from(root_path)
+        .canonicalize()
+        .map_err(|_| "工作区路径不存在".to_string())?;
+    if !root.is_dir() {
+        return Err("工作区路径不是文件夹".into());
+    }
+    let mut scan = Scan {
+        documents: Vec::new(),
+        warnings: Vec::new(),
+        entries: 0,
+        bytes: 0,
+        projection_bytes: 0,
+        limits,
+    };
+    collect_documents(&root, &root, 0, &mut scan)?;
+    build_graph(scan)
+}
 
-    let mut nodes = documents
+fn build_graph(mut scan: Scan) -> Result<WorkspaceGraphSnapshot, String> {
+    let limits = scan.limits;
+    let lookup = Lookup::new(scan.documents.iter().map(|document| document.path.clone()));
+    let mut nodes = scan
+        .documents
         .iter()
-        .map(|document| WorkspaceGraphNode {
-            id: document.id.clone(),
-            label: document.label.clone(),
-            kind: document.kind,
-            relative_path: Some(document.id.clone()),
-            degree: 0,
+        .map(|document| {
+            let mut node = graph_node(
+                file_id(&document.path),
+                document.projection.title.clone().unwrap_or_else(|| {
+                    Path::new(&document.path)
+                        .file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .chars()
+                        .take(256)
+                        .collect()
+                }),
+                classify_document(&document.path),
+            );
+            node.relative_path = Some(document.path.clone());
+            node.content_indexed = document.indexed;
+            node
         })
         .collect::<Vec<_>>();
+    let mut hubs = BTreeMap::<String, WorkspaceGraphNode>::new();
     let mut edges = BTreeMap::<EdgeKey, usize>::new();
-    let mut tag_labels = BTreeMap::<String, String>::new();
-    let mut property_labels = BTreeMap::<String, String>::new();
-
-    for document in &documents {
-        for reference in extract_document_references(&document.raw) {
-            let Some(target) = resolve_reference(
-                &document.id,
-                &reference.value,
-                reference.wiki,
-                &id_lookup,
-                &stem_lookup,
-                &title_lookup,
-            ) else {
-                continue;
+    for document in &scan.documents {
+        let source = file_id(&document.path);
+        for reference in &document.projection.references {
+            let target = match lookup.resolve(&document.path, reference) {
+                Resolution::Resolved(path) => file_id(&path),
+                Resolution::Unresolved { key, label } => {
+                    let id = format!("unresolved:{key}");
+                    if !add_hub(
+                        &mut hubs,
+                        &mut scan.warnings,
+                        limits.hubs,
+                        &id,
+                        &label,
+                        WorkspaceGraphNodeKind::Unresolved,
+                    ) {
+                        continue;
+                    }
+                    id
+                }
+                Resolution::Ignore => continue,
             };
-
-            if target == document.id {
-                continue;
+            if source != target {
+                add_edge(
+                    &mut edges,
+                    &mut scan.warnings,
+                    limits.edges,
+                    &source,
+                    &target,
+                    WorkspaceGraphEdgeKind::Link,
+                );
             }
-
-            let (source, target) = ordered_pair(&document.id, target);
-            increment_edge(
-                &mut edges,
-                EdgeKey {
-                    source,
-                    target,
-                    kind: WorkspaceGraphEdgeKind::Link,
-                },
-            );
         }
-
-        for tag in &document.tags {
-            let normalized = normalize_hub_value(tag);
-            if normalized.is_empty() {
-                continue;
+        for (values, prefix, node_kind, edge_kind) in [
+            (
+                &document.projection.tags,
+                "tag",
+                WorkspaceGraphNodeKind::Tag,
+                WorkspaceGraphEdgeKind::Tag,
+            ),
+            (
+                &document.projection.properties,
+                "property",
+                WorkspaceGraphNodeKind::Property,
+                WorkspaceGraphEdgeKind::Property,
+            ),
+        ] {
+            for value in values {
+                let id = format!(
+                    "{prefix}:{}",
+                    if node_kind == WorkspaceGraphNodeKind::Tag {
+                        value.to_lowercase()
+                    } else {
+                        value.clone()
+                    }
+                );
+                if add_hub(
+                    &mut hubs,
+                    &mut scan.warnings,
+                    limits.hubs,
+                    &id,
+                    value,
+                    node_kind,
+                ) {
+                    add_edge(
+                        &mut edges,
+                        &mut scan.warnings,
+                        limits.edges,
+                        &source,
+                        &id,
+                        edge_kind,
+                    );
+                }
             }
-            let hub_id = format!("tag:{normalized}");
-            tag_labels
-                .entry(hub_id.clone())
-                .or_insert_with(|| tag.clone());
-            increment_edge(
-                &mut edges,
-                EdgeKey {
-                    source: document.id.clone(),
-                    target: hub_id,
-                    kind: WorkspaceGraphEdgeKind::Tag,
-                },
-            );
-        }
-
-        for property in &document.properties {
-            let normalized = normalize_hub_value(property);
-            if normalized.is_empty() {
-                continue;
-            }
-            let hub_id = format!("property:{normalized}");
-            property_labels
-                .entry(hub_id.clone())
-                .or_insert_with(|| property.clone());
-            increment_edge(
-                &mut edges,
-                EdgeKey {
-                    source: document.id.clone(),
-                    target: hub_id,
-                    kind: WorkspaceGraphEdgeKind::Property,
-                },
-            );
         }
     }
-
-    if edges.len() > MAX_EDGES {
-        push_warning(
-            &mut warnings,
-            format!("关系数量超过 {MAX_EDGES}，仅保留前 {MAX_EDGES} 条"),
-        );
-        edges = edges.into_iter().take(MAX_EDGES).collect();
-    }
-
+    let connected = edges
+        .keys()
+        .flat_map(|key| [&key.source, &key.target])
+        .collect::<BTreeSet<_>>();
     nodes.extend(
-        tag_labels
-            .into_iter()
-            .map(|(id, label)| WorkspaceGraphNode {
-                id,
-                label,
-                kind: WorkspaceGraphNodeKind::Tag,
-                relative_path: None,
-                degree: 0,
-            }),
+        hubs.into_values()
+            .filter(|node| connected.contains(&node.id)),
     );
-    nodes.extend(
-        property_labels
-            .into_iter()
-            .map(|(id, label)| WorkspaceGraphNode {
-                id,
-                label,
-                kind: WorkspaceGraphNodeKind::Property,
-                relative_path: None,
-                degree: 0,
-            }),
-    );
-
-    let mut degree = BTreeMap::<String, usize>::new();
-    let graph_edges = edges
+    let mut neighbors = BTreeMap::<String, BTreeSet<String>>::new();
+    let mut incoming = BTreeMap::<String, BTreeSet<String>>::new();
+    let mut outgoing = BTreeMap::<String, BTreeSet<String>>::new();
+    let edges = edges
         .into_iter()
-        .enumerate()
-        .map(|(index, (key, weight))| {
-            *degree.entry(key.source.clone()).or_default() += weight;
-            *degree.entry(key.target.clone()).or_default() += weight;
+        .map(|(key, weight)| {
+            neighbors
+                .entry(key.source.clone())
+                .or_default()
+                .insert(key.target.clone());
+            neighbors
+                .entry(key.target.clone())
+                .or_default()
+                .insert(key.source.clone());
+            if key.kind == WorkspaceGraphEdgeKind::Link {
+                outgoing
+                    .entry(key.source.clone())
+                    .or_default()
+                    .insert(key.target.clone());
+                incoming
+                    .entry(key.target.clone())
+                    .or_default()
+                    .insert(key.source.clone());
+            }
             WorkspaceGraphEdge {
-                id: format!("edge:{index}"),
+                id: serde_json::to_string(&(key.kind, &key.source, &key.target))
+                    .expect("graph identity serializes"),
                 source: key.source,
                 target: key.target,
                 kind: key.kind,
@@ -236,589 +327,449 @@ fn load_workspace_graph_sync(root_path: &str) -> Result<WorkspaceGraphSnapshot, 
             }
         })
         .collect::<Vec<_>>();
-
     for node in &mut nodes {
-        node.degree = degree.get(&node.id).copied().unwrap_or_default();
+        node.degree = neighbors.get(&node.id).map_or(0, BTreeSet::len);
+        node.in_degree = incoming.get(&node.id).map_or(0, BTreeSet::len);
+        node.out_degree = outgoing.get(&node.id).map_or(0, BTreeSet::len);
     }
-    nodes.sort_by(|left, right| {
-        left.kind
-            .cmp(&right.kind)
-            .then_with(|| right.degree.cmp(&left.degree))
-            .then_with(|| left.label.to_lowercase().cmp(&right.label.to_lowercase()))
-    });
-
+    nodes.sort_by(|left, right| left.id.cmp(&right.id));
+    let mut digest = Sha256::new();
+    for node in &nodes {
+        digest.update(serde_json::to_vec(node).expect("graph node serializes"));
+    }
+    for edge in &edges {
+        digest.update(serde_json::to_vec(edge).expect("graph edge serializes"));
+    }
+    digest.update(serde_json::to_vec(&scan.warnings).expect("graph warnings serialize"));
     Ok(WorkspaceGraphSnapshot {
         nodes,
-        edges: graph_edges,
-        document_count,
-        warnings,
+        edges,
+        document_count: scan.documents.len(),
+        warnings: scan.warnings,
+        fingerprint: format!("{:x}", digest.finalize()),
     })
 }
 
-fn canonical_workspace_root(root_path: &str) -> Result<PathBuf, String> {
-    let root = PathBuf::from(root_path)
-        .canonicalize()
-        .map_err(|_| "工作区路径不存在".to_string())?;
-    if !root.is_dir() {
-        return Err("工作区路径不是文件夹".to_string());
+fn graph_node(id: String, label: String, kind: WorkspaceGraphNodeKind) -> WorkspaceGraphNode {
+    WorkspaceGraphNode {
+        id,
+        label,
+        kind,
+        relative_path: None,
+        degree: 0,
+        in_degree: 0,
+        out_degree: 0,
+        content_indexed: true,
     }
-    Ok(root)
+}
+
+fn file_id(path: &str) -> String {
+    format!("file:{path}")
+}
+
+fn add_hub(
+    hubs: &mut BTreeMap<String, WorkspaceGraphNode>,
+    warnings: &mut Vec<String>,
+    limit: usize,
+    id: &str,
+    label: &str,
+    kind: WorkspaceGraphNodeKind,
+) -> bool {
+    if hubs.contains_key(id) {
+        return true;
+    }
+    if hubs.len() >= limit {
+        push_warning(warnings, "辅助节点数量超过图谱上限，部分关系未显示".into());
+        return false;
+    }
+    hubs.insert(
+        id.into(),
+        graph_node(id.into(), label.chars().take(256).collect(), kind),
+    );
+    true
+}
+
+fn add_edge(
+    edges: &mut BTreeMap<EdgeKey, usize>,
+    warnings: &mut Vec<String>,
+    limit: usize,
+    source: &str,
+    target: &str,
+    kind: WorkspaceGraphEdgeKind,
+) {
+    let key = EdgeKey {
+        source: source.into(),
+        target: target.into(),
+        kind,
+    };
+    if let Some(weight) = edges.get_mut(&key) {
+        if kind == WorkspaceGraphEdgeKind::Link {
+            *weight += 1;
+        }
+        return;
+    }
+    if edges.len() >= limit {
+        push_warning(warnings, "关系数量超过图谱上限，部分关系未显示".into());
+        return;
+    }
+    edges.insert(key, 1);
 }
 
 fn collect_documents(
     root: &Path,
     directory: &Path,
-    documents: &mut Vec<ParsedDocument>,
-    warnings: &mut Vec<String>,
-) -> std::io::Result<()> {
-    let mut entries = fs::read_dir(directory)?.collect::<Result<Vec<_>, _>>()?;
-    entries.sort_by_key(|entry| entry.file_name());
-
-    for entry in entries {
-        if documents.len() >= MAX_DOCUMENTS {
-            if !warnings
-                .iter()
-                .any(|warning| warning.contains("文档数量超过"))
-            {
-                push_warning(
-                    warnings,
-                    format!("文档数量超过 {MAX_DOCUMENTS}，仅索引前 {MAX_DOCUMENTS} 篇"),
-                );
-            }
+    depth: usize,
+    scan: &mut Scan,
+) -> Result<(), String> {
+    if depth > 64 {
+        push_warning(&mut scan.warnings, "目录层级超过图谱扫描上限".into());
+        return Ok(());
+    }
+    let read_dir = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(_) if directory == root => return Err("无法读取工作区根目录".into()),
+        Err(_) => {
+            push_warning(
+                &mut scan.warnings,
+                format!("无法读取目录：{}", relative_path(root, directory)),
+            );
             return Ok(());
         }
-
-        let path = entry.path();
+    };
+    let remaining = scan.limits.entries.saturating_sub(scan.entries);
+    let mut entries = read_dir
+        .take(remaining + 1)
+        .filter_map(Result::ok)
+        .collect::<Vec<_>>();
+    if entries.len() > remaining {
+        push_warning(&mut scan.warnings, "目录条目超过图谱扫描上限".into());
+        entries.truncate(remaining);
+    }
+    scan.entries += entries.len();
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
+        if scan.documents.len() >= scan.limits.documents {
+            push_warning(&mut scan.warnings, "文档数量超过图谱扫描上限".into());
+            break;
+        }
         let name = entry.file_name().to_string_lossy().to_string();
-        if should_skip_entry(&name) {
+        if name.starts_with('.') || crate::workspace::should_skip_entry(&name) {
             continue;
         }
-        if entry.file_type()?.is_symlink() {
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        if kind.is_symlink() {
             continue;
         }
-        if path.is_dir() {
-            collect_documents(root, &path, documents, warnings)?;
+        let path = entry.path();
+        let Ok(canonical) = path.canonicalize() else {
+            continue;
+        };
+        if !canonical.starts_with(root) {
             continue;
         }
-        if !is_markdown_document_file(&path) {
+        if kind.is_dir() {
+            collect_documents(root, &canonical, depth + 1, scan)?;
             continue;
         }
-
-        let relative_path = to_relative_path(root, &path);
-        let metadata = match entry.metadata() {
-            Ok(metadata) => metadata,
-            Err(_) => {
-                push_warning(warnings, format!("无法读取文档信息：{relative_path}"));
-                continue;
+        if !kind.is_file() || !crate::workspace::is_markdown_document_file(&path) {
+            continue;
+        }
+        let relative = relative_path(root, &path);
+        let available = scan
+            .limits
+            .total_bytes
+            .saturating_sub(scan.bytes)
+            .min(scan.limits.document_bytes);
+        let raw = if available == 0 {
+            Err("已达到图谱内容读取总量上限".to_string())
+        } else {
+            read_regular_document(&canonical, available, &mut scan.bytes)
+        };
+        let (mut projection, indexed) = match raw {
+            Ok(raw) => {
+                let projection = crate::graph_parse::parse(&raw);
+                (projection, true)
+            }
+            Err(error) => {
+                push_warning(&mut scan.warnings, format!("{error}：{relative}"));
+                (Projection::default(), false)
             }
         };
-        if metadata.len() > MAX_DOCUMENT_BYTES {
+        let indexed = indexed && projection.warnings.is_empty();
+        for warning in projection.warnings.drain(..) {
+            push_warning(&mut scan.warnings, format!("{warning}：{relative}"));
+        }
+        let mut truncated = false;
+        projection
+            .references
+            .retain(|Reference { value, .. }| retain_value(value, scan, &mut truncated));
+        projection
+            .tags
+            .retain(|value| retain_value(value, scan, &mut truncated));
+        projection
+            .properties
+            .retain(|value| retain_value(value, scan, &mut truncated));
+        if truncated {
             push_warning(
-                warnings,
-                format!("文档过大，已跳过图谱解析：{relative_path}"),
+                &mut scan.warnings,
+                "图谱关系投影超过内存预算，部分内容未索引".into(),
             );
-            continue;
         }
-        let raw = match fs::read_to_string(&path) {
-            Ok(raw) => raw,
-            Err(_) => {
-                push_warning(
-                    warnings,
-                    format!("非 UTF-8 文档，已跳过图谱解析：{relative_path}"),
-                );
-                continue;
-            }
-        };
-        let frontmatter = parse_frontmatter(&raw);
-        let label = frontmatter
-            .as_ref()
-            .and_then(|fields| fields.get("title"))
-            .and_then(|values| values.first())
-            .map(|value| unquote(value))
-            .filter(|value| !value.is_empty())
-            .or_else(|| markdown_heading_title(&raw))
-            .unwrap_or_else(|| {
-                path.file_stem()
-                    .and_then(|stem| stem.to_str())
-                    .unwrap_or("未命名文档")
-                    .to_string()
-            });
-        let tags = frontmatter
-            .as_ref()
-            .and_then(|fields| fields.get("tags"))
-            .cloned()
-            .unwrap_or_default();
-        let properties = frontmatter
-            .as_ref()
-            .map(|fields| {
-                fields
-                    .keys()
-                    .filter(|key| !is_system_property(key))
-                    .cloned()
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-
-        documents.push(ParsedDocument {
-            id: relative_path.clone(),
-            label,
-            kind: classify_document(&relative_path),
-            raw,
-            tags,
-            properties,
+        scan.documents.push(ParsedDocument {
+            path: relative,
+            projection,
+            indexed: indexed && !truncated,
         });
     }
-
     Ok(())
 }
 
-fn should_skip_entry(name: &str) -> bool {
-    matches!(
-        name,
-        ".markune" | ".git" | "node_modules" | "target" | "dist" | "build"
-    )
-}
-
-fn push_warning(warnings: &mut Vec<String>, warning: String) {
-    if warnings.len() < MAX_WARNINGS {
-        warnings.push(warning);
+fn retain_value(value: &str, scan: &mut Scan, truncated: &mut bool) -> bool {
+    let size = value.len() + 64;
+    if scan.projection_bytes.saturating_add(size) > scan.limits.projection_bytes {
+        *truncated = true;
+        return false;
     }
+    scan.projection_bytes += size;
+    true
 }
 
-fn is_markdown_document_file(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .map(|extension| matches!(extension.to_ascii_lowercase().as_str(), "md" | "mdx"))
-        .unwrap_or(false)
+pub(crate) fn read_regular_document(
+    path: &Path,
+    limit: u64,
+    spent: &mut u64,
+) -> Result<String, String> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.custom_flags(0x00200000);
+    }
+    let file = options.open(path).map_err(|_| "无法读取文档".to_string())?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| "无法读取文档信息".to_string())?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err("不是普通文档文件".into());
+    }
+    if metadata.len() > limit {
+        return Err("文档大小超过本次图谱读取预算".into());
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    let read = file.take(limit + 1).read_to_end(&mut bytes);
+    *spent = spent.saturating_add(bytes.len() as u64);
+    read.map_err(|_| "文档读取失败".to_string())?;
+    if bytes.len() as u64 > limit {
+        return Err("文档增长超过本次图谱读取预算".into());
+    }
+    String::from_utf8(bytes).map_err(|_| "文档不是 UTF-8 文本".into())
 }
 
-fn to_relative_path(root: &Path, path: &Path) -> String {
+fn relative_path(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
         .unwrap_or(path)
         .to_string_lossy()
         .replace('\\', "/")
 }
 
-fn classify_document(relative_path: &str) -> WorkspaceGraphNodeKind {
-    let normalized = relative_path.to_lowercase();
-    if normalized.starts_with("daily/") {
+fn push_warning(warnings: &mut Vec<String>, warning: String) {
+    if warnings.len() < MAX_WARNINGS && !warnings.contains(&warning) {
+        warnings.push(warning);
+    }
+}
+
+fn classify_document(path: &str) -> WorkspaceGraphNodeKind {
+    let path = path.to_lowercase();
+    if path.starts_with("daily/") {
         WorkspaceGraphNodeKind::Daily
-    } else if normalized.starts_with("weekly/") {
+    } else if path.starts_with("weekly/") {
         WorkspaceGraphNodeKind::Weekly
     } else {
         WorkspaceGraphNodeKind::Note
     }
 }
 
-fn parse_frontmatter(raw: &str) -> Option<BTreeMap<String, Vec<String>>> {
-    let mut lines = raw.lines();
-    if lines.next()?.trim_end_matches('\r') != "---" {
-        return None;
-    }
-
-    let mut fields = BTreeMap::<String, Vec<String>>::new();
-    let mut current_list_key: Option<String> = None;
-    for line in lines {
-        let line = line.trim_end_matches('\r');
-        if line == "---" {
-            return Some(fields);
-        }
-        if line.starts_with(' ') || line.starts_with('\t') {
-            if let (Some(key), Some(value)) = (
-                current_list_key.as_ref(),
-                line.trim().strip_prefix('-').map(str::trim),
-            ) {
-                let value = unquote(value);
-                if !value.is_empty() {
-                    fields.entry(key.clone()).or_default().push(value);
-                }
-            }
-            continue;
-        }
-        let Some((key, value)) = line.split_once(':') else {
-            current_list_key = None;
-            continue;
-        };
-        let key = key.trim().to_string();
-        if key.is_empty() {
-            current_list_key = None;
-            continue;
-        }
-        let value = value.trim();
-        if value.is_empty() {
-            fields.entry(key.clone()).or_default();
-            current_list_key = Some(key);
-            continue;
-        }
-        current_list_key = None;
-        let values = parse_frontmatter_values(value);
-        fields.entry(key).or_default().extend(values);
-    }
-
-    None
-}
-
-fn parse_frontmatter_values(value: &str) -> Vec<String> {
-    let trimmed = value.trim();
-    if trimmed.starts_with('[') && trimmed.ends_with(']') {
-        return trimmed[1..trimmed.len() - 1]
-            .split(',')
-            .map(unquote)
-            .filter(|value| !value.is_empty())
-            .collect();
-    }
-    let value = unquote(trimmed);
-    (!value.is_empty()).then_some(value).into_iter().collect()
-}
-
-fn unquote(value: &str) -> String {
-    value
-        .trim()
-        .trim_matches(|character| character == '"' || character == '\'')
-        .trim()
-        .to_string()
-}
-
-fn is_system_property(key: &str) -> bool {
-    matches!(
-        key.to_ascii_lowercase().as_str(),
-        "title" | "tags" | "createdat" | "updatedat" | "refinexdialect" | "aliases"
-    )
-}
-
-fn markdown_heading_title(raw: &str) -> Option<String> {
-    raw.lines()
-        .take(120)
-        .map(str::trim)
-        .find_map(|line| line.strip_prefix("# ").map(str::trim))
-        .filter(|title| !title.is_empty())
-        .map(ToString::to_string)
-}
-
-#[derive(Debug, PartialEq, Eq)]
-struct DocumentReference {
-    value: String,
-    wiki: bool,
-}
-
-fn extract_document_references(raw: &str) -> Vec<DocumentReference> {
-    let mut references = Vec::new();
-    let mut cursor = 0;
-    while let Some(offset) = raw[cursor..].find("](") {
-        let start = cursor + offset + 2;
-        let Some(end_offset) = raw[start..].find(')') else {
-            break;
-        };
-        let end = start + end_offset;
-        let destination = markdown_destination(&raw[start..end]);
-        if !destination.is_empty() && is_markdown_reference(&destination) {
-            references.push(DocumentReference {
-                value: destination,
-                wiki: false,
-            });
-        }
-        cursor = end + 1;
-    }
-
-    cursor = 0;
-    while let Some(offset) = raw[cursor..].find("[[") {
-        let start = cursor + offset + 2;
-        let Some(end_offset) = raw[start..].find("]]") else {
-            break;
-        };
-        let end = start + end_offset;
-        let target = raw[start..end].split('|').next().unwrap_or_default().trim();
-        if !target.is_empty() {
-            references.push(DocumentReference {
-                value: target.to_string(),
-                wiki: true,
-            });
-        }
-        cursor = end + 2;
-    }
-
-    references
-}
-
-fn markdown_destination(value: &str) -> String {
-    let trimmed = value.trim();
-    if let Some(rest) = trimmed.strip_prefix('<') {
-        return rest
-            .split_once('>')
-            .map(|(destination, _)| destination)
-            .unwrap_or(rest)
-            .trim()
-            .to_string();
-    }
-    trimmed
-        .split_ascii_whitespace()
-        .next()
-        .unwrap_or_default()
-        .to_string()
-}
-
-fn is_markdown_reference(value: &str) -> bool {
-    let path = value
-        .split(['#', '?'])
-        .next()
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    (path.ends_with(".md") || path.ends_with(".mdx"))
-        && !path.contains("://")
-        && !path.starts_with("mailto:")
-}
-
-fn build_unique_lookup<'a>(
-    values: impl Iterator<Item = (String, &'a str)>,
-) -> BTreeMap<String, Option<String>> {
-    let mut lookup = BTreeMap::<String, Option<String>>::new();
-    for (key, id) in values {
-        lookup
-            .entry(key)
-            .and_modify(|existing| *existing = None)
-            .or_insert_with(|| Some(id.to_string()));
-    }
-    lookup
-}
-
-fn resolve_reference(
-    source_id: &str,
-    raw_target: &str,
-    wiki: bool,
-    id_lookup: &BTreeMap<String, Option<String>>,
-    stem_lookup: &BTreeMap<String, Option<String>>,
-    title_lookup: &BTreeMap<String, Option<String>>,
-) -> Option<String> {
-    let target = percent_decode(
-        raw_target
-            .split(['#', '?'])
-            .next()
-            .unwrap_or_default()
-            .trim()
-            .trim_matches('<')
-            .trim_matches('>'),
-    );
-    if target.is_empty() || target.contains("://") || target.starts_with("mailto:") {
-        return None;
-    }
-
-    let source_parent = source_id
-        .rsplit_once('/')
-        .map(|(parent, _)| parent)
-        .unwrap_or("");
-    let joined = if target.starts_with('/') {
-        normalize_relative_path(target.trim_start_matches('/'))
-    } else {
-        normalize_relative_path(&format!("{source_parent}/{target}"))
-    };
-    let mut candidates = vec![joined, normalize_relative_path(&target)];
-    if wiki && Path::new(&target).extension().is_none() {
-        let current = candidates.clone();
-        for candidate in current {
-            candidates.push(format!("{candidate}.md"));
-            candidates.push(format!("{candidate}.mdx"));
-        }
-    }
-    for candidate in candidates {
-        if let Some(Some(id)) = id_lookup.get(&candidate.to_lowercase()) {
-            return Some(id.clone());
-        }
-    }
-    if wiki {
-        let lookup_key = Path::new(&target)
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or(&target)
-            .to_lowercase();
-        if let Some(Some(id)) = stem_lookup.get(&lookup_key) {
-            return Some(id.clone());
-        }
-        if let Some(Some(id)) = title_lookup.get(&target.to_lowercase()) {
-            return Some(id.clone());
-        }
-    }
-    None
-}
-
-fn normalize_relative_path(value: &str) -> String {
-    let normalized = value.replace('\\', "/");
-    let mut parts = Vec::new();
-    for part in normalized.split('/') {
-        match part {
-            "" | "." => {}
-            ".." => {
-                parts.pop();
-            }
-            _ => parts.push(part),
-        }
-    }
-    parts.join("/")
-}
-
-fn percent_decode(value: &str) -> String {
-    let bytes = value.as_bytes();
-    let mut decoded = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'%' && index + 2 < bytes.len() {
-            if let (Some(high), Some(low)) =
-                (hex_value(bytes[index + 1]), hex_value(bytes[index + 2]))
-            {
-                decoded.push(high * 16 + low);
-                index += 3;
-                continue;
-            }
-        }
-        decoded.push(bytes[index]);
-        index += 1;
-    }
-    String::from_utf8_lossy(&decoded).to_string()
-}
-
-fn hex_value(value: u8) -> Option<u8> {
-    match value {
-        b'0'..=b'9' => Some(value - b'0'),
-        b'a'..=b'f' => Some(value - b'a' + 10),
-        b'A'..=b'F' => Some(value - b'A' + 10),
-        _ => None,
-    }
-}
-
-fn normalize_hub_value(value: &str) -> String {
-    value
-        .trim()
-        .trim_start_matches('#')
-        .to_lowercase()
-        .replace([' ', '/'], "-")
-}
-
-fn ordered_pair(left: &str, right: String) -> (String, String) {
-    if left <= right.as_str() {
-        (left.to_string(), right)
-    } else {
-        (right, left.to_string())
-    }
-}
-
-fn increment_edge(edges: &mut BTreeMap<EdgeKey, usize>, key: EdgeKey) {
-    *edges.entry(key).or_default() += 1;
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::tempdir;
-
-    #[test]
-    fn builds_links_tags_properties_and_document_kinds() {
-        let directory = tempdir().expect("创建临时目录失败");
-        let root = directory.path();
-        fs::create_dir_all(root.join("notes")).expect("创建笔记目录失败");
-        fs::create_dir_all(root.join("Daily/2026/08")).expect("创建日记目录失败");
-        fs::write(
-            root.join("notes/alpha.md"),
-            "---\ntitle: Alpha\ntags: [Rust, graph]\nstatus: active\ncreatedAt: 2026-08-01\nrefinexDialect: 1\n---\n\n[Beta](../beta.md) and [[Daily/2026/08/2026-08-01]]",
-        )
-        .expect("写入 Alpha 失败");
-        fs::write(root.join("beta.md"), "# Beta\n\n[[Alpha]]").expect("写入 Beta 失败");
-        fs::write(root.join("Daily/2026/08/2026-08-01.md"), "# Today").expect("写入日记失败");
-
-        let graph = load_workspace_graph_sync(root.to_str().unwrap()).expect("构建图谱失败");
-
-        assert_eq!(graph.document_count, 3);
-        assert!(graph.nodes.iter().any(|node| {
-            node.id == "notes/alpha.md"
-                && node.label == "Alpha"
-                && node.kind == WorkspaceGraphNodeKind::Note
-        }));
-        assert!(graph.nodes.iter().any(|node| {
-            node.id == "Daily/2026/08/2026-08-01.md" && node.kind == WorkspaceGraphNodeKind::Daily
-        }));
-        assert!(graph.nodes.iter().any(|node| node.id == "tag:rust"));
-        assert!(graph.nodes.iter().any(|node| node.id == "tag:graph"));
-        assert!(graph.nodes.iter().any(|node| node.id == "property:status"));
-        assert!(!graph
-            .nodes
-            .iter()
-            .any(|node| node.id == "property:createdat"));
-        assert!(!graph
-            .nodes
-            .iter()
-            .any(|node| node.id == "property:refinexdialect"));
-        assert!(graph.edges.iter().any(|edge| {
-            edge.kind == WorkspaceGraphEdgeKind::Link
-                && ((edge.source == "beta.md" && edge.target == "notes/alpha.md")
-                    || (edge.source == "notes/alpha.md" && edge.target == "beta.md"))
-        }));
-        assert!(graph.edges.iter().any(|edge| {
-            edge.kind == WorkspaceGraphEdgeKind::Link
-                && edge.target == "notes/alpha.md"
-                && edge.weight == 2
-        }));
+    fn write(root: &Path, path: &str, body: &str) {
+        let path = root.join(path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, body).unwrap();
     }
-
     #[test]
-    fn parses_multiline_tags_and_ignores_private_directories() {
-        let directory = tempdir().expect("创建临时目录失败");
+    fn keeps_direction_occurrences_unique_degrees_and_stable_identity() {
+        let directory = tempdir().unwrap();
         let root = directory.path();
-        fs::create_dir_all(root.join(".markune")).expect("创建私有目录失败");
-        fs::write(
-            root.join("note.md"),
-            "---\ntags:\n  - Knowledge Base\n  - '中文'\nowner: refinex\n---\n# Note",
-        )
-        .expect("写入笔记失败");
-        fs::write(root.join(".markune/private.md"), "# Private").expect("写入私有笔记失败");
-
-        let graph = load_workspace_graph_sync(root.to_str().unwrap()).expect("构建图谱失败");
-
-        assert_eq!(graph.document_count, 1);
+        write(
+            root,
+            "a.md",
+            "[[b]] [[b#heading]] #topic/sub #Topic/Sub\n---\n",
+        );
+        write(root, "b.md", "[[a]]");
+        let graph = load_workspace_graph_sync(root.to_str().unwrap()).unwrap();
+        assert!(graph.edges.iter().any(|edge| edge.source == "file:a.md"
+            && edge.target == "file:b.md"
+            && edge.weight == 2));
+        assert!(graph.edges.iter().any(|edge| edge.source == "file:b.md"
+            && edge.target == "file:a.md"
+            && edge.weight == 1));
+        let a = graph
+            .nodes
+            .iter()
+            .find(|node| node.id == "file:a.md")
+            .unwrap();
+        assert_eq!((a.degree, a.in_degree, a.out_degree), (2, 1, 1));
+        assert_eq!(
+            graph,
+            load_workspace_graph_sync(root.to_str().unwrap()).unwrap()
+        );
+        write(root, "c.md", "# C");
+        let next = load_workspace_graph_sync(root.to_str().unwrap()).unwrap();
+        assert_eq!(graph.edges, next.edges);
+        assert_ne!(graph.fingerprint, next.fingerprint);
+    }
+    #[test]
+    fn preserves_namespaced_tags_metadata_and_unresolved_nodes() {
+        let directory = tempdir().unwrap();
+        let root = directory.path();
+        write(root, "Daily/today.md", "---\ntitle: Today\ntags:\n- topic/sub\n- topic-sub\n- 'alpha,beta'\nstatus: active\nrelated: '[[target]]'\n---\n[[missing]] [[missing#block]] [[wrong/path/target]]");
+        write(
+            root,
+            "target.md",
+            "---\ntitle: Shown title\naliases: [Alternate]\n---\n",
+        );
+        write(root, "source.md", "[[Shown title]] [[Alternate]]");
+        write(root, ".obsidian/private.md", "[[target]]");
+        let graph = load_workspace_graph_sync(root.to_str().unwrap()).unwrap();
+        assert_eq!(graph.document_count, 3);
+        for id in [
+            "tag:topic/sub",
+            "tag:topic-sub",
+            "tag:alpha,beta",
+            "property:status",
+            "unresolved:wiki:missing",
+            "unresolved:path:wrong/path/target",
+            "unresolved:wiki:shown title",
+            "unresolved:wiki:alternate",
+        ] {
+            assert!(graph.nodes.iter().any(|node| node.id == id), "{id}");
+        }
         assert!(graph
             .nodes
             .iter()
-            .any(|node| node.id == "tag:knowledge-base"));
-        assert!(graph.nodes.iter().any(|node| node.id == "tag:中文"));
-        assert!(graph.nodes.iter().any(|node| node.id == "property:owner"));
+            .any(|node| node.kind == WorkspaceGraphNodeKind::Daily && node.label == "Today"));
+        assert!(graph
+            .edges
+            .iter()
+            .any(|edge| edge.source == "file:Daily/today.md" && edge.target == "file:target.md"));
     }
-
     #[test]
-    fn resolves_percent_encoded_markdown_paths() {
-        let directory = tempdir().expect("创建临时目录失败");
+    fn limits_are_enforced_before_allocation_and_keep_unindexed_files_visible() {
+        let directory = tempdir().unwrap();
         let root = directory.path();
-        fs::create_dir_all(root.join("folder")).expect("创建目录失败");
-        fs::write(root.join("folder/中文 笔记.md"), "# 中文笔记").expect("写入目标笔记失败");
-        fs::write(
-            root.join("source.md"),
-            "[target](folder/%E4%B8%AD%E6%96%87%20%E7%AC%94%E8%AE%B0.md)",
+        write(root, "a.md", "[[b]] [[c]] [[d]] #one #two");
+        write(root, "b.md", &"x".repeat(100));
+        let graph = load_with_limits(
+            root.to_str().unwrap(),
+            Limits {
+                document_bytes: 50,
+                edges: 2,
+                hubs: 2,
+                ..Limits::default()
+            },
         )
-        .expect("写入来源笔记失败");
-
-        let graph = load_workspace_graph_sync(root.to_str().unwrap()).expect("构建图谱失败");
-        assert_eq!(
-            graph
-                .edges
-                .iter()
-                .filter(|edge| edge.kind == WorkspaceGraphEdgeKind::Link)
-                .count(),
-            1
-        );
+        .unwrap();
+        assert!(graph.edges.len() <= 2);
+        assert!(graph.nodes.len() <= 4);
+        assert!(graph
+            .nodes
+            .iter()
+            .any(|node| node.id == "file:b.md" && !node.content_indexed));
+        assert!(!graph.warnings.is_empty());
+        let graph = load_with_limits(
+            root.to_str().unwrap(),
+            Limits {
+                projection_bytes: 1,
+                ..Limits::default()
+            },
+        )
+        .unwrap();
+        assert!(graph.edges.is_empty());
+        assert!(graph.nodes.iter().any(|node| !node.content_indexed));
+        let graph = load_with_limits(
+            root.to_str().unwrap(),
+            Limits {
+                documents: 1,
+                ..Limits::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(graph.document_count, 1);
     }
-
     #[cfg(unix)]
     #[test]
-    fn skips_symlinks_that_could_leave_the_workspace() {
+    fn skips_symbolic_links_and_fifo_without_blocking() {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
         use std::os::unix::fs::symlink;
-
-        let directory = tempdir().expect("创建工作区失败");
-        let external = tempdir().expect("创建外部目录失败");
-        fs::write(directory.path().join("inside.md"), "# Inside").expect("写入工作区笔记失败");
-        fs::write(external.path().join("outside.md"), "# Outside").expect("写入外部笔记失败");
-        symlink(external.path(), directory.path().join("linked")).expect("创建目录软链接失败");
-
-        let graph =
-            load_workspace_graph_sync(directory.path().to_str().unwrap()).expect("构建图谱失败");
-
+        let directory = tempdir().unwrap();
+        let root = directory.path();
+        write(root, "inside.md", "# Inside");
+        symlink(root.join("inside.md"), root.join("linked.md")).unwrap();
+        let fifo = root.join("pipe.md");
+        let path = CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+        assert!(read_regular_document(&fifo, 100, &mut 0).is_err());
+        let graph = load_workspace_graph_sync(root.to_str().unwrap()).unwrap();
         assert_eq!(graph.document_count, 1);
-        assert!(graph.nodes.iter().any(|node| node.id == "inside.md"));
-        assert!(!graph.nodes.iter().any(|node| node.id.contains("outside")));
+    }
+    #[test]
+    #[ignore = "synthetic graph performance sample"]
+    fn benchmarks_synthetic_workspace() {
+        let directory = tempdir().unwrap();
+        let root = directory.path();
+        for index in 0..2000 {
+            write(root, &format!("notes/n{index}.md"), &format!("---\ntags: [topic/group{}]\nstatus: active\n---\n# Note {index}\n[[n{}]] [[n{}]]\n{}", index % 20, (index + 1) % 2000, (index + 31) % 2000, "Plain text content. ".repeat(100)));
+        }
+        let start = std::time::Instant::now();
+        let graph = load_workspace_graph_sync(root.to_str().unwrap()).unwrap();
+        println!(
+            "graph sample: {} documents, {} nodes, {} edges, {} ms",
+            graph.document_count,
+            graph.nodes.len(),
+            graph.edges.len(),
+            start.elapsed().as_millis()
+        );
+        assert_eq!(graph.document_count, 2000);
+        assert_eq!(graph.edges.len(), 8000);
+        assert!(graph.warnings.is_empty());
+    }
+    #[test]
+    fn failed_utf8_decoding_still_consumes_the_total_read_budget() {
+        let directory = tempdir().unwrap();
+        let root = directory.path();
+        fs::write(root.join("a.md"), [0xff; 20]).unwrap();
+        write(root, "b.md", "#tag [[missing]]");
+        let graph = load_with_limits(
+            root.to_str().unwrap(),
+            Limits {
+                total_bytes: 20,
+                ..Limits::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(graph.document_count, 2);
+        assert!(graph.nodes.iter().all(|node| !node.content_indexed));
+        assert!(graph.edges.is_empty());
     }
 }

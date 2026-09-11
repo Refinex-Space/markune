@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import * as React from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import type { MarkweaveDocumentLoadState } from '@markweave/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -21,6 +22,7 @@ const {
   cancelAnimationFrameMock,
   markweaveEditorMock,
   markweaveUnmountMock,
+  prepareMarkweaveEditorForOutputMock,
   payloadFieldReadMock,
   requestAnimationFrameMock,
   scrollToMock,
@@ -30,6 +32,7 @@ const {
   searchControllerMock,
   searchListeners,
   searchState,
+  viewportCoordinatorForElementMock,
 } = vi.hoisted(() => ({
   aiEditControllerMock: {
     discard: vi.fn(),
@@ -40,6 +43,7 @@ const {
   cancelAnimationFrameMock: vi.fn(),
   markweaveEditorMock: vi.fn(),
   markweaveUnmountMock: vi.fn(),
+  prepareMarkweaveEditorForOutputMock: vi.fn(),
   payloadFieldReadMock: vi.fn(),
   requestAnimationFrameMock: vi.fn((callback: FrameRequestCallback) => {
     callback(1000);
@@ -79,12 +83,14 @@ const {
     subscribe: vi.fn(),
   },
   searchListeners: new Set<(state: unknown) => void>(),
+  viewportCoordinatorForElementMock: vi.fn(),
 }));
 
 vi.mock('@markweave/react', async () => {
   const React = await import('react');
 
   return {
+    prepareMarkweaveEditorForOutput: prepareMarkweaveEditorForOutputMock,
     MarkweaveEditor: vi.fn((props: Record<string, unknown>) => {
       const [content, setContent] = React.useState(() =>
         String(props.defaultContent ?? props.content ?? ''),
@@ -109,6 +115,7 @@ vi.mock('@markweave/react', async () => {
 
       return (
         <div
+          className="markweave-editor-surface"
           data-editable={String(props.editable)}
           data-inner-toc={String(props.innerToc)}
           data-inner-toc-placement={String(props.innerTocPlacement)}
@@ -155,6 +162,12 @@ vi.mock('@markweave/react', async () => {
     }),
   };
 });
+
+vi.mock('markweave', () => ({
+  getMarkweaveDocumentViewportCoordinatorForElement:
+    viewportCoordinatorForElementMock,
+  getMarkweaveTocItems: () => [{ id: 'source-heading', text: 'Source Heading', pos: 12 }],
+}));
 
 vi.mock('next/dynamic', async () => {
   const React = await import('react');
@@ -235,6 +248,8 @@ describe('MarkdownEditor', () => {
     });
     markweaveEditorMock.mockClear();
     markweaveUnmountMock.mockClear();
+    prepareMarkweaveEditorForOutputMock.mockReset();
+    viewportCoordinatorForElementMock.mockReset();
     payloadFieldReadMock.mockClear();
     requestAnimationFrameMock.mockClear();
     requestAnimationFrameMock.mockImplementation(
@@ -371,6 +386,154 @@ describe('MarkdownEditor', () => {
     ).toBe('false');
   });
 
+  it('透传加载状态并仅通过受限 handle 调用官方输出屏障', async () => {
+    const ref = React.createRef<MarkdownEditorHandle>();
+    const onDocumentLoadStateChange = vi.fn();
+    const editor = { id: 'private-editor' };
+    const signal = new AbortController().signal;
+    const report = {
+      durationMs: 12,
+      kind: 'dom-snapshot' as const,
+      missing: 0,
+      resolved: 1,
+      status: 'ready' as const,
+      timedOut: 0,
+      unreadable: 0,
+    };
+    viewportCoordinatorForElementMock.mockReturnValue({ editor });
+    prepareMarkweaveEditorForOutputMock.mockResolvedValue(report);
+
+    render(
+      <MarkdownEditor
+        markdown="# 输出"
+        onDocumentLoadStateChange={onDocumentLoadStateChange}
+        readOnly
+        ref={ref}
+      />,
+    );
+
+    const loadState = {
+      error: null,
+      phase: 'ready' as const,
+      profile: null,
+      progress: 1,
+      tier: 'standard' as const,
+    };
+    const markweaveProps = markweaveEditorMock.mock.calls.at(-1)?.[0] as {
+      onDocumentLoadStateChange?: (state: typeof loadState) => void;
+    };
+    act(() => markweaveProps.onDocumentLoadStateChange?.(loadState));
+    expect(onDocumentLoadStateChange).toHaveBeenCalledWith(loadState);
+
+    let resolvedReport: typeof report | null = null;
+    await act(async () => {
+      resolvedReport = await ref.current!.prepareForOutput({
+        kind: 'dom-snapshot',
+        signal,
+        timeoutMs: 1_000,
+      });
+    });
+
+    expect(viewportCoordinatorForElementMock).toHaveBeenCalledWith(
+      screen.getByTestId('markweave-editor'),
+    );
+    expect(prepareMarkweaveEditorForOutputMock).toHaveBeenCalledWith(
+      editor,
+      {
+        kind: 'dom-snapshot',
+        signal,
+        timeoutMs: expect.any(Number),
+      },
+    );
+    expect(resolvedReport).toEqual(report);
+    expect(ref.current).not.toHaveProperty('editor');
+  });
+
+  it('加载失败时显示可诊断兜底并支持重新加载与源码恢复', () => {
+    const onDocumentLoadStateChange = vi.fn();
+
+    render(
+      <MarkdownEditor
+        documentKey="large-document.md"
+        markdown="# 原始正文"
+        onDocumentLoadStateChange={onDocumentLoadStateChange}
+        onMarkdownChange={() => {}}
+      />,
+    );
+
+    const emitLoadState = (state: MarkweaveDocumentLoadState) => {
+      const markweaveProps = markweaveEditorMock.mock.calls.at(-1)?.[0] as {
+        onDocumentLoadStateChange?: (
+          nextState: MarkweaveDocumentLoadState,
+        ) => void;
+      };
+      act(() => {
+        markweaveProps.onDocumentLoadStateChange?.(state);
+      });
+    };
+
+    emitLoadState({
+      error: null,
+      phase: 'parsing',
+      profile: null,
+      progress: null,
+      tier: 'large',
+    });
+    expect(screen.getByRole('status').textContent).toContain('正在解析文档');
+
+    emitLoadState({
+      error: null,
+      phase: 'mounting',
+      profile: null,
+      progress: 0.42,
+      tier: 'large',
+    });
+    expect(screen.getByRole('status').textContent).toContain('42%');
+
+    emitLoadState({
+      error: `Invalid document ${'content '.repeat(80)}`,
+      phase: 'error',
+      profile: null,
+      progress: null,
+      tier: 'large',
+    });
+
+    expect(screen.getByRole('alert').textContent).toContain(
+      '文档编辑器加载失败',
+    );
+    expect(
+      screen.getByTestId('markweave-document-load-error-detail').textContent
+        ?.length,
+    ).toBeLessThanOrEqual(320);
+    expect(onDocumentLoadStateChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ phase: 'error', tier: 'large' }),
+    );
+
+    const renderCountBeforeRetry = markweaveEditorMock.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: '重新加载' }));
+    expect(
+      screen.queryByTestId('markweave-document-load-error'),
+    ).toBeNull();
+    expect(markweaveEditorMock.mock.calls.length).toBeGreaterThan(
+      renderCountBeforeRetry,
+    );
+
+    emitLoadState({
+      error: 'Invalid content for node paragraph',
+      phase: 'error',
+      profile: null,
+      progress: null,
+      tier: 'large',
+    });
+    fireEvent.click(screen.getByRole('button', { name: '使用源码模式' }));
+
+    expect(screen.getByTestId('markdown-source-mode')).toBeTruthy();
+    expect(screen.getByLabelText('Markdown 文档源码')).toHaveProperty(
+      'value',
+      '# 原始正文',
+    );
+  });
+
   it('普通点击段落内工作区文档链接时阻止浏览器导航并交给 Markweave 编辑', () => {
     render(
       <MarkdownEditor
@@ -436,7 +599,7 @@ describe('MarkdownEditor', () => {
     expect(fireEvent.click(link, { ctrlKey: true })).toBe(false);
   });
 
-  it('不拦截外部链接和普通附件链接', () => {
+  it('保留外部链接事件和普通附件链接，将 PDF 的明确导航交给阅读器', () => {
     render(
       <MarkdownEditor
         documentPath="/vault/plans/2026.md"
@@ -449,12 +612,25 @@ describe('MarkdownEditor', () => {
     const externalLink = document.createElement('a');
     externalLink.href = 'https://www.superdoc.dev/';
     editor.append(externalLink);
+    const externalClick = vi.fn();
+    externalLink.addEventListener('click', externalClick);
     const attachmentLink = document.createElement('a');
-    attachmentLink.href = '../assets/guide.pdf';
+    attachmentLink.href = '../assets/guide.docx';
     editor.append(attachmentLink);
 
-    expect(fireEvent.click(externalLink)).toBe(true);
+    expect(fireEvent.click(externalLink)).toBe(false);
+    expect(fireEvent.click(externalLink, { metaKey: true })).toBe(false);
+    expect(externalClick).toHaveBeenCalledTimes(2);
     expect(fireEvent.click(attachmentLink)).toBe(true);
+    attachmentLink.href = '../assets/guide.pdf#page=3';
+    const openPdf = vi.fn();
+    window.addEventListener('markune:read-pdf', openPdf);
+    expect(fireEvent.click(attachmentLink)).toBe(false);
+    expect(openPdf).not.toHaveBeenCalled();
+    expect(fireEvent.click(attachmentLink, { metaKey: true })).toBe(false);
+    expect(openPdf).toHaveBeenCalledTimes(1);
+    expect((openPdf.mock.calls[0][0] as CustomEvent).detail).toMatchObject({ documentPath: '/vault/plans/2026.md', source: '../assets/guide.pdf#page=3', page: 3 });
+    window.removeEventListener('markune:read-pdf', openPdf);
   });
 
   it('仅在可编辑 Live 文档发布 Ask AI handler 和 controller', () => {
@@ -484,7 +660,7 @@ describe('MarkdownEditor', () => {
       />,
     );
 
-    expect(markweaveEditorMock.mock.calls.at(-1)?.[0].askAi).toBeUndefined();
+    expect(markweaveEditorMock.mock.calls.at(-1)?.[0].askAi).toEqual({ enabled: false });
     expect(ref.current?.getAiEditController()).toBeNull();
   });
 
@@ -526,7 +702,22 @@ describe('MarkdownEditor', () => {
     });
 
     expect(ref.current?.getAiEditController()).toBeNull();
-    expect(markweaveEditorMock.mock.calls.at(-1)?.[0].askAi).toBeUndefined();
+    expect(markweaveEditorMock.mock.calls.at(-1)?.[0].askAi).toEqual({ enabled: false });
+  });
+
+  it('外部刷新可在自动保存失败后捕获尚未提交的编辑器输入', async () => {
+    const ref = React.createRef<MarkdownEditorHandle>();
+    let complete!: (result: boolean) => void;
+    const onMarkdownChange = vi.fn()
+      .mockImplementationOnce(() => new Promise<boolean>((resolve) => { complete = resolve; }))
+      .mockResolvedValue(true);
+    render(<MarkdownEditor ref={ref} markdown="# 原文" onMarkdownChange={onMarkdownChange} />);
+    fireEvent.change(screen.getByLabelText('Markdown 正文'), { target: { value: '# 本地最新输入' } });
+    act(() => vi.advanceTimersByTime(500));
+    let capture!: Promise<boolean>;
+    act(() => { capture = ref.current!.flushDraft('external-refresh'); });
+    await act(async () => { complete(false); expect(await capture).toBe(true); });
+    expect(onMarkdownChange).toHaveBeenLastCalledWith('# 本地最新输入', undefined, 'external-refresh');
   });
 
   it('保护 frontmatter，只把正文传给 Markweave，idle 时再序列化完整 Markdown', () => {
@@ -551,7 +742,7 @@ describe('MarkdownEditor', () => {
     act(() => vi.advanceTimersByTime(500));
 
     expect(onMarkdownChange).toHaveBeenLastCalledWith(
-      '---\ntitle: 文档\n---\n\n# 新正文\n',
+      '---\ntitle: 文档\n---\n# 新正文',
       undefined,
       'idle',
     );
@@ -574,7 +765,7 @@ describe('MarkdownEditor', () => {
     act(() => vi.advanceTimersByTime(500));
 
     expect(onMarkdownChange).toHaveBeenLastCalledWith(
-      '---\ntitle: 文档\n---\n\n# 新正文\n\n- [ ] \n',
+      '---\ntitle: 文档\n---\n# 新正文\n\n- [ ] ',
       undefined,
       'idle',
     );
@@ -1123,4 +1314,15 @@ describe('MarkdownEditor', () => {
     window.removeEventListener('markune:open-drawing', onOpenDrawing);
   });
 
+});
+
+it('opens a heading through the editor viewport and rejects a stale source navigation', async () => {
+  const ref = React.createRef<MarkdownEditorHandle>(); const revealPosition = vi.fn().mockResolvedValue({ status: 'revealed' });
+  viewportCoordinatorForElementMock.mockReturnValue({ editor: { state: { doc: {} } }, revealPosition });
+  render(<MarkdownEditor ref={ref} documentPath="/vault/a.md" markdown="# Source Heading" />);
+  expect(await ref.current!.revealLocation({ hash: 'source-heading', isCurrent: () => true })).toBe(true);
+  expect(revealPosition).toHaveBeenCalledWith(12, expect.objectContaining({ align: 'center', focus: true }));
+  expect(ref.current!.getDocumentPath()).toBe('/vault/a.md');
+  expect(await ref.current!.revealLocation({ hash: 'source-heading', isCurrent: () => false })).toBe(false);
+  expect(revealPosition).toHaveBeenCalledTimes(1);
 });

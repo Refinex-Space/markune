@@ -7,10 +7,8 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronDown,
-  Cloud,
   Database,
   ExternalLink,
-  FolderArchive,
   GitBranch,
   Info,
   Loader2,
@@ -19,7 +17,6 @@ import {
   Palette,
   RefreshCw,
   Search,
-  Server,
   Sparkles,
   Sun,
   X,
@@ -58,6 +55,7 @@ import {
   listSystemFonts,
   openUrlInDefaultBrowser,
   saveAppSettings,
+  selectAttachmentDirectory,
   saveWorkspaceGitSyncSettings,
   setAppWindowOpacity,
 } from './workspace-api';
@@ -79,14 +77,18 @@ import type {
   WorkspaceSettingsSessionCache,
 } from './workspace-settings-cache';
 import { WorkspaceResizeHandle } from './workspace-resize-handle';
+import { toUserAbsolutePath } from './workspace-paths';
 import {
   MAX_WINDOW_OPACITY,
   MIN_WINDOW_OPACITY,
   withDefaultAppSettings,
+  normalizeAttachmentStorage,
+  DEFAULT_ATTACHMENT_STORAGE,
 } from './workspace-settings';
 import type {
   AppearanceFontSettings,
   AppSettings,
+  AttachmentStorageSettings,
   CalendarWeekStartsOn,
   GitProbe,
   GitRemoteInfo,
@@ -177,14 +179,7 @@ const SETTINGS_SECTIONS: Array<{
     id: 'calendar',
     icon: CalendarDays,
     label: '日历',
-    searchTerms: [
-      '日历',
-      '每日笔记',
-      '展开',
-      '每周起始日',
-      '星期一',
-      '星期日',
-    ],
+    searchTerms: ['日历', '每日笔记', '展开', '每周起始日', '星期一', '星期日'],
   },
   {
     id: 'codex',
@@ -394,11 +389,7 @@ export function WorkspaceSettingsPage({
     if (!isTauriRuntime()) return;
     setError(null);
     void setAppWindowOpacity(windowOpacity).catch((reason) => {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : '无法预览应用透明度',
-      );
+      setError(reason instanceof Error ? reason.message : '无法预览应用透明度');
     });
   }, []);
 
@@ -434,9 +425,7 @@ export function WorkspaceSettingsPage({
   );
 
   const updateGitSettings = (
-    update: (
-      current: WorkspaceGitSyncSettings,
-    ) => WorkspaceGitSyncSettings,
+    update: (current: WorkspaceGitSyncSettings) => WorkspaceGitSyncSettings,
   ) => {
     const next = withDefaultGitSyncSettings(update(gitSettings));
     setGitSettings(next);
@@ -447,9 +436,7 @@ export function WorkspaceSettingsPage({
       .catch((reason) => {
         setGitActionState('error');
         setGitMessage(
-          reason instanceof Error
-            ? reason.message
-            : '无法保存 Git Sync 设置',
+          reason instanceof Error ? reason.message : '无法保存 Git Sync 设置',
         );
       });
   };
@@ -503,7 +490,9 @@ export function WorkspaceSettingsPage({
     ? activeSection
     : visibleSections[0]?.id;
   const assetDirectory = workspaceRootPath
-    ? `${workspaceRootPath.replace(/[\\/]+$/, '')}/.markune/assets/files`
+    ? toUserAbsolutePath(
+        `${workspaceRootPath.replace(/[\\/]+$/, '')}/.markune/assets/files`,
+      )
     : '打开工作区后使用 .markune/assets/files';
 
   return (
@@ -682,7 +671,14 @@ export function WorkspaceSettingsPage({
                 <StorageSection
                   assetDirectory={assetDirectory}
                   error={error}
+                  saveState={saveState}
                   settings={settings}
+                  onChange={(attachments) => {
+                    void saveSettings({
+                      ...settingsRef.current,
+                      storage: { ...settingsRef.current.storage, attachments },
+                    });
+                  }}
                 />
               ) : null}
               {effectiveSection === 'git-sync' ? (
@@ -928,8 +924,7 @@ function WindowOpacitySetting({
   onPreview: (value: number) => void;
 }) {
   const progress =
-    ((value - MIN_WINDOW_OPACITY) /
-      (MAX_WINDOW_OPACITY - MIN_WINDOW_OPACITY)) *
+    ((value - MIN_WINDOW_OPACITY) / (MAX_WINDOW_OPACITY - MIN_WINDOW_OPACITY)) *
     100;
   const commitValue = () => onCommit();
   const restoreDefault = () => {
@@ -1015,7 +1010,9 @@ function CodexSection({
   workspaceRootPath: string | null;
 }) {
   const desktop = isTauriRuntime();
-  const [status, setStatus] = React.useState<CodexConnectionStatus | null>(null);
+  const [status, setStatus] = React.useState<CodexConnectionStatus | null>(
+    null,
+  );
   const [provider, setProvider] = React.useState<CodexCustomProviderInfo | null>(
     null,
   );
@@ -1093,7 +1090,10 @@ function CodexSection({
     setMessage(null);
     setError(null);
     try {
+      if (!provider?.fingerprint)
+        throw new Error('API 配置尚未载入，请刷新后重试');
       await setCodexCustomProvider({
+        expectedFingerprint: provider?.fingerprint,
         baseUrl,
         model,
         apiKey: apiKey.trim() ? apiKey : undefined,
@@ -1115,7 +1115,9 @@ function CodexSection({
     setMessage(null);
     setError(null);
     try {
-      await clearCodexCustomProvider();
+      if (!provider?.fingerprint)
+        throw new Error('API 配置尚未载入，请刷新后重试');
+      await clearCodexCustomProvider(provider.fingerprint);
       setBaseUrl('');
       setModel('');
       setApiKey('');
@@ -1135,7 +1137,9 @@ function CodexSection({
     setMessage(null);
     setError(null);
     try {
-      await setCodexAuthMode(mode);
+      if (!provider?.fingerprint)
+        throw new Error('API 配置尚未载入，请刷新后重试');
+      await setCodexAuthMode(mode, provider.fingerprint);
       await restartRuntime();
       await refresh();
       setMessage(mode === 'custom' ? '已切换到自定义 API' : '已切换到 ChatGPT');
@@ -1231,8 +1235,7 @@ function CodexSection({
                     'bg-sky-500/10 text-sky-700 dark:text-sky-400',
                   runtimeTone === 'danger' &&
                     'bg-destructive/10 text-destructive',
-                  runtimeTone === 'muted' &&
-                    'bg-muted text-muted-foreground',
+                  runtimeTone === 'muted' && 'bg-muted text-muted-foreground',
                 )}
                 data-testid="codex-runtime-badge"
               >
@@ -1279,9 +1282,7 @@ function CodexSection({
               )}
               <p>
                 <span className="text-muted-foreground">模型 </span>
-                <span className="font-medium">
-                  {status?.model || '未设置'}
-                </span>
+                <span className="font-medium">{status?.model || '未设置'}</span>
               </p>
             </div>
           </div>
@@ -1456,7 +1457,9 @@ function CodexSection({
               {saving ? <Loader2 className="animate-spin" size={14} /> : null}
               保存并启用
             </Button>
-            {activeMode !== 'custom' && provider?.hasApiKey && provider.baseUrl ? (
+            {activeMode !== 'custom' &&
+            provider?.hasApiKey &&
+            provider.baseUrl ? (
               <Button
                 disabled={!desktop || switchingMode !== null}
                 size="sm"
@@ -1465,8 +1468,8 @@ function CodexSection({
                 onClick={() => void switchMode('custom')}
               >
                 {switchingMode === 'custom' ? (
-                  <Loader2 className="animate-spin" size={14} />
-                ) : null}
+                    <Loader2 className="animate-spin" size={14} />
+                  ) : null}
                 启用此方式
               </Button>
             ) : null}
@@ -1485,7 +1488,9 @@ function CodexSection({
       )}
 
       {message ? (
-        <p className="text-xs text-emerald-600 dark:text-emerald-400">{message}</p>
+        <p className="text-xs text-emerald-600 dark:text-emerald-400">
+          {message}
+        </p>
       ) : null}
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
     </div>
@@ -1585,85 +1590,242 @@ function StorageSection({
   assetDirectory,
   settings,
   error,
+  saveState,
+  onChange,
 }: {
   assetDirectory: string;
   settings: AppSettings;
   error: string | null;
+  saveState: 'idle' | 'saving' | 'saved' | 'error';
+  onChange: (settings: AttachmentStorageSettings) => void;
 }) {
+  const policy = normalizeAttachmentStorage(settings.storage.attachments);
+  const [customPath, setCustomPath] = React.useState(policy.customPath);
+  const [pathError, setPathError] = React.useState<string | null>(null);
+  const managed = policy.mode === 'managed';
+  const policyRef = React.useRef(policy);
+  React.useLayoutEffect(() => {
+    policyRef.current = policy;
+  }, [policy]);
+  const update = (patch: Partial<AttachmentStorageSettings>) => {
+    policyRef.current = { ...policyRef.current, ...patch };
+    onChange(policyRef.current);
+  };
+  const commitPath = () => {
+    if (
+      !customPath.trim() ||
+      /[\u0000-\u001f]/u.test(customPath) ||
+      customPath.replaceAll('${filename}', '').includes('${') ||
+      customPath.trim().startsWith('~') ||
+      (/^[a-z][a-z\d+.-]*:/i.test(customPath) &&
+        !/^[a-z]:[/\\]/i.test(customPath))
+    ) {
+      setPathError('请输入本地目录；仅支持 ${filename} 变量，不支持网址或 ~ 路径。');
+      return;
+    }
+    setPathError(null);
+    update({ customPath: customPath.trim() });
+  };
+  const chooseFolder = async () => {
+    try {
+      const path = await selectAttachmentDirectory();
+      if (path) {
+        const displayPath = toUserAbsolutePath(path);
+        setCustomPath(displayPath);
+        setPathError(null);
+        update({ customPath: displayPath });
+      }
+    } catch {
+      setPathError('无法选择附件目录，请重试。');
+    }
+  };
+  const modes = [
+    ['managed', '内置资产库（默认）'],
+    ['document', '当前文档所在目录 ./'],
+    ['assets', './assets 文件夹'],
+    ['filename-assets', './${filename}.assets 文件夹'],
+    ['custom', '指定路径'],
+  ] as const;
   return (
     <div className="space-y-6 pb-8" data-testid="storage-settings-shell">
-      <SettingsSectionHeader
-        description="选择上传资源的默认存储方式。本期仅启用工作区本地存储。"
-        title="存储"
-      />
-
+      <div className="flex items-start justify-between gap-4">
+        <SettingsSectionHeader
+          title="存储"
+          description="设置新插入附件的保存位置与图片处理规则。"
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setCustomPath(DEFAULT_ATTACHMENT_STORAGE.customPath);
+            setPathError(null);
+            policyRef.current = { ...DEFAULT_ATTACHMENT_STORAGE };
+            onChange(policyRef.current);
+          }}
+        >
+          恢复默认值
+        </Button>
+      </div>
       <section
-        className="rounded-xl bg-muted/30"
+        className="overflow-hidden rounded-xl bg-muted/30"
         data-testid="storage-provider-card"
       >
         <SettingRow
+          labelClassName="text-sm font-normal tracking-normal"
+          label="附件保存位置"
+          description={
+            managed
+              ? '由 Markune 管理，跟随工作区保存。'
+              : '图片、视频和文件附件保存为普通文件。'
+          }
           control={
-            <Select value={settings.storage.defaultProvider}>
+            <Select
+              value={policy.mode}
+              onValueChange={(mode) =>
+                update({ mode: mode as AttachmentStorageSettings['mode'] })
+              }
+            >
               <SelectTrigger
-                aria-label="全局存储方式"
-                className="h-10 w-full min-w-[220px] rounded-lg border-border/80 bg-background/80 sm:w-[320px]"
+                aria-label="附件保存位置"
+                className="w-full min-w-[220px] bg-background sm:w-[320px]"
               >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="local">
-                  <span className="flex items-center gap-2">
-                    <FolderArchive size={15} />
-                    本地存储
-                  </span>
-                </SelectItem>
-                <SelectItem disabled value="oss">
-                  <span className="flex items-center gap-2">
-                    <Cloud size={15} />
-                    OSS 存储
-                  </span>
-                </SelectItem>
-                <SelectItem disabled value="api">
-                  <span className="flex items-center gap-2">
-                    <Server size={15} />
-                    自定义 API
-                  </span>
-                </SelectItem>
+                {modes.map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           }
-          description="设置上传资源的默认存储位置。当前版本仅启用工作区本地存储。"
-          label="全局存储方式"
         />
+        {policy.mode === 'custom' ? (
+          <div className="space-y-2 px-5 pb-5">
+            <label
+              htmlFor="attachment-custom-path"
+              className="text-sm font-normal"
+            >
+              目标目录
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <Input
+                id="attachment-custom-path"
+                className="min-w-0 flex-1 font-mono"
+                value={customPath}
+                placeholder="./assets 或绝对路径"
+                onChange={(event) => setCustomPath(event.target.value)}
+                onBlur={commitPath}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') commitPath();
+                }}
+              />
+              <Button
+                variant="outline"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => void chooseFolder()}
+              >
+                选择文件夹
+              </Button>
+            </div>
+            <p className="text-xs leading-5 text-muted-foreground">
+              相对路径以 Markdown 所在目录为基准；<code>{'${filename}'}</code>{' '}
+              为不含扩展名的文档文件名。工作区外目录请使用“选择文件夹”授权。
+            </p>
+            {pathError ? (
+              <p role="alert" className="text-xs text-destructive">
+                {pathError}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </section>
-
-      <section>
-        <h3 className="text-sm font-medium">本地存储配置</h3>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          上传文件跟随当前工作区保存，文档中仅写入稳定的资源引用。
-        </p>
-        <div
-          className="mt-4 overflow-hidden rounded-xl bg-muted/30"
+      {managed ? (
+        <section
+          className="overflow-hidden rounded-xl bg-muted/30"
           data-testid="storage-local-card"
         >
           <ReadonlyField label="本地资源目录" value={assetDirectory} />
+          <p className="px-5 pb-4 text-xs text-muted-foreground">
+            文档使用稳定的 markune-asset:// 引用，无需配置相对路径。
+          </p>
+        </section>
+      ) : null}
+      <section>
+        <h3 className="mb-3 text-sm font-medium">插入图片时</h3>
+        <div className="divide-y divide-border/50 rounded-xl bg-muted/30">
+          <SettingRow
+            labelClassName="text-sm font-normal tracking-normal"
+            label="对本地图片应用规则"
+            description="插入已有本地图片路径时，复制到所选位置。截图及没有来源路径的文件仍需保存。"
+            control={
+              <PillSwitch
+                label="对本地图片应用规则"
+                checked={policy.applyToLocalImages}
+                onChange={(value) => update({ applyToLocalImages: value })}
+              />
+            }
+          />
+          <SettingRow
+            labelClassName="text-sm font-normal tracking-normal"
+            label="对网络图片应用规则"
+            description="粘贴或插入网络图片时下载到所选位置。关闭时保留原网址。"
+            control={
+              <PillSwitch
+                label="对网络图片应用规则"
+                checked={policy.applyToRemoteImages}
+                onChange={(value) => update({ applyToRemoteImages: value })}
+              />
+            }
+          />
         </div>
       </section>
-
+      {!managed ? (
+        <section data-testid="storage-path-options">
+          <h3 className="mb-3 text-sm font-medium">文档中的路径</h3>
+          <div className="divide-y divide-border/50 rounded-xl bg-muted/30">
+            <SettingRow
+              labelClassName="text-sm font-normal tracking-normal"
+              label="优先使用相对路径"
+              description="以当前文档目录为基准；无法跨磁盘计算时使用绝对文件地址。"
+              control={
+                <PillSwitch
+                  label="优先使用相对路径"
+                  checked={policy.preferRelativePath}
+                  onChange={(value) => update({ preferRelativePath: value })}
+                />
+              }
+            />
+            <SettingRow
+              labelClassName="text-sm font-normal tracking-normal"
+              label="为相对路径添加 ./"
+              description="只影响当前目录及其子目录，不改写 ../ 开头的路径。"
+              control={
+                <PillSwitch
+                  label="为相对路径添加 ./"
+                  checked={policy.addDotSlash}
+                  disabled={!policy.preferRelativePath}
+                  onChange={(value) => update({ addDotSlash: value })}
+                />
+              }
+            />
+          </div>
+        </section>
+      ) : null}
+      <p className="text-xs leading-5 text-muted-foreground">
+        更改只影响后续插入，不迁移已有附件。恢复默认值不会移动或删除文件。
+      </p>
       <SettingsFeedback
-        defaultMessage="更改会自动保存，并作为全局上传默认值。"
+        defaultMessage="更改会自动保存，并作为全局附件默认值。"
         error={error}
-        state="idle"
+        state={saveState}
       />
     </div>
   );
 }
 
-function VersionSection({
-  appUpdate,
-}: {
-  appUpdate: AppUpdateController;
-}) {
+function VersionSection({ appUpdate }: { appUpdate: AppUpdateController }) {
   const busy =
     appUpdate.phase === 'checking' ||
     appUpdate.phase === 'downloading' ||
@@ -1833,7 +1995,13 @@ function VersionSection({
   );
 }
 
-function VersionMetadataRow({ label, value }: { label: string; value: string }) {
+function VersionMetadataRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
   return (
     <div className="grid gap-3 border-t border-border/60 px-5 py-4 text-sm sm:grid-cols-[160px_minmax(0,1fr)] sm:items-center">
       <span className="text-muted-foreground">{label}</span>
@@ -2539,15 +2707,19 @@ function SettingRow({
   control,
   description,
   label,
+  labelClassName,
 }: {
   control: React.ReactNode;
   description: string;
   label: string;
+  labelClassName?: string;
 }) {
   return (
     <div className="grid gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_minmax(200px,auto)] sm:items-center">
       <div className="min-w-0">
-        <p className="text-base font-medium tracking-tight">{label}</p>
+        <p className={cn('text-base font-medium tracking-tight', labelClassName)}>
+          {label}
+        </p>
         <p className="mt-1 text-sm leading-6 text-muted-foreground">
           {description}
         </p>

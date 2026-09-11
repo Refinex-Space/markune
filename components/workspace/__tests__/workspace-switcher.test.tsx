@@ -121,4 +121,51 @@ describe('WorkspaceSwitcher', () => {
     expect(removeButton.className).toContain('hover:text-destructive');
     expect(screen.queryByText('/repo/vault')).toBeNull();
   });
+
+  it('strips the Windows extended-length prefix from the workspace path subtitle', () => {
+    render(
+      <WorkspaceSwitcher
+        currentWorkspace={{
+          nodes: [],
+          rootName: 'Vault',
+          rootPath: String.raw`\\?\D:\refinex-vault`,
+        }}
+        history={[]}
+        isLoading={false}
+        onChooseWorkspaceParent={vi.fn(async () => null)}
+        onCreateWorkspace={vi.fn(async () => undefined)}
+        onOpenWorkspace={vi.fn()}
+        onRemoveWorkspace={vi.fn()}
+        onSwitchWorkspace={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(String.raw`D:\refinex-vault`)).toBeTruthy();
+    expect(screen.queryByText(String.raw`\\?\D:\refinex-vault`)).toBeNull();
+  });
+
+  it('strips the Windows extended-length prefix from a chosen parent directory', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <WorkspaceSwitcher
+        currentWorkspace={null}
+        history={[]}
+        isLoading={false}
+        onChooseWorkspaceParent={vi.fn(async () =>
+          String.raw`\\?\D:\Parents`,
+        )}
+        onCreateWorkspace={vi.fn(async () => undefined)}
+        onOpenWorkspace={vi.fn()}
+        onRemoveWorkspace={vi.fn()}
+        onSwitchWorkspace={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '打开工作区菜单' }));
+    await user.click(screen.getByRole('button', { name: '新建工作区' }));
+    await user.click(screen.getByRole('button', { name: '选择所在目录' }));
+
+    expect(screen.getByDisplayValue(String.raw`D:\Parents`)).toBeTruthy();
+  });
 });

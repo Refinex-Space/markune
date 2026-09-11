@@ -208,7 +208,7 @@ fn is_blocked_hostname(hostname: &str) -> bool {
     normalized == "localhost" || normalized.ends_with(".localhost")
 }
 
-fn is_blocked_ip_address(ip: IpAddr) -> bool {
+pub(crate) fn is_blocked_ip_address(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => is_blocked_ipv4_address(ip),
         IpAddr::V6(ip) => is_blocked_ipv6_address(ip),

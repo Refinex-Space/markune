@@ -1,20 +1,35 @@
 'use client';
 
 import * as React from 'react';
-import { ArrowUp } from 'lucide-react';
+import {
+  ArrowUp,
+  FileCode2,
+  LoaderCircle,
+  RefreshCw,
+  TriangleAlert,
+} from 'lucide-react';
 import dynamic from 'next/dynamic';
 import {
   MarkweaveEditor,
+  prepareMarkweaveEditorForOutput,
   type MarkweaveAiEditController,
   type MarkweaveAskAiHandler,
+  type MarkweaveDocumentLoadState,
   type MarkweaveEditorUpdatePayload,
+  type MarkweaveOutputPreparationReport,
+  type MarkweavePrepareOutputOptions,
   type MarkweaveSearchController,
 } from '@markweave/react';
-import type {
-  MarkweaveInternalLinkCardConfig,
-  MarkweaveReferenceSuggestionConfig,
+import {
+  getMarkweaveDocumentViewportCoordinatorForElement,
+  getMarkweaveTocItems,
+  type MarkweaveInternalLinkCardConfig,
+  type MarkweaveReferenceSuggestionConfig,
 } from 'markweave';
 import { useTheme } from 'next-themes';
+import { toast } from 'sonner';
+import { capturePastedImageStorage } from './pasted-image-storage';
+import { readAppSettings } from '@/components/workspace/workspace-api';
 
 import {
   DocumentFindBar,
@@ -32,6 +47,7 @@ import {
   serializeFrontmatter,
 } from '@/components/editor/markdown-frontmatter';
 import { resolveMarkweaveLinkCard } from '@/components/editor/markweave-link-card-resolver';
+import { installMarkweaveVideoMediaBridge } from '@/components/editor/markweave-video-media-bridge';
 import type { MarkdownSourceEditorHandle } from '@/components/editor/markdown-source-editor';
 import {
   buildWorkspaceDocumentHref,
@@ -47,6 +63,7 @@ import {
   type WorkspaceReferenceItem,
 } from '@/components/editor/workspace-reference-suggestion';
 import { useWorkspaceAssetUploader } from '@/components/editor/use-workspace-asset-uploader';
+import { Button } from '@/components/ui/button';
 import { readMarkdownDocument } from '@/components/workspace/workspace-api';
 import type { PageWidthMode } from '@/components/workspace/workspace-types';
 import {
@@ -62,6 +79,7 @@ export type MarkdownEditorFlushReason =
   | 'app-exit'
   | 'document-switch'
   | 'export'
+  | 'external-refresh'
   | 'idle'
   | 'manual-save'
   | 'source-toggle';
@@ -69,6 +87,11 @@ export type MarkdownEditorFlushReason =
 export interface MarkdownEditorHandle {
   flushDraft: (reason: MarkdownEditorFlushReason) => Promise<boolean>;
   getAiEditController: () => MarkweaveAiEditController | null;
+  revealLocation: (location: { line?: number; hash?: string | null; isCurrent?: () => boolean }) => Promise<boolean>;
+  getDocumentPath: () => string | null;
+  prepareForOutput: (
+    options: MarkweavePrepareOutputOptions,
+  ) => Promise<MarkweaveOutputPreparationReport>;
 }
 
 interface MarkdownEditorProps {
@@ -84,6 +107,7 @@ interface MarkdownEditorProps {
     origin?: MarkdownEditorChangeOrigin,
     reason?: MarkdownEditorFlushReason,
   ) => boolean | void | Promise<boolean | void>;
+  onDocumentLoadStateChange?: (state: MarkweaveDocumentLoadState) => void;
   onSourceModeChange?: (sourceMode: boolean) => void;
   readOnly?: boolean;
   themeOverride?: 'dark' | 'light';
@@ -121,6 +145,7 @@ export const MarkdownEditor = React.forwardRef<
   pageWidthMode = 'wide',
   onSaveRequested,
   onMarkdownChange,
+  onDocumentLoadStateChange,
   onSourceModeChange,
   readOnly = false,
   themeOverride,
@@ -160,6 +185,10 @@ export const MarkdownEditor = React.forwardRef<
     React.useState<MarkweaveSearchController | null>(null);
   const [sourceMode, setSourceMode] = React.useState(false);
   const [sourceFindText, setSourceFindText] = React.useState(markdown);
+  const [documentLoadState, setDocumentLoadState] =
+    React.useState<MarkweaveDocumentLoadState | null>(null);
+  const [documentLoadRetryRevision, setDocumentLoadRetryRevision] =
+    React.useState(0);
   const loadedDocumentRef = React.useRef({ documentKey, markdown });
 
   if (loadedDocumentRef.current.documentKey !== documentKey) {
@@ -176,12 +205,12 @@ export const MarkdownEditor = React.forwardRef<
     () =>
       aiEnabled && askAiHandler && !readOnly && !sourceMode
         ? { enabled: true as const, handler: askAiHandler }
-        : undefined,
+        : { enabled: false as const },
     [aiEnabled, askAiHandler, readOnly, sourceMode],
   );
   const frontmatterView = React.useMemo(() => {
     const parsed = parseFrontmatter(normalizedMarkdown);
-    const hasFrontmatter = Object.keys(parsed.metadata).length > 0;
+    const hasFrontmatter = Boolean(parsed.source);
 
     if (!hasFrontmatter) {
       return {
@@ -194,6 +223,7 @@ export const MarkdownEditor = React.forwardRef<
     return {
       body: parsed.body,
       hasFrontmatter: true,
+      source: parsed.source,
       metadata: parsed.metadata,
     };
   }, [normalizedMarkdown]);
@@ -210,7 +240,20 @@ export const MarkdownEditor = React.forwardRef<
   } = useWorkspaceAssetUploader(
     workspaceRootPath ?? null,
     projectedEditorBody,
+    documentPath ?? null,
   );
+  React.useLayoutEffect(() => {
+    const editorRoot = markweaveModeRef.current;
+
+    if (!editorRoot || !resolveMediaSource) {
+      return;
+    }
+
+    return installMarkweaveVideoMediaBridge(
+      editorRoot,
+      resolveMediaSource,
+    );
+  }, [resolveMediaSource]);
 
   const workspaceDocumentIndex = useWorkspaceDocumentIndex();
   const currentDocumentRelativePath = React.useMemo(
@@ -346,6 +389,7 @@ export const MarkdownEditor = React.forwardRef<
     setSourceFindText(normalizedMarkdown);
     setFindRequest(null);
     setSourceMode(false);
+    setDocumentLoadState(null);
   }, [documentKey, normalizedMarkdown]);
 
   const serializeBody = React.useCallback(
@@ -356,6 +400,7 @@ export const MarkdownEditor = React.forwardRef<
 
       return serializeFrontmatter({
         body,
+        source: frontmatterView.source,
         metadata: frontmatterView.metadata,
       });
     },
@@ -435,7 +480,7 @@ export const MarkdownEditor = React.forwardRef<
       if (flushInFlightRef.current) {
         return flushInFlightRef.current.then((flushed) => {
           if (
-            flushed &&
+            (flushed || reason === 'external-refresh') &&
             (pendingPayloadRef.current ||
               pendingSourceMarkdownRef.current !== null)
           ) {
@@ -482,6 +527,15 @@ export const MarkdownEditor = React.forwardRef<
 
   const handlePasteCapture = React.useCallback(
     (event: React.ClipboardEvent<HTMLDivElement>) => {
+      if (!readOnly && !sourceMode && documentPath && workspaceRootPath) {
+        const editorElement = markweaveModeRef.current?.querySelector('[contenteditable="true"]');
+        const editor = activeEditorRef.current ?? (editorElement
+          ? getMarkweaveDocumentViewportCoordinatorForElement(editorElement)?.editor
+          : null);
+        if (editor) void capturePastedImageStorage(event.clipboardData, editor, onSlashCommandUpload,
+          (message) => toast.error(message),
+          async () => (await readAppSettings()).storage.attachments?.applyToRemoteImages === true);
+      }
       if (readOnly || event.clipboardData.getData('text/html').trim()) {
         return;
       }
@@ -507,7 +561,7 @@ export const MarkdownEditor = React.forwardRef<
         // The editor can still persist the canonical plain-text fallback.
       }
     },
-    [readOnly],
+    [documentPath, onSlashCommandUpload, readOnly, sourceMode, workspaceRootPath],
   );
 
   const handleSourceUpdate = React.useCallback(
@@ -543,16 +597,109 @@ export const MarkdownEditor = React.forwardRef<
     [],
   );
 
+  const prepareForOutput = React.useCallback(
+    async (
+      options: MarkweavePrepareOutputOptions,
+    ): Promise<MarkweaveOutputPreparationReport> => {
+      const container = markweaveModeRef.current;
+      const ownerWindow = container?.ownerDocument.defaultView;
+
+      if (!container || !ownerWindow) {
+        throw new Error('Markweave 输出容器尚未就绪。');
+      }
+
+      const timeoutMs = Number.isFinite(options.timeoutMs)
+        ? Math.max(0, options.timeoutMs ?? 5_000)
+        : 5_000;
+      const startedAt = ownerWindow.performance?.now() ?? Date.now();
+
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        if (options.signal?.aborted) {
+          throw new DOMException('Markweave 输出准备已取消。', 'AbortError');
+        }
+
+        const surface = container.querySelector<HTMLElement>(
+          '.markweave-editor-surface',
+        );
+        const coordinator = surface
+          ? getMarkweaveDocumentViewportCoordinatorForElement(surface)
+          : null;
+
+        if (coordinator) {
+          const elapsed =
+            (ownerWindow.performance?.now() ?? Date.now()) - startedAt;
+
+          return prepareMarkweaveEditorForOutput(coordinator.editor, {
+            ...options,
+            timeoutMs: Math.max(0, timeoutMs - elapsed),
+          });
+        }
+
+        const elapsed =
+          (ownerWindow.performance?.now() ?? Date.now()) - startedAt;
+        if (elapsed >= timeoutMs) {
+          break;
+        }
+
+        await new Promise<void>((resolve) => {
+          ownerWindow.requestAnimationFrame(() => resolve());
+        });
+      }
+
+      throw new Error('Markweave 输出协调器尚未就绪。');
+    },
+    [],
+  );
+
+  const revealLocation = React.useCallback(async (location: { line?: number; hash?: string | null; isCurrent?: () => boolean }) => {
+    if (!(await flushDraft('source-toggle')) || location.isCurrent?.() === false) return false;
+    let hash = location.hash?.replace(/^#/, '') ?? '';
+    try { hash = decodeURIComponent(hash); } catch { /* Keep literal anchors readable. author: refinex */ }
+    const surface = markweaveModeRef.current?.querySelector<HTMLElement>('.markweave-editor-surface');
+    const coordinator = surface ? getMarkweaveDocumentViewportCoordinatorForElement(surface) : null;
+    if (!location.line && hash && coordinator && !sourceMode) {
+      const normalize = (value: string) => value.trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s+/g, '-');
+      const heading = getMarkweaveTocItems(coordinator.editor.state.doc).find((item) => item.id === hash || item.text === hash || normalize(item.text) === normalize(hash));
+      let position = heading?.pos;
+      if (hash.startsWith('^')) coordinator.editor.state.doc.descendants((node, pos) => {
+        if (position === undefined && node.isTextblock && node.type.name !== 'codeBlock' && node.textContent.trimEnd().endsWith(hash)) position = pos;
+        return position === undefined;
+      });
+      if (position !== undefined) {
+        const result = await coordinator.revealPosition(position, { reason: 'host', align: 'center', focus: true });
+        return result.status === 'revealed';
+      }
+    }
+    const raw = sourceDraftMarkdownRef.current;
+    let line = location.line;
+    if (!line && /^L\d+(?:-L\d+)?$/i.test(hash)) line = Number(/^L(\d+)/i.exec(hash)?.[1]);
+    if (!line && hash) {
+      const index = raw.split(/\r\n?|\n/).findIndex((line) => hash.startsWith('^') ? line.trimEnd().endsWith(hash) : /^#{1,6}\s/.test(line) && line.replace(/^#+\s*/, '').trim() === hash);
+      if (index >= 0) line = index + 1;
+    }
+    if (!line || !Number.isFinite(line)) return false;
+    sourceModeToggledRef.current = true; setSourceFindText(raw); setSourceMode(true);
+    const started = Date.now();
+    while (Date.now() - started < 5000 && location.isCurrent?.() !== false) {
+      if (sourceEditorRef.current) { sourceEditorRef.current.revealLine(line); return true; }
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+    }
+    return false;
+  }, [flushDraft, sourceMode]);
+
   React.useImperativeHandle(
     forwardedRef,
     () => ({
       flushDraft,
+      revealLocation,
+      getDocumentPath: () => documentPath,
       getAiEditController: () =>
         aiEnabled && !readOnly && !sourceMode
           ? aiEditControllerRef.current
           : null,
+      prepareForOutput,
     }),
-    [aiEnabled, flushDraft, readOnly, sourceMode],
+    [aiEnabled, flushDraft, prepareForOutput, readOnly, sourceMode, revealLocation, documentPath],
   );
 
   React.useEffect(() => {
@@ -597,6 +744,25 @@ export const MarkdownEditor = React.forwardRef<
     },
     [],
   );
+
+  const handleDocumentLoadStateChange = React.useCallback(
+    (state: MarkweaveDocumentLoadState) => {
+      setDocumentLoadState(state);
+      onDocumentLoadStateChange?.(state);
+    },
+    [onDocumentLoadStateChange],
+  );
+
+  const retryDocumentLoad = React.useCallback(() => {
+    setDocumentLoadState(null);
+    setDocumentLoadRetryRevision((revision) => revision + 1);
+  }, []);
+
+  const enterSourceMode = React.useCallback(() => {
+    sourceModeToggledRef.current = true;
+    setSourceFindText(sourceDraftMarkdownRef.current);
+    setSourceMode(true);
+  }, []);
 
   const getSelectedText = React.useCallback(() => {
     if (sourceMode) {
@@ -755,6 +921,22 @@ export const MarkdownEditor = React.forwardRef<
         const effectiveHref = cardHref || linkHref;
         if (!effectiveHref) return;
 
+        // WKWebView can begin native HTTP(S) navigation before Markweave's
+        // bubbling handler runs. Cancel only that browser default here while
+        // leaving propagation and all editor interaction semantics upstream.
+        if (/^https?:\/\//iu.test(effectiveHref)) {
+          event.preventDefault();
+          return;
+        }
+
+        if (documentPath && (/\.pdf(?:[?#]|$)/i.test(effectiveHref) || /^markune-asset:.*#page=\d+/i.test(effectiveHref))) {
+          event.preventDefault();
+          if (!internalCard && !readOnly && !event.metaKey && !event.ctrlKey) return;
+          event.stopPropagation();
+          window.dispatchEvent(new CustomEvent('markune:read-pdf', { detail: { documentPath, source: effectiveHref, name: link?.textContent ?? 'PDF', page: Number(/#page=(\d+)/i.exec(effectiveHref)?.[1] ?? 1) } }));
+          return;
+        }
+
         const { isWorkspaceDocument, target: documentTarget } =
           resolveWorkspaceDocumentLink(effectiveHref);
         if (!isWorkspaceDocument) return;
@@ -831,8 +1013,7 @@ export const MarkdownEditor = React.forwardRef<
               }
             });
           } else {
-            setSourceFindText(sourceDraftMarkdownRef.current);
-            setSourceMode(true);
+            enterSourceMode();
           }
           return;
         }
@@ -861,7 +1042,10 @@ export const MarkdownEditor = React.forwardRef<
       >
         <div
           aria-hidden={sourceMode}
-          className={cn('min-h-full w-full flex-1', sourceMode && 'hidden')}
+          className={cn(
+            'relative min-h-full w-full flex-1',
+            sourceMode && 'hidden',
+          )}
           data-testid="markweave-editor-mode"
           ref={markweaveModeRef}
         >
@@ -875,11 +1059,12 @@ export const MarkdownEditor = React.forwardRef<
             editable={!readOnly}
             innerToc
             innerTocPlacement="container"
-            key={`${documentKey ?? 'document'}:${liveEditorRevisionRef.current}`}
+            key={`${documentKey ?? 'document'}:${liveEditorRevisionRef.current}:${documentLoadRetryRevision}`}
             lang="zh"
             mode={readOnly ? 'view' : 'live'}
             onAiEditControllerChange={handleAiEditControllerChange}
             onAttachmentDownload={onAttachmentDownload}
+            onDocumentLoadStateChange={handleDocumentLoadStateChange}
             onSlashCommandUpload={onSlashCommandUpload}
             {...{ resolveMediaSource }}
             onSearchControllerChange={handleSearchControllerChange}
@@ -892,6 +1077,65 @@ export const MarkdownEditor = React.forwardRef<
               themeOverride ?? (resolvedTheme === 'dark' ? 'dark' : 'light')
             }
           />
+          {isDocumentLoadInProgress(documentLoadState) ? (
+            <section
+              aria-live="polite"
+              className="absolute inset-0 z-20 flex min-h-full items-center justify-center bg-background px-6 text-center"
+              data-document-load-phase={documentLoadState.phase}
+              data-testid="markweave-document-load-progress"
+              role="status"
+            >
+              <div className="flex max-w-sm flex-col items-center">
+                <LoaderCircle
+                  aria-hidden="true"
+                  className="animate-spin text-muted-foreground"
+                  size={20}
+                />
+                <p className="mt-3 text-sm text-muted-foreground">
+                  {formatDocumentLoadProgress(documentLoadState)}
+                </p>
+              </div>
+            </section>
+          ) : documentLoadState?.phase === 'error' ? (
+            <section
+              aria-live="assertive"
+              className="absolute inset-0 z-30 flex min-h-full items-center justify-center bg-background px-6 text-center"
+              data-testid="markweave-document-load-error"
+              role="alert"
+            >
+              <div className="flex max-w-md flex-col items-center">
+                <span className="flex size-10 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+                  <TriangleAlert aria-hidden="true" size={20} />
+                </span>
+                <h2 className="mt-4 text-lg font-semibold">
+                  文档编辑器加载失败
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  文档内容仍保留在本地。你可以重新加载编辑器，或切换到源码模式继续查看和编辑。
+                </p>
+                <p
+                  className="mt-3 max-w-full break-words rounded-md bg-muted/60 px-3 py-2 text-left font-mono text-xs leading-5 text-muted-foreground"
+                  data-testid="markweave-document-load-error-detail"
+                >
+                  {formatDocumentLoadError(documentLoadState.error)}
+                </p>
+                <div className="mt-5 flex flex-wrap justify-center gap-2">
+                  <Button type="button" onClick={retryDocumentLoad}>
+                    <RefreshCw size={16} />
+                    重新加载
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={enterSourceMode}
+                  >
+                    <FileCode2 size={16} />
+                    {readOnly ? '查看源码' : '使用源码模式'}
+                  </Button>
+                </div>
+              </div>
+            </section>
+          ) : null}
         </div>
 
         {sourceMode ? (
@@ -956,6 +1200,42 @@ function normalizeFindSeed(selection: string) {
   const normalized = selection.replace(/\s+/g, ' ').trim();
 
   return normalized.length <= 200 ? normalized : '';
+}
+
+function formatDocumentLoadError(error: string | null) {
+  const fallback = 'Markdown 文档解析失败，请重试或使用源码模式。';
+  const normalized = error?.replace(/\s+/g, ' ').trim();
+
+  if (!normalized) {
+    return fallback;
+  }
+
+  return normalized.length <= 320
+    ? normalized
+    : `${normalized.slice(0, 317)}...`;
+}
+
+function isDocumentLoadInProgress(
+  state: MarkweaveDocumentLoadState | null,
+): state is MarkweaveDocumentLoadState & {
+  phase: 'finalizing' | 'mounting' | 'parsing';
+} {
+  return Boolean(
+    state &&
+      (state.phase === 'parsing' ||
+        state.phase === 'mounting' ||
+        state.phase === 'finalizing'),
+  );
+}
+
+function formatDocumentLoadProgress(state: MarkweaveDocumentLoadState) {
+  if (state.phase === 'mounting' && state.progress !== null) {
+    return `正在构建大文档… ${Math.round(state.progress * 100)}%`;
+  }
+
+  return state.phase === 'finalizing'
+    ? '正在准备文档编辑器…'
+    : '正在解析文档…';
 }
 
 function animateScrollToTop(scroller: HTMLElement, onComplete: () => void) {

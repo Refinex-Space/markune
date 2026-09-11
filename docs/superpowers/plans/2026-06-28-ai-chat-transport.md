@@ -1,3 +1,10 @@
+---
+owner: refinex
+updated: 2026-09-06
+status: deprecated
+referenced_by: docs/README.md
+---
+
 # AI 统一传输层 AiChatTransport 实现计划（B 子项目）
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

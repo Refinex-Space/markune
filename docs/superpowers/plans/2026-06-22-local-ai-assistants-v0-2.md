@@ -1,3 +1,10 @@
+---
+owner: refinex
+updated: 2026-09-06
+status: deprecated
+referenced_by: docs/README.md
+---
+
 # Local AI Assistants v0.2 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

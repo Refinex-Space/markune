@@ -11,6 +11,8 @@ import {
   createThreadTitle,
   createEmptyConversation,
   getOutputPreviewLines,
+  isPaginatedThreadsUnsupportedError,
+  paginatedThreadUnsupportedMessage,
   reduceCodexProtocolMessage,
   selectActiveTaskProgress,
   stripShellWrapper,
@@ -20,6 +22,46 @@ import {
 } from '../ai-panel-state';
 
 describe('AI panel event reducer', () => {
+  it.each(['inProgress', 'completed', 'failed', 'interrupted'] as const)(
+    '单项工具失败时处理轨迹以 turn 的 %s 状态为准，保留工具错误',
+    (status) => {
+      let state = reduceCodexProtocolMessage(createEmptyConversation(), {
+        method: 'turn/started',
+        params: { turn: { id: 'turn-recovery', status: 'inProgress' } },
+      });
+      state = reduceCodexProtocolMessage(state, {
+        method: 'item/completed',
+        params: {
+          turnId: 'turn-recovery',
+          item: {
+            id: 'failed-read',
+            type: 'commandExecution',
+            status: 'failed',
+            command: 'cat missing.md',
+            aggregatedOutput: 'No such file',
+            exitCode: 1,
+          },
+        },
+      });
+      if (status !== 'inProgress')
+        state = reduceCodexProtocolMessage(state, {
+          method: 'turn/completed',
+          params: { turn: { id: 'turn-recovery', status, items: [] } },
+        });
+      const trace = buildConversationBlocks(state).find(
+        (block) => block.type === 'trace',
+      );
+      expect(trace).toMatchObject({ type: 'trace', status });
+      expect(trace?.type === 'trace' && trace.segments[0]).toMatchObject({
+        type: 'group',
+        status: 'failed',
+        activities: [
+          expect.objectContaining({ id: 'failed-read', status: 'failed' }),
+        ],
+      });
+    },
+  );
+
   it('在活动 turn 尚无 item 时立即生成等待响应的处理轨迹', () => {
     const state = reduceCodexProtocolMessage(createEmptyConversation(), {
       method: 'turn/started',
@@ -1935,6 +1977,18 @@ describe('AI panel event reducer', () => {
         detail: '风险：高 · 目标路径超出工作区',
       }),
     );
+  });
+
+  it('识别分页历史尚未支持的 App Server 错误', () => {
+    expect(
+      isPaginatedThreadsUnsupportedError(
+        new Error('paginated_threads is not supported yet'),
+      ),
+    ).toBe(true);
+    expect(isPaginatedThreadsUnsupportedError(new Error('thread missing'))).toBe(
+      false,
+    );
+    expect(paginatedThreadUnsupportedMessage()).toContain('分页历史');
   });
 });
 

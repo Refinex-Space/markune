@@ -2,14 +2,26 @@ mod app_update;
 mod assets;
 mod brand_migration;
 mod codex;
+mod codex_artifacts;
+mod codex_context;
+mod codex_elicitation;
 mod codex_provider;
+mod codex_transport;
+mod document_assets;
 mod document_converter;
+mod document_frontmatter;
+mod document_links;
+mod document_move_journal;
 mod drawings;
 mod export;
 mod git;
 mod graph;
+mod graph_metadata;
+mod graph_parse;
+mod graph_resolve;
 mod import;
 mod inbox;
+mod knowledge_actions;
 mod link_preview;
 mod settings;
 mod system_fonts;
@@ -17,6 +29,8 @@ mod terminal;
 mod window_chrome;
 mod window_opacity;
 mod workspace;
+mod workspace_index;
+mod workspace_watch;
 
 use tauri::Manager;
 
@@ -94,6 +108,14 @@ pub fn run() {
 
     builder
         .manage(app_update::AppUpdateState::default())
+        .manage(workspace_watch::WorkspaceWatchState::default())
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                window
+                    .state::<workspace_watch::WorkspaceWatchState>()
+                    .stop_window(window.label());
+            }
+        })
         .manage(terminal::TerminalState::default())
         .manage(codex::CodexState::default())
         .manage(drawings::DrawingState::default())
@@ -113,6 +135,16 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            codex_artifacts::read_codex_artifact,
+            codex_artifacts::preview_codex_tool_image,
+            codex_context::read_codex_instruction_manifest,
+            codex::codex_app_server_respond_elicitation,
+            document_assets::store_document_asset,
+            document_assets::resolve_document_assets,
+            document_assets::read_document_asset_data,
+            document_assets::select_attachment_directory,
+            workspace_watch::watch_workspace,
+            workspace_watch::unwatch_workspace,
             app_update::app_update_check,
             app_update::app_update_install,
             app_update::app_update_restart,
@@ -219,6 +251,12 @@ pub fn run() {
             git::git_revert_file,
             git::git_delete_file,
             graph::load_workspace_graph,
+            workspace_index::load_workspace_index,
+            workspace_index::find_workspace_mentions,
+            knowledge_actions::create_workspace_document_from_content,
+            knowledge_actions::set_workspace_task_checked,
+            knowledge_actions::read_workspace_views,
+            knowledge_actions::save_workspace_views,
             link_preview::resolve_link_preview,
             terminal::terminal_spawn,
             terminal::terminal_write,
@@ -250,6 +288,7 @@ pub fn run() {
             workspace::create_plate_document,
             workspace::create_workspace_directory,
             workspace::rename_workspace_node,
+            workspace::rename_workspace_document_path,
             workspace::delete_workspace_node,
             workspace::move_workspace_node,
             workspace::write_export_file,

@@ -65,7 +65,7 @@ import {
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
-import { isDescendantPath } from './workspace-paths';
+import { isDescendantPath, toUserAbsolutePath } from './workspace-paths';
 import { hasTreeNodeAppearance, TreeNodeIconRenderer } from './tree-node-icon';
 import { filterWorkspaceNodes } from './workspace-tree';
 import type {
@@ -85,11 +85,13 @@ const DEFAULT_TREE_ICON_PICKER_SETTINGS: TreeIconPickerSettings = {
 };
 
 interface DocumentTreeProps {
+  header?: React.ReactNode;
   nodes: WorkspaceNode[];
   searchQuery: string;
   currentDocumentPath: string | null;
   currentDirectoryPath?: string | null;
   pendingRenameNodePath?: string | null;
+  onCreateTemplate?: (parentPath: string) => void;
   onCreateDirectory: (
     parentPath: string,
   ) => Promise<WorkspaceNode | null | void> | WorkspaceNode | null | void;
@@ -136,11 +138,13 @@ interface DocumentTreeProps {
 }
 
 export function DocumentTree({
+  header,
   nodes,
   searchQuery,
   currentDocumentPath,
   currentDirectoryPath,
   pendingRenameNodePath,
+  onCreateTemplate,
   onCreateDirectory,
   onCreateDocument,
   onDeleteNode,
@@ -501,6 +505,7 @@ export function DocumentTree({
                 level={0}
                 node={node}
                 pendingRenameNodePath={pendingRenameNodePath}
+                onCreateTemplate={onCreateTemplate}
                 onCreateDirectory={handleCreateDirectory}
                 onCreateDocument={handleCreateDocument}
                 onDeleteRequest={setDeleteTarget}
@@ -539,43 +544,49 @@ export function DocumentTree({
 
   return (
     <>
-      <div ref={treeRootRef} className="flex min-h-full flex-col pb-1 pt-2">
-        {treeContent}
-        <ContextMenu>
-          <ContextMenuTrigger asChild>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div
+            ref={treeRootRef}
+            className="flex flex-1 flex-col pb-3 pt-2"
+            data-testid="workspace-tree-context-area"
+          >
+            {header}
+            {treeContent}
             <div
               className="min-h-16 flex-1"
               data-testid="workspace-tree-root-creation-area"
             />
-          </ContextMenuTrigger>
-          <ContextMenuContent
-            className="w-44"
-            onCloseAutoFocus={(event) => event.preventDefault()}
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent
+          className="w-44"
+          onCloseAutoFocus={(event) => event.preventDefault()}
+        >
+          {onRefresh ? (
+            <>
+              <ContextMenuItem onSelect={() => void onRefresh()}>
+                <RefreshCw />
+                刷新
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+            </>
+          ) : null}
+          <ContextMenuItem
+            onSelect={() => void handleCreateDocument('')}
           >
-            {onRefresh ? (
-              <>
-                <ContextMenuItem onSelect={() => void onRefresh()}>
-                  <RefreshCw />
-                  刷新
-                </ContextMenuItem>
-                <ContextMenuSeparator />
-              </>
-            ) : null}
-            <ContextMenuItem
-              onSelect={() => void handleCreateDocument('')}
-            >
-              <FilePlus2 />
-              新建文档
-            </ContextMenuItem>
-            <ContextMenuItem
-              onSelect={() => void handleCreateDirectory('')}
-            >
-              <FolderPlus />
-              新建目录
-            </ContextMenuItem>
-          </ContextMenuContent>
-        </ContextMenu>
-      </div>
+            <FilePlus2 />
+            新建文档
+          </ContextMenuItem>
+          {onCreateTemplate ? <ContextMenuItem onSelect={() => onCreateTemplate('')}><FilePlus2 />从模板新建...</ContextMenuItem> : null}
+          <ContextMenuItem
+            onSelect={() => void handleCreateDirectory('')}
+          >
+            <FolderPlus />
+            新建目录
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
 
       <DeleteNodeDialog
         node={deleteTarget}
@@ -633,6 +644,7 @@ function TreeNode({
   level,
   node,
   pendingRenameNodePath,
+  onCreateTemplate,
   onCreateDirectory,
   onCreateDocument,
   onCustomizeIcon,
@@ -912,6 +924,7 @@ function TreeNode({
 
               <NodeActionDropdown
                 node={node}
+                onCreateTemplate={onCreateTemplate}
                 onCreateDirectory={onCreateDirectory}
                 onCreateDocument={onCreateDocument}
                 onCustomizeIcon={onCustomizeIcon}
@@ -934,6 +947,7 @@ function TreeNode({
         >
           <NodeContextActions
             node={node}
+            onCreateTemplate={onCreateTemplate}
             onCreateDirectory={onCreateDirectory}
             onCreateDocument={onCreateDocument}
             onCustomizeIcon={onCustomizeIcon}
@@ -978,6 +992,7 @@ function TreeNode({
               level={level + 1}
               node={child}
               pendingRenameNodePath={pendingRenameNodePath}
+              onCreateTemplate={onCreateTemplate}
               onCreateDirectory={onCreateDirectory}
               onCreateDocument={onCreateDocument}
               onCustomizeIcon={onCustomizeIcon}
@@ -1023,6 +1038,7 @@ interface TreeNodeProps {
   level: number;
   node: WorkspaceNode;
   pendingRenameNodePath?: string | null;
+  onCreateTemplate?: (parentPath: string) => void;
   onCreateDirectory: (parentPath: string) => Promise<void>;
   onCreateDocument: (
     parentPath: string,
@@ -1222,6 +1238,7 @@ function RenameInput({
 
 function NodeActionDropdown({
   node,
+  onCreateTemplate,
   onCreateDirectory,
   onCreateDocument,
   onCustomizeIcon,
@@ -1255,6 +1272,7 @@ function NodeActionDropdown({
       >
         <NodeDropdownActions
           node={node}
+          onCreateTemplate={onCreateTemplate}
           onCreateDirectory={onCreateDirectory}
           onCreateDocument={onCreateDocument}
           onCustomizeIcon={onCustomizeIcon}
@@ -1275,6 +1293,7 @@ function NodeActionDropdown({
 
 interface NodeActionProps {
   node: WorkspaceNode;
+  onCreateTemplate?: (parentPath: string) => void;
   onCreateDirectory: (parentPath: string) => Promise<void>;
   onCreateDocument: (
     parentPath: string,
@@ -1300,6 +1319,7 @@ interface NodeActionProps {
 
 function NodeDropdownActions({
   node,
+  onCreateTemplate,
   onCreateDirectory,
   onCreateDocument,
   onCustomizeIcon,
@@ -1328,6 +1348,7 @@ function NodeDropdownActions({
           <FilePlus2 />
           新建文档
         </DropdownMenuItem>
+        {onCreateTemplate ? <DropdownMenuItem onSelect={() => onCreateTemplate(node.relativePath)}><FilePlus2 />从模板新建...</DropdownMenuItem> : null}
         <DropdownMenuItem
           onSelect={() => void onCreateDirectory(node.relativePath)}
         >
@@ -1459,6 +1480,7 @@ function NodeDropdownActions({
 
 function NodeContextActions({
   node,
+  onCreateTemplate,
   onCreateDirectory,
   onCreateDocument,
   onCustomizeIcon,
@@ -1494,6 +1516,7 @@ function NodeContextActions({
           <FilePlus2 />
           新建文档
         </ContextMenuItem>
+        {onCreateTemplate ? <ContextMenuItem onSelect={() => onCreateTemplate(node.relativePath)}><FilePlus2 />从模板新建...</ContextMenuItem> : null}
         <ContextMenuItem
           onSelect={() => void onCreateDirectory(node.relativePath)}
         >
@@ -1645,7 +1668,7 @@ function CopyPathContextMenu({ node }: { node: WorkspaceNode }) {
           相对路径
         </ContextMenuItem>
         <ContextMenuItem
-          onSelect={() => void copyNodePath(node.absolutePath)}
+          onSelect={() => void copyNodePath(toUserAbsolutePath(node.absolutePath))}
         >
           绝对路径
         </ContextMenuItem>

@@ -398,7 +398,9 @@ function compareBySortKey(
 }
 
 function getNodeTitle(node: WorkspaceNode) {
-  return node.title || node.name.replace(/\.(md|mdx)$/i, '');
+  const raw = node.title || node.name.replace(/\.(md|mdx)$/i, '');
+
+  return raw.replaceAll('**', '').trim();
 }
 
 function getNodeLocation(node: WorkspaceNode) {

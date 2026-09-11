@@ -5,6 +5,8 @@ import {
   filterWorkspaceGraph,
   findWorkspaceGraphMatches,
   getWorkspaceGraphNeighbors,
+  describeGraphRelationship,
+  localWorkspaceGraph,
 } from '../workspace-graph-model';
 import type { WorkspaceGraphSnapshot } from '../workspace-types';
 
@@ -34,6 +36,19 @@ describe('workspace graph model', () => {
     expect(graph.nodes.map((node) => node.id)).not.toContain('tag:rust');
     expect(graph.edges).toHaveLength(1);
     expect(graph.edges[0].kind).toBe('link');
+    expect(graph.nodes.find((node) => node.id === 'a.md')).toMatchObject({ degree: 1, inDegree: 0, outDegree: 1 });
+  });
+
+  it('keeps unique neighbors separate from repeated and reciprocal references', () => {
+    const edges = [
+      { ...snapshot.edges[0], weight: 3 },
+      { ...snapshot.edges[0], id: 'reverse', source: 'b.md', target: 'a.md', weight: 2 },
+    ];
+    const graph = filterWorkspaceGraph({ ...snapshot, edges }, DEFAULT_GRAPH_VISIBILITY, false);
+    expect(graph.nodes.find((node) => node.id === 'a.md')).toMatchObject({ degree: 1, inDegree: 1, outDegree: 1 });
+    expect(describeGraphRelationship(edges, 'a.md', 'b.md')).toBe('双向引用 · 发出 3 次 / 引入 2 次');
+    expect(DEFAULT_GRAPH_VISIBILITY.property).toBe(false);
+    expect(DEFAULT_GRAPH_VISIBILITY.unresolved).toBe(true);
   });
 
   it('hides isolated nodes after kind filtering', () => {
@@ -51,4 +66,13 @@ describe('workspace graph model', () => {
       'tag:rust',
     ]);
   });
+});
+
+
+it('local graph expands document links by depth without crossing tag hubs', () => {
+  const extended = { ...snapshot, nodes: [...snapshot.nodes, { id: 'c.md', kind: 'note' as const, label: 'C', relativePath: 'c.md', degree: 1 }, { id: 'd.md', kind: 'note' as const, label: 'D', relativePath: 'd.md', degree: 1 }], edges: [...snapshot.edges, { id: 'bc', kind: 'link' as const, source: 'b.md', target: 'c.md', weight: 1 }, { id: 'dt', kind: 'tag' as const, source: 'd.md', target: 'tag:rust', weight: 1 }] };
+  const graph = filterWorkspaceGraph(extended, DEFAULT_GRAPH_VISIBILITY, false);
+  expect(localWorkspaceGraph(graph, 'a.md', 1).nodes.map((node) => node.id)).toEqual(['a.md', 'b.md', 'tag:rust']);
+  const depthTwo = localWorkspaceGraph(graph, 'a.md', 2);
+  expect(depthTwo.nodes.map((node) => node.id)).toContain('c.md'); expect(depthTwo.nodes.map((node) => node.id)).not.toContain('d.md');
 });

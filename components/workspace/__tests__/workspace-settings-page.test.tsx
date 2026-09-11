@@ -59,6 +59,7 @@ const codexApiState = vi.hoisted(() => ({
       envKey: 'MARKUNE_CODEX_PROVIDER_API_KEY',
       hasApiKey: false,
       model: 'gpt-5',
+      fingerprint: 'revision',
       providerId: 'markune_custom',
       wireApi: 'responses',
     }),
@@ -111,10 +112,10 @@ vi.mock('../codex-app-server', () => ({
 const initialSettings: AppSettings = {
   appearance: {
     fonts: {
-      code: 'JetBrains Mono',
-      document: 'Songti SC',
-      ui: 'SF Pro Text',
-    },
+        code: 'JetBrains Mono',
+        document: 'Songti SC',
+        ui: 'SF Pro Text',
+      },
     pageWidthMode: 'wide',
     showGitLogEntry: false,
     showGitPanelEntry: false,
@@ -173,18 +174,18 @@ describe('WorkspaceSettingsPage', () => {
       },
     );
     Object.assign(appUpdateController, {
-      available: false,
-      check: vi.fn(() => Promise.resolve()),
-      currentVersion: '0.1.0',
-      downloadedBytes: 0,
-      error: null,
-      install: vi.fn(() => Promise.resolve()),
-      lastCheckedAt: null,
-      phase: 'idle',
-      restart: vi.fn(() => Promise.resolve()),
-      totalBytes: null,
-      update: null,
-    } satisfies AppUpdateController);
+  available: false,
+  check: vi.fn(() => Promise.resolve()),
+  currentVersion: '0.1.0',
+  downloadedBytes: 0,
+  error: null,
+  install: vi.fn(() => Promise.resolve()),
+  lastCheckedAt: null,
+  phase: 'idle',
+  restart: vi.fn(() => Promise.resolve()),
+  totalBytes: null,
+  update: null,
+} satisfies AppUpdateController);
     workspaceApiState.isTauriRuntime.mockReturnValue(false);
     workspaceApiState.listSystemFonts.mockClear();
     workspaceApiState.openUrlInDefaultBrowser.mockClear();
@@ -282,13 +283,13 @@ describe('WorkspaceSettingsPage', () => {
     );
     expect(onSettingsSaved).toHaveBeenCalledWith(
       expect.objectContaining({
-        appearance: expect.objectContaining({ windowOpacity: 82 }),
-      }),
+          appearance: expect.objectContaining({ windowOpacity: 82 }),
+        }),
     );
 
-    await userEvent.setup().click(
-      screen.getByRole('button', { name: '恢复默认' }),
-    );
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: '恢复默认' }));
     expect(workspaceApiState.setAppWindowOpacity).toHaveBeenLastCalledWith(100);
     await waitFor(() =>
       expect(workspaceApiState.saveAppSettings).toHaveBeenLastCalledWith(
@@ -566,6 +567,50 @@ describe('WorkspaceSettingsPage', () => {
     expect(appUpdateController.restart).toHaveBeenCalledTimes(1);
   });
 
+  it('switches attachment strategies, enforces dependent options and restores defaults', async () => {
+    const user = userEvent.setup();
+    renderSettingsPage();
+    await user.click(screen.getByRole('button', { name: '存储' }));
+    expect(screen.queryByTestId('storage-path-options')).toBeNull();
+    expect(
+      screen
+        .getByRole('switch', { name: '对本地图片应用规则' })
+        .getAttribute('aria-checked'),
+    ).toBe('true');
+    expect(
+      screen
+        .getByRole('switch', { name: '对网络图片应用规则' })
+        .getAttribute('aria-checked'),
+    ).toBe('false');
+    await user.click(screen.getByRole('combobox', { name: '附件保存位置' }));
+    await user.click(screen.getByRole('option', { name: './assets 文件夹' }));
+    expect(screen.queryByTestId('storage-local-card')).toBeNull();
+    const prefix = screen.getByRole('switch', { name: '为相对路径添加 ./' });
+    expect(prefix.getAttribute('aria-checked')).toBe('false');
+    await user.click(prefix);
+    await user.click(screen.getByRole('switch', { name: '优先使用相对路径' }));
+    expect((prefix as HTMLButtonElement).disabled).toBe(true);
+    await user.click(screen.getByRole('combobox', { name: '附件保存位置' }));
+    await user.click(screen.getByRole('option', { name: '指定路径' }));
+    expect(screen.getByLabelText('目标目录')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '恢复默认值' }));
+    expect(screen.queryByTestId('storage-path-options')).toBeNull();
+    expect(screen.queryByLabelText('目标目录')).toBeNull();
+    expect(screen.getByTestId('storage-local-card')).toBeTruthy();
+    await user.click(screen.getByRole('combobox', { name: '附件保存位置' }));
+    await user.click(screen.getByRole('option', { name: './assets 文件夹' }));
+    expect(
+      screen
+        .getByRole('switch', { name: '优先使用相对路径' })
+        .getAttribute('aria-checked'),
+    ).toBe('true');
+    expect(
+      screen
+        .getByRole('switch', { name: '为相对路径添加 ./' })
+        .getAttribute('aria-checked'),
+    ).toBe('false');
+  });
+
   it('keeps storage and Git Sync information in structured cards', async () => {
     const user = userEvent.setup();
     renderSettingsPage();
@@ -585,6 +630,27 @@ describe('WorkspaceSettingsPage', () => {
     expect(screen.getByTestId('git-sync-last-synced').textContent).toBe(
       '尚未同步',
     );
+  });
+
+  it('strips the Windows extended-length prefix from the local asset directory', async () => {
+    const user = userEvent.setup();
+    render(
+      <WorkspaceSettingsPage
+        appUpdate={appUpdateController}
+        initialSettings={initialSettings}
+        sessionCache={createWorkspaceSettingsSessionCache()}
+        workspaceRootPath={String.raw`\\?\D:\refinex-vault`}
+        onBack={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '存储' }));
+
+    expect(
+      screen.getByDisplayValue(
+        String.raw`D:\refinex-vault/.markune/assets/files`,
+      ),
+    ).toBeTruthy();
   });
 
   it('persists the Git panel and log entry visibility independently', async () => {
@@ -654,6 +720,7 @@ describe('WorkspaceSettingsPage', () => {
       envKey: 'MARKUNE_CODEX_PROVIDER_API_KEY',
       hasApiKey: true,
       model: 'gpt-5',
+      fingerprint: 'revision',
       providerId: 'markune_custom',
       wireApi: 'responses',
     });
@@ -672,19 +739,19 @@ describe('WorkspaceSettingsPage', () => {
     expect(await screen.findByTestId('codex-settings-shell')).toBeTruthy();
     await waitFor(() => {
       expect(
-        screen.getByTestId('codex-auth-mode-badge').textContent?.includes(
-          'ChatGPT',
-        ),
+        screen
+          .getByTestId('codex-auth-mode-badge')
+          .textContent?.includes('ChatGPT'),
       ).toBe(true);
       expect(
-        screen.getByTestId('codex-runtime-badge').textContent?.includes(
-          '运行中',
-        ),
+        screen
+          .getByTestId('codex-runtime-badge')
+          .textContent?.includes('运行中'),
       ).toBe(true);
       expect(
-        screen.getByTestId('codex-account-summary').textContent?.includes(
-          'user@example.com',
-        ),
+        screen
+          .getByTestId('codex-account-summary')
+          .textContent?.includes('user@example.com'),
       ).toBe(true);
     });
     expect(screen.queryByRole('button', { name: '登录' })).toBeNull();
@@ -706,6 +773,7 @@ describe('WorkspaceSettingsPage', () => {
 
     await waitFor(() => {
       expect(codexApiState.setCodexCustomProvider).toHaveBeenCalledWith({
+        expectedFingerprint: 'revision',
         apiKey: 'sk-secret-test',
         baseUrl: 'https://api.openai.com/v1',
         model: 'gpt-5',

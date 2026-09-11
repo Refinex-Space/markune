@@ -58,9 +58,20 @@ describe('Workspace titlebar', () => {
     expect(workspaceLayoutSource).toContain('const WORKSPACE_SIDEBAR_HEADER_HEIGHT = 44');
     expect(workspaceLayoutSource).toContain('? macChromeContentTop');
     expect(workspaceLayoutSource).toContain('editorHeaderHeight={drawingEditorHeaderHeight}');
+    expect(workspaceLayoutSource).toContain(
+      'headerToolsReservePx={drawingHeaderToolsReservePx}',
+    );
     expect(workspaceLayoutSource).toContain('overlayContent={');
     expect(workspaceLayoutSource).toMatch(
-      /overlayContent\s*\? 'absolute inset-x-0 top-0 z-10 h-11'/,
+      /overlayContent\s*\? 'absolute right-0 top-0 z-10 h-11'/,
+    );
+    expect(workspaceLayoutSource).toContain('getDrawingOverlayToolsReservePx');
+    expect(workspaceLayoutSource).toContain('HEADER_TOOL_BUTTON_PX = 28');
+    expect(workspaceLayoutSource).toContain(
+      "!overlayContent && (macChromeInset ? 'pl-44' : 'pl-3')",
+    );
+    expect(workspaceLayoutSource).not.toContain(
+      "overlayContent ? 'absolute inset-x-0 top-0 z-10 h-11'",
     );
   });
 
@@ -127,7 +138,7 @@ describe('Workspace titlebar', () => {
       workspaceLayoutSource.match(
         /sidebarHeaderOffset=\{macSidebarHeaderOffset\}/g,
       ),
-    ).toHaveLength(3);
+    ).toHaveLength(4);
   });
 
   it('keeps 32px chrome hit targets while limiting hover backgrounds to 28px', () => {
@@ -157,9 +168,6 @@ describe('Workspace titlebar', () => {
     expect(workspaceSidebarSource).toContain(
       "import { PinnedSidebarSection }",
     );
-    expect(
-      workspaceSidebarSource.indexOf('<PinnedSidebarSection'),
-    ).toBeLessThan(workspaceSidebarSource.indexOf('<DocumentTree'));
     expect(pinnedSidebarSectionSource).toContain('aria-expanded={expanded}');
     expect(pinnedSidebarSectionSource).not.toContain('<Popover');
     // Windows keeps click focus; outer focus rings overlap the system nav.

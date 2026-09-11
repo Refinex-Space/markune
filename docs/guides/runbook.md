@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-08-15
+updated: 2026-09-06
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -34,19 +34,66 @@ pnpm build
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
+## Graph Acceptance
+
+```bash
+pnpm exec vitest run components/workspace/__tests__/workspace-graph-model.test.ts components/workspace/__tests__/workspace-graph-page.test.tsx components/workspace/__tests__/workspace-graph-canvas.test.ts components/workspace/__tests__/use-workspace-graph.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml graph --lib
+cargo test --manifest-path src-tauri/Cargo.toml graph::tests::benchmarks_synthetic_workspace --lib -- --ignored --nocapture
+```
+
+元数据回归同时覆盖 `components/editor/__tests__/markdown-frontmatter.test.ts`、原生 `document_frontmatter` 与 `graph_metadata` 测试。用 `title: **标题**`、冒号/引号/反斜杠/换行标题验证旧 Markune 只读兼容与新保存合法 YAML，并检查标签未丢失、文件字节未被图谱改写、错误元数据仍有行列提示；新建/重命名和重新打开的标题应一致。
+
+用独立工作区验证 Markdown 相对路径、Wiki 根路径/同名歧义、别名显示、引用定义、嵌入、标题/块锚点及 `markweave://doc/`。代码、注释、数学公式不产生引用；嵌套标签不与横线标签合并，YAML 引号/列表/注释保持语义。A 引 B 两次、B 引 A 一次应呈现两条方向边，每个文档的唯一引用邻居仍为 1。
+
+保持图谱打开，从外部新增、改写、移动、删除文档，检查自动刷新、未解析节点转为文件节点、图谱视角保留、失败保留旧图谱和重试。图谱中的 Daily 应可打开；恢复默认应隐藏属性字段，显示未解析和方向箭头。检查明暗主题、双向箭头、搜索、相邻节点详情与设置弹层。模拟 IPC 的 Chromium 检查只验证页面和 Canvas；实际监听到图谱的完整桌面路径、Windows/Linux 文件系统及大规模冷读仍需独立验收。2,000 篇合成样本仅用于观察本机扫描耗时，不代表十万节点图形性能。
+
+## Attachment Storage Acceptance
+
+```bash
+pnpm exec vitest run components/workspace/__tests__/workspace-settings-page.test.tsx components/editor/__tests__/use-workspace-asset-uploader.test.ts components/editor/__tests__/pasted-image-storage.test.ts components/editor/__tests__/markweave-image-paste.test.tsx components/workspace/__tests__/document-export-core.test.ts
+cargo test --manifest-path src-tauri/Cargo.toml document_assets::tests --lib
+```
+
+在专用工作区分别选择内置、文档目录、`assets`、`${filename}.assets` 和自定义目录，插入截图、已有本地图片、网络图片、视频与 PDF。核对实际落盘位置、同名不覆盖、Markdown 引用、重开预览和附件下载；本地/网络开关仅影响相应图片来源，截图仍必须保存。内置模式隐藏路径选项，自定义模式显示目录输入，关闭相对路径禁用 `./`；恢复默认后所有后续策略回到内置，历史文件和引用保持不变。
+
+验证普通文档/MDX 移动及目录移动、改名，覆盖行内图片、引用定义、HTML 图片/视频/附件、代码示例、`mailto:`、旧托管引用；移动期间外部更改源或创建同名目标必须被保护。分别导出 Markdown/HTML/PDF/Word，普通本地资源应进入现有便携导出包或转换暂存目录。
+
+真实跨平台验收还需 Windows 不同盘符、自定义外部目录授权与重启恢复、网络重定向/超时/超限、PNG/JPEG/GIF/WebP/SVG、图片下载中切换文档/撤销粘贴。单元测试、模拟 IPC 的真实编辑器集成及 Chromium 设置页不能代替原生 WKWebView/WebView2 的全链路验收。
+
+## Workspace Refresh Acceptance
+
+```bash
+pnpm exec vitest run components/workspace/__tests__/use-workspace-ai-sync.test.tsx components/workspace/__tests__/use-workspace-refresh.test.tsx components/workspace/__tests__/workspace-refresh.test.ts components/workspace/__tests__/document-tree.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml workspace_watch::tests --lib
+cargo test --manifest-path src-tauri/Cargo.toml workspace::tests --lib
+```
+
+使用独立临时工作区，分别在根目录和多层子目录打开文档，并保留一个后台标签。通过其他编辑器或脚本修改、新建、删除、移动文件，以及“临时文件替换原文件”的保存方式，检查树与已打开正文更新；目录刷新应覆盖深层已打开标签，文档刷新不重载无关标签。右键树头部间距、底部剩余空白、折叠后的空白及空工作区，确认根目录菜单均可用，节点右键仍打开节点菜单。
+
+连续输入期间做外部改写，确认 500 ms 尚未 flush 的输入也被保留，重复事件不会覆盖冲突草稿；分别确认加载磁盘版本和用当前版本覆盖。触碰时间戳或应用自身保存时，编辑器不能闪烁或重置选区。删除当前文件应保留正文并报告错误；文件恢复后刷新应能重新读取。切换工作区、休眠恢复及关闭窗口后检查旧监听已释放，迟到结果不进入新工作区。
+
+当前自动化包含本机真实文件事件、同时间戳改写、并发保存及符号链接回归。Windows/Linux、网络盘、云盘占位文件和超大知识库必须分别验收，不能以 Chromium 或 macOS 临时目录结果代替；监听不可用时应展示每 3 秒复核的降级提示。
+
 ## Large-document Acceptance
 
 聚焦自动化先执行：
 
 ```bash
-pnpm exec vitest run components/editor/__tests__/markdown-editor.test.tsx components/editor/__tests__/use-workspace-asset-uploader.test.ts components/editor/__tests__/markweave-image-paste.test.tsx components/workspace/__tests__/use-workspace-ai-sync.test.tsx components/workspace/__tests__/workspace-performance.test.ts
+pnpm exec vitest run components/editor/__tests__/markdown-editor.test.tsx components/editor/__tests__/use-workspace-asset-uploader.test.ts components/editor/__tests__/markweave-image-paste.test.tsx components/editor/__tests__/markweave-video-media-bridge.test.ts components/workspace/__tests__/document-export-core.test.ts components/workspace/__tests__/use-workspace-ai-sync.test.tsx components/workspace/__tests__/workspace-performance.test.ts
 cargo test --manifest-path src-tauri/Cargo.toml assets::tests
 pnpm exec tsc --noEmit
 ```
 
-使用 Markweave 共享的 250 KB 文本、250 KB 有效媒体、250 KB 缺失媒体和 1 MB 压力夹具；不要提交用户手册原文或真实资产。浏览器前置基准在 Markweave 仓库运行 `pnpm benchmark:large-document`。最终门禁必须在真实 macOS WKWebView 与 Windows WebView2 各执行至少五轮冷/热测试，记录首屏、可编辑、逐键/IME paint、长任务、滚动帧率、序列化、保存、IPC、DOM/轻量 NodeView 和内存，并与同机 Typora 相对比较。
+使用 Markweave 共享的 250 KB 文本、250 KB 有效媒体、250 KB 缺失媒体和 1 MB 压力夹具；不要提交用户手册原文或真实资产。浏览器前置基准在 Markweave 仓库运行 `pnpm benchmark:large-document`。先确认 canonical whole-document parse 后的 PM 文档与直接完整解析等价，加载阶段不发出中间保存，只有 Markweave `ready` 后才允许输入、搜索、TOC 与导出。最终门禁必须在真实 macOS WKWebView 与 Windows WebView2 各执行至少五轮冷/热测试，记录首屏、可编辑、逐键/IME paint、长任务、滚动帧率、序列化、保存、IPC、DOM/轻量 NodeView 和内存，并与同机 Typora 相对比较。
 
-在 Markune URL 加 `?markunePerf=1` 后，可从开发者控制台调用 `window.__MarkunePerformanceReport()` 导出脱敏 JSON。验证 100 次连续输入期间序列化计数为 0，500 ms idle 后只增加 1；普通输入资产 IPC 为 0，打开含 421 个唯一资源的文档最多增加 1。另需人工覆盖中文 IME、撤销重做、列表回车、跨块/全选复制、搜索替换、TOC 跳转、快速滚动后编辑、Live/Source 往返、导出、AI 发送和应用关闭 flush。任何保存失败都必须阻止切换/发送/退出并保留草稿。
+在 Markune URL 加 `?markunePerf=1` 后，可从开发者控制台调用 `window.__MarkunePerformanceReport()` 导出脱敏 JSON。验证 100 次连续输入期间序列化计数为 0，500 ms idle 后只增加 1；普通输入资产 IPC 为 0，打开含 421 个唯一资源的文档最多增加 1。对 2,049、4,097 和超过 8,192 个唯一 ID 的合成文档，确认每个 `resolve_workspace_assets` 调用都不超过 2,048 项、调用数为 `ceil(uniqueIds / 2048)`，当次返回覆盖全部 ID；让任一分片首次 reject 后，其他分片必须继续可用，下一次只补请求失败集合。
+
+媒体恢复需要分别覆盖：resolver reject/超时、`missing`、`unreadable`、候选 URL 的真实 image/video error、工作区切换、Abort、output 和同一文档并发重试。确认普通请求在 5 秒内复用负结果，TTL 到期后可恢复；`retry`、`image-error`、`output` 或 `attempt > 1` 立即绕过旧候选，同一文档 750 ms 内只形成一轮恢复 IPC。图片只有真实 `load` 后进入 `resolved`；本地视频只改变 DOM `src` / `data-media-state`，PM 文档、Markdown 输出和 Undo 保持不变。
+
+Warm Tab 验收应打开至少 4 篇含本地图片和视频的文档，在最近 3 个 EditorView 间反复切换：已成功资源复用有界正缓存，失败资源仍能在重新可见、选择或 output 时恢复，旧 Tab 的晚到结果不能写入当前工作区。导出前确认 editor 已 `ready`，官方 output barrier 能唤醒未访问过的末尾媒体并返回缺失、不可读、超时报告；DOM snapshot/打印只在 barrier 结束后克隆，输出完成后编辑器仍可继续滚动和输入。
+
+另需人工覆盖中文 IME、撤销重做、列表回车、跨块/全选复制、搜索替换、TOC 跳转、快速滚动后编辑、Live/Source 往返、导出、AI 发送和应用关闭 flush。任何保存失败都必须阻止切换/发送/退出并保留草稿。
 
 For single-document export changes, run the focused suites first:
 
@@ -59,7 +106,7 @@ cargo test --manifest-path src-tauri/Cargo.toml staged_runtime_generates_real_wo
 
 Then use a Markdown acceptance document containing Chinese and English text, H1-H6, nested/task lists, quotes, callouts, highlighted code, merged tables, formulas, Mermaid, local/remote images, link cards and enough content for multiple A4 pages. Verify:
 
-- HTML follows the active Markweave theme, uses 64 rem standard width, contains no editor TOC/runtime script/large-document placeholder attributes, and opens with local images and attachment sidecars intact.
+- HTML waits for Markweave `ready` and the official output barrier, follows the active theme, uses 64 rem standard width, contains no editor TOC/runtime script/large-document placeholder attributes, and opens with local images, local videos and attachment sidecars intact. Missing, unreadable or timed-out visual resources must be reported rather than silently omitted.
 - 专业 PDF 由 Pandoc→Typst 生成多页 A4 可选文本，正文和中文字体完整，图片、公式、代码、表格及 Mermaid 静态图不出现灰色占位；设置 `MARKUNE_DOCUMENT_EXPORT_ENGINE=legacy` 后兼容 WebView PDF 仍可完成且不阻塞 UI。
 - 专业 DOCX 能在 Microsoft Word 打开，保留标题层级、列表、表格、代码、引用、公式和嵌入图片；样式来自固定 `reference.docx`，Mermaid 使用 2× PNG，不要求可编辑。
 - Existing names are never overwritten. Markdown/HTML sidecars use the same suffixed stem; professional PDF/DOCX embed their assets and do not leave a sidecar directory.
@@ -168,7 +215,7 @@ test ! -d .markune/ai-sessions
 2. 在 AI 面板发送消息，确认可走自定义端点；重启 Markune 后仍可用（keyring + config 持久化）。
 3. 切换回“使用 ChatGPT 路径”，确认 `model_provider` 不再指向 `markune_custom`，且需 ChatGPT 登录时可正常 OAuth。
 4. 错误 Base URL、空 Model、无 Key 必须被拒绝；纯 Chat Completions 端点即使保存成功，对话也会因 wire API 不兼容失败——产品文案已说明此限制。
-5. 确认 `settings.json`、React 会话状态与日志中没有明文 API Key；`CODEX_HOME/config.toml` 仅出现受控的 `[model_providers.markune_custom]`。
+5. 确认 `settings.json`、React 会话状态与日志中没有明文 API Key；`CODEX_HOME/markune-provider.toml` 仅出现受控 provider 与凭据 ID，共享 `config.toml` 保持不变。
 
 聚焦自动化：
 
@@ -178,6 +225,8 @@ pnpm test:run -- components/workspace/__tests__/codex-app-server.test.ts compone
 ```
 
 ## Codex Startup Acceptance
+
+`pnpm codex:stage` 必须同时准备 `codex` 和 `codex-code-mode-host`。出现 `failed to spawn code-mode host` / `No such file or directory` 时先核对二者是否同目录、来自同一版本且可执行；开发环境重新执行 `pnpm desktop:dev`，安装版重新构建完整安装包。不要通过关闭只读权限或清空 Codex 历史解决资源缺失。运行 `node --test scripts/stage-codex-sidecar.test.mjs` 可验证独立临时目录中的真实辅助程序握手与工具往返，随后检查 `bundle.externalBin` 中包含两项。
 
 首次启动桌面端并打开工作区后，不先打开 AI 面板，确认 App Server 已在后台启动；随后首次展开 AI 面板时应直接显示正常的新任务界面，不出现占满会话区的“正在连接 Codex”。在核心握手尚未完成时，输入区仍可编辑，点击发送后应显示轻量准备状态，核心成功后自动继续发送；启动失败时必须保留输入内容并显示可诊断错误。
 
@@ -257,3 +306,29 @@ For source changes, prefer `git diff` inspection followed by targeted `git resto
 回滚画板功能时，定向恢复本次前端、Rust、脚本、依赖与文档文件，并删除由 staging 生成且已被 Git 忽略的 `public/excalidraw-runtime`。不要删除用户工作区的 `.markune/drawings`；旧图稿 bundle 是可直接交给 Excalidraw 的用户数据，应保留到确认无需恢复后再另行处理。
 
 旧 `.markune/ai-sessions` 若尚未提交删除，可在对应知识库仓库中定向 `git restore`。提交删除后旧内容仍存在于 Git 历史；彻底清除需要单独批准历史重写，不能作为常规回滚或清理步骤执行。
+
+## Knowledge Fidelity And Research Acceptance
+
+```bash
+pnpm exec vitest run components/editor/__tests__/markdown-frontmatter-source.test.ts components/editor/__tests__/source-text-changes.test.ts components/workspace/__tests__/workspace-query.test.ts components/workspace/__tests__/use-workspace-knowledge.test.tsx components/workspace/__tests__/knowledge-research.test.ts
+cargo test --manifest-path src-tauri/Cargo.toml document_move_journal --lib
+cargo test --manifest-path src-tauri/Cargo.toml knowledge_actions --lib
+cargo test --manifest-path src-tauri/Cargo.toml workspace_index --lib
+cargo test --manifest-path src-tauri/Cargo.toml benchmarks_incremental_workspace --lib -- --ignored --nocapture
+```
+
+使用临时工作区验证带 BOM、CRLF、注释、别名、嵌套对象/列表和块字符串的笔记。修改正文后比较未改头部字节；修改一个属性后比较其他字段。普通无头部 Markdown 打开后不应写盘；无效 YAML 保留原文并允许正文编辑，结构化修改应报错。
+
+移动测试覆盖目录树、仅改变大小写的改名、多篇入链、同名 Wiki 歧义、Markdown 引用定义/HTML、MDX 和普通附件；外部改写、目标抢先创建、锁定文档必须受保护。中断恢复测试分别模拟写入部分引用后退出、最终路径移动后退出、外部编辑及恢复副本损坏。正常完成只留下 `.markune/moves/.gitignore`；出现警告时先保留整个恢复目录，依据 manifest 中的相对路径/指纹与 `.old` 副本核对现场，不直接删除或覆盖笔记。只有人工确认内容和链接后才清理对应恢复记录；应用不会强行还原无法确认归属的外部修改。这些自动化模拟验证进程中断的持久恢复路径，不等同于断电或跨平台文件系统验收。
+
+在视图页检查保存/切换/删除配置、筛选、列选择、排序、分组、属性编辑、跨笔记任务和原文定位；恢复/删除视图不能改变笔记。验证正文索引超预算的明确提示、失败后的完整重试及根目录切换后的迟到响应隔离。搜索命中行和入链上下文要定位到正确文档及行号；局部图谱不能沿共享标签扩散到无文档链接的节点。
+
+PDF 用两页不同文字的专用文件检查 Canvas 与文字层对齐、选字、翻页后旧摘录仍保留原页码，以及保存后的 source.quote/page/fingerprint/reference。从新笔记回到来源 PDF 的页码，替换原 PDF 后应报告指纹变化。网页摘录检查 HTTP(S) 地址、原文、采集时间和返回链接。研究页选择资料后只追加 AI 草稿，原有输入和提及节点保持，未点击发送不得出现模型请求。
+
+本轮 Chromium 页面验收使用真实 React 组件、搜索 Worker、PDF.js 与人工生成的两页 PDF，文件系统 IPC 使用内存夹具；原生文件事务另由 Rust 临时目录测试覆盖。不可将这种组合验证表述为真实 WKWebView、WebView2、加密/扫描版 PDF、网络盘或实际 AI 回答引用准确性已全部验收。截图位于本次任务产物目录，测试页面完成后删除，不进入生产路由。
+
+2026-09-06 本机 debug 构建的 2,000 篇合成笔记样本：冷索引 1,626 ms，未变化复用 24 ms，修改一篇后 25 ms，投影仅替换 1 篇。该结果反映本机小型文本样本的增量复用，不代表大型单篇、网络盘或跨平台耗时。
+
+## Codex 专业化验证
+
+先执行 `pnpm test:codex:contract`、`pnpm test:codex:probe`、`pnpm test:codex:eval`，再运行相关组件与 Rust 回归。probe 创建并清理独立临时 Codex Home，不使用真实账号，也不调用模型。完整检查中 `pnpm test:run` 必须先结束，才能执行 `pnpm build:desktop:web`。Windows、登录恢复与模型质量不能以合成事件验收替代，详见 [Codex 专项架构](../architecture/codex.md)。

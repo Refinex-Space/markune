@@ -1,5 +1,6 @@
 import type {
   AppearanceFontSettings,
+  AttachmentStorageSettings,
   AppSettings,
   CalendarSettings,
   TreeNodeIcon,
@@ -13,6 +14,29 @@ export const DEFAULT_APPEARANCE_FONTS: AppearanceFontSettings = {
 
 export const MIN_WINDOW_OPACITY = 70;
 export const MAX_WINDOW_OPACITY = 100;
+
+export const DEFAULT_ATTACHMENT_STORAGE: AttachmentStorageSettings = {
+  mode: 'managed',
+  customPath: './assets',
+  applyToLocalImages: true,
+  applyToRemoteImages: false,
+  preferRelativePath: true,
+  addDotSlash: false,
+};
+
+export function normalizeAttachmentStorage(
+  value?: Partial<AttachmentStorageSettings>,
+): AttachmentStorageSettings {
+  const merged = { ...DEFAULT_ATTACHMENT_STORAGE, ...value };
+  if (!['managed', 'document', 'assets', 'filename-assets', 'custom'].includes(merged.mode)) {
+    merged.mode = 'managed';
+  }
+  for (const key of ['applyToLocalImages', 'applyToRemoteImages', 'preferRelativePath', 'addDotSlash'] as const) {
+    if (typeof merged[key] !== 'boolean') merged[key] = DEFAULT_ATTACHMENT_STORAGE[key];
+  }
+  if (typeof merged.customPath !== 'string') merged.customPath = './assets';
+  return merged;
+}
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   appearance: {
@@ -35,6 +59,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   schemaVersion: 1,
   storage: {
     defaultProvider: 'local',
+    attachments: DEFAULT_ATTACHMENT_STORAGE,
   },
 };
 
@@ -76,6 +101,7 @@ export function withDefaultAppSettings(
     storage: {
       ...DEFAULT_APP_SETTINGS.storage,
       ...settings.storage,
+      attachments: normalizeAttachmentStorage(settings.storage?.attachments),
     },
   };
 }

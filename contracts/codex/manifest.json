@@ -1,0 +1,33 @@
+{
+  "version": "0.153.4",
+  "sourceCommit": "042fb41b7c813ac7999105e886b2b7aa715b5081",
+  "experimentalApi": true,
+  "storage": "sharedCodexHome",
+  "capabilities": {
+    "legacyHistory": "supported",
+    "paginatedHistory": "experimental-guarded",
+    "explicitSteer": "supported",
+    "fork": "supported",
+    "mcpElicitation": "form-url-bounded",
+    "remoteControl": "not-exposed",
+    "voice": "not-exposed"
+  },
+  "schemaSha256": {
+    "ClientRequest.json": "05c82ead1a820c765c23d3a1d262e4ae54889785276ee1acf7c494141fd94d70",
+    "ServerRequest.json": "38bb1c9dbb1dda2a688a7c8712b04319fe6ee2ed28b54acd2f5fd341d25567ff",
+    "ServerNotification.json": "1a59e2cecb8e7930c4358f7a92245d9d52c96adb0e02b210fc39772ed10610fc",
+    "v2/ThreadStartParams.json": "25f490368ec6df52a2a3b82a5469d2413307eb93439121b309f415b5648eee7a",
+    "v2/ThreadResumeParams.json": "324e96004c49de35935cade3386958431c93a4fd3997a839f9796772ea4c8072",
+    "v2/ThreadForkParams.json": "674134467796c011068b9dd5efc912de4560fa31f65c0fb2163f14e352be7a61",
+    "v2/ThreadTurnsListParams.json": "2a8b93d7d4437cc25e16a1dde16d8db3c338d39e16c5eece2a56e943a21577d7",
+    "v2/ThreadTurnsListResponse.json": "45bffd91efc358859a1a54b8165c0a8b1c21ebc2a312da9f25d05ff27af798ee",
+    "v2/TurnStartParams.json": "b36fb37326b1cf69f75c8b306f1f886d53a57c4b1b985e08e298e2407ea2ad02",
+    "v2/TurnSteerParams.json": "2e0cdcea6a90d6c8bc584fdc2ff838e824754b1eef0d2d16aa71bec4276fef44",
+    "v2/TurnSteerResponse.json": "866ba9a77c12b5d570c837d58f73bf40b24e50fa93404bdf792dd984d313b1aa",
+    "McpServerElicitationRequestParams.json": "5cbeb6bc702d2efa076da4c1dfb00672c970c1bad747031eb880b9ab907815c0",
+    "McpServerElicitationRequestResponse.json": "792a012fdfe53ac211575a6c37ffbd492be848d15cb313d1bb4b534ade1f54ac",
+    "v2/ListMcpServerStatusResponse.json": "d581e9ba17f6da0d686d0e730cddd51fda091f361a8c119317b2138a3ecdb612",
+    "v2/HooksListResponse.json": "891dd10ef7f78e59631fce05fff2becddb8004b3c0338dbbbd6b4f17ef1fa64f"
+  },
+  "previousVersion": "0.144.4"
+}

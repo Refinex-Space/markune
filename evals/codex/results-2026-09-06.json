@@ -1,0 +1,738 @@
+{
+  "kind": "real-model-synthetic-constraints",
+  "cases": [
+    {
+      "id": "writing-001",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "c80ed82088d55b02e3a4c094fbf2efe7afd68fbb167a69c815452d9169f9a69a"
+    },
+    {
+      "id": "writing-002",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "63d2cab252c12fd444f02b3e46f2c076fbb07f4ee86b1417930950aa0e432f11"
+    },
+    {
+      "id": "writing-003",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "9c209776b78f8ff667c068f28fb268e0cdfe17b268ff48c9ed4f0be067e6ba73"
+    },
+    {
+      "id": "writing-004",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "809fd653b5fb0dbd622b56d1767d44fe64b9b6da88167fa05b8fc3183a4842fd"
+    },
+    {
+      "id": "writing-005",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "32b67a8d222d021489f14a496b12361b5d2a7db146e32562a837482345d48348"
+    },
+    {
+      "id": "writing-006",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "5d9eec07ddf4f5e1946ba214130720e632a1a84c2e2c89a03183d0dfce53fa00"
+    },
+    {
+      "id": "writing-007",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "7dc568865cf6fecc9cf83ce645a8b9c00c7b85a05fba5164b53e562aa30f294d"
+    },
+    {
+      "id": "writing-008",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "9b09a35627dbc3718cd691370afaf42d8f6b473fce6258409174cbd59e0a1c79"
+    },
+    {
+      "id": "writing-009",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "76e79551bbf2af8f9f14937101a9bc122facb77124e9e1fb4b89443fc29e78fd"
+    },
+    {
+      "id": "writing-010",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "8a3628bc80502e3f02aa687ecfb690e733b12b302d036fbda44a87b70ef7013f"
+    },
+    {
+      "id": "writing-011",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "b0c85bd7c895b0c1853e9d801891a0a2913795636ac23421bf73e0f7b722dc94"
+    },
+    {
+      "id": "writing-012",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "8b0ed56e4542e3030ce2a8553312ce020cb8d773ea5fdd31fd00ff4f23c7e471"
+    },
+    {
+      "id": "writing-013",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "26d0110592e2f43e411cab2454158f0acf3e87c52b63ea72c36a3d76a4e3fdcd"
+    },
+    {
+      "id": "writing-014",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "2c86584c9c8a04f732d825be06f39574cf242e89b7f2ec4d32b7b45cd08e1ea4"
+    },
+    {
+      "id": "writing-015",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "50b33d4d57d09cf2e264d8e4de6af14504d93be74a98a6d931418fef070073c0"
+    },
+    {
+      "id": "writing-016",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "a2189fa75d597854cef3fbb61037d9cfdec9892bf29fc164089b7b9aeb371836"
+    },
+    {
+      "id": "writing-017",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "dc54067dcf7a2a6898fa1296a2a856fab6603a7249eb84c46f7ff45812d919af"
+    },
+    {
+      "id": "writing-018",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "aa27ff1493618ab1569462d26197d7396d84e5a6f13e85654d5d70b4f2773447"
+    },
+    {
+      "id": "writing-019",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "49704e4a1cac434462c79b0a215c3dc33e02d0c6067e6439b05a5ba2a3bde4da"
+    },
+    {
+      "id": "writing-020",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "db30a8b51ea662322588f24dde0aa0a9700789f8a08f5ae4d957e01abc040dc9"
+    },
+    {
+      "id": "writing-021",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "eef6dcd6120f9e642d62e6980222b46dd4a5fc87c12751679f519e55e42e4409"
+    },
+    {
+      "id": "writing-022",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "e25a0d4a5179a471173e9867ca9b44c2c5a2694da510c9fd4f143e2009232e8e"
+    },
+    {
+      "id": "writing-023",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "d64cb6ff1df200f77107badabc166210382f8fe6c003fa9003307e2e030e5989"
+    },
+    {
+      "id": "writing-024",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "8b604b3506a2be5b4c96c1796521f7ede87e1c56b19dd44d19d7959c1e109b92"
+    },
+    {
+      "id": "writing-025",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "fe14d5640992beaa286af5f40848ba008389f623778f3fd865a385f856d301c0"
+    },
+    {
+      "id": "writing-026",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "7da82bf55fafcb2fe98e18eea683399c0c54a88f60070e6616181017e935d006"
+    },
+    {
+      "id": "writing-027",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "282e32e503e9a2dd71a69ac99ee094f970be4959cc289374f651768c8ef5d4e3"
+    },
+    {
+      "id": "writing-028",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "06c205aeb7eb254cc97d7461bb934909d26f345c13e728445ed148af7cdbfe3d"
+    },
+    {
+      "id": "writing-029",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "c0cd59148e2149ebf078e3b3347974ae8a727e1b327ace8685abde5f19e011dd"
+    },
+    {
+      "id": "writing-030",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "f9ca0ed2425e7861487859bb99a019f4e0fd1eed33c3f6da553f00780d562edb"
+    },
+    {
+      "id": "writing-031",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "fd5fea8493bac4e747c4a806dd33d2103da8cd8977158a1e43e427df2b106196"
+    },
+    {
+      "id": "writing-032",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "16ef9ec29e2ca47fb2225d2f1a781510980a5e7db68bdefa060b085165d74c43"
+    },
+    {
+      "id": "writing-033",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "0270affd3032dc89c2b400013abb2e74794686e3f532cbfa7ba0dfa9116bc527"
+    },
+    {
+      "id": "writing-034",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "31c9567b11631aa701da8cfe24a8a2f04656d978d18b7d85aacddb65b9f55135"
+    },
+    {
+      "id": "writing-035",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "fca185910db9dd91686d4f54dcb4640e3fbfc14bb7ecf9468b1d7c677dfbb9e7"
+    },
+    {
+      "id": "writing-036",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "5cd9004a739c2fa6abcda732ce20e2b1215aa55d9c83899e0cae37fd2a14c504"
+    },
+    {
+      "id": "writing-037",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "780ceb1549d532a48af9f58cc607d961e826a5c58c095773d64d6efa1b0da5e9"
+    },
+    {
+      "id": "writing-038",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "3791a682ec2a08e8eadbf9add91e536594059e22131a83befba36a6265a703c1"
+    },
+    {
+      "id": "writing-039",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "44842e017e45273e8a680a90033605a4bfe33f1bbfb084102a1130774c53e315"
+    },
+    {
+      "id": "writing-040",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "cf6190fb60e92e8530ef9bf0360da1fc93d42606afffa3f814540d19be399715"
+    },
+    {
+      "id": "writing-051",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "9f00f313e01f00e31805cd64844fa00df518c6120c4dedee0d05126cbf4e1db8"
+    },
+    {
+      "id": "writing-052",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "d1804bcc7a8c43ad4327d27cb87c5c07f03b999bc4cba3e35a13967691c2938d"
+    },
+    {
+      "id": "writing-053",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "7e6a7898a93b3972d2b5428abe438108c3b003d67390782aedf683fc8e21f1f8"
+    },
+    {
+      "id": "writing-054",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "3f490463d8794e5a51fe23754d9d2ed805d16078fce175732cad88888a07a29f"
+    },
+    {
+      "id": "writing-055",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "3a83e6a39dd8f61aa53430eff14351d52e2072ed64c1beffa0738817f985ffe8"
+    },
+    {
+      "id": "writing-056",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "87714de150a38a444c9589615b7405a759ad9a206ff34347ec6f13c0f08ee4f2"
+    },
+    {
+      "id": "writing-057",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "c809eea9c2215a82eee833327763d633b7a43da0aa7714a45b73a590d410db79"
+    },
+    {
+      "id": "writing-058",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "0a1deac9cc36613221395c2d156140cade1120876b9b198c8eefa3efcd3f2b29"
+    },
+    {
+      "id": "writing-059",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "b9f33c6817bbd4af7836fe9dc5a5a20d694531a9089754a03be8936f918393a9"
+    },
+    {
+      "id": "writing-060",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "4dc023ce8ca6d1be4211bc058b4db988a6c72d61a9678be9af0bd29afde262f4"
+    },
+    {
+      "id": "writing-061",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "716a395870cd7e17bf1798c856db8d945c33eae367fe1d9913d1b5f2e1b88f61"
+    },
+    {
+      "id": "writing-062",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "8411b30bf0edef56fe7abf6ee816eeb5d57524216e1ab38f37fedcd8b009be6b"
+    },
+    {
+      "id": "writing-063",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "52044bfe733aabcafed3340e21bc9659325464b9f44cea2d1ee47619b0919dc1"
+    },
+    {
+      "id": "writing-064",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "36affc8d36bf55842cfe23c71815d9ccfaa276500f7f2ed0ec93cf054cd67930"
+    },
+    {
+      "id": "writing-065",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "bf0e0f50fe1388cc59940f3b62d0b9987a466abcc42426e174faad67059c7265"
+    },
+    {
+      "id": "writing-066",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "fde8688d71b6a5d9f186250d70ce04d48cdfe7e9d4f2de6780b4a03302a9dfea"
+    },
+    {
+      "id": "writing-067",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "a40a2ed72e1e6903c1d7997750cfa4ae68944a3097135918a3a1a91fc9c0554d"
+    },
+    {
+      "id": "writing-068",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "c97bee2d34bd136be18b919555245f1ebe63f845e31f718168f87e578a65d350"
+    },
+    {
+      "id": "writing-069",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "b9dd07403f71cca4d42c89342ce30020fa9b5a17b962fbbb51794aab10d2b956"
+    },
+    {
+      "id": "writing-070",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "3a5fabe4a4d0394f2c6dddc9509b6df5945920c8a0dbe5b3f825e815e3e7032e"
+    },
+    {
+      "id": "writing-071",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "aee689a1b785a9a2d92a62c9260b9656d2c6dcbda814ae27fc11e9bee69166b2"
+    },
+    {
+      "id": "writing-072",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "580a1ecd6ffecbe1f727652c6d207eb3a9d4fca247258d494055d7185ab9aefe"
+    },
+    {
+      "id": "writing-073",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "af6113656e608e2a47088721ae61b90d249cd06c4c699aca39ffd4c360298005"
+    },
+    {
+      "id": "writing-074",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "41c799fb8a27635f313c5094852707b29918d60d26eb0fd05fe22208aa3cd5d5"
+    },
+    {
+      "id": "writing-075",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "e4a0ccd6098a68e63d615e8a7af3f9f6ca8e7dca92bb1e54c08b9bf4d1cbdc59"
+    },
+    {
+      "id": "writing-076",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "4568afa953b4f96d7f734ea49229cd90eed646a1cc14de713f3f58dbef1d7bfc"
+    },
+    {
+      "id": "writing-077",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "9a203580418076034681f4dbe7a1180c5f57992fe4bdfbc243c3253b94370924"
+    },
+    {
+      "id": "writing-078",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "6ee647870791ce2dfdeacac85af689cf67a1c6abf47f086de7d0f4a5e3a680ad"
+    },
+    {
+      "id": "writing-079",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "cd490856a9f3fea8f1ad210a6c5cf58dd2f5919e9a2fac48d315720d4b4f5e93"
+    },
+    {
+      "id": "writing-080",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "ec41a486de40252702b93232a98dd355394e088f0f216315444c740224b52880"
+    },
+    {
+      "id": "writing-081",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "c0ec2cc2bac94359653d924253955ee2d0ef77e743f7730d184d687a13d3238a"
+    },
+    {
+      "id": "writing-082",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "90881fe7f9fb3f291a1a63797c2fee8bbb61179c8fd47213e710077bd1ce70f6"
+    },
+    {
+      "id": "writing-083",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "82c59a4c6b6e56802b31f402902e00be7d29f8b559e5548bbb9360e290a41740"
+    },
+    {
+      "id": "writing-084",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "8484e062dc3802ded8c252f3f1763d4961ce89fe53cebe413dd29642518fe50c"
+    },
+    {
+      "id": "writing-085",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "54940186ab849618193ffac9a45fe720c9632648c77f364d4b1493854e282e09"
+    },
+    {
+      "id": "writing-086",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "90fcb111e3e27da1f89324194a2068600b399235d634a065413275aa0bf1f507"
+    },
+    {
+      "id": "writing-087",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "5767351052d62a11dec236ff2655cec61cff723d397245b86696c4cbbbc042b5"
+    },
+    {
+      "id": "writing-088",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "122478864d4fbff54b35601b9ca00977eb486d6ed4eaad6120fa508c54e7cbdb"
+    },
+    {
+      "id": "writing-089",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "a54ebb99576cc1635e0398108744acc92e900c28cfb5b56e1ea71f7e00ee79c5"
+    },
+    {
+      "id": "writing-090",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "78213d87b8b58830b8f78e46fab553508aab3b974d20d3cdd227f0d76626a19d"
+    },
+    {
+      "id": "writing-091",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "f5bd766b45d0363f59d2e136cbefd7381e095a569edbb7010e0c597d8bc0566c"
+    },
+    {
+      "id": "writing-092",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "00adc1d3ef9256d29aae1442746adb927b5930872e9104ef3d5f8432421878f0"
+    },
+    {
+      "id": "writing-093",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "c820c72dae8b5706a275c287276bf08b8c244bb7257303f2599cc73f8604ebcd"
+    },
+    {
+      "id": "writing-094",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "b3b2f0eff2939fbb7c0845c76089c003b1295de1e3d2eba80fac8aec2052ae8e"
+    },
+    {
+      "id": "writing-095",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "132622e96f44ed1f50f9be2a577e84dbc4b9b75ad68e384dc8a82be8b2de8902"
+    },
+    {
+      "id": "writing-096",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "3701b0bea5cfc59495d9e1532e75ace5908f7fb3d81b83b6855968ebeaa68ed8"
+    },
+    {
+      "id": "writing-097",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "c7b0c307118cf2d1f7445882db7bb7114b25dc51dbaf346588e3b48d86ee5a5f"
+    },
+    {
+      "id": "writing-098",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "682d0787bd2ac5e0bc40d6edf7e534d885409712f27890b5cf858719f718e7bc"
+    },
+    {
+      "id": "writing-099",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "9e8bbb1acb1569901c8d878228594ffb4a81415cceecf112f4b8b86e885af508"
+    },
+    {
+      "id": "writing-100",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "887fc8bf928d061306b9f5ed91f67a1b5c9cbe5be6f94bbb266dfb26378a240f"
+    },
+    {
+      "id": "writing-041",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "76c1a8bc0be07b9daf96de2062f91f5911fab44b318ecd9c6c0e306081ef288d",
+      "reviewText": "原文指出，缓存可能保留 41 秒，网络异常场景尚未经过验证。\n\n[来源](notes/source-41.md#L12)"
+    },
+    {
+      "id": "writing-042",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "7fe65c8beca6d29aa3796039f36f4aabb5059ca3e5920096e855b3949e190dfe",
+      "reviewText": "原文指出，缓存可能保留 42 秒，网络异常场景尚未经过验证。\n\n[来源](notes/source-42.md#L12)"
+    },
+    {
+      "id": "writing-043",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "b90b537a677b674a6e2f0f083e47ce7bf4d6a5a756552073a0e17387a17d62d0",
+      "reviewText": "原文指出，缓存可能保留 43 秒，网络异常场景尚未经过验证。\n\n[来源](notes/source-43.md#L12)"
+    },
+    {
+      "id": "writing-044",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "d3a7976a5aa42957e44c73e8264fe61ec4cb914c4ec80f6a2d9a2d7a6ce31d19",
+      "reviewText": "原文指出，缓存可能保留 44 秒，网络异常场景尚未经过验证。\n\n[来源](notes/source-44.md#L12)"
+    },
+    {
+      "id": "writing-045",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "722ece37c952c0706140439812887530387c901f68da2b7d4fb04516679047c2",
+      "reviewText": "原文指出，缓存可能保留 45 秒，网络异常场景尚未经过验证。\n\n[来源](notes/source-45.md#L12)"
+    },
+    {
+      "id": "writing-046",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "723f1c1bfdc59818775d235c63a3760694f076654d81b148960e109c7a8749dd",
+      "reviewText": "原文指出，缓存可能保留 46 秒，网络异常场景尚未经过验证。\n\n[来源](notes/source-46.md#L12)"
+    },
+    {
+      "id": "writing-047",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "26cfca0c23595b28d5df64208b008bf37e4735b7534aa1f0394ca0b65233b315",
+      "reviewText": "原文指出，缓存可能保留 47 秒，网络异常场景尚未经过验证。\n\n[来源](notes/source-47.md#L12)"
+    },
+    {
+      "id": "writing-048",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "20a932be455e81a1bfb9bd50c3c496a5b4e605c03938e9e9cd487c3ca805463e",
+      "reviewText": "原文指出，缓存可能保留 48 秒，网络异常场景尚未经过验证。\n\n[来源](notes/source-48.md#L12)"
+    },
+    {
+      "id": "writing-049",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "24ada3c2dca49cd074f33b874978dc61f76ed2f7da01c94c900c97ace11bb9cd",
+      "reviewText": "原文指出，缓存可能保留 49 秒，网络异常场景尚未经过验证。\n\n[来源](notes/source-49.md#L12)"
+    },
+    {
+      "id": "writing-050",
+      "passed": true,
+      "missingRequired": [],
+      "forbiddenFound": [],
+      "outputSha256": "f8864a349e36e3464c3c5c9bafa852d657bfafaaa9017c2c8f68e83c676e0bbd",
+      "reviewText": "原文指出，缓存可能保留 50 秒，网络异常场景尚未经过验证。\n\n[来源](notes/source-50.md#L12)"
+    }
+  ],
+  "status": "completed",
+  "humanQualityAssessment": "not-performed",
+  "executionAttempts": 11,
+  "completedModelBatches": 11,
+  "passed": 100,
+  "model": "gpt-6-astra",
+  "reasoningEffort": "medium",
+  "oracleRevision": 2,
+  "oracleCorrection": {
+    "cases": [
+      "writing-041",
+      "writing-042",
+      "writing-043",
+      "writing-044",
+      "writing-045",
+      "writing-046",
+      "writing-047",
+      "writing-048",
+      "writing-049",
+      "writing-050"
+    ],
+    "reason": "The task requires preserved uncertainty, not the exact contiguous phrase 尚未验证. Captured outputs retain 尚未经过验证. Re-evaluated the captured outputs against a bounded uncertainty-expression predicate; no model rerun or output edits."
+  }
+}

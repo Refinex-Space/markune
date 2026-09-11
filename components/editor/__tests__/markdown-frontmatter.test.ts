@@ -54,6 +54,18 @@ describe('parseFrontmatter', () => {
 });
 
 describe('serializeFrontmatter', () => {
+  it('为特殊标题添加合法引号并在重新读取时还原内容', () => {
+    for (const title of ['**PDF 与 Word**', 'Plan: review', '# Heading', '[plan]', '*alias', 'null', 'TRUE', '123', '2026-09-05', 'path\\note', '他说"可以"', "'quoted'", 'one\ntags: [injected]', 'unicode\u0085line\u2028\u009f']) {
+      const markdown = serializeFrontmatter({ body: '# Body', metadata: { title, refinexDialect: 1, tags: '[pdf, word]' } });
+      const titleValue = /^title: (.*)$/m.exec(markdown)?.[1];
+      expect(titleValue?.startsWith('"')).toBe(true);
+      expect(JSON.parse(titleValue!)).toBe(title);
+      expect(parseFrontmatter(markdown).metadata.title).toBe(title);
+      expect(markdown).toContain('\ntags: [pdf, word]\n');
+      expect(markdown).not.toContain('\ntags: [injected]');
+    }
+  });
+
   it('序列化带 metadata 的文档', () => {
     const out = serializeFrontmatter({
       body: '# 正文',
@@ -104,6 +116,16 @@ describe('parseMarkdownMetadata', () => {
     ).toBe('F');
     expect(parseMarkdownMetadata('# H1', 'file.md').metadata.title).toBe('H1');
     expect(parseMarkdownMetadata('正文', 'file.md').metadata.title).toBe('file');
+    expect(
+      parseMarkdownMetadata('# doc\\_review\\_agent', 'file.md').metadata
+        .title,
+    ).toBe('doc_review_agent');
+    expect(
+      parseMarkdownMetadata(
+        '---\ntitle: v260817\\\\\\\\_1\n---\n\n# Body',
+        'file.md',
+      ).metadata.title,
+    ).toBe('v260817_1');
   });
 
   it('refinexDialect 默认为 1', () => {
@@ -152,6 +174,14 @@ describe('extractH1FromMarkdown', () => {
     expect(
       extractH1FromMarkdown('~~~\n# code\n~~~\n\n# 真实'),
     ).toBe('真实');
+  });
+
+  it('收起词中被转义的下划线', () => {
+    expect(extractH1FromMarkdown('# doc\\_review\\_agent')).toBe(
+      'doc_review_agent',
+    );
+    expect(extractH1FromMarkdown('# v260817\\\\\\\\_1')).toBe('v260817_1');
+    expect(extractH1FromMarkdown('# \\_emphasis\\_')).toBe('\\_emphasis\\_');
   });
 });
 

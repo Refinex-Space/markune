@@ -66,10 +66,50 @@ pnpm desktop:dev
 | `pnpm test:run` | 运行前端测试 |
 | `pnpm lint` | 运行 ESLint |
 | `pnpm build:desktop:web` | 构建 Tauri 使用的静态前端 |
+| `pnpm desktop:build` | 构建当前平台的 Tauri 安装包 |
 | `cargo test --manifest-path src-tauri/Cargo.toml` | 运行 Rust 测试 |
 | `pnpm harness:check` | 检查仓库知识与治理文档 |
 
 本地诊断安装包可使用 `pnpm desktop:build --no-sign`，但无签名产物不得作为正式 Release 或自动更新资产发布。完整打包、签名和回滚流程见 [发布与更新手册](docs/guides/release-and-update.md)。
+
+### Windows 打包与运行时下载超时
+
+Windows x64 在仓库根目录执行：
+
+```bash
+pnpm desktop:build
+```
+
+构建前会依次准备 Codex、Pandoc 3.10.1、Typst 0.15.1 和静态前端。首次准备 Pandoc/Typst 时需要从 GitHub Releases 下载压缩包；`document-export:stage` 对单次下载设置了 120 秒超时。网络较慢时可能出现以下错误：
+
+```text
+DOMException [TimeoutError]: The operation was aborted due to timeout
+beforeBuildCommand `pnpm codex:stage && pnpm document-export:stage && pnpm build:desktop:web` failed
+```
+
+这表示文档导出运行时下载超时，不是 Tauri 或 Rust 编译失败。可在 Git Bash 中先把固定版本压缩包下载到脚本缓存目录，再重新执行 staging 和打包：
+
+```bash
+mkdir -p .tauri-build/document-export-runtime
+
+curl.exe -L --retry 5 --connect-timeout 30 --max-time 1800 \
+  -o .tauri-build/document-export-runtime/pandoc-3.10.1-windows-x86_64.zip \
+  https://github.com/jgm/pandoc/releases/download/3.10.1/pandoc-3.10.1-windows-x86_64.zip
+
+curl.exe -L --retry 5 --connect-timeout 30 --max-time 1800 \
+  -o .tauri-build/document-export-runtime/typst-x86_64-pc-windows-msvc.zip \
+  https://github.com/typst/typst/releases/download/v0.15.1/typst-x86_64-pc-windows-msvc.zip
+
+pnpm document-export:stage
+pnpm desktop:build
+```
+
+staging 脚本会校验固定 SHA-256 和工具版本，错误或不完整的文件不会进入安装包。成功缓存后重复构建会直接复用。Windows 安装包输出到：
+
+```text
+src-tauri/target/release/bundle/nsis/
+src-tauri/target/release/bundle/msi/
+```
 
 ## 技术架构
 

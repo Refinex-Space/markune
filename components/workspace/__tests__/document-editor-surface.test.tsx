@@ -158,7 +158,7 @@ describe('DocumentEditorSurface', () => {
         ?.getAttribute('data-active'),
     ).toBe('true');
     expect(screen.getByTestId('editor-A').getAttribute('data-ai-enabled')).toBe(
-      'true',
+      'false',
     );
     expect(screen.getByTestId('editor-B').getAttribute('data-ai-enabled')).toBe(
       'false',

@@ -22,6 +22,10 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
 }));
 
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn(async () => vi.fn()),
+}));
+
 describe('CodexAppServerClient', () => {
   it('解析当前线程的上下文用量，并保留累计用量与当前窗口的区别', () => {
     expect(
@@ -195,12 +199,14 @@ describe('CodexAppServerClient', () => {
 
     await expect(
       setCodexCustomProvider({
+        expectedFingerprint: 'revision',
         baseUrl: 'https://api.openai.com/v1',
         model: 'gpt-5',
         apiKey: 'sk-test',
       }),
     ).resolves.toEqual(provider);
     expect(invoke).toHaveBeenCalledWith('codex_custom_provider_set', {
+      expectedFingerprint: 'revision',
       baseUrl: 'https://api.openai.com/v1',
       model: 'gpt-5',
       apiKey: 'sk-test',
@@ -210,13 +216,20 @@ describe('CodexAppServerClient', () => {
     await expect(getCodexCustomProvider()).resolves.toEqual(provider);
     expect(invoke).toHaveBeenCalledWith('codex_custom_provider_get');
 
-    await expect(setCodexAuthMode('chatgpt')).resolves.toEqual(provider);
+    await expect(setCodexAuthMode('chatgpt', 'revision')).resolves.toEqual(
+      provider,
+    );
     expect(invoke).toHaveBeenCalledWith('codex_auth_mode_set', {
+      expectedFingerprint: 'revision',
       mode: 'chatgpt',
     });
 
-    await expect(clearCodexCustomProvider()).resolves.toEqual(provider);
-    expect(invoke).toHaveBeenCalledWith('codex_custom_provider_clear');
+    await expect(clearCodexCustomProvider('revision')).resolves.toEqual(
+      provider,
+    );
+    expect(invoke).toHaveBeenCalledWith('codex_custom_provider_clear', {
+      expectedFingerprint: 'revision',
+    });
   });
 
   it('将响应分发给订阅者', () => {
@@ -231,6 +244,19 @@ describe('CodexAppServerClient', () => {
     client.handleMessage(message);
 
     expect(subscriber).toHaveBeenCalledWith(message);
+  });
+
+  it('把 App Server 错误异步拒绝给调用方，避免事件回调同步抛出', async () => {
+    const client = new CodexAppServerClient();
+    vi.mocked(invoke).mockResolvedValue(undefined);
+    const pending = client.request('thread/read', { threadId: 'thread-1' });
+
+    client.handleMessage({
+      id: 1000,
+      error: { message: 'paginated_threads is not supported yet' },
+    });
+
+    await expect(pending).rejects.toThrow('paginated_threads is not supported yet');
   });
 
   it('通过独立 Tauri 命令提交 opaque 用户问题答案', async () => {
@@ -307,4 +333,64 @@ describe('CodexAppServerClient', () => {
     await expect(binding).resolves.toBeNull();
     expect(unlisten).toHaveBeenCalledOnce();
   });
+});
+
+it('RPC timeout and cancellation release pending state without resubmitting', async () => {
+  vi.mocked(invoke).mockResolvedValue(undefined);
+  const client = new CodexAppServerClient();
+  await expect(
+    client.request('thread/read', {}, { timeoutMs: 5 }),
+  ).rejects.toMatchObject({ code: -32097, method: 'thread/read' });
+  expect(client.pendingCount).toBe(0);
+  const controller = new AbortController();
+  const pending = client.request(
+    'turn/start',
+    {},
+    { signal: controller.signal },
+  );
+  controller.abort();
+  await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+  expect(client.pendingCount).toBe(0);
+});
+
+it('rejects the previous generation and ignores its late responses and exits', async () => {
+  const client = new CodexAppServerClient();
+  client.setSession('old');
+  const first = client.request('thread/read');
+  const failed = expect(first).rejects.toMatchObject({ code: -32098 });
+  client.setSession('new');
+  await failed;
+  const subscriber = vi.fn();
+  client.subscribe(subscriber);
+  const next = client.request('account/read');
+  client.handleMessage({
+    markuneSessionId: 'old',
+    method: 'markune/runtime/exited',
+  });
+  client.handleMessage({
+    markuneSessionId: 'old',
+    id: 1001,
+    result: { old: true },
+  });
+  expect(subscriber).not.toHaveBeenCalled();
+  expect(client.pendingCount).toBe(1);
+  client.handleMessage({
+    markuneSessionId: 'new',
+    id: 1001,
+    result: { fresh: true },
+  });
+  await expect(next).resolves.toEqual({ fresh: true });
+});
+
+it('cancels while the shared listener is still connecting', async () => {
+  const client = new CodexAppServerClient(() => new Promise(() => {}));
+  const controller = new AbortController();
+  const result = client.request(
+    'account/read',
+    {},
+    { signal: controller.signal },
+  );
+  controller.abort();
+  await expect(result).rejects.toMatchObject({ name: 'AbortError' });
+  expect(client.pendingCount).toBe(0);
 });

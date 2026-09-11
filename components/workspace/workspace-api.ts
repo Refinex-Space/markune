@@ -1,4 +1,5 @@
 import type {
+  StoredDocumentAsset,
   AppUpdateCheckResult,
   AppUpdateDownloadEvent,
   CreatedMarkdownDocument,
@@ -67,6 +68,57 @@ import type {
   TreeNodeAppearance,
   SystemFontOptions,
 } from './workspace-types';
+import type { WorkspaceIndexPage } from './workspace-knowledge-types';
+
+export async function loadWorkspaceIndex(rootPath: string, options: { sinceRevision?: number; cursor?: number; snapshotRevision?: number; changedPaths?: string[]; force?: boolean } = {}) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<WorkspaceIndexPage>('load_workspace_index', { rootPath, ...options });
+}
+
+export async function findWorkspaceMentions(rootPath: string, targetPath: string, candidatePaths: string[]) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<Array<{ relativePath: string; line: number; context: string }>>('find_workspace_mentions', { rootPath, targetPath, candidatePaths });
+}
+
+export interface SavedWorkspaceView { id: string; name: string; query: string; columns: string[]; sortBy: string; descending: boolean; groupBy: string | null }
+export async function readWorkspaceViews(rootPath: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<{ views: SavedWorkspaceView[]; fingerprint: string }>('read_workspace_views', { rootPath });
+}
+export async function saveWorkspaceViews(rootPath: string, views: SavedWorkspaceView[], fingerprint: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<{ views: SavedWorkspaceView[]; fingerprint: string }>('save_workspace_views', { rootPath, views, fingerprint });
+}
+export async function setWorkspaceTaskChecked(rootPath: string, documentPath: string, offset: number, fingerprint: string, checked: boolean) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<void>('set_workspace_task_checked', { rootPath, documentPath, offset, fingerprint, checked });
+}
+export async function createWorkspaceDocumentFromContent(rootPath: string, parentPath: string, title: string, content: string, sourcePath?: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<CreatedMarkdownDocument>('create_workspace_document_from_content', { rootPath, parentPath, title, content, sourcePath });
+}
+
+export async function selectAttachmentDirectory() {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<string | null>('select_attachment_directory');
+}
+
+export async function storeDocumentAsset(rootPath: string, documentPath: string, input: {
+  kind: string; sourceType: string; value?: string; fileName?: string; mediaType?: string;
+}) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<StoredDocumentAsset>('store_document_asset', { rootPath, documentPath, input });
+}
+
+export async function resolveDocumentAssets(rootPath: string, documentPath: string, sources: string[]) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<Array<{ src: string; absolutePath: string | null }>>('resolve_document_assets', { rootPath, documentPath, sources });
+}
+
+export async function readDocumentAssetData(rootPath: string, documentPath: string, source: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<WorkspaceAssetData>('read_document_asset_data', { rootPath, documentPath, source });
+}
 import { getParentPath } from './workspace-paths';
 
 import type { UnlistenFn } from '@tauri-apps/api/event';
@@ -247,6 +299,33 @@ export async function loadWorkspaceTree(rootPath: string) {
   const { invoke } = await import('@tauri-apps/api/core');
 
   return invoke<WorkspaceSnapshot>('load_workspace_tree', { rootPath });
+}
+
+export interface WorkspaceFileChange {
+  rootPath: string;
+  paths: string[];
+  rescan: boolean;
+  watchError?: boolean;
+}
+
+let workspaceWatchQueue: Promise<unknown> = Promise.resolve();
+
+export async function watchWorkspace(
+  rootPath: string,
+  onChange: (change: WorkspaceFileChange) => void,
+): Promise<() => Promise<void>> {
+  const start = workspaceWatchQueue.catch(() => undefined).then(async () => {
+    const { Channel, invoke } = await import('@tauri-apps/api/core');
+    const channel = new Channel<WorkspaceFileChange>();
+    channel.onmessage = onChange;
+    const watchId = await invoke<string>('watch_workspace', { rootPath, onChange: channel });
+    return async () => {
+      channel.onmessage = () => undefined;
+      await invoke('unwatch_workspace', { watchId });
+    };
+  });
+  workspaceWatchQueue = start;
+  return start;
 }
 
 export async function inspectWorkspaceBrand(rootPath: string) {
@@ -907,6 +986,7 @@ export async function saveMarkdownDocument(
   documentPath: string,
   content: string,
   expectedModifiedAt: number | null,
+  expectedContent?: string,
 ) {
   const { invoke } = await import('@tauri-apps/api/core');
 
@@ -915,6 +995,7 @@ export async function saveMarkdownDocument(
     documentPath,
     content,
     expectedModifiedAt,
+    expectedContent,
   });
 }
 
@@ -950,10 +1031,11 @@ export async function renameWorkspaceNode(
   rootPath: string,
   nodePath: string,
   newName: string,
+  preserveTitle = false,
 ) {
   const { invoke } = await import('@tauri-apps/api/core');
 
-  return invoke<WorkspaceNode>('rename_workspace_node', {
+  return invoke<WorkspaceNode>(preserveTitle ? 'rename_workspace_document_path' : 'rename_workspace_node', {
     rootPath,
     nodePath,
     newName,

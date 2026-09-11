@@ -4,6 +4,13 @@ import {
   LOCAL_ASSET_RELATIVE_PREFIX,
   LOCAL_ASSET_URL_PREFIX,
 } from './workspace-local-assets';
+import { unified } from 'unified';
+import remarkParse from 'remark-parse';
+import remarkGfm from 'remark-gfm';
+import remarkFrontmatter from 'remark-frontmatter';
+
+interface ResourceAst { type: string; url?: string; identifier?: string; value?: string; children?: ResourceAst[]; position?: { start: { offset?: number }; end: { offset?: number } } }
+const resourceParser = unified().use(remarkParse).use(remarkGfm).use(remarkFrontmatter, ['yaml']);
 
 export interface DocumentResourceReference {
   id: string;
@@ -57,6 +64,45 @@ export function extractResourceReferencesFromMarkdown(
   if (!markdown) {
     return [];
   }
+
+  let tree = resourceParser.parse(markdown) as ResourceAst;
+  if (markdown.includes('%%')) {
+    const protectedRanges: Array<[number, number]> = [];
+    const protect = (node: ResourceAst) => {
+      if (['code', 'inlineCode', 'yaml', 'html', 'link', 'image'].includes(node.type)) {
+        const start = node.position?.start.offset; const end = node.position?.end.offset;
+        if (start !== undefined && end !== undefined) protectedRanges.push([start, end]);
+      } else node.children?.forEach(protect);
+    };
+    protect(tree);
+    let cursor = 0; const parts: string[] = [];
+    while (cursor < markdown.length) {
+      const start = markdown.indexOf('%%', cursor);
+      if (start < 0) break;
+      if (markdown[start - 1] === '\\' || protectedRanges.some(([from, to]) => start >= from && start < to)) { parts.push(markdown.slice(cursor, start + 2)); cursor = start + 2; continue; }
+      const close = markdown.indexOf('%%', start + 2); const end = close < 0 ? markdown.length : close + 2;
+      parts.push(markdown.slice(cursor, start), markdown.slice(start, end).replace(/[^\r\n]/g, ' ')); cursor = end;
+    }
+    parts.push(markdown.slice(cursor)); markdown = parts.join(''); tree = resourceParser.parse(markdown) as ResourceAst;
+  }
+  const nodes: ResourceAst[] = [];
+  const excluded: Array<[number, number]> = [];
+  let htmlCodeDepth = 0;
+  const visit = (node: ResourceAst) => {
+    const wasHtmlCode = htmlCodeDepth > 0;
+    const codeTags = node.type === 'html' ? [...(node.value ?? '').matchAll(/<\/?(?:pre|code|script|style)\b[^>]*>/gi)] : [];
+    for (const [tag] of codeTags) htmlCodeDepth = tag.startsWith('</') ? Math.max(0, htmlCodeDepth - 1) : tag.endsWith('/>') ? htmlCodeDepth : htmlCodeDepth + 1;
+    if (wasHtmlCode || codeTags.length > 0 || ['code', 'inlineCode', 'yaml'].includes(node.type) || node.type === 'html' && /^<!--/.test(node.value ?? '') && !/octarine-link-preview:/.test(node.value ?? '')) {
+      const start = node.position?.start.offset; const end = node.position?.end.offset;
+      if (start !== undefined && end !== undefined) excluded.push([start, end]);
+      return;
+    }
+    nodes.push(node); for (const child of node.children ?? []) visit(child);
+  };
+  visit(tree);
+  const parts: string[] = []; let cursor = 0;
+  for (const [start, end] of excluded.sort((a, b) => a[0] - b[0])) { parts.push(markdown.slice(cursor, start), ' '.repeat(end - start)); cursor = end; }
+  parts.push(markdown.slice(cursor)); markdown = parts.join('');
 
   const references = new Map<string, DocumentResourceReference>();
 
@@ -125,6 +171,17 @@ export function extractResourceReferencesFromMarkdown(
       source: 'remote',
       url,
     });
+  }
+
+  const definitions = new Map(nodes.filter((node) => node.type === 'definition').map((node) => [node.identifier, node.url]));
+  for (const node of nodes) {
+    if (!['image', 'link', 'imageReference', 'linkReference'].includes(node.type)) continue;
+    const url = node.url ?? definitions.get(node.identifier);
+    if (!url || getWorkspaceAssetIdFromReference(url) || /^\.markune\//.test(url) || /\.mdx?(?:[?#]|$)/i.test(url)) continue;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(url) && !/^(https?:|file:)/i.test(url)) continue;
+    const remote = /^https?:/i.test(url); const image = node.type.startsWith('image');
+    if (remote && !image && !/\.(pdf|png|jpe?g|gif|webp|svg|mp4|mp3|docx?|xlsx?|zip)(?:[?#]|$)/i.test(url)) continue;
+    if (!references.has(url)) references.set(url, { id: url, nodeType: image ? 'image' : 'file', source: remote ? 'remote' : 'local', url });
   }
 
   return Array.from(references.values());

@@ -3,7 +3,8 @@ import type {
   PageWidthMode,
   WorkspaceAssetData,
 } from './workspace-types';
-import { readWorkspaceAssetData } from './workspace-api';
+import { readWorkspaceAssetData, readDocumentAssetData } from './workspace-api';
+import { extractDocumentFileReferences } from './document-asset-references';
 import {
   extractWorkspaceAssetReferences,
   getWorkspaceAssetIdFromReference,
@@ -63,8 +64,9 @@ export async function prepareDocumentAssets(
     rootPath: string,
     assetId: string,
   ) => Promise<WorkspaceAssetData> = readWorkspaceAssetData,
+  documentPath?: string,
 ): Promise<PreparedDocumentAssets> {
-  const references = extractWorkspaceAssetReferences(markdown);
+  const references = [...extractWorkspaceAssetReferences(markdown), ...(documentPath ? extractDocumentFileReferences(markdown) : [])];
   const replacementsForMarkdown = new Map<string, string>();
   const replacementsForRender = new Map<string, string>();
   const allAssetFiles: DocumentExportFile[] = [];
@@ -75,12 +77,12 @@ export async function prepareDocumentAssets(
   for (const reference of references) {
     const assetId = getWorkspaceAssetIdFromReference(reference);
 
-    if (!assetId) {
+    if (!assetId && !documentPath) {
       continue;
     }
 
     try {
-      const asset = await readAsset(rootPath, assetId);
+      const asset = assetId ? await readAsset(rootPath, assetId) : await readDocumentAssetData(rootPath, documentPath!, reference);
       const assetName = makeUniqueAssetName(asset.name || asset.id, usedNames);
       const relativeUrl = `./${EXPORT_STEM_PLACEHOLDER}.assets/${encodePathSegment(assetName)}`;
       const file: DocumentExportFile = {
@@ -104,7 +106,7 @@ export async function prepareDocumentAssets(
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
 
-      warnings.push(`资源 ${assetId} 未能导出：${reason}`);
+      warnings.push(`资源 ${assetId ?? reference} 未能导出：${reason}`);
     }
   }
 

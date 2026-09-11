@@ -1,3 +1,10 @@
+---
+owner: refinex
+updated: 2026-09-06
+status: deprecated
+referenced_by: docs/README.md
+---
+
 # AI 面板数据契约与存储层设计（A 子项目）
 
 - 日期：2026-06-28

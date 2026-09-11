@@ -79,11 +79,13 @@ type GalleryKindFilter = 'all' | 'mindmap' | 'whiteboard';
 export function DrawingWorkspacePage({
   controller,
   editorHeaderHeight = 32,
+  headerToolsReservePx = 0,
   rootPath,
   theme,
 }: {
   controller: DrawingController;
   editorHeaderHeight?: number;
+  headerToolsReservePx?: number;
   rootPath: string;
   theme: 'dark' | 'light';
 }) {
@@ -96,6 +98,7 @@ export function DrawingWorkspacePage({
       <DrawingEditorSurface
         controller={controller}
         headerHeight={editorHeaderHeight}
+        headerToolsReservePx={headerToolsReservePx}
         theme={theme}
       />
     );
@@ -728,10 +731,12 @@ function DrawingMoveDialog({
 function DrawingEditorSurface({
   controller,
   headerHeight,
+  headerToolsReservePx,
   theme,
 }: {
   controller: DrawingController;
   headerHeight: number;
+  headerToolsReservePx: number;
   theme: 'dark' | 'light';
 }) {
   const descriptor = controller.descriptor!;
@@ -797,7 +802,7 @@ function DrawingEditorSurface({
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       <header
-        className="flex shrink-0 items-center gap-2 border-b px-2"
+        className="flex shrink-0 items-center gap-2 px-2"
         data-testid="drawing-editor-header"
         style={{ height: headerHeight }}
       >
@@ -837,7 +842,15 @@ function DrawingEditorSurface({
         <SaveStatus state={controller.saveState.status} />
         {descriptor.meta.kind === 'mindmap' ? (
           <TooltipProvider delayDuration={300}>
-            <div className="ml-auto flex items-center gap-0.5">
+            <div
+              className="ml-auto flex items-center gap-0.5"
+              data-testid="mindmap-editor-toolbar"
+              style={
+                headerToolsReservePx > 0
+                  ? { marginRight: headerToolsReservePx }
+                  : undefined
+              }
+            >
               <MindMapToolbarTooltip label="左向布局">
                 <Button
                   aria-label="脑图左向布局"

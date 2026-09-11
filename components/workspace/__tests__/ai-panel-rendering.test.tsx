@@ -1,5 +1,11 @@
 import * as React from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -96,6 +102,43 @@ function change(
 }
 
 describe('AI message rendering', () => {
+  it.each(['sending', 'running', 'idle'] as const)(
+    '空消息列表在 %s 状态下正确区分等待视图与欢迎页',
+    (phase) => {
+      const conversation = createEmptyConversation();
+      if (phase === 'running') {
+        conversation.activeTurnId = 'pending';
+      }
+      render(
+        <PanelContent
+          account={null}
+          authRequired={false}
+          conversation={conversation}
+          currentDocument={null}
+          runtimeError={null}
+          runtimeStatus="ready"
+          signingIn={false}
+          submitting={phase === 'sending'}
+          onApprove={vi.fn()}
+          onOpenDocument={vi.fn()}
+          onOpenPlanPreview={vi.fn()}
+          onPrompt={vi.fn()}
+          onSignIn={vi.fn()}
+        />,
+      );
+      if (phase === 'idle') {
+        expect(
+          screen.getByRole('heading', { name: '今天想在工作区里做什么？' }),
+        ).toBeTruthy();
+      } else {
+        expect(screen.queryByRole('heading')).toBeNull();
+        expect(screen.getByRole('status').textContent).toContain(
+          phase === 'sending' ? '正在发送' : '正在思考',
+        );
+      }
+    },
+  );
+
   it('无活动明细时只显示单行正在思考状态，不重复等待文案', () => {
     render(
       <ProcessingTrace
@@ -258,12 +301,16 @@ describe('AI message rendering', () => {
     expect(preview.className).toContain('p-1.5');
     expect(preview.className).toContain('w-[min(400px,calc(100vw-2rem))]');
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
-    expect(within(preview).getByRole('list', { name: '任务步骤' })).toBeTruthy();
+    expect(
+      within(preview).getByRole('list', { name: '任务步骤' }),
+    ).toBeTruthy();
     expect(within(preview).getByText('核对协议事件').className).toContain(
       'line-through',
     );
     expect(
-      within(preview).getByText('实现状态选择器').closest('[aria-current="step"]'),
+      within(preview)
+        .getByText('实现状态选择器')
+        .closest('[aria-current="step"]'),
     ).toBeTruthy();
     expect(
       within(preview).getByText('实现状态选择器').closest('li')?.className,
@@ -275,7 +322,9 @@ describe('AI message rendering', () => {
     });
 
     await user.click(trigger);
-    expect(await screen.findByRole('region', { name: '任务列表' })).toBeTruthy();
+    expect(
+      await screen.findByRole('region', { name: '任务列表' }),
+    ).toBeTruthy();
     fireEvent.pointerLeave(trigger);
     expect(screen.getByRole('region', { name: '任务列表' })).toBeTruthy();
 
@@ -329,16 +378,28 @@ describe('AI message rendering', () => {
             autoResolutionMs: 60_000,
             id: 'request-persistent',
             itemId: 'item-persistent',
-            questions: [{
-              header: '范围',
-              id: 'question-persistent',
-              isSecret: false,
-              options: [
-                { description: '选择 A', id: 'a', isOther: false, label: 'A' },
-                { description: '选择 B', id: 'b', isOther: false, label: 'B' },
-              ],
-              question: '请选择',
-            }],
+            questions: [
+              {
+                header: '范围',
+                id: 'question-persistent',
+                isSecret: false,
+                options: [
+                  {
+                    description: '选择 A',
+                    id: 'a',
+                    isOther: false,
+                    label: 'A',
+                  },
+                  {
+                    description: '选择 B',
+                    id: 'b',
+                    isOther: false,
+                    label: 'B',
+                  },
+                ],
+                question: '请选择',
+              },
+            ],
             turnId: 'turn-1',
           }}
           onSubmit={vi.fn().mockResolvedValue(undefined)}
@@ -414,9 +475,9 @@ describe('AI message rendering', () => {
     minimalOption.focus();
     await user.keyboard('{ArrowDown}');
     expect(
-      screen.getByRole('button', { name: /完整实现/ }).getAttribute(
-        'aria-pressed',
-      ),
+      screen
+        .getByRole('button', { name: /完整实现/ })
+        .getAttribute('aria-pressed'),
     ).toBe('true');
     await user.click(minimalOption);
     await user.click(screen.getByRole('button', { name: '下一步' }));
@@ -685,7 +746,7 @@ describe('AI message rendering', () => {
       screen.getByRole('link', { name: 'OpenAI' }).getAttribute('href'),
     ).toBe('https://openai.com');
     expect(screen.queryByRole('img')).toBeNull();
-    expect(screen.getByText('图片：远程图片')).toBeTruthy();
+    expect(screen.getByText('加载网络图片：远程图片')).toBeTruthy();
   });
 
   it('代码块悬浮显示复制按钮，点击后短暂变为已复制', async () => {
@@ -696,15 +757,11 @@ describe('AI message rendering', () => {
       value: { writeText },
     });
 
-    render(
-      <AiMessageContent
-        markdown={'```\n.attachments\n.git\nsrc\n```'}
-      />,
-    );
+    render(<AiMessageContent markdown={'```\n.attachments\n.git\nsrc\n```'} />);
 
     const copy = screen.getByRole('button', { name: '复制代码' });
-    expect(copy.className).toContain('opacity-0');
-    expect(copy.className).toContain('group-hover/code:opacity-100');
+    expect(copy.className).toContain('focus-visible:ring-2');
+    expect(copy.className).not.toContain('opacity-0');
 
     await user.click(copy);
     expect(writeText).toHaveBeenCalledWith('.attachments\n.git\nsrc');
@@ -767,12 +824,12 @@ describe('AI message rendering', () => {
     for (const label of ['新任务', '历史记录']) {
       const { unmount } = render(
         <AiPanelHeader
-          activeThread={null}
-          presentation="panel"
-          view="chat"
-          onHistory={vi.fn()}
-          onNewChat={vi.fn()}
-        />,
+        activeThread={null}
+        presentation="panel"
+        view="chat"
+        onHistory={vi.fn()}
+        onNewChat={vi.fn()}
+      />,
       );
       const button = screen.getByRole('button', { name: label });
       await user.hover(button);
@@ -817,8 +874,9 @@ describe('AI message rendering', () => {
     const user = userEvent.setup();
     render(<ComposerHarness onOpenMention={vi.fn()} />);
 
-    const surface = screen.getByRole('textbox', { name: '向 Codex 提问' })
-      .parentElement;
+    const surface = screen.getByRole('textbox', {
+      name: '向 Codex 提问',
+    }).parentElement;
     vi.spyOn(surface!, 'getBoundingClientRect').mockReturnValue({
       bottom: 300,
       height: 180,
@@ -863,8 +921,18 @@ describe('AI message rendering', () => {
     expect(screen.queryByText('联网搜索已启用')).toBeNull();
     expect(screen.queryByText(/MCP Server/)).toBeNull();
     expect(screen.queryByText('提及工作区文档')).toBeNull();
-    expect(screen.getByText('目标').closest('[role="menuitem"]')?.getAttribute('aria-disabled')).toBeNull();
-    expect(screen.getByText('计划模式').closest('[role="menuitem"]')?.getAttribute('aria-disabled')).toBe('true');
+    expect(
+      screen
+        .getByText('目标')
+        .closest('[role="menuitem"]')
+        ?.getAttribute('aria-disabled'),
+    ).toBeNull();
+    expect(
+      screen
+        .getByText('计划模式')
+        .closest('[role="menuitem"]')
+        ?.getAttribute('aria-disabled'),
+    ).toBe('true');
   });
 
   it('目标模式可从加号与斜杠命令进入，并切换目标输入提示', async () => {
@@ -1032,10 +1100,14 @@ describe('AI message rendering', () => {
     await user.click(editor);
     await user.click(screen.getByRole('button', { name: '添加上下文与工具' }));
     expect(screen.queryByText('重新检测安装的插件')).toBeNull();
-    const pluginItem = screen.getByText('OpenAI Docs').closest('[role="menuitem"]');
+    const pluginItem = screen
+      .getByText('OpenAI Docs')
+      .closest('[role="menuitem"]');
     const pluginImages = pluginItem?.querySelectorAll('img');
     expect(pluginImages).toHaveLength(2);
-    expect(pluginImages?.[0]?.getAttribute('referrerpolicy')).toBe('no-referrer');
+    expect(pluginImages?.[0]?.getAttribute('referrerpolicy')).toBe(
+      'no-referrer',
+    );
     expect(pluginImages?.[0]?.className).toContain('dark:hidden');
     expect(pluginImages?.[1]?.className).toContain('dark:block');
     fireEvent.error(pluginImages?.[0] as HTMLImageElement);
@@ -1273,8 +1345,8 @@ describe('AI message rendering', () => {
     await user.click(editor);
     await user.type(editor, '/');
     const compact = within(
-      screen.getByRole('listbox', { name: '选择命令或 Skill' }),
-    ).getByRole('option', { name: /压缩/ });
+        screen.getByRole('listbox', { name: '选择命令或 Skill' }),
+      ).getByRole('option', { name: /压缩/ });
     expect(compact.getAttribute('aria-disabled')).toBe('true');
     expect(within(compact).getByText('当前任务运行中')).toBeTruthy();
     await user.click(compact);
@@ -1449,7 +1521,9 @@ describe('AI message rendering', () => {
     expect(menu?.className).toContain('shadow-none');
     expect(editor.getAttribute('aria-controls')).toBe(listbox.id);
     expect(
-      screen.getByRole('option', { name: /README/ }).getAttribute('aria-selected'),
+      screen
+        .getByRole('option', { name: /README/ })
+        .getAttribute('aria-selected'),
     ).toBe('true');
   });
 
@@ -1523,15 +1597,15 @@ describe('AI message rendering', () => {
   it('上键从第一项循环到末项，Escape 只关闭候选不删除输入', async () => {
     const user = userEvent.setup();
     render(
-      <ComposerHarness
-        mentionDocuments={[
-          mentionedDocument,
-          releaseNotesDocument,
-          roadmapDocument,
-        ]}
-        onOpenMention={vi.fn()}
-      />,
-    );
+        <ComposerHarness
+          mentionDocuments={[
+            mentionedDocument,
+            releaseNotesDocument,
+            roadmapDocument,
+          ]}
+          onOpenMention={vi.fn()}
+        />,
+      );
 
     const editor = screen.getByRole('textbox', { name: '向 Codex 提问' });
     await user.click(editor);
@@ -1726,53 +1800,6 @@ describe('AI message rendering', () => {
     expect(editor.className).toContain('overflow-y-auto');
   });
 
-  it('通过独立按钮发起选区预编辑并展示禁用原因', async () => {
-    const user = userEvent.setup();
-    const onInlineAi = vi.fn();
-    const props = {
-      active: false,
-      approvalPolicyAvailability: { never: true, onRequest: true },
-      autoReviewAvailable: false,
-      currentDocument: null,
-      effort: 'medium' as const,
-      mentionDocuments: [],
-      mentionQuery: null,
-      models: [],
-      permissionMode: 'ask' as const,
-      permissionProfiles: [],
-      permissionSwitchDisabled: false,
-      runtimeStatus: 'ready' as const,
-      selectedModel: '',
-      selectedModelInfo: null,
-      submitting: false,
-      value: '改写得更清晰',
-      onEffortChange: vi.fn(),
-      onInlineAi,
-      onInterrupt: vi.fn(),
-      onMentionQueryChange: vi.fn(),
-      onMentionsChange: vi.fn(),
-      onModelChange: vi.fn(),
-      onOpenMention: vi.fn(),
-      onPermissionModeChange: vi.fn(),
-      onSend: vi.fn(),
-      onValueChange: vi.fn(),
-    };
-    const { rerender } = render(<AiComposer {...props} />);
-
-    await user.click(screen.getByRole('button', { name: '预编辑选区' }));
-    expect(onInlineAi).toHaveBeenCalledOnce();
-
-    rerender(
-      <AiComposer
-        {...props}
-        inlineAiUnavailableReason="表格请使用编辑器内置 Ask AI"
-      />,
-    );
-    const button = screen.getByRole('button', { name: '预编辑选区' });
-    expect((button as HTMLButtonElement).disabled).toBe(true);
-    expect(button.getAttribute('title')).toBe('表格请使用编辑器内置 Ask AI');
-  });
-
   it('连接准备期间允许输入并保留显式发送意图', async () => {
     const user = userEvent.setup();
     const onSend = vi.fn();
@@ -1942,7 +1969,8 @@ describe('AI message rendering', () => {
     });
     expect(group.getAttribute('aria-expanded')).toBe('false');
     expect(
-      commentary.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING,
+      commentary.compareDocumentPosition(group) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
 
     await user.click(group);
@@ -2355,7 +2383,12 @@ function createTrace({
       {
         type: 'group',
         id: 'group-command-1',
-        status: status === 'waitingApproval' ? 'waitingApproval' : status === 'inProgress' ? 'inProgress' : 'completed',
+        status:
+          status === 'waitingApproval'
+            ? 'waitingApproval'
+            : status === 'inProgress'
+              ? 'inProgress'
+              : 'completed',
         summary: '读取了文件',
         durationMs: 1_000,
         activities: [
@@ -2516,3 +2549,56 @@ function ComposerHarness({
     </>
   );
 }
+
+it('研究资料追加到现有 AI 草稿，保留提及节点且不自动发送', async () => {
+  const onSend = vi.fn();
+  const onValueChange = vi.fn();
+  const onApplied = vi.fn();
+  const props = {
+    active: false,
+    approvalPolicyAvailability: { never: true, onRequest: true },
+    autoReviewAvailable: false,
+    currentDocument: null,
+    effort: 'medium' as const,
+    mentionDocuments: [],
+    mentionQuery: null,
+    models: [],
+    permissionMode: 'ask' as const,
+    permissionProfiles: [],
+    permissionSwitchDisabled: false,
+    runtimeStatus: 'ready' as const,
+    selectedModel: '',
+    selectedModelInfo: null,
+    submitting: false,
+    value: '已有问题',
+    onEffortChange: vi.fn(),
+    onInterrupt: vi.fn(),
+    onMentionQueryChange: vi.fn(),
+    onMentionsChange: vi.fn(),
+    onModelChange: vi.fn(),
+    onOpenMention: vi.fn(),
+    onPermissionModeChange: vi.fn(),
+    onSend,
+    onValueChange,
+  };
+  const { container, rerender } = render(<AiComposer {...props} />);
+  const editor = container.querySelector('[contenteditable="true"]')!;
+  const mention = document.createElement('span');
+  mention.dataset.mentionPath = 'notes/a.md';
+  mention.textContent = '来源笔记';
+  mention.contentEditable = 'false';
+  editor.append(mention);
+  const request = {
+    id: 'research-1',
+    text: '根据来源研究 <script>unsafe</script>',
+  };
+  rerender(<AiComposer {...props} textInsertRequest={request} onTextInsertApplied={onApplied} />);
+  await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1));
+  expect(editor.textContent).toContain('已有问题');
+  expect(editor.contains(mention)).toBe(true);
+  expect(editor.textContent).toContain(request.text);
+  expect(editor.querySelector('script')).toBeNull();
+  expect(onSend).not.toHaveBeenCalled();
+  rerender(<AiComposer {...props} textInsertRequest={{ ...request }} onTextInsertApplied={onApplied} />);
+  expect(onApplied).toHaveBeenCalledTimes(1);
+});

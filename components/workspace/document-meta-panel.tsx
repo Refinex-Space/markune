@@ -43,10 +43,18 @@ import type {
   WorkspaceNode,
 } from './workspace-types';
 import type { DocumentPanelData } from './right-side-panel';
+import { WorkspaceResourcePanel } from './workspace-resource-panel';
+import { DocumentSourcePanel } from './document-source-panel';
+import { parseFrontmatter } from '@/components/editor/markdown-frontmatter';
+import { DocumentRelationsPanel } from './document-relations-panel';
+import type { WorkspaceKnowledge } from './use-workspace-knowledge';
+import type { KnowledgeLocation } from './workspace-knowledge-types';
 
-type MetaTab = 'meta' | 'resources';
+type MetaTab = 'meta' | 'resources' | 'relations' | 'source';
 
 interface DocumentMetaPanelProps {
+  knowledge?: WorkspaceKnowledge;
+  onOpenLocation?: (location: KnowledgeLocation) => void;
   currentDocument: WorkspaceNode | null;
   documentPanelData: DocumentPanelData | null;
   readOnly: boolean;
@@ -55,6 +63,8 @@ interface DocumentMetaPanelProps {
 }
 
 export function DocumentMetaPanel({
+  knowledge,
+  onOpenLocation,
   currentDocument,
   documentPanelData,
   readOnly,
@@ -63,6 +73,8 @@ export function DocumentMetaPanel({
 }: DocumentMetaPanelProps) {
   const [activeTab, setActiveTab] = React.useState<MetaTab>('meta');
   const deferredMarkdown = React.useDeferredValue(documentPanelData?.markdown);
+  const sourceInfo = React.useMemo(() => activeTab === 'source' ? parseFrontmatter(deferredMarkdown ?? '').properties.source : undefined, [activeTab, deferredMarkdown]);
+  const hasSource = Object.hasOwn(documentPanelData?.frontmatter ?? {}, 'source');
   const resources = React.useMemo(
     () => extractResourceReferencesFromMarkdown(deferredMarkdown),
     [deferredMarkdown],
@@ -91,7 +103,7 @@ export function DocumentMetaPanel({
       <div className="flex h-9 shrink-0 items-center px-3 py-1">
         <div
           className="grid h-7 flex-1 rounded-full bg-muted p-0.5 text-xs"
-          style={{ gridTemplateColumns: '1fr 1fr' }}
+          style={{ gridTemplateColumns: `repeat(${(knowledge ? 3 : 2) + (hasSource ? 1 : 0)}, 1fr)` }}
         >
           <MetaTabButton
             active={activeTab === 'meta'}
@@ -103,12 +115,37 @@ export function DocumentMetaPanel({
             label={`资源 ${resources.length}`}
             onClick={() => setActiveTab('resources')}
           />
+          {knowledge ? <MetaTabButton active={activeTab === 'relations'} label="关联" onClick={() => setActiveTab('relations')} /> : null}
+          {hasSource ? <MetaTabButton active={activeTab === 'source'} label="来源" onClick={() => setActiveTab('source')} /> : null}
         </div>
       </div>
 
-      <div className="git-panel-scroll min-h-0 flex-1 overflow-auto p-3">
+      <div className={cn(
+        'git-panel-scroll min-h-0 flex-1',
+        activeTab === 'resources' && knowledge && workspaceRootPath && onOpenLocation
+          ? 'flex flex-col overflow-hidden'
+          : 'overflow-auto p-3',
+      )}>
         {!currentDocument ? (
           <DocumentMetaEmptyState text="选择文档后查看元信息和资源。" />
+        ) : activeTab === 'source' ? (
+          <DocumentSourcePanel source={sourceInfo} documentPath={currentDocument.absolutePath} />
+        ) : activeTab === 'resources' && knowledge && workspaceRootPath && onOpenLocation ? (
+          <WorkspaceResourcePanel
+            key={currentDocument.absolutePath}
+            rootPath={workspaceRootPath}
+            documents={[{
+              relativePath: currentDocument.relativePath,
+              title: currentDocument.title ?? currentDocument.name,
+              resources: resources.map((resource) => resource.url),
+              links: knowledge.documents.find((document) => document.relativePath === currentDocument.relativePath)?.links ?? [],
+            }]}
+            imageSources={resources.filter((resource) => resource.nodeType === 'image').map((resource) => resource.url)}
+            onOpen={onOpenLocation}
+            onReadPdf={(request) => window.dispatchEvent(new CustomEvent('markune:read-pdf', { detail: request }))}
+          />
+        ) : activeTab === 'relations' && knowledge && workspaceRootPath && onOpenLocation ? (
+          <DocumentRelationsPanel key={currentDocument.relativePath} path={currentDocument.relativePath} rootPath={workspaceRootPath} knowledge={knowledge} onOpen={onOpenLocation} />
         ) : activeTab === 'meta' ? (
           <DocumentMetaDetails
             characterCount={characterCount}
