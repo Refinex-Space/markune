@@ -120,13 +120,30 @@ export function DocumentMetaPanel({
         </div>
       </div>
 
-      <div className="git-panel-scroll min-h-0 flex-1 overflow-auto p-3">
+      <div className={cn(
+        'git-panel-scroll min-h-0 flex-1',
+        activeTab === 'resources' && knowledge && workspaceRootPath && onOpenLocation
+          ? 'flex flex-col overflow-hidden'
+          : 'overflow-auto p-3',
+      )}>
         {!currentDocument ? (
           <DocumentMetaEmptyState text="选择文档后查看元信息和资源。" />
         ) : activeTab === 'source' ? (
           <DocumentSourcePanel source={sourceInfo} documentPath={currentDocument.absolutePath} />
         ) : activeTab === 'resources' && knowledge && workspaceRootPath && onOpenLocation ? (
-          <WorkspaceResourcePanel rootPath={workspaceRootPath} documents={[{ relativePath: currentDocument.relativePath, title: currentDocument.title ?? currentDocument.name, resources: resources.map((resource) => resource.url), links: knowledge.documents.find((document) => document.relativePath === currentDocument.relativePath)?.links ?? [] }]} onOpen={onOpenLocation} onReadPdf={(request) => window.dispatchEvent(new CustomEvent('markune:read-pdf', { detail: request }))} />
+          <WorkspaceResourcePanel
+            key={currentDocument.absolutePath}
+            rootPath={workspaceRootPath}
+            documents={[{
+              relativePath: currentDocument.relativePath,
+              title: currentDocument.title ?? currentDocument.name,
+              resources: resources.map((resource) => resource.url),
+              links: knowledge.documents.find((document) => document.relativePath === currentDocument.relativePath)?.links ?? [],
+            }]}
+            imageSources={resources.filter((resource) => resource.nodeType === 'image').map((resource) => resource.url)}
+            onOpen={onOpenLocation}
+            onReadPdf={(request) => window.dispatchEvent(new CustomEvent('markune:read-pdf', { detail: request }))}
+          />
         ) : activeTab === 'relations' && knowledge && workspaceRootPath && onOpenLocation ? (
           <DocumentRelationsPanel key={currentDocument.relativePath} path={currentDocument.relativePath} rootPath={workspaceRootPath} knowledge={knowledge} onOpen={onOpenLocation} />
         ) : activeTab === 'meta' ? (
