@@ -202,8 +202,15 @@ describe('Workspace titlebar', () => {
     const editorColumnClass = workspaceLayoutSource.match(
       /className="([^"]+)"\s+data-testid="workspace-editor-column"/,
     )?.[1];
+    expect(editorColumnClass).toContain('relative z-0');
     expect(editorColumnClass).not.toContain('shadow-[');
     expect(editorColumnClass).not.toContain('rounded-xl');
+    expect(workspaceLayoutSource).toContain('aria-label="调整左侧目录宽度"');
+    expect(
+      workspaceLayoutSource.indexOf('aria-label="调整左侧目录宽度"'),
+    ).toBeLessThan(
+      workspaceLayoutSource.indexOf('data-testid="workspace-editor-column"'),
+    );
     expect(workspaceLayoutSource).toContain(
       'panelMargin={WORKSPACE_PANEL_MARGIN}',
     );
