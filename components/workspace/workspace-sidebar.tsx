@@ -21,7 +21,7 @@ import type {
   WorkspaceNode,
 } from './workspace-types';
 
-const DEFAULT_PANEL_MARGIN = 8;
+const DEFAULT_PANEL_MARGIN = 0;
 const DEFAULT_TITLEBAR_SPACER = 40;
 
 interface WorkspaceSidebarProps {
@@ -183,17 +183,12 @@ export function WorkspaceSidebar({
       <div
         aria-hidden={workspace.isSidebarCollapsed}
         className={cn(
-          'flex flex-col overflow-hidden rounded-xl border border-border/70 bg-background transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
+          'flex h-full w-full flex-col overflow-hidden bg-background transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
           workspace.isSidebarCollapsed
             ? 'pointer-events-none -translate-x-2 opacity-0'
-            : 'translate-x-0 opacity-100',
+            : 'translate-x-0 border-r border-border/70 opacity-100',
         )}
         data-testid="workspace-sidebar-content"
-        style={{
-          height: `calc(100% - ${panelMargin * 2}px)`,
-          margin: `${panelMargin}px 0 ${panelMargin}px ${panelMargin}px`,
-          width: Math.max(0, width - panelMargin),
-        }}
       >
         <header
           className={cn('shrink-0', windowsChromeInset && 'h-2')}

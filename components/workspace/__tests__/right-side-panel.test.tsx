@@ -133,7 +133,8 @@ describe('right AI panel integration', () => {
     expect(aiSidePanel.getAttribute('data-chrome')).toBe(
       'workspace-side-panel',
     );
-    expect(aiSidePanel.className).toContain('rounded-xl');
+    expect(aiSidePanel.className).not.toContain('rounded-xl');
+    expect(aiSidePanel.className).toContain('border-l');
     expect(aiSidePanel.className).toContain('border-border/70');
     expect(aiSidePanel.className).toContain('h-full');
     expect(aiSidePanel.className).not.toContain('shadow-[');
@@ -181,7 +182,8 @@ describe('right AI panel integration', () => {
     expect(metaPanel).toBeTruthy();
     expect(metaPanel.getAttribute('data-chrome')).toBe('workspace-side-panel');
     expect(metaPanel.className).not.toContain('shadow-[');
-    expect(metaPanel.className).toContain('rounded-xl');
+    expect(metaPanel.className).not.toContain('rounded-xl');
+    expect(metaPanel.className).toContain('border-l');
     expect(metaPanel.className).toContain('border-border/70');
   });
 
@@ -230,7 +232,7 @@ describe('right AI panel integration', () => {
     expect(screen.getByTestId('ai-side-panel').className).toContain(
       'top-[var(--workspace-main-header-height)]',
     );
-    expect(screen.getByTestId('ai-side-panel').className).toContain('bottom-px');
+    expect(screen.getByTestId('ai-side-panel').className).toContain('bottom-0');
     expect(screen.getByTestId('ai-side-panel').className).not.toContain(
       'h-full',
     );

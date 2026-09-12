@@ -54,7 +54,7 @@ describe('Workspace titlebar', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
 
     expect(workspaceLayoutSource).toContain("systemPage === 'drawings' && drawings.selection.kind === 'drawing'");
-    expect(workspaceLayoutSource).toContain('const WORKSPACE_PANEL_MARGIN = 8');
+    expect(workspaceLayoutSource).toContain('const WORKSPACE_PANEL_MARGIN = 0');
     expect(workspaceLayoutSource).toContain('const WORKSPACE_SIDEBAR_HEADER_HEIGHT = 44');
     expect(workspaceLayoutSource).toContain('? macChromeContentTop');
     expect(workspaceLayoutSource).toContain('editorHeaderHeight={drawingEditorHeaderHeight}');
@@ -185,7 +185,7 @@ describe('Workspace titlebar', () => {
     );
   });
 
-  it('renders the compact AI and metadata panels beside the rounded main panel', () => {
+  it('renders the compact AI and metadata panels inside the connected workspace shell', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
     const workspaceSidebarSource = readFileSync(workspaceSidebarPath, 'utf8');
 
@@ -193,41 +193,47 @@ describe('Workspace titlebar', () => {
       'data-testid="workspace-panel-group"',
     );
     expect(workspaceLayoutSource).toContain(
-      'relative m-2 flex min-h-0 min-w-0 max-w-full flex-1 gap-2 overflow-hidden bg-sidebar',
+      'relative flex min-h-0 min-w-0 max-w-full flex-1 overflow-hidden bg-background',
     );
-    expect(workspaceLayoutSource).toContain(
-      'className="-mx-2 bg-sidebar"',
+    expect(workspaceLayoutSource).toContain('className="-ml-2"');
+    expect(workspaceLayoutSource).not.toContain(
+      'relative m-2 flex min-h-0 min-w-0 max-w-full flex-1 gap-2 overflow-hidden bg-sidebar',
     );
     const editorColumnClass = workspaceLayoutSource.match(
       /className="([^"]+)"\s+data-testid="workspace-editor-column"/,
     )?.[1];
     expect(editorColumnClass).not.toContain('shadow-[');
+    expect(editorColumnClass).not.toContain('rounded-xl');
     expect(workspaceLayoutSource).toContain(
       'panelMargin={WORKSPACE_PANEL_MARGIN}',
     );
     expect(workspaceSidebarSource).toContain(
+      'border-r border-border/70 opacity-100',
+    );
+    expect(workspaceSidebarSource).not.toContain(
       'rounded-xl border border-border/70 bg-background',
     );
     expect(workspaceLayoutSource.indexOf('data-testid="workspace-editor-column"'))
       .toBeLessThan(workspaceLayoutSource.indexOf('<RightSidePanel'));
   });
 
-  it('keeps the Git panel below macOS window controls without changing other runtimes', () => {
+  it('keeps the Git panel inside the connected shell and below window controls', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
 
     expect(workspaceLayoutSource).toContain(
-      "'min-h-0 shrink-0'",
+      'data-testid="workspace-git-panel-titlebar-spacer"',
     );
     expect(workspaceLayoutSource).toContain(
-      "'[&>aside]:rounded-none [&>aside]:border-0 [&>aside]:bg-transparent'",
+      'connectedShellTitlebarSpacerHeight',
     );
-    expect(workspaceLayoutSource).toContain('marginTop:');
-    expect(workspaceLayoutSource).toContain('? macChromeContentTop');
     expect(workspaceLayoutSource).toContain(
-      ": 'my-2 ml-2'",
+      '[&>aside]:h-full [&>aside]:rounded-none [&>aside]:border-0 [&>aside]:bg-transparent',
     );
     expect(workspaceLayoutSource).toContain(
       'data-testid="workspace-git-panel-column"',
+    );
+    expect(workspaceLayoutSource).not.toContain(
+      ": 'my-2 ml-2'",
     );
     expect(workspaceLayoutSource).not.toContain(
       "'mb-2 ml-2 min-h-0 shrink-0'",

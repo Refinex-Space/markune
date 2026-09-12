@@ -106,11 +106,11 @@ describe('WorkspaceSidebar update entry', () => {
     );
 
     const spacer = screen.getByTestId('workspace-sidebar-titlebar-spacer');
-    expect(spacer.style.height).toBe('38px');
+    expect(spacer.style.height).toBe('46px');
     expect(spacer.className).not.toContain('h-10');
   });
 
-  it('renders the sidebar content as an inset rounded panel', () => {
+  it('renders the sidebar content as a connected pane inside the workspace shell', () => {
     render(
       <WorkspaceSidebar
         width={280}
@@ -124,12 +124,14 @@ describe('WorkspaceSidebar update entry', () => {
 
     expect(sidebar.style.width).toBe('280px');
     expect(sidebar.className).toContain('bg-transparent');
-    expect(content.className).toContain('rounded-xl');
+    expect(content.className).not.toContain('rounded-xl');
+    expect(content.className).toContain('border-r');
     expect(content.className).toContain('border-border/70');
-    expect(content.className).toContain('bg-background');
-    expect(content.style.height).toBe('calc(100% - 16px)');
-    expect(content.style.margin).toBe('8px 0px 8px 8px');
-    expect(content.style.width).toBe('272px');
+    expect(content.className).toContain('h-full');
+    expect(content.className).toContain('w-full');
+    expect(content.style.height).toBe('');
+    expect(content.style.margin).toBe('');
+    expect(content.style.width).toBe('');
   });
 
   it('collapses the rounded sidebar panel without retaining layout width', () => {
