@@ -2188,25 +2188,25 @@ function GitSyncSection({
             control={
               <PillSwitch
                 checked={showGitPanelEntry}
-                label="显示 Git 面板入口"
+                label="显示 Git 面板入口（Beta）"
                 testId="git-panel-entry-switch"
                 onChange={onShowGitPanelEntryChange}
               />
             }
             description="在工作区右上角显示 Git 面板入口。"
-            label="显示 Git 面板入口"
+            label="显示 Git 面板入口（Beta）"
           />
           <SettingRow
             control={
               <PillSwitch
                 checked={showGitLogEntry}
-                label="显示 Git 日志入口"
+                label="显示 Git 日志入口（Beta）"
                 testId="git-log-entry-switch"
                 onChange={onShowGitLogEntryChange}
               />
             }
             description="在工作区右上角显示 Git 日志入口。"
-            label="显示 Git 日志入口"
+            label="显示 Git 日志入口（Beta）"
           />
         </div>
         <p className="mt-2 text-xs leading-5 text-muted-foreground">

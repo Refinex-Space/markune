@@ -673,10 +673,10 @@ describe('WorkspaceSettingsPage', () => {
     );
 
     const gitPanelSwitch = screen.getByRole('switch', {
-      name: '显示 Git 面板入口',
+      name: '显示 Git 面板入口（Beta）',
     });
     const gitLogSwitch = screen.getByRole('switch', {
-      name: '显示 Git 日志入口',
+      name: '显示 Git 日志入口（Beta）',
     });
     expect(gitPanelSwitch.getAttribute('aria-checked')).toBe('false');
     expect(gitLogSwitch.getAttribute('aria-checked')).toBe('false');
