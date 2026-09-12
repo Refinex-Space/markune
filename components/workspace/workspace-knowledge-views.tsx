@@ -13,6 +13,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { parseFrontmatter } from '@/components/editor/markdown-frontmatter';
 import {
   joinFrontmatterSource,
@@ -47,6 +54,8 @@ export interface KnowledgeViewsProps {
 }
 
 const DEFAULT_COLUMNS = ['title', 'path', 'modifiedAt', 'prop:tags'];
+const UNSAVED_VIEW_VALUE = '__unsaved__';
+const UNGROUPED_VALUE = '__none__';
 const SYSTEM_PROPERTIES = new Set([
   'title',
   'createdAt',
@@ -89,6 +98,23 @@ function display(value: unknown): string {
       : typeof value === 'object'
         ? JSON.stringify(value)
         : String(value);
+}
+function columnWidth(field: string): string | undefined {
+  switch (field) {
+    case 'modifiedAt':
+    case 'prop:createdAt':
+    case 'prop:updatedAt':
+      return '12rem';
+    case 'title':
+      return '30%';
+    case 'path':
+      return '34%';
+    case 'links':
+    case 'tasks':
+      return '4.5rem';
+    default:
+      return undefined;
+  }
 }
 
 export function WorkspaceKnowledgeViews({
@@ -476,25 +502,29 @@ export function WorkspaceKnowledgeViews({
                 setLimit(100);
               }}
             />
-            <select
-              aria-label="已保存视图"
-              className="h-8 max-w-40 rounded-md border border-border/60 bg-background px-2"
-              value={selected}
-              onChange={(event) => {
-                const view = saved.views.find(
-                  (view) => view.id === event.target.value,
-                );
+            <Select
+              value={selected || UNSAVED_VIEW_VALUE}
+              onValueChange={(value) => {
+                const view = saved.views.find((view) => view.id === value);
                 if (view) apply(view);
                 else setSelected('');
               }}
             >
-              <option value="">临时视图</option>
-              {saved.views.map((view) => (
-                <option key={view.id} value={view.id}>
-                  {view.name}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger
+                aria-label="已保存视图"
+                className="h-8 max-w-40 bg-background"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="start" position="popper">
+                <SelectItem value={UNSAVED_VIEW_VALUE}>临时视图</SelectItem>
+                {saved.views.map((view) => (
+                  <SelectItem key={view.id} value={view.id}>
+                    {view.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <button
               aria-label="保存当前视图"
               type="button"
@@ -556,112 +586,142 @@ export function WorkspaceKnowledgeViews({
                     ))}
                   </PopoverContent>
                 </Popover>
-                <select
-                  aria-label="视图分组"
-                  className="h-8 rounded-md border border-border/60 bg-background px-2"
-                  value={groupBy ?? ''}
-                  onChange={(event) => setGroupBy(event.target.value || null)}
+                <Select
+                  value={groupBy ?? UNGROUPED_VALUE}
+                  onValueChange={(value) =>
+                    setGroupBy(value === UNGROUPED_VALUE ? null : value)
+                  }
                 >
-                  <option value="">不分组</option>
-                  {availableColumns.map((field) => (
-                    <option key={field} value={field}>
-                      按{label(field)}分组
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger
+                    aria-label="视图分组"
+                    className="h-8 bg-background"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent align="end" position="popper">
+                    <SelectItem value={UNGROUPED_VALUE}>不分组</SelectItem>
+                    {availableColumns.map((field) => (
+                      <SelectItem key={field} value={field}>
+                        按{label(field)}分组
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </>
             ) : (
-              <select
-                aria-label="任务状态"
-                className="h-8 rounded-md border border-border/60 bg-background px-2"
+              <Select
                 value={taskState}
-                onChange={(event) => setTaskState(event.target.value)}
+                onValueChange={(value) => {
+                  if (value === 'open' || value === 'done' || value === 'all') {
+                    setTaskState(value);
+                  }
+                }}
               >
-                <option value="open">未完成</option>
-                <option value="done">已完成</option>
-                <option value="all">全部任务</option>
-              </select>
+                <SelectTrigger
+                  aria-label="任务状态"
+                  className="h-8 bg-background"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end" position="popper">
+                  <SelectItem value="open">未完成</SelectItem>
+                  <SelectItem value="done">已完成</SelectItem>
+                  <SelectItem value="all">全部任务</SelectItem>
+                </SelectContent>
+              </Select>
             )}
           </div>
           {parsedQuery.error ? (
             <p className="p-3 text-destructive">{parsedQuery.error}</p>
           ) : null}
           <div className="min-h-0 flex-1 overflow-auto">
-            {mode === 'documents'
-              ? groups.map(([group, rows]) => (
-                  <section key={group}>
-                    {groupBy ? (
-                      <h2 className="sticky top-0 bg-muted px-3 py-2 text-xs font-normal">
-                        {group}
-                      </h2>
-                    ) : null}
-                    <table className="w-full text-left">
-                      <thead className="sticky top-0 bg-background">
+            {mode === 'documents' ? (
+              <table className="w-full table-fixed text-left">
+                <colgroup>
+                  {columns.map((field) => (
+                    <col key={field} style={{ width: columnWidth(field) }} />
+                  ))}
+                </colgroup>
+                <thead className="sticky top-0 z-20 bg-background">
+                  <tr className="h-8">
+                    {columns.map((field) => (
+                      <th
+                        key={field}
+                        className="border-b border-border/50 px-3 font-normal whitespace-nowrap text-muted-foreground"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (sortBy === field)
+                              setDescending((value) => !value);
+                            else {
+                              setSortBy(field);
+                              setDescending(false);
+                            }
+                          }}
+                        >
+                          {label(field)}
+                          {sortBy === field
+                            ? descending
+                              ? ' ↓'
+                              : ' ↑'
+                            : ''}
+                        </button>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {groups.map(([group, rows]) => (
+                    <React.Fragment key={group || 'all'}>
+                      {groupBy ? (
                         <tr>
+                          <th
+                            colSpan={columns.length}
+                            scope="colgroup"
+                            className="sticky top-[calc(2rem+1px)] z-10 border-b border-border/40 bg-muted px-3 py-1.5 text-left font-normal"
+                          >
+                            {group}
+                          </th>
+                        </tr>
+                      ) : null}
+                      {rows.map((document) => (
+                        <tr
+                          key={document.relativePath}
+                          className="border-b border-border/30 hover:bg-accent/40"
+                        >
                           {columns.map((field) => (
-                            <th
+                            <td
                               key={field}
-                              className="border-b border-border/50 px-3 py-2 font-normal text-muted-foreground"
+                              className="min-w-0 truncate px-3 py-2 align-middle"
                             >
                               <button
                                 type="button"
-                                onClick={() => {
-                                  if (sortBy === field)
-                                    setDescending((value) => !value);
-                                  else {
-                                    setSortBy(field);
-                                    setDescending(false);
-                                  }
-                                }}
+                                className="block w-full truncate text-left"
+                                onClick={() =>
+                                  field.startsWith('prop:')
+                                    ? void editProperty(document, field)
+                                    : onOpen({
+                                        relativePath: document.relativePath,
+                                      })
+                                }
                               >
-                                {label(field)}
-                                {sortBy === field
-                                  ? descending
-                                    ? ' ↓'
-                                    : ' ↑'
-                                  : ''}
+                                {field === 'modifiedAt'
+                                  ? new Date(
+                                      document.modifiedAt,
+                                    ).toLocaleString()
+                                  : display(valueOf(document, field)) || '—'}
                               </button>
-                            </th>
+                            </td>
                           ))}
                         </tr>
-                      </thead>
-                      <tbody>
-                        {rows.map((document) => (
-                          <tr
-                            key={document.relativePath}
-                            className="border-b border-border/30 hover:bg-accent/40"
-                          >
-                            {columns.map((field) => (
-                              <td
-                                key={field}
-                                className="max-w-72 truncate px-3 py-2"
-                              >
-                                <button
-                                  type="button"
-                                  className="max-w-full truncate text-left"
-                                  onClick={() =>
-                                    field.startsWith('prop:')
-                                      ? void editProperty(document, field)
-                                      : onOpen({
-                                          relativePath: document.relativePath,
-                                        })
-                                  }
-                                >
-                                  {field === 'modifiedAt'
-                                    ? new Date(
-                                        document.modifiedAt,
-                                      ).toLocaleString()
-                                    : display(valueOf(document, field)) || '—'}
-                                </button>
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </section>
-                ))
-              : tasks.slice(0, limit).map(({ document, task }) => (
+                      ))}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              tasks.slice(0, limit).map(({ document, task }) => (
                   <div
                     key={`${document.relativePath}:${task.offset}`}
                     className="flex items-start gap-3 border-b border-border/40 px-4 py-3"
@@ -705,7 +765,8 @@ export function WorkspaceKnowledgeViews({
                       </span>
                     </button>
                   </div>
-                ))}
+                ))
+            )}
             {(mode === 'documents' ? documents.length : tasks.length) === 0 ? (
               <p className="p-8 text-center text-muted-foreground">
                 当前条件下没有匹配内容。
@@ -777,16 +838,21 @@ export function WorkspaceKnowledgeViews({
               : '只更新此字段，其他字段保持原样。'}
           </p>
           {edit?.type === 'boolean' ? (
-            <select
-              aria-label="属性值"
+            <Select
               value={edit.value}
-              onChange={(event) =>
-                setEdit({ ...edit, value: event.target.value })
-              }
+              onValueChange={(value) => setEdit({ ...edit, value })}
             >
-              <option value="true">是</option>
-              <option value="false">否</option>
-            </select>
+              <SelectTrigger
+                aria-label="属性值"
+                className="w-full bg-background"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="z-[100]" position="popper">
+                <SelectItem value="true">是</SelectItem>
+                <SelectItem value="false">否</SelectItem>
+              </SelectContent>
+            </Select>
           ) : (
             <textarea
               aria-label="属性值"

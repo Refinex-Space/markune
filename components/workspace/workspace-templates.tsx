@@ -8,6 +8,15 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   parseFrontmatter,
   serializeFrontmatter,
   type MetadataValue,
@@ -203,33 +212,40 @@ export function WorkspaceTemplateDialog({
             Templates/、模板/ 或标记 markuneTemplate 的笔记。
           </DialogDescription>
         </DialogHeader>
-        <label className="space-y-1 text-xs">
+        <div className="space-y-1 text-xs">
           <span>模板</span>
-          <select
-            aria-label="笔记模板"
-            className="h-9 w-full rounded-md border bg-background px-2"
-            value={selection}
-            onChange={(event) => setSelection(event.target.value)}
-          >
-            <optgroup label="内置模板">
-              {BUILTIN_NOTE_TEMPLATES.map((template) => (
-                <option key={template.id} value={template.id}>
-                  {template.name}
-                </option>
-              ))}
-            </optgroup>
-            <optgroup label="工作区模板">
-              {templates.map((template) => (
-                <option
-                  key={template.relativePath}
-                  value={template.relativePath}
-                >
-                  {template.title}
-                </option>
-              ))}
-            </optgroup>
-          </select>
-        </label>
+          <Select value={selection} onValueChange={setSelection}>
+            <SelectTrigger
+              aria-label="笔记模板"
+              className="h-9 w-full bg-background"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="z-[100]" position="popper">
+              <SelectGroup>
+                <SelectLabel>内置模板</SelectLabel>
+                {BUILTIN_NOTE_TEMPLATES.map((template) => (
+                  <SelectItem key={template.id} value={template.id}>
+                    {template.name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+              {templates.length ? (
+                <SelectGroup>
+                  <SelectLabel>工作区模板</SelectLabel>
+                  {templates.map((template) => (
+                    <SelectItem
+                      key={template.relativePath}
+                      value={template.relativePath}
+                    >
+                      {template.title}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              ) : null}
+            </SelectContent>
+          </Select>
+        </div>
         <label className="space-y-1 text-xs">
           <span>笔记名称</span>
           <input
