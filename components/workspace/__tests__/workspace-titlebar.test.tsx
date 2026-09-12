@@ -11,6 +11,10 @@ const workspaceSidebarPath = join(
   process.cwd(),
   'components/workspace/workspace-sidebar.tsx',
 );
+const workspaceSystemNavPath = join(
+  process.cwd(),
+  'components/workspace/workspace-system-nav.tsx',
+);
 const pinnedSidebarSectionPath = join(
   process.cwd(),
   'components/workspace/pinned-sidebar-section.tsx',
@@ -269,11 +273,13 @@ describe('Workspace titlebar', () => {
   it('moves global search to the workspace sidebar and removes the centered trigger', () => {
     const workspaceLayoutSource = readFileSync(workspaceLayoutPath, 'utf8');
     const workspaceSidebarSource = readFileSync(workspaceSidebarPath, 'utf8');
+    const workspaceSystemNavSource = readFileSync(workspaceSystemNavPath, 'utf8');
 
     expect(workspaceLayoutSource).not.toContain('workspace-centered-search');
     expect(workspaceLayoutSource).toContain('onOpenGlobalSearch={openGlobalSearch}');
-    expect(workspaceSidebarSource).toContain('aria-label="全局搜索"');
+    expect(workspaceSidebarSource).toContain('onOpenGlobalSearch={onOpenGlobalSearch}');
     expect(workspaceSidebarSource).not.toContain('workspace-sidebar-search-panel');
+    expect(workspaceSystemNavSource).toContain("ariaLabel: '全局搜索'");
   });
 
   it('opens global search with Ctrl or Command plus Shift plus F without double Shift', () => {

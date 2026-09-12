@@ -31,8 +31,10 @@ describe('WorkspaceSwitcher', () => {
     expect(menu.className).toContain('shadow-none');
     expect(menu.className).not.toContain('rounded-lg');
     expect(menu.className).not.toContain('shadow-lg');
-    expect(trigger.className).toContain('px-1.5');
-    expect(trigger.className).toContain('gap-1.5');
+    expect(trigger.className).toContain('px-2');
+    expect(trigger.className).toContain('h-8');
+    expect(trigger.className).not.toContain('gap-1.5');
+    expect(trigger.querySelector('svg')).toBeNull();
     expect(screen.queryByTestId('workspace-status-dot')).toBeNull();
     expect(screen.getByText('打开工作区').className).toContain('font-medium');
     expect(screen.getByText('打开工作区').className).not.toContain(
@@ -167,5 +169,37 @@ describe('WorkspaceSwitcher', () => {
     await user.click(screen.getByRole('button', { name: '选择所在目录' }));
 
     expect(screen.getByDisplayValue(String.raw`D:\Parents`)).toBeTruthy();
+  });
+
+  it('opens the compact menu upward when placed in the sidebar footer', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <WorkspaceSwitcher
+        compact
+        menuPlacement="top"
+        currentWorkspace={{
+          nodes: [],
+          rootName: 'Vault',
+          rootPath: '/repo',
+        }}
+        history={[]}
+        isLoading={false}
+        onChooseWorkspaceParent={vi.fn(async () => null)}
+        onCreateWorkspace={vi.fn(async () => undefined)}
+        onOpenWorkspace={vi.fn()}
+        onRemoveWorkspace={vi.fn()}
+        onSwitchWorkspace={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '打开工作区菜单' }));
+
+    expect(screen.getByTestId('workspace-switcher-menu').className).toContain(
+      'bottom-[calc(100%+4px)]',
+    );
+    expect(screen.getByTestId('workspace-switcher-menu').className).not.toContain(
+      'top-[calc(100%+4px)]',
+    );
   });
 });

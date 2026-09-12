@@ -6,6 +6,7 @@ import {
   MoreHorizontal,
   Network,
   Paintbrush,
+  Search,
   Sheet,
 } from 'lucide-react';
 import { Openai } from '@thesvg/react';
@@ -42,6 +43,7 @@ export interface WorkspaceSystemNavProps {
   onOpenDrawings?: () => void;
   onOpenGraph?: () => void;
   onOpenInbox?: () => void;
+  onOpenGlobalSearch?: () => void;
   onOpenNotes?: () => void;
   onOpenViews?: () => void;
 }
@@ -51,6 +53,8 @@ interface SystemNavEntry {
   label: string;
   testId: string;
   active: boolean;
+  ariaLabel?: string;
+  title?: string;
   badgeCount?: number;
   icon: ReactNode;
   onClick?: () => void;
@@ -69,6 +73,7 @@ export function WorkspaceSystemNav({
   onOpenDrawings,
   onOpenGraph,
   onOpenInbox,
+  onOpenGlobalSearch,
   onOpenNotes,
   onOpenViews,
 }: WorkspaceSystemNavProps) {
@@ -78,6 +83,20 @@ export function WorkspaceSystemNav({
   const horizontal = layout === 'horizontal';
 
   const entries: SystemNavEntry[] = [
+    ...(onOpenGlobalSearch
+      ? [
+          {
+            id: 'search',
+            label: '搜索',
+            testId: 'workspace-global-search',
+            active: false,
+            ariaLabel: '全局搜索',
+            title: '全局搜索（Ctrl/Cmd + Shift + F）',
+            icon: <Search size={13} strokeWidth={1.75} />,
+            onClick: onOpenGlobalSearch,
+          } satisfies SystemNavEntry,
+        ]
+      : []),
     {
       id: 'notes',
       label: '笔记',
@@ -184,7 +203,10 @@ export function WorkspaceSystemNav({
 
   return (
     <div
-      className="relative border-t border-sidebar-border/45 px-2 pb-1 pt-1"
+      className={cn(
+        'relative pb-1 pt-1',
+        horizontal ? null : 'px-2',
+      )}
       data-testid="workspace-system-nav"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -310,20 +332,24 @@ function SystemNavEntryButton({
         : String(entry.badgeCount)
       : null;
   const accessibleLabel =
-    entry.id === 'inbox' && badgeLabel
+    entry.ariaLabel ??
+    (entry.id === 'inbox' && badgeLabel
       ? `${entry.label} · ${badgeLabel}`
-      : entry.label;
+      : entry.label);
 
   const button = (
     <button
       aria-current={entry.active ? 'page' : undefined}
-      aria-label={horizontal ? accessibleLabel : undefined}
+      aria-label={
+        entry.ariaLabel || horizontal ? accessibleLabel : undefined
+      }
       className={
         horizontal
           ? getHorizontalEntryClassName(entry.active)
           : getSystemEntryClassName(entry.active)
       }
       data-testid={entry.testId}
+      title={entry.title}
       type="button"
       onClick={entry.onClick}
     >

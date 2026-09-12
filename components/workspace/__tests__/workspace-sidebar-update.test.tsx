@@ -216,6 +216,40 @@ describe('WorkspaceSidebar update entry', () => {
     );
   });
 
+  it('places global search before the notes entry and the workspace switcher in the footer', () => {
+    render(
+      <WorkspaceSidebar
+        width={280}
+        workspace={createOpenWorkspaceStub()}
+        onOpenGlobalSearch={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    const search = screen.getByRole('button', { name: '全局搜索' });
+    const notes = screen.getByRole('button', { name: '笔记' });
+    const switcher = screen.getByRole('button', { name: '打开工作区菜单' });
+    const settings = screen.getByRole('button', { name: '打开设置' });
+    const footer = screen.getByTestId('workspace-sidebar-footer');
+
+    expect(
+      search.compareDocumentPosition(notes) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(footer.contains(switcher)).toBe(true);
+    expect(footer.contains(settings)).toBe(true);
+    expect(footer.className).toContain('px-2.5');
+    expect(footer.className).not.toContain('border-t');
+    expect(switcher.className).toContain('px-2');
+    expect(screen.getByTestId('workspace-system-nav').className).not.toContain(
+      'border-t',
+    );
+    expect(settings.textContent).toBe('');
+    expect(
+      switcher.compareDocumentPosition(settings) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it('hides system entries when the system nav is collapsed', () => {
     render(
       <WorkspaceSidebar
@@ -227,6 +261,7 @@ describe('WorkspaceSidebar update entry', () => {
     );
 
     expect(screen.queryByRole('button', { name: '笔记' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '全局搜索' })).toBeNull();
     expect(screen.getByTestId('system-nav-hitbox')).toBeTruthy();
   });
 

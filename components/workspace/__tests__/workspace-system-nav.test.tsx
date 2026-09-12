@@ -27,12 +27,25 @@ afterAll(() => {
 });
 
 describe('WorkspaceSystemNav', () => {
+  it('places search before notes when a global search handler is provided', () => {
+    const onOpenGlobalSearch = vi.fn();
+    render(<WorkspaceSystemNav onOpenGlobalSearch={onOpenGlobalSearch} />);
+
+    const search = screen.getByRole('button', { name: '全局搜索' });
+    const notes = screen.getByRole('button', { name: '笔记' });
+    expect(
+      search.compareDocumentPosition(notes) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(search.className).toContain('h-7');
+  });
+
   it('renders seven vertical labeled entries by default', () => {
     render(<WorkspaceSystemNav />);
 
     for (const name of ['笔记', '日程', 'Inbox', '画板', '视图', '图谱', 'Codex']) {
       expect(screen.getByRole('button', { name })).toBeTruthy();
     }
+    expect(screen.queryByRole('button', { name: '全局搜索' })).toBeNull();
     expect(screen.queryByTestId('system-nav-hitbox')).toBeNull();
   });
 
@@ -137,6 +150,12 @@ describe('WorkspaceSystemNav', () => {
     expect(notes.textContent).not.toContain('笔记');
     expect(notes.getAttribute('aria-label')).toBe('笔记');
     expect(notes.className).toContain('justify-center');
+    expect(screen.getByTestId('workspace-system-nav').className).not.toContain(
+      'px-2',
+    );
+    expect(screen.getByTestId('system-nav-entries').className).toContain(
+      'pl-[11px]',
+    );
     expect(screen.getByTestId('system-nav-entries').className).toContain(
       'pr-2.5',
     );

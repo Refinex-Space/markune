@@ -34,6 +34,20 @@ describe('DailyNoteCalendar', () => {
     expect(weekdayLabels()).toEqual(['日', '一', '二', '三', '四', '五', '六']);
   });
 
+  it('does not draw a hairline above the collapsed calendar', () => {
+    render(<DailyNoteCalendar {...createProps()} expanded={false} />);
+
+    expect(screen.getByTestId('daily-note-calendar').className).not.toContain(
+      'before:h-px',
+    );
+    expect(screen.getByTestId('daily-note-calendar').className).toContain(
+      'px-2.5',
+    );
+    expect(screen.getByTestId('daily-note-calendar-toggle').className).toContain(
+      'px-2',
+    );
+  });
+
   it('reports expansion changes through the shared settings callback', async () => {
     const user = userEvent.setup();
     const props = createProps();
