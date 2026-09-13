@@ -2,7 +2,6 @@
 
 import * as React from 'react';
 import {
-  ChevronDown,
   Clock3,
   FolderOpen,
   FolderPlus,
@@ -30,6 +29,7 @@ interface WorkspaceSwitcherProps {
   currentWorkspace: WorkspaceSnapshot | null;
   history: WorkspaceHistoryItem[];
   isLoading: boolean;
+  menuPlacement?: 'top' | 'bottom';
   onChooseWorkspaceParent: () => Promise<string | null>;
   onCreateWorkspace: (
     parentPath: string,
@@ -45,6 +45,7 @@ export function WorkspaceSwitcher({
   currentWorkspace,
   history,
   isLoading,
+  menuPlacement = 'bottom',
   onChooseWorkspaceParent,
   onCreateWorkspace,
   onOpenWorkspace,
@@ -133,7 +134,10 @@ export function WorkspaceSwitcher({
         <div
           data-testid="workspace-switcher-menu"
           className={cn(
-            'absolute top-[calc(100%+4px)] z-30 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-none',
+            'absolute z-30 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-none',
+            menuPlacement === 'top'
+              ? 'bottom-[calc(100%+4px)]'
+              : 'top-[calc(100%+4px)]',
             compact ? 'left-0 right-0' : 'left-3 right-3',
           )}
         >
@@ -218,8 +222,8 @@ export function WorkspaceSwitcher({
         aria-expanded={isOpen}
         aria-label="打开工作区菜单"
         className={cn(
-          'group flex w-full items-center gap-1.5 rounded-md text-left transition-colors hover:bg-sidebar-accent',
-          compact ? 'h-9 px-1.5 py-1' : 'min-h-10 px-2 py-1.5',
+          'group flex w-full items-center rounded-md text-left transition-colors hover:bg-sidebar-accent',
+          compact ? 'h-8 px-2 py-1' : 'min-h-10 px-2 py-1.5',
         )}
         disabled={isLoading}
         type="button"
@@ -233,13 +237,6 @@ export function WorkspaceSwitcher({
             </span>
           )}
         </span>
-        <ChevronDown
-          className={cn(
-            'shrink-0 text-muted-foreground transition-transform',
-            isOpen && 'rotate-180',
-          )}
-          size={15}
-        />
       </button>
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
         <DialogContent>

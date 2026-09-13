@@ -151,6 +151,7 @@ const DEFAULT_GIT_SYNC: WorkspaceGitSyncSettings = {
   intervalMinutes: 10,
   lastSyncedAt: null,
 };
+const SETTINGS_PANEL_MARGIN = 0;
 
 const SETTINGS_SECTIONS: Array<{
   id: SettingsSectionId;
@@ -501,8 +502,9 @@ export function WorkspaceSettingsPage({
       className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-sidebar"
       data-testid="workspace-settings-page"
     >
+      <div className="relative flex min-h-0 min-w-0 max-w-full flex-1 overflow-hidden bg-background">
       <aside
-        className="flex h-full shrink-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground"
+        className="flex h-full shrink-0 flex-col overflow-hidden border-r border-border/70 bg-background text-sidebar-foreground"
         data-testid="workspace-settings-sidebar"
         style={{ width: sidebarWidth }}
       >
@@ -519,7 +521,7 @@ export function WorkspaceSettingsPage({
           data-testid="workspace-settings-sidebar-titlebar-spacer"
           style={
             !windowsChromeInset && macChromeContentTop !== undefined
-              ? { height: macChromeContentTop }
+              ? { height: macChromeContentTop - SETTINGS_PANEL_MARGIN }
               : undefined
           }
         />
@@ -588,7 +590,7 @@ export function WorkspaceSettingsPage({
       {sidebarResize ? (
         <WorkspaceResizeHandle
           aria-label="调整设置侧栏宽度"
-          className="-mx-2"
+          className="-mr-2"
           direction="left"
           max={sidebarResize.max}
           min={sidebarResize.min}
@@ -598,7 +600,7 @@ export function WorkspaceSettingsPage({
       ) : null}
 
       <div
-        className="m-2 flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-background"
+        className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden bg-background"
         data-testid="workspace-editor-column"
       >
         <section
@@ -722,6 +724,7 @@ export function WorkspaceSettingsPage({
             </div>
           </div>
         </section>
+      </div>
       </div>
     </section>
   );
@@ -2185,25 +2188,25 @@ function GitSyncSection({
             control={
               <PillSwitch
                 checked={showGitPanelEntry}
-                label="显示 Git 面板入口"
+                label="显示 Git 面板入口（Beta）"
                 testId="git-panel-entry-switch"
                 onChange={onShowGitPanelEntryChange}
               />
             }
             description="在工作区右上角显示 Git 面板入口。"
-            label="显示 Git 面板入口"
+            label="显示 Git 面板入口（Beta）"
           />
           <SettingRow
             control={
               <PillSwitch
                 checked={showGitLogEntry}
-                label="显示 Git 日志入口"
+                label="显示 Git 日志入口（Beta）"
                 testId="git-log-entry-switch"
                 onChange={onShowGitLogEntryChange}
               />
             }
             description="在工作区右上角显示 Git 日志入口。"
-            label="显示 Git 日志入口"
+            label="显示 Git 日志入口（Beta）"
           />
         </div>
         <p className="mt-2 text-xs leading-5 text-muted-foreground">

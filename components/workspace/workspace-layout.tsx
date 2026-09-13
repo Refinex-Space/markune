@@ -315,7 +315,7 @@ const WORKSPACE_PANEL_WIDTH_STORAGE_KEYS = {
 };
 
 const RECENT_DOCUMENT_LIMIT = 5;
-const WORKSPACE_PANEL_MARGIN = 8;
+const WORKSPACE_PANEL_MARGIN = 0;
 const WORKSPACE_SIDEBAR_HEADER_HEIGHT = 44;
 const WEB_SIDEBAR_TITLEBAR_SPACER = 40;
 const HEADER_TOOL_BUTTON_PX = 28;
@@ -863,6 +863,15 @@ export function WorkspaceLayout({
       : (isTauriRuntime && isMacRuntime
           ? macChromeContentTop
           : WEB_SIDEBAR_TITLEBAR_SPACER) - WORKSPACE_PANEL_MARGIN;
+  const connectedShellTitlebarSpacerHeight =
+    isTauriRuntime && isWindowsRuntime
+      ? null
+      : Math.max(
+          0,
+          (isTauriRuntime && isMacRuntime
+            ? macChromeContentTop
+            : WEB_SIDEBAR_TITLEBAR_SPACER) - WORKSPACE_PANEL_MARGIN,
+        );
   const drawingHeaderToolsReservePx = getDrawingOverlayToolsReservePx({
     enabled: drawingDetailOpen && isTauriRuntime && isWindowsRuntime,
     showGitLogEntry: appSettings.appearance.showGitLogEntry,
@@ -2521,6 +2530,40 @@ export function WorkspaceLayout({
     [openDocumentNode, revealNodeInWorkspaceTree, workspace.snapshot?.nodes],
   );
 
+  React.useEffect(() => {
+    const pending = workspace.pendingExternalOpen;
+    if (
+      !pending ||
+      !workspace.snapshot ||
+      workspace.snapshot.rootPath !== pending.workspaceRoot
+    ) {
+      return;
+    }
+
+    const node = findWorkspaceDocumentByPath(
+      workspace.snapshot.nodes,
+      pending.documentPath,
+    );
+    const timer = window.setTimeout(() => {
+      workspace.clearPendingExternalOpen();
+      if (!node) {
+        console.warn('系统打开的 Markdown 不在当前工作区目录树中');
+        return;
+      }
+
+      revealNodeInWorkspaceTree(node.absolutePath);
+      void openDocumentNode(node);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    openDocumentNode,
+    revealNodeInWorkspaceTree,
+    workspace.clearPendingExternalOpen,
+    workspace.pendingExternalOpen,
+    workspace.snapshot,
+  ]);
+
   const handleOpenAiDocument = React.useCallback(
     (documentPath: string) => {
       if (systemPage === 'codex') {
@@ -3545,6 +3588,15 @@ export function WorkspaceLayout({
             inert={systemPage === 'settings' ? true : undefined}
             aria-hidden={systemPage === 'settings' ? true : undefined}
           >
+            <div
+              className="relative flex min-h-0 min-w-0 max-w-full flex-1 overflow-hidden bg-background"
+              data-testid="workspace-panel-group"
+              style={
+                {
+                  '--workspace-main-header-height': `${workspaceMainHeaderHeight}px`,
+                } as React.CSSProperties
+              }
+            >
             {leftPanelMode === 'workspace' ? (
               <WorkspaceSidebar
                 onCreateTemplate={setTemplateParentPath}
@@ -3662,42 +3714,46 @@ export function WorkspaceLayout({
               />
             ) : workspace.isSidebarCollapsed ? null : (
               <div
-                className={cn(
-                  'min-h-0 shrink-0',
-                  isTauriRuntime && isMacRuntime
-                    ? '[&>aside]:rounded-none [&>aside]:border-0 [&>aside]:bg-transparent'
-                    : 'my-2 ml-2',
-                )}
+                className="flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-r border-border/70 bg-background"
                 data-testid="workspace-git-panel-column"
-                style={{
-                  marginTop:
-                    isTauriRuntime && isMacRuntime
-                      ? macChromeContentTop
-                      : undefined,
-                  width: leftSidebarWidth,
-                }}
+                style={{ width: leftSidebarWidth }}
               >
-                <GitPanel
-                  error={gitError}
-                  isLoading={gitLoading}
-                  probe={gitProbeState}
-                  selectedPath={gitSelectedPath}
-                  selectedPaths={gitSelectedPaths}
-                  status={gitStatusState}
-                  onCommit={handleGitCommit}
-                  onCommitAndPush={handleGitCommitAndPush}
-                  onCommitSingleFile={handleGitCommitSingleFile}
-                  onDeleteFile={handleGitDeleteFile}
-                  onInitRepository={handleGitInit}
-                  onRefresh={refreshGitStatus}
-                  onRevertFile={handleGitRevertFile}
-                  onSelectChange={handleGitSelectChange}
-                  onSelectFile={handleGitSelectFile}
-                  onStageFile={handleGitStageFile}
-                  onStageSelected={handleGitStageSelected}
-                  onUnstageFile={handleGitUnstageFile}
-                  onUnstageSelected={handleGitUnstageSelected}
+                <header
+                  className={cn(
+                    'shrink-0',
+                    isTauriRuntime && isWindowsRuntime && 'h-2',
+                  )}
+                  data-tauri-drag-region="deep"
+                  data-testid="workspace-git-panel-titlebar-spacer"
+                  style={
+                    connectedShellTitlebarSpacerHeight === null
+                      ? undefined
+                      : { height: connectedShellTitlebarSpacerHeight }
+                  }
                 />
+                <div className="min-h-0 flex-1 overflow-hidden [&>aside]:h-full [&>aside]:rounded-none [&>aside]:border-0 [&>aside]:bg-transparent">
+                  <GitPanel
+                    error={gitError}
+                    isLoading={gitLoading}
+                    probe={gitProbeState}
+                    selectedPath={gitSelectedPath}
+                    selectedPaths={gitSelectedPaths}
+                    status={gitStatusState}
+                    onCommit={handleGitCommit}
+                    onCommitAndPush={handleGitCommitAndPush}
+                    onCommitSingleFile={handleGitCommitSingleFile}
+                    onDeleteFile={handleGitDeleteFile}
+                    onInitRepository={handleGitInit}
+                    onRefresh={refreshGitStatus}
+                    onRevertFile={handleGitRevertFile}
+                    onSelectChange={handleGitSelectChange}
+                    onSelectFile={handleGitSelectFile}
+                    onStageFile={handleGitStageFile}
+                    onStageSelected={handleGitStageSelected}
+                    onUnstageFile={handleGitUnstageFile}
+                    onUnstageSelected={handleGitUnstageSelected}
+                  />
+                </div>
               </div>
             )}
 
@@ -3718,17 +3774,8 @@ export function WorkspaceLayout({
               />
             ) : null}
 
-            <div
-              className="relative m-2 flex min-h-0 min-w-0 max-w-full flex-1 gap-2 overflow-hidden bg-sidebar"
-              data-testid="workspace-panel-group"
-              style={
-                {
-                  '--workspace-main-header-height': `${workspaceMainHeaderHeight}px`,
-                } as React.CSSProperties
-              }
-            >
               <div
-                className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-background"
+                className="relative z-0 flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden bg-background"
                 data-testid="workspace-editor-column"
               >
                 <section
@@ -4160,7 +4207,7 @@ export function WorkspaceLayout({
               {systemPage !== 'codex' && workspace.rightPanelMode ? (
                 <WorkspaceResizeHandle
                   aria-label="调整右侧面板宽度"
-                  className="-mx-2 bg-sidebar"
+                  className="-ml-2"
                   direction="right"
                   max={rightPanelWidthLimits.max}
                   min={rightPanelWidthLimits.min}

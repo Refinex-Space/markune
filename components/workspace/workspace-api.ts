@@ -67,6 +67,7 @@ import type {
   WorkspaceSnapshot,
   TreeNodeAppearance,
   SystemFontOptions,
+  ExternalOpenRequest,
 } from './workspace-types';
 import type { WorkspaceIndexPage } from './workspace-knowledge-types';
 
@@ -129,6 +130,30 @@ const MAX_WORKSPACE_HISTORY = 8;
 
 export function isTauriRuntime() {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+}
+
+export const EXTERNAL_OPEN_EVENT = 'markune-external-open';
+
+export async function takeExternalOpenRequest() {
+  if (!isTauriRuntime()) {
+    return null;
+  }
+
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<ExternalOpenRequest | null>('take_external_open_request');
+}
+
+export async function subscribeToExternalOpen(
+  onOpen: (request: ExternalOpenRequest) => void,
+): Promise<UnlistenFn> {
+  if (!isTauriRuntime()) {
+    return () => undefined;
+  }
+
+  const { listen } = await import('@tauri-apps/api/event');
+  return listen<ExternalOpenRequest>(EXTERNAL_OPEN_EVENT, (event) => {
+    onOpen(event.payload);
+  });
 }
 
 export interface MacosTitlebarMetrics {

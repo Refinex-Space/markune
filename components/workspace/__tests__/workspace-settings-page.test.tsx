@@ -211,7 +211,10 @@ describe('WorkspaceSettingsPage', () => {
       'min-w-0',
     );
     const editorColumn = screen.getByTestId('workspace-editor-column');
-    expect(editorColumn.className).toContain('m-2');
+    expect(editorColumn.className).not.toContain('m-2');
+    expect(editorColumn.className).not.toContain('rounded-xl');
+    expect(editorColumn.parentElement?.className).not.toContain('m-2');
+    expect(editorColumn.parentElement?.className).not.toContain('rounded-xl');
     expect(editorColumn.className).not.toContain('shadow-[');
     expect(screen.getByTestId('workspace-settings-content').className).toContain(
       'max-w-[1120px]',
@@ -670,10 +673,10 @@ describe('WorkspaceSettingsPage', () => {
     );
 
     const gitPanelSwitch = screen.getByRole('switch', {
-      name: '显示 Git 面板入口',
+      name: '显示 Git 面板入口（Beta）',
     });
     const gitLogSwitch = screen.getByRole('switch', {
-      name: '显示 Git 日志入口',
+      name: '显示 Git 日志入口（Beta）',
     });
     expect(gitPanelSwitch.getAttribute('aria-checked')).toBe('false');
     expect(gitLogSwitch.getAttribute('aria-checked')).toBe('false');

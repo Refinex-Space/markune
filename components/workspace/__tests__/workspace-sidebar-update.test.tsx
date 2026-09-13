@@ -106,11 +106,11 @@ describe('WorkspaceSidebar update entry', () => {
     );
 
     const spacer = screen.getByTestId('workspace-sidebar-titlebar-spacer');
-    expect(spacer.style.height).toBe('38px');
+    expect(spacer.style.height).toBe('46px');
     expect(spacer.className).not.toContain('h-10');
   });
 
-  it('renders the sidebar content as an inset rounded panel', () => {
+  it('renders the sidebar content as a connected pane inside the workspace shell', () => {
     render(
       <WorkspaceSidebar
         width={280}
@@ -124,12 +124,14 @@ describe('WorkspaceSidebar update entry', () => {
 
     expect(sidebar.style.width).toBe('280px');
     expect(sidebar.className).toContain('bg-transparent');
-    expect(content.className).toContain('rounded-xl');
+    expect(content.className).not.toContain('rounded-xl');
+    expect(content.className).toContain('border-r');
     expect(content.className).toContain('border-border/70');
-    expect(content.className).toContain('bg-background');
-    expect(content.style.height).toBe('calc(100% - 16px)');
-    expect(content.style.margin).toBe('8px 0px 8px 8px');
-    expect(content.style.width).toBe('272px');
+    expect(content.className).toContain('h-full');
+    expect(content.className).toContain('w-full');
+    expect(content.style.height).toBe('');
+    expect(content.style.margin).toBe('');
+    expect(content.style.width).toBe('');
   });
 
   it('collapses the rounded sidebar panel without retaining layout width', () => {
@@ -214,6 +216,40 @@ describe('WorkspaceSidebar update entry', () => {
     );
   });
 
+  it('places global search before the notes entry and the workspace switcher in the footer', () => {
+    render(
+      <WorkspaceSidebar
+        width={280}
+        workspace={createOpenWorkspaceStub()}
+        onOpenGlobalSearch={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    );
+
+    const search = screen.getByRole('button', { name: '全局搜索' });
+    const notes = screen.getByRole('button', { name: '笔记' });
+    const switcher = screen.getByRole('button', { name: '打开工作区菜单' });
+    const settings = screen.getByRole('button', { name: '打开设置' });
+    const footer = screen.getByTestId('workspace-sidebar-footer');
+
+    expect(
+      search.compareDocumentPosition(notes) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(footer.contains(switcher)).toBe(true);
+    expect(footer.contains(settings)).toBe(true);
+    expect(footer.className).toContain('px-2.5');
+    expect(footer.className).not.toContain('border-t');
+    expect(switcher.className).toContain('px-2');
+    expect(screen.getByTestId('workspace-system-nav').className).not.toContain(
+      'border-t',
+    );
+    expect(settings.textContent).toBe('');
+    expect(
+      switcher.compareDocumentPosition(settings) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it('hides system entries when the system nav is collapsed', () => {
     render(
       <WorkspaceSidebar
@@ -225,6 +261,7 @@ describe('WorkspaceSidebar update entry', () => {
     );
 
     expect(screen.queryByRole('button', { name: '笔记' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '全局搜索' })).toBeNull();
     expect(screen.getByTestId('system-nav-hitbox')).toBeTruthy();
   });
 

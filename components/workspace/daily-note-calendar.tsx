@@ -48,7 +48,7 @@ export function DailyNoteCalendar({
   return (
     <section
       aria-label="每日笔记日历"
-      className="relative shrink-0 overflow-hidden px-2.5 py-2 before:absolute before:left-2.5 before:right-2.5 before:top-0 before:h-px before:bg-sidebar-border/50"
+      className="relative shrink-0 overflow-hidden px-2.5 py-2"
       data-testid="daily-note-calendar"
     >
       {isCollapsed ? (

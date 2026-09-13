@@ -39,6 +39,7 @@ Markune is a local knowledge-base desktop app built with Next.js App Router, Rea
 - API standards -> read `docs/standards/api.md` before touching `app/api`, Tauri commands, UploadThing routes, workspace APIs, Git APIs, or terminal APIs.
 - Security standards -> read `docs/standards/security.md` before secrets, permissions, filesystem, asset protocol, uploads, terminal, Git, or local data handling.
 - Domain terms -> read `docs/domain/glossary.md` when naming workspace, document, asset, editor, or Git concepts.
+- File associations and OS Open With -> read `docs/architecture/overview.md` before changing `bundle.fileAssociations`, single-instance, or external Markdown open handling.
 - Runbook -> read `docs/guides/runbook.md` for local startup, package, verification, incident recovery, or rollback work.
 - Release/update -> read `docs/guides/release-and-update.md` before changing application versions, updater behavior, signing, release workflows, installers, GitHub Releases, or download-site integration.
 - Historical plans/specs -> read `docs/README.md` when comparing current code with older superpowers plans or implementation specs.

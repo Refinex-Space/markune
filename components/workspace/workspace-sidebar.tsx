@@ -1,7 +1,4 @@
-import {
-  Search,
-  Settings,
-} from 'lucide-react';
+import { Settings } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useMemo } from 'react';
 
@@ -21,7 +18,7 @@ import type {
   WorkspaceNode,
 } from './workspace-types';
 
-const DEFAULT_PANEL_MARGIN = 8;
+const DEFAULT_PANEL_MARGIN = 0;
 const DEFAULT_TITLEBAR_SPACER = 40;
 
 interface WorkspaceSidebarProps {
@@ -183,17 +180,12 @@ export function WorkspaceSidebar({
       <div
         aria-hidden={workspace.isSidebarCollapsed}
         className={cn(
-          'flex flex-col overflow-hidden rounded-xl border border-border/70 bg-background transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
+          'flex h-full w-full flex-col overflow-hidden bg-background transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
           workspace.isSidebarCollapsed
             ? 'pointer-events-none -translate-x-2 opacity-0'
-            : 'translate-x-0 opacity-100',
+            : 'translate-x-0 border-r border-border/70 opacity-100',
         )}
         data-testid="workspace-sidebar-content"
-        style={{
-          height: `calc(100% - ${panelMargin * 2}px)`,
-          margin: `${panelMargin}px 0 ${panelMargin}px ${panelMargin}px`,
-          width: Math.max(0, width - panelMargin),
-        }}
       >
         <header
           className={cn('shrink-0', windowsChromeInset && 'h-2')}
@@ -204,12 +196,6 @@ export function WorkspaceSidebar({
               ? undefined
               : { height: titlebarSpacerHeight }
           }
-        />
-
-        <WorkspaceSidebarHeader
-          workspace={workspace}
-          onOpenGlobalSearch={onOpenGlobalSearch}
-          onRemoveWorkspace={onRemoveWorkspace}
         />
 
         {workspace.snapshot ? (
@@ -230,6 +216,7 @@ export function WorkspaceSidebar({
             onOpenDrawings={onOpenDrawings}
             onOpenGraph={onOpenGraph}
             onOpenInbox={onOpenInbox}
+            onOpenGlobalSearch={onOpenGlobalSearch}
             onOpenNotes={onOpenNotes}
             onOpenViews={onOpenViews}
           />
@@ -318,71 +305,47 @@ export function WorkspaceSidebar({
           ? null
           : dailyCalendar}
 
-        {onOpenSettings ? (
-          <footer className="shrink-0 px-2 py-2">
-            <div className="flex w-[calc(100%-0.75rem)] items-center gap-1">
+        <footer
+          className="relative z-20 shrink-0 px-2.5 py-1.5"
+          data-testid="workspace-sidebar-footer"
+        >
+          <div className="flex items-center gap-0.5">
+            <WorkspaceSwitcher
+              compact
+              menuPlacement="top"
+              currentWorkspace={workspace.snapshot}
+              history={workspace.workspaceHistory}
+              isLoading={workspace.isLoading}
+              onChooseWorkspaceParent={workspace.chooseWorkspaceParentDirectory}
+              onCreateWorkspace={workspace.createWorkspace}
+              onOpenWorkspace={workspace.openWorkspace}
+              onRemoveWorkspace={onRemoveWorkspace ?? workspace.removeWorkspace}
+              onSwitchWorkspace={workspace.switchWorkspace}
+            />
+            {appUpdateAvailable && onOpenSettings ? (
+              <button
+                aria-label="打开版本更新"
+                className="inline-flex h-7 shrink-0 items-center justify-center rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+                type="button"
+                onClick={() => onOpenSettings('version')}
+              >
+                <span>更新</span>
+              </button>
+            ) : null}
+            {onOpenSettings ? (
               <button
                 aria-label="打开设置"
-                className="flex h-8 min-w-0 flex-1 items-center gap-2.5 rounded-md px-2.5 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 type="button"
                 onClick={() => onOpenSettings()}
               >
                 <Settings size={16} strokeWidth={1.75} />
-                <span>设置</span>
               </button>
-              {appUpdateAvailable ? (
-                <button
-                  aria-label="打开版本更新"
-                  className="inline-flex h-7 shrink-0 items-center justify-center rounded-full bg-primary px-3 text-xs font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-                  type="button"
-                  onClick={() => onOpenSettings('version')}
-                >
-                  <span>更新</span>
-                </button>
-              ) : null}
-            </div>
-          </footer>
-        ) : null}
+            ) : null}
+          </div>
+        </footer>
       </div>
     </aside>
-  );
-}
-
-function WorkspaceSidebarHeader({
-  workspace,
-  onOpenGlobalSearch,
-  onRemoveWorkspace,
-}: {
-  workspace: ReturnType<typeof useWorkspace>;
-  onOpenGlobalSearch: () => void;
-  onRemoveWorkspace?: (rootPath: string) => void;
-}) {
-  return (
-    <div className="px-3 pb-2">
-      <div className="relative flex h-9 items-center gap-1.5">
-        <WorkspaceSwitcher
-          compact
-          currentWorkspace={workspace.snapshot}
-          history={workspace.workspaceHistory}
-          isLoading={workspace.isLoading}
-          onChooseWorkspaceParent={workspace.chooseWorkspaceParentDirectory}
-          onCreateWorkspace={workspace.createWorkspace}
-          onOpenWorkspace={workspace.openWorkspace}
-          onRemoveWorkspace={onRemoveWorkspace ?? workspace.removeWorkspace}
-          onSwitchWorkspace={workspace.switchWorkspace}
-        />
-
-        <button
-          aria-label="全局搜索"
-          className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-          title="全局搜索（Ctrl/Cmd + Shift + F）"
-          type="button"
-          onClick={onOpenGlobalSearch}
-        >
-          <Search size={17} strokeWidth={1.8} />
-        </button>
-      </div>
-    </div>
   );
 }
 

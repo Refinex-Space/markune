@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-11
+updated: 2026-09-12
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -14,9 +14,17 @@ Markune 是一个以本地 Markdown 文档为核心的桌面知识库，使用 N
 - Web shell：Next.js App Router 与 React client components。
 - Editor：`components/editor/markdown-editor.tsx` 以非受控 `defaultContent` 包装 `@markweave/react@0.10.4` / `markweave@0.10.4`；Markweave 对正文执行一次 canonical whole-document parse，并在严格 Schema 校验前把混合 Markdown 段落中的块图片提升为有序兄弟节点，避免大文档因图片与相邻文本共处段落而加载失败。首次加载与后续 Markdown 更新共用同一规范化逻辑，图片开头的列表项保留必要首段落；无序列表与表格在需要时通过 HTML 回退保留块媒体结构。HTTP(S) 页面可以使用完整 Markdown lexer Worker，`tauri:` 等桌面自定义协议立即走同语义的主线程解析，避免 WKWebView 构造 Blob Worker 后静默等待超时。只有文本、选择、撤销、搜索与 TOC 完成 `ready` 后才开放编辑，视觉资源再按视口渐进补齐；`parsing`、`mounting` 与 `finalizing` 显示明确进度，加载失败时 Markune 保留本地正文并提供重新加载与源码模式恢复，不再显示无诊断白板。序列化遵循 GFM 词中下划线规则，标识符如 `doc_review_agent` 不再写成 `doc\_review\_agent`。编辑事务只保留惰性 payload 和 dirty 状态，完整 Markdown 字符串边界只位于 load/flush。源码模式动态加载 CodeMirror 6，Live/Source 切换只在边界互转一次。Slash 附件经 `onSlashCommandUpload` 写入工作区资产并以 `markune-asset://` 持久化，激活下载由 `onAttachmentDownload` 处理。
 - Workspace shell：`components/workspace/workspace-layout.tsx` 管理文档树、编辑器标签、全文搜索、Git、终端、设置、文档元信息与 AI 侧栏。左侧顶部系统入口（笔记、日程、Inbox、画板、视图、图谱、Codex）由 `workspace-system-nav.tsx` 渲染，排列与折叠偏好写入全局 `appearance.systemNavLayout` / `appearance.systemNavCollapsed`；文档树“文件夹”标题切换到复用 `directory-page.tsx` 的工作区根级总览，根级文件夹卡片继续进入既有目录详情。
-- Native boundary：前端经 `components/workspace/workspace-api.ts` 调用 Tauri 命令；实现位于 `src-tauri/src`。macOS 原生 `Markune` 菜单中的“设置…”（`⌘,`）与“检查更新…”只发出前端事件：前者复用现有设置页，后者打开“版本”并调用既有 updater 检查，不创建第二个设置窗口，也不自动安装更新。`window_chrome.rs` 只读取 macOS AppKit 红绿灯在 WKWebView 中的垂直中心数值，使 Web 标题栏控件不依赖构建 SDK 的固定偏移；`window_opacity.rs` 通过 macOS AppKit 或 Windows 分层窗口接口调整整个原生窗口的合成透明度，Web 页面不使用 CSS `opacity` 模拟该能力。
+- Native boundary：前端经 `components/workspace/workspace-api.ts` 调用 Tauri 命令；实现位于 `src-tauri/src`。macOS 原生 `Markune` 菜单中的“设置…”（`⌘,`）与“检查更新…”只发出前端事件：前者复用现有设置页，后者打开“版本”并调用既有 updater 检查，不创建第二个设置窗口，也不自动安装更新。`window_chrome.rs` 只读取 macOS AppKit 红绿灯在 WKWebView 中的垂直中心数值，使 Web 标题栏控件不依赖构建 SDK 的固定偏移；`window_opacity.rs` 通过 macOS AppKit 或 Windows 分层窗口接口调整整个原生窗口的合成透明度，Web 页面不使用 CSS `opacity` 模拟该能力。安装后的桌面包通过 `bundle.fileAssociations` 把 `.md` / `.mdx` 登记为 `Alternate` 打开方式，不抢默认应用；`external_open.rs` 消费冷启动参数、macOS `RunEvent::Opened` 和 Windows 单实例转发，解析最近的 `.markune` / `.madora` 工作区后打开该文档，并压过“恢复最近工作区”。
 - Codex runtime：`components/workspace/codex-app-server.ts` 只消费协议消息；`src-tauri/src/codex.rs` 启动随应用打包的 Codex App Server sidecar，并通过 stdio JSONL 传递允许的方法、通知与审批请求。
 - Local state：全局设置由 `src-tauri/src/settings.rs` 持久化；面板尺寸使用浏览器 local storage；AI 会话由 Codex App Server 存入用户级 Codex Home，不属于工作区状态。
+
+## External Markdown Open Boundary
+
+系统“打开方式”只覆盖 Markdown 文件，不注册目录、不注册任意文件类型、不把 Markune 设为默认处理器。`bundle.fileAssociations` 声明 `.md` / `.mdx`，`rank` 为 `Alternate`。Windows 由 NSIS 写入 OpenWithProgids；macOS 由生成的 `CFBundleDocumentTypes` 进入 Finder 打开方式。开发态 `tauri dev` 不会向系统登记关联，需安装包或显式把路径传给进程才能验收消费路径。
+
+打开请求只来自操作系统：Windows/Linux 解析进程参数，macOS 额外监听 `RunEvent::Opened`。已运行实例通过 `tauri-plugin-single-instance` 聚焦主窗口并转发参数，不新开第二个工作区进程。渲染器只能 `take_external_open_request` 取出待处理请求，或监听 `markune-external-open`；不能提交任意路径让 Rust 打开。
+
+解析在原生层完成：拒绝符号链接、非普通文件和非 Markdown 扩展名；向上查找最近的 `.markune/` 或旧 `.madora/` 作为工作区根；找不到则使用文件所在目录。位于工作区私有目录内的文件必须失败关闭。成功后前端复用现有 `loadWorkspace` / 文档标签打开流，品牌迁移阻断仍然有效。目录右键“用 Markune 打开”不属于当前边界。
 
 ## Brand Migration Boundary
 
@@ -68,7 +76,7 @@ Markune 是一个以本地 Markdown 文档为核心的桌面知识库，使用 N
 
 Inbox 是工作区级快速捕获与分拣入口，不属于正式文档树、全局文档搜索或任务系统。每条 Capture 以独立 Markdown 文件保存在 `.markune/inbox/{capture-id}.md`，正文继续复用 Markdown 编辑器和工作区资产能力；列表、搜索和未处理徽标直接从这些文件计算，不修改 `.markune/workspace.json` schema。
 
-前端由 `use-inbox-controller.ts` 统一持有列表、选中项、新建草稿与保存状态，`inbox-sidebar.tsx` 复用左侧目录树区域承载紧凑列表、状态筛选、局部搜索、状态行右侧的新建入口和分拣菜单，`inbox-page.tsx` 只保留无标题栏的 Markdown 编辑器。新建时先在主编辑区建立临时草稿，空白草稿不写盘，首个非空正文通过自动保存创建 Capture。Capture 的历史标签仍按原样保留在 Markdown frontmatter 与接口中以保证兼容，但 Inbox v1 不提供标签交互。工作区头部搜索入口统一打开全局文档与图稿搜索，Inbox 查询只由其侧栏内部的局部搜索框控制。原生边界集中在 `src-tauri/src/inbox.rs`：通用 Markdown 命令继续拒绝 `.markune`，Inbox 命令只接受受格式约束的 Capture ID，并在 canonicalize 后访问 `.markune/inbox/<id>.md`。Promote 和 Append 作为 Rust 组合操作完成；Daily 追加使用 `<!-- markune-capture:<id> -->` 防止重复，并在 Capture 留痕保存失败时恢复本次追加。
+前端由 `use-inbox-controller.ts` 统一持有列表、选中项、新建草稿与保存状态，`inbox-sidebar.tsx` 复用左侧目录树区域承载紧凑列表、状态筛选、局部搜索、状态行右侧的新建入口和分拣菜单，`inbox-page.tsx` 只保留无标题栏的 Markdown 编辑器。新建时先在主编辑区建立临时草稿，空白草稿不写盘，首个非空正文通过自动保存创建 Capture。Capture 的历史标签仍按原样保留在 Markdown frontmatter 与接口中以保证兼容，但 Inbox v1 不提供标签交互。工作区系统入口中的全局搜索统一打开文档与图稿搜索，Inbox 查询只由其侧栏内部的局部搜索框控制。原生边界集中在 `src-tauri/src/inbox.rs`：通用 Markdown 命令继续拒绝 `.markune`，Inbox 命令只接受受格式约束的 Capture ID，并在 canonicalize 后访问 `.markune/inbox/<id>.md`。Promote 和 Append 作为 Rust 组合操作完成；Daily 追加使用 `<!-- markune-capture:<id> -->` 防止重复，并在 Capture 留痕保存失败时恢复本次追加。
 
 Capture 的持久状态仅为 `open`、`processing`、`done`、`archived`。Inbox 不再提供新增 snooze 的交互；历史 Capture 中未来的 `snoozedUntil` 仍在读取后的视图层派生为“稍后”，并提供“恢复待处理”清除该字段，无需后台迁移。提升后的 Note 与追加后的 Daily 都是正式 Markdown 文档，Capture 本身保留为已处理记录。
 
@@ -76,7 +84,7 @@ Capture 的持久状态仅为 `open`、`processing`、`done`、`archived`。Inbo
 
 Daily 是工作区级日程总览，也是普通 Markdown 文档集合。顶部“日程”入口只切换到总览系统页，不创建或打开当天文件；左下角迷你日历继续作为具体日期的快捷入口，其展开状态与每周起始日由全局 `calendar` 设置统一控制，不保存到工作区。总览中的日期选择只更新选中状态，已有条目通过“打开详情”进入编辑器，空白日期必须显式选择“创建每日笔记”后才调用 `open_daily_note`。物理文件继续固定保存在 `Daily/YYYY/MM/YYYY-MM-DD.md`，不新增事件实体、数据库投影或会议日历语义。`Daily/` 根目录仍从普通文档树隐藏；单日导出不依赖树节点，而由日程检查器「导出」菜单与文档标签右键「导出」复用既有 `useDocumentExport` 管线（HTML / Markdown / PDF / Word），桌面端可用时才接线。
 
-macOS 工作区壳层把全局 Chrome 工具与系统页工具分为两个不重叠的纵向区段：主标题栏高度由 `macChromeContentTop - WORKSPACE_PANEL_MARGIN` 计算，日程与视图页再以零偏移接续，因此它们的工具行可与侧边栏搜索入口共用水平中线，而不通过负外边距侵入全局按钮区域。工作区侧边栏保留原有外层宽度和折叠边界，内部内容以同一 `WORKSPACE_PANEL_MARGIN` 内缩为圆角、有边框的独立面板；macOS 顶部占位同步扣除该间距，使原生红绿灯与侧栏内容的绝对位置不变。置顶内容不占用顶部 Chrome，而是在目录树“文件夹”之前以默认折叠的内联区域呈现；标题切换到复用 `directory-page.tsx` 的置顶汇总页，右侧箭头单独控制展开，展开后可打开文档或目录并取消置顶。Windows 与 Web 继续使用原有固定标题栏高度。
+macOS 工作区壳层把全局 Chrome 工具与系统页工具分为两个不重叠的纵向区段：主标题栏高度由 `macChromeContentTop` 计算（`WORKSPACE_PANEL_MARGIN` 为 0，壳层贴齐窗口四边），日程与视图页再以零偏移接续，其工具行与侧栏标题区对齐，而不通过负外边距侵入全局按钮区域。工作区侧边栏保留原有外层宽度和折叠边界；侧栏、主编辑区和右侧面板共同放入同一外壳并贴齐窗口，面板之间用 1px 分隔线紧密衔接，不再各自作为独立卡片，也不再保留外壳内边距或外圆角。全局搜索是系统入口的第一项，位于笔记之前；工作区切换与设置共用侧栏底栏，设置只保留行尾图标，菜单向上展开，底栏、日历与系统入口之间不再用横线分隔，紧凑工作区切换也不再显示下拉箭头。主编辑列使用 `relative z-0` 形成独立层叠上下文，避免文档编辑器 `absolute inset-0 z-10` 实例盖住左侧宽度拖拽条；右侧拖拽条仍位于编辑列之后，不受影响。macOS 顶部占位等于 `macChromeContentTop`，使原生红绿灯与侧栏内容的绝对位置不变。置顶内容不占用顶部 Chrome，而是在目录树“文件夹”之前以默认折叠的内联区域呈现；标题切换到复用 `directory-page.tsx` 的置顶汇总页，右侧箭头单独控制展开，展开后可打开文档或目录并取消置顶。Windows 与 Web 继续使用原有固定标题栏高度。
 
 Git Sync 由 `useGitAutoSync`（`components/workspace/use-git-auto-sync.ts`）统一调度：启动/切换工作区、周期定时、以及重新聚焦（去抖，默认 30s）三类触发都经过同一 in-flight 锁串行执行 `git_sync_now`，避免并发 git 进程；触发器只依赖稳定原语（enabled、intervalMs、activationKey），最新回调通过 ref 读取，因此频繁重渲染不会像旧实现那样反复清空并重排定时器导致自动同步在使用中几乎不触发。`git_sync_now`（`src-tauri/src/git.rs`）保持 fetch→提交本地→合并上游→push 的顺序并全程运行在 `spawn_blocking`，不占用 UI 线程；其返回值新增 `changedPaths`，只报告合并（pull）真正带入工作区的文件（排除刚提交的本地文件）。前端据此增量刷新受影响的树节点，并对命中变更的当前打开文档走冲突安全的外部重载路径，避免编辑器保留旧内存内容、被下一次自动保存回写而覆盖远端改动。默认冲突策略 `abort` 不自动改写数据，合并冲突时通过 toast 显著提示用户到 Git 面板处理。
 
@@ -239,7 +247,7 @@ Markune 的每次按键不得读取 `payload.markdown`、复制完整草稿到�
 
 关联面板以索引中的文档标题呈现入链、出链和未链接提及，完整路径只用于悬停提示，同名笔记补充所在文件夹。上下文经有界 Markdown 纯文本转换，截断的链接目标不进入可见摘录；标题单行、摘录最多两行。提及查询保留 16 个检索名称和 64 篇候选上限，重复请求合并，文档切换后丢弃旧结果；列表每批显示 100 项，打开文档、行号和锚点仍沿用现有导航回调。
 
-视图页复用同一索引提供列、排序、分组、属性筛选及跨笔记任务。`.markune/views.json` 只保存用户命名的视图配置，以指纹防止多窗口覆盖；笔记属性仍写回原 Markdown。属性修改使用全文预期值，任务更新以 SHA-256 和重新解析的任务标记位置保护，只改复选框字符。锁定/只读文档禁止这些写入。内置模板及 `Templates/`、`模板/`、`markuneTemplate: true` 文档支持 title/date/time 变量。
+视图页复用同一索引提供列、排序、分组、属性筛选及跨笔记任务。筛选工具、任务状态、布尔属性与从模板新建使用共享 `Select` 原语，避免原生 HTML `<select>` 在桌面端弹出系统菜单。文档列表无论是否分组都共用一张表和固定列宽，组标题作为跨列行插入，避免每组独立排列表格。`.markune/views.json` 只保存用户命名的视图配置，以指纹防止多窗口覆盖；笔记属性仍写回原 Markdown。属性修改使用全文预期值，任务更新以 SHA-256 和重新解析的任务标记位置保护，只改复选框字符。锁定/只读文档禁止这些写入。内置模板及 `Templates/`、`模板/`、`markuneTemplate: true` 文档支持 title/date/time 变量。
 
 ## Resources And Research Sources
 
