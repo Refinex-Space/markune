@@ -14,6 +14,7 @@ mod document_links;
 mod document_move_journal;
 mod drawings;
 mod export;
+mod external_open;
 mod git;
 mod graph;
 mod graph_metadata;
@@ -121,6 +122,7 @@ pub fn run() {
         .manage(drawings::DrawingState::default())
         .manage(export_state)
         .manage(import::ImportState::default())
+        .manage(external_open::ExternalOpenState::default())
         .register_uri_scheme_protocol("markune-export", move |_context, request| {
             export_protocol_state.protocol_response(&request)
         })
@@ -134,6 +136,9 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            external_open::handle_argv(app, argv);
+        }))
         .invoke_handler(tauri::generate_handler![
             codex_artifacts::read_codex_artifact,
             codex_artifacts::preview_codex_tool_image,
@@ -267,6 +272,7 @@ pub fn run() {
             system_fonts::list_system_fonts,
             window_chrome::get_macos_titlebar_metrics,
             window_opacity::set_app_window_opacity,
+            external_open::take_external_open_request,
             workspace::ensure_workspace,
             workspace::select_workspace_directory,
             workspace::open_path_in_preferred_editor,
@@ -307,8 +313,18 @@ pub fn run() {
                         .build(),
                 )?;
             }
+
+            external_open::ingest_process_args(app.handle());
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = event {
+                external_open::handle_opened_urls(app, urls);
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
+        });
 }

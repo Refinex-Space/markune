@@ -14,9 +14,17 @@ Markune 是一个以本地 Markdown 文档为核心的桌面知识库，使用 N
 - Web shell：Next.js App Router 与 React client components。
 - Editor：`components/editor/markdown-editor.tsx` 以非受控 `defaultContent` 包装 `@markweave/react@0.10.4` / `markweave@0.10.4`；Markweave 对正文执行一次 canonical whole-document parse，并在严格 Schema 校验前把混合 Markdown 段落中的块图片提升为有序兄弟节点，避免大文档因图片与相邻文本共处段落而加载失败。首次加载与后续 Markdown 更新共用同一规范化逻辑，图片开头的列表项保留必要首段落；无序列表与表格在需要时通过 HTML 回退保留块媒体结构。HTTP(S) 页面可以使用完整 Markdown lexer Worker，`tauri:` 等桌面自定义协议立即走同语义的主线程解析，避免 WKWebView 构造 Blob Worker 后静默等待超时。只有文本、选择、撤销、搜索与 TOC 完成 `ready` 后才开放编辑，视觉资源再按视口渐进补齐；`parsing`、`mounting` 与 `finalizing` 显示明确进度，加载失败时 Markune 保留本地正文并提供重新加载与源码模式恢复，不再显示无诊断白板。序列化遵循 GFM 词中下划线规则，标识符如 `doc_review_agent` 不再写成 `doc\_review\_agent`。编辑事务只保留惰性 payload 和 dirty 状态，完整 Markdown 字符串边界只位于 load/flush。源码模式动态加载 CodeMirror 6，Live/Source 切换只在边界互转一次。Slash 附件经 `onSlashCommandUpload` 写入工作区资产并以 `markune-asset://` 持久化，激活下载由 `onAttachmentDownload` 处理。
 - Workspace shell：`components/workspace/workspace-layout.tsx` 管理文档树、编辑器标签、全文搜索、Git、终端、设置、文档元信息与 AI 侧栏。左侧顶部系统入口（笔记、日程、Inbox、画板、视图、图谱、Codex）由 `workspace-system-nav.tsx` 渲染，排列与折叠偏好写入全局 `appearance.systemNavLayout` / `appearance.systemNavCollapsed`；文档树“文件夹”标题切换到复用 `directory-page.tsx` 的工作区根级总览，根级文件夹卡片继续进入既有目录详情。
-- Native boundary：前端经 `components/workspace/workspace-api.ts` 调用 Tauri 命令；实现位于 `src-tauri/src`。macOS 原生 `Markune` 菜单中的“设置…”（`⌘,`）与“检查更新…”只发出前端事件：前者复用现有设置页，后者打开“版本”并调用既有 updater 检查，不创建第二个设置窗口，也不自动安装更新。`window_chrome.rs` 只读取 macOS AppKit 红绿灯在 WKWebView 中的垂直中心数值，使 Web 标题栏控件不依赖构建 SDK 的固定偏移；`window_opacity.rs` 通过 macOS AppKit 或 Windows 分层窗口接口调整整个原生窗口的合成透明度，Web 页面不使用 CSS `opacity` 模拟该能力。
+- Native boundary：前端经 `components/workspace/workspace-api.ts` 调用 Tauri 命令；实现位于 `src-tauri/src`。macOS 原生 `Markune` 菜单中的“设置…”（`⌘,`）与“检查更新…”只发出前端事件：前者复用现有设置页，后者打开“版本”并调用既有 updater 检查，不创建第二个设置窗口，也不自动安装更新。`window_chrome.rs` 只读取 macOS AppKit 红绿灯在 WKWebView 中的垂直中心数值，使 Web 标题栏控件不依赖构建 SDK 的固定偏移；`window_opacity.rs` 通过 macOS AppKit 或 Windows 分层窗口接口调整整个原生窗口的合成透明度，Web 页面不使用 CSS `opacity` 模拟该能力。安装后的桌面包通过 `bundle.fileAssociations` 把 `.md` / `.mdx` 登记为 `Alternate` 打开方式，不抢默认应用；`external_open.rs` 消费冷启动参数、macOS `RunEvent::Opened` 和 Windows 单实例转发，解析最近的 `.markune` / `.madora` 工作区后打开该文档，并压过“恢复最近工作区”。
 - Codex runtime：`components/workspace/codex-app-server.ts` 只消费协议消息；`src-tauri/src/codex.rs` 启动随应用打包的 Codex App Server sidecar，并通过 stdio JSONL 传递允许的方法、通知与审批请求。
 - Local state：全局设置由 `src-tauri/src/settings.rs` 持久化；面板尺寸使用浏览器 local storage；AI 会话由 Codex App Server 存入用户级 Codex Home，不属于工作区状态。
+
+## External Markdown Open Boundary
+
+系统“打开方式”只覆盖 Markdown 文件，不注册目录、不注册任意文件类型、不把 Markune 设为默认处理器。`bundle.fileAssociations` 声明 `.md` / `.mdx`，`rank` 为 `Alternate`。Windows 由 NSIS 写入 OpenWithProgids；macOS 由生成的 `CFBundleDocumentTypes` 进入 Finder 打开方式。开发态 `tauri dev` 不会向系统登记关联，需安装包或显式把路径传给进程才能验收消费路径。
+
+打开请求只来自操作系统：Windows/Linux 解析进程参数，macOS 额外监听 `RunEvent::Opened`。已运行实例通过 `tauri-plugin-single-instance` 聚焦主窗口并转发参数，不新开第二个工作区进程。渲染器只能 `take_external_open_request` 取出待处理请求，或监听 `markune-external-open`；不能提交任意路径让 Rust 打开。
+
+解析在原生层完成：拒绝符号链接、非普通文件和非 Markdown 扩展名；向上查找最近的 `.markune/` 或旧 `.madora/` 作为工作区根；找不到则使用文件所在目录。位于工作区私有目录内的文件必须失败关闭。成功后前端复用现有 `loadWorkspace` / 文档标签打开流，品牌迁移阻断仍然有效。目录右键“用 Markune 打开”不属于当前边界。
 
 ## Brand Migration Boundary
 

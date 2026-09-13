@@ -62,6 +62,17 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "fileAssociations": [
+      {
+        "name": "Markdown",
+        "description": "Markdown Document",
+        "ext": ["md", "mdx"],
+        "mimeType": "text/markdown",
+        "role": "Editor",
+        "rank": "Alternate",
+        "contentTypes": ["net.daringfireball.markdown"]
+      }
+    ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
     }

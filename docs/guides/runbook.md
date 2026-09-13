@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-06
+updated: 2026-09-12
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -74,6 +74,15 @@ cargo test --manifest-path src-tauri/Cargo.toml workspace::tests --lib
 连续输入期间做外部改写，确认 500 ms 尚未 flush 的输入也被保留，重复事件不会覆盖冲突草稿；分别确认加载磁盘版本和用当前版本覆盖。触碰时间戳或应用自身保存时，编辑器不能闪烁或重置选区。删除当前文件应保留正文并报告错误；文件恢复后刷新应能重新读取。切换工作区、休眠恢复及关闭窗口后检查旧监听已释放，迟到结果不进入新工作区。
 
 当前自动化包含本机真实文件事件、同时间戳改写、并发保存及符号链接回归。Windows/Linux、网络盘、云盘占位文件和超大知识库必须分别验收，不能以 Chromium 或 macOS 临时目录结果代替；监听不可用时应展示每 3 秒复核的降级提示。
+
+## Markdown Open With Acceptance
+
+```bash
+pnpm exec vitest run components/workspace/__tests__/use-workspace-open.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml external_open --lib
+```
+
+安装后的桌面包才能出现在系统打开方式中；`pnpm desktop:dev` 只验证消费路径。用已安装应用右键 `.md` / `.mdx`，确认打开方式列表含 Markune 且不是默认项。冷启动应打开所属工作区并选中该文档，而不是恢复最近工作区；应用已开时再打开另一篇应聚焦同一窗口。位于 `.markune/` 内的文件必须拒绝。卸载后打开方式中不应再列出 Markune。
 
 ## Large-document Acceptance
 

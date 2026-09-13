@@ -2530,6 +2530,40 @@ export function WorkspaceLayout({
     [openDocumentNode, revealNodeInWorkspaceTree, workspace.snapshot?.nodes],
   );
 
+  React.useEffect(() => {
+    const pending = workspace.pendingExternalOpen;
+    if (
+      !pending ||
+      !workspace.snapshot ||
+      workspace.snapshot.rootPath !== pending.workspaceRoot
+    ) {
+      return;
+    }
+
+    const node = findWorkspaceDocumentByPath(
+      workspace.snapshot.nodes,
+      pending.documentPath,
+    );
+    const timer = window.setTimeout(() => {
+      workspace.clearPendingExternalOpen();
+      if (!node) {
+        console.warn('系统打开的 Markdown 不在当前工作区目录树中');
+        return;
+      }
+
+      revealNodeInWorkspaceTree(node.absolutePath);
+      void openDocumentNode(node);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    openDocumentNode,
+    revealNodeInWorkspaceTree,
+    workspace.clearPendingExternalOpen,
+    workspace.pendingExternalOpen,
+    workspace.snapshot,
+  ]);
+
   const handleOpenAiDocument = React.useCallback(
     (documentPath: string) => {
       if (systemPage === 'codex') {

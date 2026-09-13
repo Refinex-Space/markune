@@ -302,6 +302,12 @@ export interface WorkspaceHistoryItem {
   lastOpenedAt: number;
 }
 
+export interface ExternalOpenRequest {
+  id: number;
+  workspaceRoot: string;
+  documentPath: string;
+}
+
 export interface WorkspaceSearchResult {
   id: string;
   name: string;

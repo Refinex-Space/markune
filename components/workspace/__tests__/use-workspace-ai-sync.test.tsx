@@ -6,6 +6,9 @@ import { useWorkspace } from '../use-workspace';
 const api = vi.hoisted(() => ({
   getRecentWorkspacePath: vi.fn(() => null),
   getWorkspaceHistory: vi.fn(() => []),
+  isTauriRuntime: vi.fn(() => false),
+  takeExternalOpenRequest: vi.fn(async () => null),
+  subscribeToExternalOpen: vi.fn(async () => () => undefined),
   readMarkdownDocument: vi.fn(),
   refreshWorkspaceNode: vi.fn(),
   loadWorkspaceTree: vi.fn(),

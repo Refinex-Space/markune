@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-09
+updated: 2026-09-12
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -17,6 +17,7 @@ referenced_by: AGENTS.md#knowledge-map
 - `src-tauri/capabilities/default.json`、Tauri 插件、shell/process 能力和资源协议范围均为安全敏感区域。
 - 未经明确批准不得扩大文件系统、进程、shell、opener 或资源协议权限。
 - 终端和 Git 操作只可作用于已选择工作区根目录。
+- 系统 Markdown 打开方式只登记 `.md` / `.mdx` 且 `rank` 为 `Alternate`，不得登记 `*`、目录或把 Markune 设为默认应用。外部打开路径只来自操作系统参数或 `Opened` 事件，必须 canonicalize、拒绝符号链接和工作区私有文件，再交给现有工作区命令；不得因此扩大 `fs` 插件、capability 或 `assetProtocol.scope`。`tauri-plugin-single-instance` 只在原生层转发第二次启动，不新增前端权限。
 
 ## Knowledge Graph Reading
 

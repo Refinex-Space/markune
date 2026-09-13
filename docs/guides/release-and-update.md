@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-11
+updated: 2026-09-12
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -121,8 +121,8 @@ Tag 与人工发布工作流按以下顺序执行：
 
 正式发布前至少验证三个安装目标：
 
-- Apple Silicon 与 Intel Mac 分别从 Draft 下载 DMG，验证启动、首次系统放行、工作区读写和覆盖安装；
-- Windows x64 从 Draft 下载 NSIS，验证 SmartScreen 提示、安装、启动、覆盖升级与卸载；
+- Apple Silicon 与 Intel Mac 分别从 Draft 下载 DMG，验证启动、首次系统放行、工作区读写、覆盖安装，以及 `.md` / `.mdx` 打开方式出现 Markune 且不是默认应用；
+- Windows x64 从 Draft 下载 NSIS，验证 SmartScreen 提示、安装、启动、覆盖升级、卸载，以及资源管理器打开方式列出 Markune；卸载后该项应消失；
 - updater archive 与 `.sig` 由工作流校验，不能用系统安装包测试替代。
 
 从第二个版本开始还必须在三个目标分别执行 N-1 → N：

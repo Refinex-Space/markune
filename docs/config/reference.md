@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-09
+updated: 2026-09-12
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -61,6 +61,7 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 - Next.js 开发产物写入 `.next-dev`，生产构建与桌面静态导出仍写入 `.next`；两者必须保持隔离，避免运行中的开发服务因并行构建清理产物而失效。
 - 普通开发与 Web 构建使用 `tsconfig.json`，桌面静态导出在 `NEXT_OUTPUT=export` 时改用 `tsconfig.desktop.json`；桌面配置只检查 `.next` 类型并明确排除 `.next-dev`，避免临时移走 `app/api` 时读取开发服务生成的路由校验文件。
 - `frontendDist` 为 `../out`，桌面构建依赖静态导出产物。
+- `bundle.fileAssociations` 登记 `.md` 与 `.mdx`，`role` 为 `Editor`、`rank` 为 `Alternate`，使安装后的应用出现在系统打开方式中，但不抢 Markdown 默认应用。该登记由安装器写入；`pnpm desktop:dev` 不会修改系统关联。
 - 资源协议的静态范围仅允许 `$HOME/**/.markune/assets/files/**/*`。对于用户目录外、Windows 非系统盘或 macOS 外置卷上的工作区，Rust 仅在资产已经通过当前工作区索引、canonicalize 和 `.markune/assets/files` 边界校验后，向当前进程动态授权解析出的单个文件；不得授权整个工作区、磁盘或卷。
 - opener 插件关闭了自动接管 `target="_blank"` 链接的全局点击脚本；桌面外链必须显式调用 `openUrl`，避免覆盖编辑器自身的链接交互规则。
 - `bundle.externalBin` 包含 `binaries/codex`、`binaries/codex-code-mode-host`、`binaries/pandoc` 和 `binaries/typst`。Codex 主程序与辅助宿主必须随包放在同一目录。`desktop:dev` 会在 Tauri 文件监听启动前运行幂等 staging，避免写入 `src-tauri` 时触发重复启动；桌面构建仍在 `beforeBuildCommand` 中 staging。生成的目标平台二进制位于 `src-tauri/binaries/*-{target-triple}` 且被 Git 忽略。

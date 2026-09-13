@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-09
+updated: 2026-09-12
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -26,6 +26,7 @@ referenced_by: AGENTS.md#knowledge-map
 - `set_app_window_opacity(opacity)` 只接受 `70`–`100` 的整数百分比，并调整当前原生应用窗口的整体合成透明度。macOS 使用 AppKit，Windows 使用分层窗口 alpha；前端拖动时可以高频预览，但设置文件仅在交互提交后写入。非桌面环境不得用 CSS 内容透明度伪造窗口效果。
 - `get_macos_titlebar_metrics() -> { trafficLightCenterY } | null` 只读 AppKit 原生关闭按钮在当前 WKWebView 坐标系中的垂直中心，供左上角 Web 控件对齐；返回值只包含经过有限值与标题栏范围校验的逻辑像素，不暴露原生句柄、窗口内容或设备信息，非 macOS 返回 `null`。
 - `select_workspace_directory() -> string | null` 通过原生文件夹选择器打开工作区根目录；取消返回 `null`，成功返回 canonicalize 后的本地目录绝对路径。打开/新建工作区不得再依赖前端 `@tauri-apps/plugin-dialog` 的 `open()`。
+- `take_external_open_request() -> { id, workspaceRoot, documentPath } | null` 取出并清除最近一次系统“打开方式”请求。路径已由 Rust 解析为工作区根与 Markdown 文档；渲染器不得把任意路径提交给该命令。后续打开通过事件 `markune-external-open` 送达同一结构。
 - `load_workspace_tree(rootPath)` / `ensure_workspace(rootPath)` / `create_workspace_root(parentPath, workspaceName)` 继续作为工作区树读取、元数据初始化与新建入口。
 - `inspect_workspace_brand(rootPath) -> { state }` 是加载既有工作区前的只读品牌检查，`state` 只能为 `new | current | legacy | conflict`。前端在 `legacy` 或 `conflict` 状态不得继续调用工作区树读取和初始化命令。
 - `migrate_legacy_workspace_brand(rootPath) -> WorkspaceBrandMigrationReport` 只能由用户在品牌迁移弹窗明确确认后调用。命令返回备份相对路径、改写文件数、设置/provider/凭据迁移状态和警告；目录并存、符号链接、路径逃逸、超限文件或事务失败必须返回错误，不能静默部分成功。

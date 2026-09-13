@@ -2,6 +2,9 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({
+  isTauriRuntime: vi.fn(() => false),
+  takeExternalOpenRequest: vi.fn(async () => null),
+  subscribeToExternalOpen: vi.fn(async () => () => undefined),
   createMarkdownDocument: vi.fn(),
   createWorkspaceDirectory: vi.fn(),
   createWorkspaceRoot: vi.fn(),
@@ -53,6 +56,9 @@ describe('useWorkspace open workspace', () => {
     api.getWorkspaceHistory.mockReturnValue([]);
     api.ensureWorkspace.mockResolvedValue({ recentDocumentPaths: [] });
     api.inspectWorkspaceBrand.mockResolvedValue({ state: 'current' });
+    api.isTauriRuntime.mockReturnValue(false);
+    api.takeExternalOpenRequest.mockResolvedValue(null);
+    api.subscribeToExternalOpen.mockResolvedValue(() => undefined);
   });
 
   it('does not let a stale auto-restore failure clear a newer successful open', async () => {
@@ -265,5 +271,73 @@ describe('useWorkspace open workspace', () => {
 
     expect(result.current.snapshot?.rootPath).toBe('/workspace/current');
     expect(result.current.pendingBrandMigration).toBeNull();
+  });
+
+  it('opens a system Markdown request instead of restoring the recent workspace', async () => {
+    api.isTauriRuntime.mockReturnValue(true);
+    api.getRecentWorkspacePath.mockReturnValue('/workspace/stale');
+    api.takeExternalOpenRequest.mockResolvedValue({
+      id: 7,
+      workspaceRoot: '/vault',
+      documentPath: '/vault/notes/guide.md',
+    });
+    api.loadWorkspaceTree.mockImplementation(async (rootPath: string) =>
+      snapshotFor(rootPath),
+    );
+
+    const { result } = renderHook(() => useWorkspace(null));
+
+    await waitFor(() => {
+      expect(result.current.snapshot?.rootPath).toBe('/vault');
+    });
+
+    expect(api.loadWorkspaceTree).toHaveBeenCalledWith('/vault');
+    expect(api.loadWorkspaceTree).not.toHaveBeenCalledWith('/workspace/stale');
+    expect(result.current.pendingExternalOpen).toEqual({
+      id: 7,
+      workspaceRoot: '/vault',
+      documentPath: '/vault/notes/guide.md',
+    });
+  });
+
+  it('forwards a later system open onto the already loaded workspace', async () => {
+    api.isTauriRuntime.mockReturnValue(true);
+    let emitExternalOpen:
+      | ((request: {
+          id: number;
+          workspaceRoot: string;
+          documentPath: string;
+        }) => void)
+      | undefined;
+    api.subscribeToExternalOpen.mockImplementation(async (onOpen) => {
+      emitExternalOpen = onOpen;
+      return () => {
+        emitExternalOpen = undefined;
+      };
+    });
+    api.loadWorkspaceTree.mockImplementation(async (rootPath: string) =>
+      snapshotFor(rootPath),
+    );
+
+    const { result } = renderHook(() => useWorkspace(snapshotFor('/vault')));
+
+    await waitFor(() => {
+      expect(emitExternalOpen).toBeTypeOf('function');
+    });
+
+    await act(async () => {
+      emitExternalOpen?.({
+        id: 9,
+        workspaceRoot: '/vault',
+        documentPath: '/vault/b.md',
+      });
+    });
+
+    expect(result.current.pendingExternalOpen).toEqual({
+      id: 9,
+      workspaceRoot: '/vault',
+      documentPath: '/vault/b.md',
+    });
+    expect(api.loadWorkspaceTree).not.toHaveBeenCalled();
   });
 });

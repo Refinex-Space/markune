@@ -25,6 +25,9 @@ import {
   selectWorkspaceRoot,
   setWorkspaceNodeState,
   setTreeNodeAppearance,
+  isTauriRuntime,
+  subscribeToExternalOpen,
+  takeExternalOpenRequest,
 } from './workspace-api';
 import { migrateLegacyBrowserStorage } from './brand-migration';
 import {
@@ -54,6 +57,7 @@ import type {
   WorkspaceNode,
   WorkspaceSnapshot,
   TreeNodeAppearance,
+  ExternalOpenRequest,
 } from './workspace-types';
 
 
@@ -129,11 +133,14 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   >(null);
   const [initialRecentDocumentPaths, setInitialRecentDocumentPaths] =
     React.useState<string[]>([]);
+  const [pendingExternalOpen, setPendingExternalOpen] =
+    React.useState<ExternalOpenRequest | null>(null);
 
   const suppressNextAutoRestoreRef = React.useRef(false);
   const loadWorkspaceRequestIdRef = React.useRef(0);
   const documentOpenRequestIdRef = React.useRef(0);
   const autoRestoreAttemptedRef = React.useRef(false);
+  const appliedExternalOpenIdsRef = React.useRef(new Set<number>());
   const currentDirectory = React.useMemo(() => {
     if (!snapshot || !currentDirectoryPath) {
       return null;
@@ -378,6 +385,29 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     },
     [resetDocumentState, setSnapshot],
   );
+
+  const applyExternalOpen = React.useCallback(
+    async (request: ExternalOpenRequest) => {
+      if (appliedExternalOpenIdsRef.current.has(request.id)) {
+        return;
+      }
+
+      appliedExternalOpenIdsRef.current.add(request.id);
+      autoRestoreAttemptedRef.current = true;
+      setPendingExternalOpen(request);
+
+      if (snapshotRef.current?.rootPath === request.workspaceRoot) {
+        return;
+      }
+
+      await loadWorkspace(request.workspaceRoot, { reason: 'user' });
+    },
+    [loadWorkspace],
+  );
+
+  const clearPendingExternalOpen = React.useCallback(() => {
+    setPendingExternalOpen(null);
+  }, []);
 
   const saveCurrentDocumentNow = React.useCallback(
     async (draftOverride?: MarkdownDraft | null) => {
@@ -1310,6 +1340,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   const cancelBrandMigration = React.useCallback(() => {
     suppressNextAutoRestoreRef.current = true;
     setPendingBrandMigration(null);
+    setPendingExternalOpen(null);
   }, []);
 
   const migratePendingBrandWorkspace = React.useCallback(async () => {
@@ -1359,6 +1390,10 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       return;
     }
 
+    if (isTauriRuntime()) {
+      return;
+    }
+
     const recentPath = getRecentWorkspacePath();
 
     if (recentPath) {
@@ -1368,6 +1403,65 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       });
     }
   }, [loadWorkspace, pendingBrandMigration, snapshot]);
+
+  React.useEffect(() => {
+    if (!isTauriRuntime()) {
+      return;
+    }
+
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    void (async () => {
+      try {
+        unlisten = await subscribeToExternalOpen((request) => {
+          if (!disposed) {
+            void applyExternalOpen(request);
+          }
+        });
+      } catch (error) {
+        console.error('注册系统打开事件失败', error);
+      }
+
+      if (disposed) {
+        unlisten?.();
+        return;
+      }
+
+      try {
+        const pending = await takeExternalOpenRequest();
+        if (disposed) {
+          return;
+        }
+        if (pending) {
+          await applyExternalOpen(pending);
+          return;
+        }
+      } catch (error) {
+        console.error('读取系统打开请求失败', error);
+      }
+
+      if (
+        disposed ||
+        snapshotRef.current ||
+        suppressNextAutoRestoreRef.current ||
+        autoRestoreAttemptedRef.current
+      ) {
+        return;
+      }
+
+      const recentPath = getRecentWorkspacePath();
+      if (recentPath) {
+        autoRestoreAttemptedRef.current = true;
+        void loadWorkspace(recentPath, { reason: 'auto-restore' });
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [applyExternalOpen, loadWorkspace]);
 
   React.useEffect(() => {
     return () => {
@@ -1409,6 +1503,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     selectDirectory,
     openWorkspace,
     pendingBrandMigration,
+    pendingExternalOpen,
     pendingRenameNodePath,
     prepareCurrentDocumentForAi,
     refreshWorkspaceNode,
@@ -1430,6 +1525,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     syncAppliedMarkdownDocument,
     syncExternalMarkdownDocument,
     clearPendingRenameNode,
+    clearPendingExternalOpen,
     snapshot,
     switchWorkspace: loadWorkspace,
     updateMarkdown,
