@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-12
+updated: 2026-09-13
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -11,7 +11,7 @@ referenced_by: AGENTS.md#knowledge-map
 
 - `pnpm dev`：先执行 `pnpm runtime:stage`，再在固定的 `3000` 端口启动 Next.js 开发服务；端口已被占用时直接失败，不回退到其他端口。
 - `pnpm desktop:dev`：先在 Tauri 文件监听启动前准备 Codex 与专业文档导出 sidecar，再启动 Tauri 开发模式。
-- `pnpm codex:stage`：从固定版本 `@openai/codex` 平台包同时复制 `codex` 与 `codex-code-mode-host`，校验主程序版本、两项 SHA256 和可执行性。
+- `pnpm codex:stage`：从固定版本 `@openai/codex` 平台包同时复制 `codex` 与 `codex-code-mode-host`，校验主程序版本、两项 SHA256 和可执行性。当前平台的 `@openai/codex-<os>-<arch>` optionalDependency 必须已解压；缺少该包时脚本失败，需完整 `pnpm install --frozen-lockfile`，不能用 `--offline` 或 `--ignore-scripts` 跳过。
 - `pnpm document-export:stage`：下载并校验当前目标的 Pandoc 3.10.1、Typst 0.15.1 及对应许可证文本，生成被 Git 忽略的 Tauri sidecar；成功缓存后重复执行是幂等的。
 - `pnpm test:run`：运行一次 Vitest。
 - `pnpm lint`：运行 ESLint。
@@ -49,7 +49,7 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 - `MARKUNE_PANDOC_BIN` / `MARKUNE_TYPST_BIN`：只供 `document-export:stage` 在离线构建环境复制精确锁定版本，不是应用运行时路径覆盖。版本探测不匹配时 staging 失败。
 - `MARKUNE_DOCUMENT_EXPORT_ENGINE=legacy`：运行时诊断/紧急回滚开关，使 PDF 与 Word 使用原兼容引擎；默认值和其他值都优先使用专业引擎。
 - `CODEX_HOME`：可选的共享 Codex 用户状态目录。未设置时 Markune 使用 `~/.codex`；显式值必须是工作区之外的既有绝对目录。Markune 会把解析后的值显式传给 App Server sidecar，以共享 ChatGPT/Codex CLI 的认证、配置、技能、MCP 与线程历史。
-- `CODEX_SQLITE_HOME`：不控制 Markune 启动的 sidecar。Markune 会从子进程环境移除此变量，并以 `-c sqlite_home="<CODEX_HOME>"` 固定 SQLite 投影目录，防止相对路径按工作区 `cwd` 解析或项目配置把运行时状态写入知识库。
+- `CODEX_SQLITE_HOME`：不控制 Markune 启动的 sidecar。Markune 会从子进程环境移除此变量，并以 `-c sqlite_home="<CODEX_HOME>"` 固定 SQLite 投影目录，防止相对路径按工作区 `cwd` 解析或项目配置把运行时状态写入知识库。同一 sidecar 还会注入 `features.browser_use=false`、`features.browser_use_external=false`、`features.browser_use_full_cdp_access=false`、`features.computer_use=false` 与 `features.in_app_browser=false`，仅作用于 Markune 进程，不改用户 `config.toml`。
 - `MARKUNE_CODEX_PROVIDER_API_KEY`：仅由桌面宿主在启用 `markune_custom` provider 时注入到 Codex sidecar 进程环境；对应 `CODEX_HOME/config.toml` 中 `[model_providers.markune_custom].env_key`。用户不应手动配置该变量，明文 Key 只存放在 OS keyring。
 - `MARKUNE_UPDATER_PUBLIC_KEY`：只在发布构建时提供 Tauri CLI 生成的 `.key.pub` 文件原始单行 Base64 内容，由 `release:prepare` 校验解码后的 minisign 结构并写入 `.tauri-build/tauri.release.generated.json`。脚本兼容完整两行 minisign 输入并自动规范化为 Base64；普通开发和 Web 构建不需要该变量。
 - `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`：只允许存在于 GitHub Actions Secrets 或受控本机发布环境，用于生成 updater artifact 签名；不得写入仓库、生成配置或日志。

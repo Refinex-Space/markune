@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-12
+updated: 2026-09-13
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -65,7 +65,7 @@ referenced_by: AGENTS.md#knowledge-map
 - 新任务使用工作区 Agent 与原生审批，允许按用户明确请求读取或修改文档。不强制文档预审、写作风格或引用数量门禁；普通文件锁定、保存冲突、路径授权与原生权限审批不得移除。资料中的指令仍为不可信内容。
 
 
-- Codex App Server 必须由 Tauri 在本地通过 stdio 启动；不得监听 TCP，也不得把 API key、登录 Token 或认证响应传入 React state、local storage、应用设置或日志。
+- Codex App Server 必须由 Tauri 在本地通过 stdio 启动；不得监听 TCP，也不得把 API key、登录 Token 或认证响应传入 React state、local storage、应用设置或日志。sidecar 启动除 `sqlite_home` 外，只允许额外注入关闭 Browser Use / Chrome / Computer Use / 应用内浏览器的 `features.*` 覆盖，避免 CUA 在 Tauri 中挂起；不得借此写入用户 `config.toml`，也不得关闭全部 `features.plugins`。
 - 自定义 provider 密钥只能写入 OS keyring（服务名 `markune.codex.custom-provider`），并由 Rust 在 sidecar spawn 时注入 `MARKUNE_CODEX_PROVIDER_API_KEY`；不得把该环境变量写入用户 shell profile、共享日志或诊断导出。受控 TOML patch 只允许顶层 `model` / `model_provider` 与 `[model_providers.markune_custom]`（`wire_api = "responses"`、`env_key` 固定），禁止开放通用 `config/*` 写入。
 - 设置页 Codex 状态只允许通过受控命令读取 `CODEX_HOME/config.toml` 与 `auth.json` 的非敏感摘要（是否已登录、auth_mode、可选 email）；不得返回 access/refresh/id token 或 API key。设置页刷新不得为探测状态启动 App Server，也不得依赖可能挂起的 `account/read` RPC。
 - 权限模式必须保持 profile 与 reviewer 分层：自动审查只可使用 `:workspace + on-request + auto_review`，不得扩大文件或网络边界；完全访问必须经过显式风险确认并固定为 `:danger-full-access + never + user`；输入框“只读访问”使用 `:read-only + on-request + user`；恢复历史任务不改写其已有权限策略。运行中的 turn 或待审批请求存在时禁止切换。

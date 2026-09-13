@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-09
+updated: 2026-09-13
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -51,7 +51,7 @@ AI 面板只提供统一的 Codex Agent。新任务默认 `:workspace + on-reque
 
 聊天页不挂载上下文检查窗口，不自动读取诊断用的指令文件和 Hooks 清单。原生只读清单命令与诊断代码保留供故障定位；模型、权限、Skills 和令牌用量由现有输入框入口展示。诊断信息不代表模型完整上下文，指令存在不等于完整装载。模型写作质量、召回效果与竞品优势仍需独立评测，Goal 状态不是验收结论。
 
-画图工具兼容提示只在活动图稿或明确提及图稿/绘图 Skill 时出现，普通问答不提示；发送需要画图工具的请求仍自动创建具有工具支持的新任务。
+画图工具兼容提示只在活动图稿或明确提及图稿/绘图 Skill 时出现，普通问答不提示；发送需要画图工具的请求仍自动创建具有工具支持的新任务。Markune 桌面宿主关闭 Codex 捆绑的 Chrome / Browser Use / Computer Use：这些工具会调用 `cua.getState()` 并在 Tauri 中超时，模型随后会误报“图稿通道异常”。图稿只能走 `markune_drawing`。该关闭通过 sidecar `-c` 与 `thread/start.config` 完成，不写入用户 `config.toml`，也不禁用 `features.plugins` 或用户 MCP。
 
 ## 验证与回退
 

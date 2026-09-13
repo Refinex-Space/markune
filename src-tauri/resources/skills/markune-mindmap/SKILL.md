@@ -26,6 +26,7 @@ Create a semantic tree, preview it, and only apply or create the exact preview a
 ## Safety
 
 - Use only the `markune_drawing` namespace for inspection, preview, application, and creation.
+- Never use Chrome, Browser Use, Computer Use, `cua.getState()`, or any browser automation. Markune is a local desktop WebView, not a Chrome page.
 - Inspect only Drawing IDs authorized in the current turn context.
 - Never read or write `.markune/drawings` directly.
 - Modify only the turn-bound active `mindmap`, and only through `apply_preview_to_active`. Explicitly mentioned Drawings remain read-only.

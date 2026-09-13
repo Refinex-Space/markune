@@ -17,12 +17,16 @@ import { fileURLToPath } from 'node:url';
 export function codexPackageBin(target = resolveTarget()) {
   const require = createRequire(import.meta.url);
   const packagePath = require.resolve('@openai/codex/package.json');
-  const codexRequire = createRequire(packagePath);
-  return dirname(
-    codexRequire.resolve(
-      `@openai/codex-${target.packageSuffix}/vendor/${target.vendorTriple}/bin/codex${target.extension}`,
-    ),
-  );
+  const spec = `@openai/codex-${target.packageSuffix}`;
+  const binary = `${spec}/vendor/${target.vendorTriple}/bin/codex${target.extension}`;
+  try {
+    return dirname(createRequire(packagePath).resolve(binary));
+  } catch (error) {
+    if (error?.code !== 'MODULE_NOT_FOUND') throw error;
+    throw new Error(
+      `缺少当前平台 Codex sidecar 包 ${spec}。请运行完整 pnpm install --frozen-lockfile 解压 @openai/codex 的 optionalDependencies；不要用 --offline 或 --ignore-scripts 跳过平台二进制。`,
+    );
+  }
 }
 
 export async function stageCodexSidecars({

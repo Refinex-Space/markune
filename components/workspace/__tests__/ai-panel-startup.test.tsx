@@ -1347,6 +1347,59 @@ describe('AI panel startup lifecycle', () => {
     expect(images?.[1]?.getAttribute('src')).toBe('data:image/png;base64,ZGFyaw==');
   });
 
+  it('加号菜单隐藏 Codex 捆绑的 Chrome/CUA 插件，保留其他已安装插件', async () => {
+    const user = userEvent.setup();
+    bridge.request.mockImplementation((method: string) =>
+      Promise.resolve(
+        method === 'plugin/installed'
+          ? {
+              marketplaces: [
+                {
+                  name: 'openai-bundled',
+                  plugins: [
+                    {
+                      availability: 'AVAILABLE',
+                      enabled: true,
+                      id: 'chrome@openai-bundled',
+                      installed: true,
+                      interface: {
+                        displayName: 'Chrome',
+                        shortDescription: 'Control Google Chrome',
+                      },
+                      name: 'chrome',
+                    },
+                    {
+                      availability: 'AVAILABLE',
+                      enabled: true,
+                      id: 'documents@openai',
+                      installed: true,
+                      interface: {
+                        displayName: 'Documents',
+                        shortDescription: 'Create and edit documents',
+                      },
+                      name: 'documents',
+                    },
+                  ],
+                },
+              ],
+              marketplaceLoadErrors: [],
+            }
+          : defaultResponse(method),
+      ),
+    );
+    renderPanel();
+
+    await waitFor(() =>
+      expect(bridge.request).toHaveBeenCalledWith('plugin/installed', {
+        cwds: ['/workspace'],
+        installSuggestionPluginNames: [],
+      }),
+    );
+    await user.click(screen.getByRole('button', { name: '添加上下文与工具' }));
+    expect(await screen.findByText('Documents')).toBeTruthy();
+    expect(screen.queryByText('Chrome')).toBeNull();
+  });
+
   it('单个本地图标读取失败时继续展示插件并降级到安全的 HTTPS 图标', async () => {
     const user = userEvent.setup();
     bridge.readPluginIcon.mockRejectedValue(new Error('icon unavailable'));
@@ -2112,10 +2165,25 @@ it('uses one ordinary Agent for document questions and edits without review cont
   await user.click(screen.getByRole('button', { name: '发送', exact: true }));
   await waitFor(() => expect(bridge.request).toHaveBeenCalledWith('turn/start', expect.anything()));
   const start = bridge.request.mock.calls.find(([method]) => method === 'thread/start')![1];
-  expect(start).toMatchObject({ permissions: ':workspace', approvalPolicy: 'on-request', approvalsReviewer: 'user', config: { web_search: 'live' } });
+  expect(start).toMatchObject({
+    permissions: ':workspace',
+    approvalPolicy: 'on-request',
+    approvalsReviewer: 'user',
+    config: {
+      web_search: 'live',
+      'features.browser_use': false,
+      'features.browser_use_external': false,
+      'features.browser_use_full_cdp_access': false,
+      'features.computer_use': false,
+      'features.in_app_browser': false,
+    },
+  });
   expect(start).not.toHaveProperty('markuneWritingMode');
   expect(start.developerInstructions).not.toMatch(/预审|质量门禁|必须保留.*引用/);
+  expect(start.developerInstructions).toMatch(/markune_drawing/);
+  expect(start.developerInstructions).toMatch(/cua\.getState\(\)/);
   expect(start.config).not.toHaveProperty('features.apps');
+  expect(start.config).not.toHaveProperty('features.plugins');
   act(() => {
     protocolSubscriber?.({ method: 'item/completed', params: { threadId: 'thread-1', turnId: 'turn-1', item: { id: 'answer', type: 'agentMessage', phase: 'final_answer', text: '文档主要介绍工作流程。' } } });
     protocolSubscriber?.({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed', items: [] } } });

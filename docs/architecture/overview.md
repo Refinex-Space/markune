@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-12
+updated: 2026-09-13
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -144,11 +144,11 @@ AI 面板是工作区级 App Server 客户端。固定 0.153.4 的协议、运�
 
 AI 画图是宿主内的受控 Codex 能力，不接入远程 Excalidraw MCP UI。随应用打包的 `markune-diagram` Skill 负责检查当前或显式提及图稿、收敛单一视角、选择图型和质量 profile、编排 Mermaid，并根据预览最多修复两轮；Rust 在新线程中固定注入 `markune_drawing.inspect_drawing`、两类 preview 工具、`markune_drawing.apply_preview_to_active` 与 `markune_drawing.create_from_preview`，渲染器不能提供其他 dynamic tools。`inspect_drawing` 只接受当前 turn 已授权的 Drawing UUID，返回去除 files/blob 的有界元素结构和可选 PNG/WebP 预览。Mermaid 编译器只在工具调用时动态加载，成功结果必须是可编辑 Excalidraw 元素，SVG/image fallback 会作为失败返回；编译后按 `architecture | flow | default` profile 计算交叉、穿越节点、关系和分组预算、扇出、转折、逆向关系、重叠、标签裁切与画布比例，返回确定性的 grade、blockers 和 repair suggestions。预览按工作区和 turn 保存在前端内存中，最多 3 个且 10 分钟有效；未达 A 级或存在 blocker 的预览保留供模型检查，但应用和创建都必须失败关闭。模型只能提交 opaque `previewId`：活动图稿改写由 Rust 注入本 turn 绑定的 Drawing ID、kind 与 revision，前端再次校验后复用普通原子保存、备份和冲突机制；显式提及图稿始终只读。用户明确要求新建或副本、或没有活动图稿时才走 generated-create。
 
-随应用打包的 `markune-mindmap` Skill 通过同一命名空间调用 `preview_mindmap { title, direction, root }`。`markune-diagram` 与 `markune-mindmap` 依靠互斥且有界的 description 参与 Codex 隐式 Skill 选择；AI 面板标题栏不固定插入任一绘图 Skill，用户仍可通过 `/` 显式选择。模型只提供递归 `topic/children`，编译器生成稳定节点 ID、Markune 主题和规范 Mind Elixir 数据；模型不能控制 ID、主题、样式、链接、图片、存储路径或目标图集。脑图 A 级门禁限制 80 个节点、6 层、每节点 8 个直接子节点和 48 字符标题，并拒绝重复内容与极端横向比例。每个 turn 与白板共用三次预览上限；活动脑图的改写应用到原图并重新载入编辑器，没有活动图稿或用户明确要求副本时才锁定宿主派生的目标图集并新建。
+随应用打包的 `markune-mindmap` Skill 通过同一命名空间调用 `preview_mindmap { title, direction, root }`。`markune-diagram` 与 `markune-mindmap` 依靠互斥且有界的 description 参与 Codex 隐式 Skill 选择；AI 面板标题栏不固定插入任一绘图 Skill，用户仍可通过 `/` 显式选择。模型只提供递归 `topic/children`，编译器生成稳定节点 ID、Markune 主题和规范 Mind Elixir 数据；模型不能控制 ID、主题、样式、链接、图片、存储路径或目标图集。脑图 A 级门禁限制 80 个节点、6 层、每节点 8 个直接子节点和 48 字符标题，并拒绝重复内容与极端横向比例。每个 turn 与白板共用三次预览上限；活动脑图的改写应用到原图并重新载入编辑器，没有活动图稿或用户明确要求副本时才锁定宿主派生的目标图集并新建。离屏预览 `exportPng` 必须在 8 秒内完成，超时作为工具失败返回，避免阻塞 App Server。Markune 不是 Chrome 页面；图稿理解与改写不得走 Chrome / Browser Use / Computer Use / `cua.getState()`，这些捆绑自动化在 Tauri WebView 中会卡到 `js execution timed out; kernel reset`。
 
 生成图稿继续复用 Drawing Raw IPC，但使用独立 generated-create session。场景与 PNG/WebP 预览完整暂存并通过 Rust 校验后，revision 1 bundle 才从 `.staging` 原子 rename 到当前普通图集或未归类根目录；任何失败都不创建空白 bundle。成功后前端刷新图稿库、切换到 Drawings system page 并打开结果，后续保存、备份、冲突和导出完全复用普通图稿流程。
 
-Codex 运行时在工作区根目录就绪后后台预热，关闭右侧 AI 面板只隐藏视图，不卸载会话组件或终止 App Server。启动采用分层加载：App Server、账户与权限约束构成可发送消息的核心就绪条件，模型目录、线程历史、当前工作区的已安装插件与 Skill 在核心就绪后后台加载。Markune 不为输入框菜单预取 MCP inventory，也不在普通 Agent 任务开始前额外禁用用户的连接器或插件。模型、历史、插件或 Skill 加载慢或失败都不得退回全屏“正在连接”状态，也不得阻塞使用服务端默认模型发送消息。用户在核心握手期间可以编辑并提交，提交操作等待同一个启动 Promise，核心成功后继续执行，失败时保留草稿并显示错误。
+Codex 运行时在工作区根目录就绪后后台预热，关闭右侧 AI 面板只隐藏视图，不卸载会话组件或终止 App Server。启动采用分层加载：App Server、账户与权限约束构成可发送消息的核心就绪条件，模型目录、线程历史、当前工作区的已安装插件与 Skill 在核心就绪后后台加载。Markune 不为输入框菜单预取 MCP inventory，也不在普通 Agent 任务开始前禁用用户的连接器或其他插件。固定 sidecar 启动与 `thread/start` 只关闭 Codex 捆绑的 Browser Use / Chrome / Computer Use / 应用内浏览器：这些能力在 Tauri WebView 中会挂起 JS kernel，不能用来检查 Markune 画布。加号菜单同样隐藏 `chrome@openai-bundled`、`browser@openai-bundled`、`browser-use@openai-bundled` 与 `computer-use@openai-bundled`，不改用户 `config.toml`。模型、历史、插件或 Skill 加载慢或失败都不得退回全屏“正在连接”状态，也不得阻塞使用服务端默认模型发送消息。用户在核心握手期间可以编辑并提交，提交操作等待同一个启动 Promise，核心成功后继续执行，失败时保留草稿并显示错误。
 
 Codex 同时提供右侧紧凑面板和主工作区两种展示形态，但两者必须复用同一个持续挂载的 `AiPanel` 实例；从左侧固定的“Codex”入口进入主工作区时，只切换 presentation，不新建运行时、线程或消息状态，也不清空当前文档与已打开标签。主工作区中的文档动作先打开右侧只读预览检查器，不立即替换编辑器当前文档；预览优先使用当前未保存草稿或已缓存编辑器 session，否则通过既有 `readMarkdownDocument` 读取磁盘内容。用户只有显式选择“在编辑器中打开”时，才把该文档提升为普通编辑器标签。预览宽度只保存在浏览器 local storage，不属于工作区或 AI 会话状态。
 

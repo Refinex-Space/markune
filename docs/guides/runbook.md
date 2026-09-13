@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-12
+updated: 2026-09-13
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -235,13 +235,13 @@ pnpm test:run -- components/workspace/__tests__/codex-app-server.test.ts compone
 
 ## Codex Startup Acceptance
 
-`pnpm codex:stage` 必须同时准备 `codex` 和 `codex-code-mode-host`。出现 `failed to spawn code-mode host` / `No such file or directory` 时先核对二者是否同目录、来自同一版本且可执行；开发环境重新执行 `pnpm desktop:dev`，安装版重新构建完整安装包。不要通过关闭只读权限或清空 Codex 历史解决资源缺失。运行 `node --test scripts/stage-codex-sidecar.test.mjs` 可验证独立临时目录中的真实辅助程序握手与工具往返，随后检查 `bundle.externalBin` 中包含两项。
+`pnpm codex:stage` 必须同时准备 `codex` 和 `codex-code-mode-host`。出现 `Cannot find module '@openai/codex-<platform>/vendor/...'` 或“缺少当前平台 Codex sidecar 包”时，说明 `@openai/codex` 的平台 optionalDependency 没有解压，常见于中断的 install、`--offline` 或 `--ignore-scripts`。删除空的 `node_modules/.pnpm/@openai+codex@*-<platform>` 后执行完整 `pnpm install --frozen-lockfile`，再重跑 `pnpm desktop:dev`。出现 `failed to spawn code-mode host` / `No such file or directory` 时先核对二者是否同目录、来自同一版本且可执行；开发环境重新执行 `pnpm desktop:dev`，安装版重新构建完整安装包。不要通过关闭只读权限或清空 Codex 历史解决资源缺失。运行 `node --test scripts/stage-codex-sidecar.test.mjs` 可验证独立临时目录中的真实辅助程序握手与工具往返，随后检查 `bundle.externalBin` 中包含两项。
 
 首次启动桌面端并打开工作区后，不先打开 AI 面板，确认 App Server 已在后台启动；随后首次展开 AI 面板时应直接显示正常的新任务界面，不出现占满会话区的“正在连接 Codex”。在核心握手尚未完成时，输入区仍可编辑，点击发送后应显示轻量准备状态，核心成功后自动继续发送；启动失败时必须保留输入内容并显示可诊断错误。
 
 分别模拟慢速或失败的 `model/list`、`thread/list`、`plugin/installed` 与 `skills/list`，确认：核心就绪后可以使用 App Server 默认模型发送，历史页显示独立加载、重试或空状态，启动过程不会预取 `mcpServerStatus/list`，但会按当前工作区自动加载已安装插件和 enabled Skill。展开加号菜单应显示“文件和文件夹”、可用时的“目标”、计划模式和已加载插件；插件仍在加载时显示轻量状态，失败时才提供重试且不阻塞输入。菜单必须完整位于输入框上方并与输入框保持间距。输入空白边界上的 `/` 应打开命令与 Skill 面板，目标和压缩命令位于“技能”分组上方，Skill 显示统一立方体图标、名称、描述与来源。选择目标后输入框显示目标提示，首次发送应依次出现 `turn/start` 与 `thread/goal/set`；状态条必须可编辑、暂停、恢复和清除，重开任务通过 `thread/goal/get` 恢复，续跑只由 Codex Core 驱动。折叠 AI 面板、切换到元信息面板再返回时，正在运行的 turn、Goal、草稿与线程状态必须保留；切换工作区根目录时才允许重建对应的 Codex 运行时边界。
 
-使用真实安装的 Documents、PDF、Spreadsheets、Presentations 等插件检查加号菜单：本地 `composerIcon` 优先，其次使用当前明暗主题 logo，远程资源只允许 HTTPS；图标保持 `16 × 16`、完整缩放且不挤压名称和描述。切换浅色/深色主题后应使用相应资源。临时移除一个图标文件、提供错误格式或让远程图片加载失败时，只有该项降级为通用插件图标，其他插件仍可见且可插入 `plugin://{id}` mention。重新检测插件、切换工作区或重启 App Server 后，旧本地图标路径必须不可再读取。
+使用真实安装的 Documents、PDF、Spreadsheets、Presentations 等插件检查加号菜单：本地 `composerIcon` 优先，其次使用当前明暗主题 logo，远程资源只允许 HTTPS；图标保持 `16 × 16`、完整缩放且不挤压名称和描述。切换浅色/深色主题后应使用相应资源。临时移除一个图标文件、提供错误格式或让远程图片加载失败时，只有该项降级为通用插件图标，其他插件仍可见且可插入 `plugin://{id}` mention。重新检测插件、切换工作区或重启 App Server 后，旧本地图标路径必须不可再读取。即使用户已在 Codex Desktop 启用 Chrome / Browser Use / Computer Use，加号菜单也不得出现这些捆绑项；图稿改写必须走 `markune_drawing`，不得出现 `cua.getState()` 或 `js execution timed out; kernel reset`。
 
 在输入框分别插入文档、插件与 Skill：三者都应显示 `16 × 16` 图标并与文字基线对齐，文档使用文件图标，插件沿用菜单中的真实明暗主题图标，Skill 使用统一立方体图标；视觉标签不显示 `@` 或 `$`。发送后检查 App Server 请求：文档仍编码为带引号相对路径，插件模型文本恢复 `@Plugin` 并带 `plugin://` mention，Skill 模型文本恢复 `$skill-name` 并带精确的原生 `skill` 输入。伪造名称、未列出的路径或收到 `skills/changed` 后沿用旧授权都必须被 Rust 拒绝。
 

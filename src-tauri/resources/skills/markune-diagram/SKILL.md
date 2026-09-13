@@ -30,6 +30,7 @@ Inspect relevant Drawings when present. Reduce the request to one clear viewpoin
 ## Safety
 
 - Use only `markune_drawing` tools for AI drawing.
+- Never use Chrome, Browser Use, Computer Use, `cua.getState()`, or any browser automation. Markune is a local desktop WebView, not a Chrome page.
 - Inspect only Drawing IDs present in the current turn context. Never guess from history.
 - Never read or write `.markune/drawings` directly.
 - Modify only the turn-bound active `whiteboard`, and only through `apply_preview_to_active`. Explicitly mentioned Drawings remain read-only.
