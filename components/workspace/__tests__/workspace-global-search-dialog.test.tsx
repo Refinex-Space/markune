@@ -27,5 +27,6 @@ describe('WorkspaceGlobalSearchDialog', () => {
     expect(overlay?.className).toContain('backdrop-blur-none');
     expect(overlay?.className).not.toContain('bg-black/10');
     expect(overlay?.className).not.toContain('backdrop-blur-xs');
+    expect(screen.queryByText(/支持精确短语及筛选/)).toBeNull();
   });
 });

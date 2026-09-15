@@ -43,6 +43,10 @@ import {
   restoreDrawingMarkdownReferencesFromEditor,
 } from '@/components/editor/drawing-markdown-reference';
 import {
+  findLivePositionForLocation,
+  resolveRevealLine,
+} from '@/components/editor/markdown-editor-reveal';
+import {
   parseFrontmatter,
   serializeFrontmatter,
 } from '@/components/editor/markdown-frontmatter';
@@ -655,33 +659,57 @@ export const MarkdownEditor = React.forwardRef<
     if (!(await flushDraft('source-toggle')) || location.isCurrent?.() === false) return false;
     let hash = location.hash?.replace(/^#/, '') ?? '';
     try { hash = decodeURIComponent(hash); } catch { /* Keep literal anchors readable. author: refinex */ }
-    const surface = markweaveModeRef.current?.querySelector<HTMLElement>('.markweave-editor-surface');
-    const coordinator = surface ? getMarkweaveDocumentViewportCoordinatorForElement(surface) : null;
-    if (!location.line && hash && coordinator && !sourceMode) {
-      const normalize = (value: string) => value.trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s+/g, '-');
-      const heading = getMarkweaveTocItems(coordinator.editor.state.doc).find((item) => item.id === hash || item.text === hash || normalize(item.text) === normalize(hash));
-      let position = heading?.pos;
-      if (hash.startsWith('^')) coordinator.editor.state.doc.descendants((node, pos) => {
-        if (position === undefined && node.isTextblock && node.type.name !== 'codeBlock' && node.textContent.trimEnd().endsWith(hash)) position = pos;
-        return position === undefined;
-      });
-      if (position !== undefined) {
-        const result = await coordinator.revealPosition(position, { reason: 'host', align: 'center', focus: true });
-        return result.status === 'revealed';
-      }
-    }
     const raw = sourceDraftMarkdownRef.current;
-    let line = location.line;
-    if (!line && /^L\d+(?:-L\d+)?$/i.test(hash)) line = Number(/^L(\d+)/i.exec(hash)?.[1]);
-    if (!line && hash) {
-      const index = raw.split(/\r\n?|\n/).findIndex((line) => hash.startsWith('^') ? line.trimEnd().endsWith(hash) : /^#{1,6}\s/.test(line) && line.replace(/^#+\s*/, '').trim() === hash);
-      if (index >= 0) line = index + 1;
+    const line = resolveRevealLine({
+      hash,
+      line: location.line,
+      markdown: raw,
+    });
+
+    if (!sourceMode) {
+      const surface = markweaveModeRef.current?.querySelector<HTMLElement>('.markweave-editor-surface');
+      const coordinator = surface ? getMarkweaveDocumentViewportCoordinatorForElement(surface) : null;
+      if (!coordinator) {
+        // Live editor is still mounting. Callers retry; do not bounce into source. author: refinex
+        return false;
+      }
+
+      let position: number | undefined;
+      try {
+        position = findLivePositionForLocation({
+          doc: coordinator.editor.state.doc,
+          hash,
+          headings: getMarkweaveTocItems(coordinator.editor.state.doc),
+          line,
+          markdown: raw,
+        });
+      } catch {
+        return false;
+      }
+
+      if (position === undefined) return false;
+
+      const result = await coordinator.revealPosition(position, {
+        reason: 'host',
+        align: 'center',
+        focus: true,
+      });
+      return result.status === 'revealed';
     }
-    if (!line || !Number.isFinite(line)) return false;
-    sourceModeToggledRef.current = true; setSourceFindText(raw); setSourceMode(true);
+
+    if (line === undefined) return false;
     const started = Date.now();
-    while (Date.now() - started < 5000 && location.isCurrent?.() !== false) {
-      if (sourceEditorRef.current) { sourceEditorRef.current.revealLine(line); return true; }
+    let frames = 0;
+    while (
+      frames < 300 &&
+      Date.now() - started < 5000 &&
+      location.isCurrent?.() !== false
+    ) {
+      if (sourceEditorRef.current) {
+        sourceEditorRef.current.revealLine(line);
+        return true;
+      }
+      frames += 1;
       await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
     }
     return false;

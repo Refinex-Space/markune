@@ -178,6 +178,7 @@ vi.mock('next/dynamic', async () => {
         editorRef: React.RefObject<{
           focus: () => void;
           getSelectedText: () => string;
+          revealLine: (line: number) => void;
           selectRange: (from: number, to: number) => void;
           setValue: (value: string) => void;
         } | null>;
@@ -200,6 +201,7 @@ vi.mock('next/dynamic', async () => {
                   )
                 : '';
             },
+            revealLine: () => undefined,
             selectRange: (from, to) =>
               textareaRef.current?.setSelectionRange(from, to),
             setValue: (nextValue) => {
@@ -1314,6 +1316,126 @@ describe('MarkdownEditor', () => {
     window.removeEventListener('markune:open-drawing', onOpenDrawing);
   });
 
+  it('reveals a search line in live mode instead of switching to source', async () => {
+    const ref = React.createRef<MarkdownEditorHandle>();
+    const revealPosition = vi.fn().mockResolvedValue({ status: 'revealed' });
+    viewportCoordinatorForElementMock.mockReturnValue({
+      editor: {
+        state: {
+          doc: {
+            descendants(
+              visitor: (
+                node: {
+                  isTextblock: boolean;
+                  textContent: string;
+                  type: { name: string };
+                },
+                pos: number,
+              ) => boolean | void,
+            ) {
+              visitor(
+                {
+                  isTextblock: true,
+                  textContent: 'Agent 工程实践',
+                  type: { name: 'paragraph' },
+                },
+                24,
+              );
+            },
+          },
+        },
+      },
+      revealPosition,
+    });
+
+    render(
+      <MarkdownEditor
+        ref={ref}
+        documentPath="/vault/a.md"
+        markdown={'# Title\n\nAgent 工程实践\n'}
+      />,
+    );
+
+    expect(
+      await ref.current!.revealLocation({ line: 3, isCurrent: () => true }),
+    ).toBe(true);
+    expect(revealPosition).toHaveBeenCalledWith(
+      24,
+      expect.objectContaining({ align: 'center', focus: true }),
+    );
+    expect(
+      screen.getByTestId('markdown-editor-root').getAttribute('data-editor-mode'),
+    ).toBe('live');
+  });
+
+  it('keeps live mode when location reveal runs before the viewport coordinator is ready', async () => {
+    const ref = React.createRef<MarkdownEditorHandle>();
+    viewportCoordinatorForElementMock.mockReturnValue(null);
+
+    render(
+      <MarkdownEditor
+        ref={ref}
+        documentPath="/vault/a.md"
+        markdown={'# Title\n\nAgent 工程实践\n'}
+      />,
+    );
+
+    expect(
+      await ref.current!.revealLocation({ line: 3, isCurrent: () => true }),
+    ).toBe(false);
+    expect(
+      screen.getByTestId('markdown-editor-root').getAttribute('data-editor-mode'),
+    ).toBe('live');
+  });
+
+  it('keeps live mode when a search line cannot be revealed yet', async () => {
+    const ref = React.createRef<MarkdownEditorHandle>();
+    const revealPosition = vi.fn().mockResolvedValue({ status: 'missing' });
+    viewportCoordinatorForElementMock.mockReturnValue({
+      editor: {
+        state: {
+          doc: {
+            descendants(
+              visitor: (
+                node: {
+                  isTextblock: boolean;
+                  textContent: string;
+                  type: { name: string };
+                },
+                pos: number,
+              ) => boolean | void,
+            ) {
+              visitor(
+                {
+                  isTextblock: true,
+                  textContent: '应用型AI Agent 实践',
+                  type: { name: 'heading' },
+                },
+                1,
+              );
+            },
+          },
+        },
+      },
+      revealPosition,
+    });
+
+    render(
+      <MarkdownEditor
+        ref={ref}
+        documentPath="/vault/a.md"
+        markdown={'---\ntitle: 应用型AI Agent 实践\n---\n\n# 应用型AI Agent 实践\n'}
+      />,
+    );
+
+    expect(
+      await ref.current!.revealLocation({ line: 2, isCurrent: () => true }),
+    ).toBe(false);
+    expect(revealPosition).toHaveBeenCalled();
+    expect(
+      screen.getByTestId('markdown-editor-root').getAttribute('data-editor-mode'),
+    ).toBe('live');
+  });
 });
 
 it('opens a heading through the editor viewport and rejects a stale source navigation', async () => {

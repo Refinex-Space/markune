@@ -102,7 +102,7 @@ pnpm exec tsc --noEmit
 
 Warm Tab 验收应打开至少 4 篇含本地图片和视频的文档，在最近 3 个 EditorView 间反复切换：已成功资源复用有界正缓存，失败资源仍能在重新可见、选择或 output 时恢复，旧 Tab 的晚到结果不能写入当前工作区。导出前确认 editor 已 `ready`，官方 output barrier 能唤醒未访问过的末尾媒体并返回缺失、不可读、超时报告；DOM snapshot/打印只在 barrier 结束后克隆，输出完成后编辑器仍可继续滚动和输入。
 
-另需人工覆盖中文 IME、撤销重做、列表回车、跨块/全选复制、搜索替换、TOC 跳转、快速滚动后编辑、Live/Source 往返、导出、AI 发送和应用关闭 flush。任何保存失败都必须阻止切换/发送/退出并保留草稿。
+另需人工覆盖中文 IME、撤销重做、列表回车、跨块/全选复制、搜索替换、TOC 跳转、全局搜索打开文档后保持 Live 并滚到匹配处（含 YAML title 命中）、快速滚动后编辑、Live/Source 往返、导出、AI 发送和应用关闭 flush。任何保存失败都必须阻止切换/发送/退出并保留草稿。
 
 For single-document export changes, run the focused suites first:
 
