@@ -1,6 +1,7 @@
 import * as React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { getMarkweaveDocumentViewportCoordinatorForElement, insertMarkweaveReferenceLink } from 'markweave';
 
 import { MarkdownEditor } from '@/components/editor/markdown-editor';
 import { PREVIEW_WORKSPACE_DOCUMENT_EVENT } from '@/components/editor/workspace-document-link';
@@ -15,6 +16,41 @@ vi.mock('@/components/editor/use-workspace-asset-uploader', () => ({
 }));
 
 describe('published Markweave local link integration', () => {
+  it('keeps inserted references compact and edits addresses outside the document flow', async () => {
+    let ready = false;
+    render(
+      <MarkdownEditor
+        documentKey="reference-insertion-integration"
+        documentPath="/vault/README.md"
+        workspaceRootPath="/vault"
+        markdown={'第一行：[[\n\n第二行：保持位置。'}
+        onDocumentLoadStateChange={(state) => { ready = state.phase === 'ready'; }}
+      />,
+    );
+    await waitFor(() => expect(ready).toBe(true));
+    const surface = screen.getByTestId('markweave-editor-surface');
+    const editor = getMarkweaveDocumentViewportCoordinatorForElement(surface)!.editor;
+    await act(async () => {
+      insertMarkweaveReferenceLink(editor, { from: 5, to: 7 }, {
+        href: '01%20开始使用/建立第一个工作区.md', label: '建立第一个工作区',
+      });
+    });
+    expect(editor.getText()).toContain('第一行：建立第一个工作区');
+    expect(document.querySelector('.markweave-inline-link-source')).toBeNull();
+    const before = editor.getMarkdown();
+    const anchor = await screen.findByRole('link', { name: '建立第一个工作区' });
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'target', { value: anchor });
+    await act(async () => {
+      editor.view.someProp('handleClick', (handler) => handler(editor.view, 6, event));
+    });
+    expect(document.querySelector('.markweave-inline-link-source')?.parentElement).toBe(document.body);
+    expect(surface.querySelector('.markweave-inline-link-source')).toBeNull();
+    expect(editor.getMarkdown()).toBe(before);
+    fireEvent.keyDown(surface, { key: 'Escape' });
+    expect(document.querySelector('.markweave-inline-link-source')).toBeNull();
+  });
+
   it.each([false, true])(
     'renders local paths with spaces and routes explicit clicks to previews (readOnly=%s)',
     async (readOnly) => {
