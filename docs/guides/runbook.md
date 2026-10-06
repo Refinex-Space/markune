@@ -34,6 +34,15 @@ pnpm build
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
+## Terminal Acceptance
+
+```bash
+pnpm exec vitest run components/workspace/__tests__/terminal-panel.test.tsx components/workspace/__tests__/xterm-terminal.test.tsx components/workspace/__tests__/terminal-output-store.test.ts components/workspace/__tests__/terminal-session.test.ts
+cargo test --manifest-path src-tauri/Cargo.toml terminal::
+```
+
+桌面验收需要 `pnpm desktop:dev`：打开终端后折叠面板，原会话仍在；关闭最后一个标签后面板保持空白，直到再次新建或重新打开面板；`exit` 后显示退出码且不能继续输入；切换工作区后旧会话被关闭，面板仍打开时会为新工作区创建会话。
+
 ## Graph Acceptance
 
 ```bash

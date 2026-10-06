@@ -115,6 +115,9 @@ pub fn run() {
                 window
                     .state::<workspace_watch::WorkspaceWatchState>()
                     .stop_window(window.label());
+                if window.label() == "main" {
+                    window.state::<terminal::TerminalState>().shutdown();
+                }
             }
         })
         .manage(terminal::TerminalState::default())

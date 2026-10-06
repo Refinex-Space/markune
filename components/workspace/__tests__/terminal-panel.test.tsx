@@ -107,4 +107,36 @@ describe('TerminalPanel', () => {
 
     expect(screen.getByText('终端仅在桌面应用中可用。')).toBeTruthy();
   });
+
+  it('shows the exit code and can start another terminal', async () => {
+    const user = userEvent.setup();
+    const onNewTab = vi.fn();
+
+    render(
+      <TerminalPanel
+        activeTabId="term-1"
+        error={null}
+        height={360}
+        isTauriRuntime
+        rootPath="/repo"
+        tabs={[
+          {
+            cwd: '/repo',
+            exitCode: 7,
+            id: 'term-1',
+            status: 'exited',
+            title: '本地',
+          },
+        ]}
+        onClose={vi.fn()}
+        onCloseTab={vi.fn()}
+        onNewTab={onNewTab}
+        onSelectTab={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('进程已退出（7）')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '新建终端' }));
+    expect(onNewTab).toHaveBeenCalledTimes(1);
+  });
 });

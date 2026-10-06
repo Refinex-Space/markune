@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-13
+updated: 2026-10-06
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -31,6 +31,7 @@ referenced_by: AGENTS.md#knowledge-map
 - `inspect_workspace_brand(rootPath) -> { state }` 是加载既有工作区前的只读品牌检查，`state` 只能为 `new | current | legacy | conflict`。前端在 `legacy` 或 `conflict` 状态不得继续调用工作区树读取和初始化命令。
 - `migrate_legacy_workspace_brand(rootPath) -> WorkspaceBrandMigrationReport` 只能由用户在品牌迁移弹窗明确确认后调用。命令返回备份相对路径、改写文件数、设置/provider/凭据迁移状态和警告；目录并存、符号链接、路径逃逸、超限文件或事务失败必须返回错误，不能静默部分成功。
 - Git 命令必须在阻塞任务中执行，不得占用 Tauri 原生主线程；本地命令超时为 60 秒，网络及提交等长操作超时为 180 秒，超时后必须终止对应进程树。Windows 启动 Git 子进程时必须使用无窗口标志，前端命令名称、参数和返回结构保持不变。
+- 终端命令为 `terminal_spawn({ rootPath, cols, rows }) -> { id, cwd, shell }`、`terminal_write({ sessionId, data })`、`terminal_resize({ sessionId, cols, rows })` 和幂等的 `terminal_kill({ sessionId })`。单次写入最多 64 KiB；尺寸钳制为最大 300×120。事件为 `terminal:data`、`terminal:exit`（`code` 为进程退出码，等待失败时为 `null`）和 `terminal:error`。折叠面板不调用 kill；主窗口销毁由 Rust 清理仍在运行的会话。
 - `system_fonts.rs` 仅可返回字体家族名称与推荐元数据，不得暴露字体文件路径或内容。
 - 桌面端网络功能应走 Tauri 命令；生产桌面构建使用静态导出，不包含 Next API routes。
 

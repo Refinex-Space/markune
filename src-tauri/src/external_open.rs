@@ -349,8 +349,7 @@ mod tests {
         write_doc(&text);
         write_doc(&document);
 
-        let resolved =
-            resolve_markdown_open_paths(&[text, document.clone()]).expect("resolve");
+        let resolved = resolve_markdown_open_paths(&[text, document.clone()]).expect("resolve");
         assert_eq!(
             resolved.document_path,
             document.canonicalize().expect("document")

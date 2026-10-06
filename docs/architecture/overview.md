@@ -19,6 +19,10 @@ Markune 是一个以本地 Markdown 文档为核心的桌面知识库，使用 N
 - Codex runtime：`components/workspace/codex-app-server.ts` 只消费协议消息；`src-tauri/src/codex.rs` 启动随应用打包的 Codex App Server sidecar，并通过 stdio JSONL 传递允许的方法、通知与审批请求。
 - Local state：全局设置由 `src-tauri/src/settings.rs` 持久化；面板尺寸使用浏览器 local storage；AI 会话由 Codex App Server 存入用户级 Codex Home，不属于工作区状态。
 
+## Terminal
+
+桌面终端由 xterm.js 和 Rust `portable-pty` 组成，会话归原生进程所有。折叠面板只隐藏界面，不结束 shell；关闭标签、切换或移除工作区、销毁主窗口时结束对应进程组。输出按 UTF-8 流解码，避免读缓冲切开多字节字符。Shell 以交互参数启动，PowerShell 使用 `-NoLogo`，并在进入子进程前去掉凭据型环境变量。前端按最多 64 KiB 串行写入，非活动或已退出标签不接收键盘输入。进程自然退出后保留最后一屏并显示退出码，需要用户新建标签，不会自动重启。
+
 ## External Markdown Open Boundary
 
 系统“打开方式”只覆盖 Markdown 文件，不注册目录、不注册任意文件类型、不把 Markune 设为默认处理器。`bundle.fileAssociations` 声明 `.md` / `.mdx`，`rank` 为 `Alternate`。Windows 由 NSIS 写入 OpenWithProgids；macOS 由生成的 `CFBundleDocumentTypes` 进入 Finder 打开方式。开发态 `tauri dev` 不会向系统登记关联，需安装包或显式把路径传给进程才能验收消费路径。

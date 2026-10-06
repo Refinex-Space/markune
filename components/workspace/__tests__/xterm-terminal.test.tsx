@@ -9,8 +9,10 @@ import { createTerminalOutputStore } from '../terminal-output-store';
 const globalsCssPath = join(process.cwd(), 'app/globals.css');
 
 const terminalTestState = vi.hoisted(() => ({
+  ariaMock: vi.fn(),
   disposeMock: vi.fn(),
   fitMock: vi.fn(),
+  focusMock: vi.fn(),
   loadAddonMock: vi.fn(),
   onDataMock: vi.fn(),
   openMock: vi.fn(),
@@ -28,12 +30,16 @@ vi.mock('@xterm/xterm', () => ({
     const instance = {
       cols: 120,
       dispose: terminalTestState.disposeMock,
+      focus: terminalTestState.focusMock,
       loadAddon: terminalTestState.loadAddonMock,
       onData: terminalTestState.onDataMock,
       open: terminalTestState.openMock,
       options,
       resize: terminalTestState.resizeMock,
       rows: 32,
+      textarea: {
+        setAttribute: terminalTestState.ariaMock,
+      },
       write: terminalTestState.writeMock,
     };
 
@@ -59,8 +65,10 @@ vi.mock('@xterm/addon-web-links', () => ({
 
 describe('XtermTerminal', () => {
   afterEach(() => {
+    terminalTestState.ariaMock.mockReset();
     terminalTestState.disposeMock.mockReset();
     terminalTestState.fitMock.mockReset();
+    terminalTestState.focusMock.mockReset();
     terminalTestState.loadAddonMock.mockReset();
     terminalTestState.onDataMock.mockReset();
     terminalTestState.openMock.mockReset();
@@ -109,6 +117,14 @@ describe('XtermTerminal', () => {
     expect(terminalTestState.terminalInstances[0].options.theme).toBeTruthy();
     expect(terminalTestState.terminalInstances[0].options.cursorStyle).toBe('bar');
     expect(terminalTestState.terminalInstances[0].options.cursorWidth).toBe(1);
+    expect(terminalTestState.terminalInstances[0].options.minimumContrastRatio).toBe(
+      4.5,
+    );
+    expect(terminalTestState.terminalInstances[0].options.disableStdin).toBe(
+      false,
+    );
+    expect(terminalTestState.focusMock).toHaveBeenCalled();
+    expect(terminalTestState.ariaMock).toHaveBeenCalledWith('aria-label', '终端');
 
     unmount();
     expect(terminalTestState.disposeMock).toHaveBeenCalledTimes(1);
@@ -138,6 +154,27 @@ describe('XtermTerminal', () => {
     expect(terminalTestState.terminalInstances[0].options.screenReaderMode).toBe(
       false,
     );
+  });
+
+  it('disables stdin for an inactive terminal', async () => {
+    render(
+      <XtermTerminal
+        isActive={false}
+        output=""
+        sessionId="term-hidden"
+        themeMode="light"
+        onData={vi.fn()}
+        onResize={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(terminalTestState.openMock).toHaveBeenCalledTimes(1),
+    );
+    expect(terminalTestState.terminalInstances[0].options.disableStdin).toBe(
+      true,
+    );
+    expect(terminalTestState.focusMock).not.toHaveBeenCalled();
   });
 
   it('writes buffered session output without requiring a React rerender', async () => {
