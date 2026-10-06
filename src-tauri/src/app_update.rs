@@ -180,6 +180,36 @@ mod tests {
     use super::truncate_release_notes;
 
     #[test]
+    fn updater_http_client_has_native_proxy_and_socks_support() {
+        let output = std::process::Command::new(env!("CARGO"))
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .args([
+                "tree",
+                "--locked",
+                "--offline",
+                "--edges",
+                "normal,build,features",
+                "--invert",
+                "reqwest@0.13",
+                "--prefix",
+                "none",
+            ])
+            .output()
+            .expect("read the resolved updater HTTP dependency features");
+        assert!(output.status.success(), "Cargo feature inspection failed");
+        let features = String::from_utf8(output.stdout).unwrap();
+        assert!(features.contains("tauri-plugin-updater v"));
+        assert!(
+            features.contains("reqwest feature \"system-proxy\""),
+            "the updater HTTP client must read macOS and Windows system proxies"
+        );
+        assert!(
+            features.contains("reqwest feature \"socks\""),
+            "the updater HTTP client must support SOCKS proxy URLs"
+        );
+    }
+
+    #[test]
     fn release_notes_are_truncated_on_a_utf8_boundary() {
         let notes = "版本更新说明".repeat(10);
         let truncated = truncate_release_notes(&notes, 13);

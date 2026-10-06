@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-13
+updated: 2026-10-06
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -72,6 +72,7 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 - 画板不新增文件协议或 capability。图稿场景、预览和组件库只通过 `src-tauri/src/drawings.rs` 的受限 Raw IPC 传输；缩略图以可撤销 Blob URL 展示，`assetProtocol.scope` 保持不变。
 - `src-tauri/resources/skills/` 作为只读 Tauri bundle resource 随应用发布。运行时只接受同时包含 `markune-diagram` 与 `markune-mindmap` 的完整内置 Skill 根目录，并要求每项同时具有 `SKILL.md` 与 `agents/openai.yaml`；注册时只提供这两个 Skill 子目录，避免旧暂存目录中的已移除 Skill 被继续加载；开发态暂存资源不完整时回退到源码资源目录，不读取渲染器提供的 Skill 物理路径。
 - 基础 `src-tauri/tauri.conf.json` 使用 `endpoints: []` 与空 `pubkey` 保留结构有效但不可用的 updater 配置。Tag 发布时生成的 release override 注入 `https://github.com/Refinex-Space/markune/releases/latest/download/latest.json`、公钥、updater artifacts、macOS ad-hoc identity `-` 和 Windows passive 模式。渲染器不能覆盖 endpoint。
+- `reqwest-updater` 是 updater 所用 `reqwest 0.13` 的依赖别名，只补充 `system-proxy` 与 `socks` 特性，保留既有 `reqwest 0.12` 调用点与 updater 的 TLS 配置。Cargo 会合并共享 `hyper-util` 的系统代理特性，其他使用默认代理的原生 HTTP 客户端也可读取系统代理；显式 `.no_proxy()` 的受限下载仍禁用代理。代理来源、支持范围与验收见 [更新网络与代理](../guides/release-and-update.md#更新网络与代理)。
 - Rust 侧 Tauri 依赖固定在 `2.11.x`，以约束 `with_webview` 平台类型；Windows 直接使用与当前 Wry 对齐的 `webview2-com 0.38.2`，macOS 使用 `objc2 0.6.4` 与 `objc2-*-kit 0.3.2`。Word 生成依赖精确锁定为 `docx 9.7.1`。
 
 ## Document Import Dependencies
