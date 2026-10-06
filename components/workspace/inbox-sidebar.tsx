@@ -4,8 +4,8 @@ import * as React from 'react';
 import {
   Archive,
   ArchiveRestore,
+  ArrowRightLeft,
   CalendarPlus,
-  ChevronRight,
   Clock3,
   FileUp,
   Inbox,
@@ -497,10 +497,11 @@ function CaptureRow({
       <ContextMenuContent className="w-48">
         <ContextMenuSub>
           <ContextMenuSubTrigger>
-            <RefreshCw />状态
-            <span className="ml-auto mr-1 text-[10px] text-muted-foreground">
-              {STATUS_LABELS[capture.status]}
-            </span>
+            <MenuGlyph>
+              <RefreshCw />
+            </MenuGlyph>
+            <span className="min-w-0 truncate">状态</span>
+            <MenuValue>{STATUS_LABELS[capture.status]}</MenuValue>
           </ContextMenuSubTrigger>
           <ContextMenuSubContent>
             <ContextMenuRadioGroup
@@ -516,18 +517,16 @@ function CaptureRow({
 
         <ContextMenuSub>
           <ContextMenuSubTrigger>
-            <span className="flex size-4 items-center justify-center">
+            <MenuGlyph>
               <span
                 className={cn(
                   'size-1.5 rounded-full',
                   getPriorityDotClass(capture.priority),
                 )}
               />
-            </span>
-            优先级
-            <span className="ml-auto mr-1 text-[10px] text-muted-foreground">
-              {PRIORITY_LABELS[capture.priority]}
-            </span>
+            </MenuGlyph>
+            <span className="min-w-0 truncate">优先级</span>
+            <MenuValue>{PRIORITY_LABELS[capture.priority]}</MenuValue>
           </ContextMenuSubTrigger>
           <ContextMenuSubContent>
             <ContextMenuRadioGroup
@@ -545,7 +544,10 @@ function CaptureRow({
 
         {snoozed ? (
           <ContextMenuItem onSelect={onWake}>
-            <Clock3 />恢复待处理
+            <MenuGlyph>
+              <Clock3 />
+            </MenuGlyph>
+            恢复待处理
           </ContextMenuItem>
         ) : null}
 
@@ -553,27 +555,72 @@ function CaptureRow({
           <>
             <ContextMenuSeparator />
             <ContextMenuSub>
-              <ContextMenuSubTrigger><ChevronRight />流转</ContextMenuSubTrigger>
+              <ContextMenuSubTrigger>
+                <MenuGlyph>
+                  <ArrowRightLeft />
+                </MenuGlyph>
+                流转
+              </ContextMenuSubTrigger>
               <ContextMenuSubContent className="w-44">
-                <ContextMenuItem onSelect={onPromote}><FileUp />提升为笔记</ContextMenuItem>
-                <ContextMenuItem onSelect={onAppend}><CalendarPlus />追加到今日</ContextMenuItem>
+                <ContextMenuItem onSelect={onPromote}>
+                  <MenuGlyph>
+                    <FileUp />
+                  </MenuGlyph>
+                  提升为笔记
+                </ContextMenuItem>
+                <ContextMenuItem onSelect={onAppend}>
+                  <MenuGlyph>
+                    <CalendarPlus />
+                  </MenuGlyph>
+                  追加到今日
+                </ContextMenuItem>
               </ContextMenuSubContent>
             </ContextMenuSub>
           </>
         ) : null}
         {capture.status === 'archived' ? (
           <ContextMenuItem onSelect={onUnarchive}>
-            <ArchiveRestore />取消归档
+            <MenuGlyph>
+              <ArchiveRestore />
+            </MenuGlyph>
+            取消归档
           </ContextMenuItem>
         ) : (
-          <ContextMenuItem onSelect={onArchive}><Archive />归档</ContextMenuItem>
+          <ContextMenuItem onSelect={onArchive}>
+            <MenuGlyph>
+              <Archive />
+            </MenuGlyph>
+            归档
+          </ContextMenuItem>
         )}
         <ContextMenuSeparator />
         <ContextMenuItem variant="destructive" onSelect={onDelete}>
-          <Trash2 />永久删除
+          <MenuGlyph>
+            <Trash2 />
+          </MenuGlyph>
+          永久删除
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+function MenuGlyph({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="flex size-4 shrink-0 items-center justify-center [&_svg]:size-4">
+      {children}
+    </span>
+  );
+}
+
+function MenuValue({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      className="ml-auto shrink-0 pl-3 text-[10px] text-muted-foreground"
+      data-slot="inbox-menu-value"
+    >
+      {children}
+    </span>
   );
 }
 
