@@ -18,10 +18,10 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className="h-full antialiased"
+      className="h-full overflow-hidden antialiased"
       suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col" data-app-splash="active">
+      <body className="fixed inset-0 flex min-h-0 flex-col overflow-hidden" data-app-splash="active">
         <div className="app-splash" aria-label="Markune is loading">
           <main className="app-splash__content">
             <Image

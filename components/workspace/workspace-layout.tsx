@@ -3453,7 +3453,7 @@ export function WorkspaceLayout({
   return (
     <WorkspaceDocumentIndexProvider nodes={workspace.snapshot?.nodes ?? []}>
       <main
-        className="relative flex h-screen w-full overflow-hidden bg-sidebar text-foreground antialiased"
+        className="relative flex h-screen w-full shrink-0 overflow-hidden bg-sidebar text-foreground antialiased"
         data-chrome="workspace"
         data-testid="workspace-shell"
       >

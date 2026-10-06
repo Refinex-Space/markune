@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-13
+updated: 2026-10-06
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -133,6 +133,16 @@ pnpm lint
 cargo check --manifest-path src-tauri/Cargo.toml
 pnpm build:desktop:web
 ```
+
+## Reference Link Pointer Acceptance
+
+使用独立测试工作区检查 `[[` 引用，不在唯一生产文档中做输入实验。在长文档中分别打开、筛选、取消与选择候选，使用方向键滚过候选列表，随后点击正文的相邻段落；再打开引用预览抽屉重复操作。普通链接地址浮层和引用抽屉也应覆盖打开、关闭与焦点返回。
+
+应用外层 `window.scrollY` 必须始终为 0，编辑区顶边不得因候选列表挂载而移动；只有正文和候选列表各自的滚动值可以变化。记录点击前的目标段落、点击坐标及最终 DOM/ProseMirror 选区，不能仅凭截图中“光标看起来正常”判断通过。macOS 必须包含 WebKit 与原生窗口验证，Chromium 单独通过不足以证明修复。
+
+2026-10-06 的复现使用当前演示 README、Songti SC 字体与 2560 × 1347 视口：修复前 `[[` 候选打开造成页面根滚动 37px；修复后打开、筛选与关闭均为 0。包含候选挂载修复和固定外层视口的本地 macOS 测试包已由用户在原生窗口复测，确认光标不再偏移；这不代表 Windows 或其他 macOS 版本已实机验收。
+
+聚焦自动化：`pnpm exec vitest run components/editor/__tests__/workspace-reference-suggestion.test.ts components/editor/__tests__/markweave-local-links.test.tsx`。候选 renderer 的测试检查挂载前已脱离文档流，以及键盘选中只滚动候选容器；临时诊断路由和采样代码必须在交付前移除。
 
 ## Drawing Acceptance
 
