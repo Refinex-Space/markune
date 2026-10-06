@@ -217,7 +217,7 @@ describe('WorkspaceSettingsPage', () => {
     expect(editorColumn.parentElement?.className).not.toContain('rounded-xl');
     expect(editorColumn.className).not.toContain('shadow-[');
     expect(screen.getByTestId('workspace-settings-content').className).toContain(
-      'max-w-[1120px]',
+      'max-w-[840px]',
     );
     expect(screen.getByRole('button', { name: '外观' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Codex' })).toBeTruthy();
@@ -396,7 +396,7 @@ describe('WorkspaceSettingsPage', () => {
     expect((collapsedSwitch as HTMLButtonElement).disabled).toBe(true);
     expect(collapsedSwitch.getAttribute('aria-checked')).toBe('false');
     expect(
-      screen.getByText('横向排列始终展示七个入口，仅通过省略号切换形态。'),
+      screen.getByText('横向排列时保持展开；切换为纵向后可收起。'),
     ).toBeTruthy();
   });
 
@@ -700,6 +700,29 @@ describe('WorkspaceSettingsPage', () => {
         }),
       }),
     );
+  });
+
+  it('announces the active category and resets only the settings scroll area on navigation', async () => {
+    const user = userEvent.setup();
+    renderSettingsPage();
+    expect(screen.getByRole('button', { name: '外观' }).getAttribute('aria-current')).toBe('page');
+    const scroller = screen.getByTestId('settings-content-scrollarea');
+    scroller.scrollTop = 320;
+    await user.click(screen.getByRole('button', { name: '日历' }));
+    expect(scroller.scrollTop).toBe(0);
+    expect(screen.getByRole('button', { name: '日历' }).getAttribute('aria-current')).toBe('page');
+  });
+
+  it('supports keyboard selection for appearance choices and Escape to clear search', async () => {
+    const user = userEvent.setup();
+    renderSettingsPage();
+    screen.getByRole('radio', { name: '亮色' }).focus();
+    await user.keyboard('{ArrowRight}');
+    expect(themeState.setTheme).toHaveBeenCalledWith('dark');
+    await user.type(screen.getByLabelText('搜索设置'), 'git');
+    await user.keyboard('{Escape}');
+    expect((screen.getByLabelText('搜索设置') as HTMLInputElement).value).toBe('');
+    expect(screen.getByRole('button', { name: '外观' })).toBeTruthy();
   });
 
   it('filters the non-AI navigation without changing the settings surface', async () => {

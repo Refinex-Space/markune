@@ -858,3 +858,23 @@ A separate crop was not required because the normalized full-view comparison kee
 - P3: if folder timestamps become a stable workspace field later, the overview could optionally group folders by recent month like the Craft reference.
 
 final result: passed
+
+
+---
+
+# Settings interface refinement — 2026-10-06
+
+- Scope: improve the existing Markune settings surface using the supplied ChatGPT appearance screenshot as a density, grouping and alignment reference; this is an adaptation, not a pixel-identical clone.
+- Reference: `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-a5baf70a-7835-483d-9371-bb2d41efae8f.png`.
+- Implementation: `/tmp/markune-settings-wide.jpg` (2560 × 1347), `/tmp/markune-settings-dark.jpg`; also inspected 960 × 800 calendar, storage and version screens in the in-app browser.
+- The reference and the light implementation were opened together in one comparison input. Native window chrome and the browser-only desktop-feature notice are environment differences, not recreated product content.
+
+## Visual comparison
+
+The implementation follows the reference's narrow centered content, quiet sidebar, thin bordered groups, aligned right-side controls and restrained selected state. The previous full-width appearance illustrations were replaced with compact icon/text choices. Existing Lucide icons and Markune brand assets were reused. The version card now uses a compact horizontal identity row. No P0/P1/P2 visual issues remained in the inspected states; typography and borders remain readable in both themes, with no horizontal overflow at 960px.
+
+## Interaction evidence and limits
+
+Browser checks covered light/dark selection, system navigation selection and its dependent disabled switch, font search and selection, category navigation with scroll reset, and the empty search state. Component regression covers persistence callbacks, keyboard radio selection, Escape search clearing, and active-category semantics. Native transparency, authentication, Git network operations and installation were not exercised in this browser QA; their existing handlers remain in place.
+
+final result: passed

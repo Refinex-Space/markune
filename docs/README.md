@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-06
+updated: 2026-10-06
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -30,7 +30,7 @@ This directory contains routed repository knowledge for agent work. Root instruc
 
 - Codex 专业化本机验收：`docs/verification/codex/acceptance.md`：[open](verification/codex/acceptance.md)
 
-- Codex AI panel design QA: `design-qa.md`: [open](../design-qa.md)
+- Interface design QA (AI, calendar, settings): `design-qa.md`: [open](../design-qa.md)
 
 ## Historical Superpowers Plans
 
