@@ -1,16 +1,15 @@
 'use client';
 
 import * as React from 'react';
+import { Tabs } from 'radix-ui';
 import {
   Archive,
-  Clock,
   Download,
   File,
   FileAudio,
   FileImage,
   FileText,
   Fullscreen,
-  Hash,
   Eye,
   Image as ImageIcon,
   PenLine,
@@ -99,33 +98,37 @@ export function DocumentMetaPanel({
   }, [currentDocument?.absolutePath]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex h-9 shrink-0 items-center px-3 py-1">
-        <div
-          className="grid h-7 flex-1 rounded-full bg-muted p-0.5 text-xs"
+    <Tabs.Root
+      className="flex min-h-0 flex-1 flex-col"
+      value={activeTab}
+      onValueChange={(value) => setActiveTab(value as MetaTab)}
+    >
+      <div className="shrink-0 border-b border-border/60 px-3 py-2">
+        <Tabs.List
+          aria-label="文档面板"
+          className="grid h-8 rounded-lg bg-muted/60 p-0.5 text-xs"
           style={{ gridTemplateColumns: `repeat(${(knowledge ? 3 : 2) + (hasSource ? 1 : 0)}, 1fr)` }}
         >
+          <MetaTabButton value="meta" label="元信息" />
           <MetaTabButton
-            active={activeTab === 'meta'}
-            label="元信息"
-            onClick={() => setActiveTab('meta')}
-          />
-          <MetaTabButton
-            active={activeTab === 'resources'}
+            value="resources"
             label={`资源 ${resources.length}`}
-            onClick={() => setActiveTab('resources')}
           />
-          {knowledge ? <MetaTabButton active={activeTab === 'relations'} label="关联" onClick={() => setActiveTab('relations')} /> : null}
-          {hasSource ? <MetaTabButton active={activeTab === 'source'} label="来源" onClick={() => setActiveTab('source')} /> : null}
-        </div>
+          {knowledge ? <MetaTabButton value="relations" label="关联" /> : null}
+          {hasSource ? <MetaTabButton value="source" label="来源" /> : null}
+        </Tabs.List>
       </div>
 
-      <div className={cn(
-        'git-panel-scroll min-h-0 flex-1',
-        activeTab === 'resources' && knowledge && workspaceRootPath && onOpenLocation
-          ? 'flex flex-col overflow-hidden'
-          : 'overflow-auto p-3',
-      )}>
+      <Tabs.Content
+        key={activeTab}
+        value={activeTab}
+        className={cn(
+          'git-panel-scroll min-h-0 flex-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring',
+          activeTab === 'resources' && knowledge && workspaceRootPath && onOpenLocation
+            ? 'flex flex-col overflow-hidden'
+            : 'overflow-auto px-4 py-5',
+        )}
+      >
         {!currentDocument ? (
           <DocumentMetaEmptyState text="选择文档后查看元信息和资源。" />
         ) : activeTab === 'source' ? (
@@ -149,7 +152,6 @@ export function DocumentMetaPanel({
         ) : activeTab === 'meta' ? (
           <DocumentMetaDetails
             characterCount={characterCount}
-            currentDocument={currentDocument}
             documentPanelData={documentPanelData}
             lineCount={lineCount}
             readOnly={readOnly}
@@ -163,37 +165,24 @@ export function DocumentMetaPanel({
             workspaceRootPath={workspaceRootPath}
           />
         )}
-      </div>
-    </div>
+      </Tabs.Content>
+    </Tabs.Root>
   );
 }
 
-function MetaTabButton({
-  active,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}) {
+function MetaTabButton({ value, label }: { value: MetaTab; label: string }) {
   return (
-    <button
-      className={cn(
-        'h-6 rounded-full px-3 text-muted-foreground transition-colors',
-        active && 'bg-background text-foreground shadow-sm',
-      )}
-      type="button"
-      onClick={onClick}
+    <Tabs.Trigger
+      className="min-w-0 rounded-md px-2 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+      value={value}
     >
       {label}
-    </button>
+    </Tabs.Trigger>
   );
 }
 
 function DocumentMetaDetails({
   characterCount,
-  currentDocument,
   documentPanelData,
   lineCount,
   readOnly,
@@ -202,7 +191,6 @@ function DocumentMetaDetails({
   onToggleReadOnly,
 }: {
   characterCount: number;
-  currentDocument: WorkspaceNode;
   documentPanelData: DocumentPanelData | null;
   lineCount: number;
   readOnly: boolean;
@@ -210,66 +198,47 @@ function DocumentMetaDetails({
   wordCount: number;
   onToggleReadOnly?: () => void;
 }) {
-  const title =
-    documentPanelData?.metadata.title ||
-    currentDocument.title ||
-    '未命名文档';
-
   return (
-    <div className="space-y-3">
-      <div className="rounded-xl bg-muted/25 px-4 py-3">
-        <div className="pb-3">
-          <p className="text-[11px] text-muted-foreground">标题</p>
-          <p className="mt-1 break-words text-base font-medium leading-6">
-            {title}
-          </p>
-        </div>
-
-        <div className="divide-y divide-border/60">
+    <div className="min-w-0 space-y-6">
+      <MetaSection title="文档信息">
+        <dl className="divide-y divide-border/60">
           <MetaRow
-            icon={<Clock size={14} />}
             label="创建时间"
             value={formatDocumentDate(documentPanelData?.metadata.createdAt)}
           />
           <MetaRow
-            icon={<Clock size={14} />}
             label="修改时间"
             value={formatDocumentDate(documentPanelData?.metadata.updatedAt)}
           />
-          <MetaRow
-            icon={<Hash size={14} />}
-            label="资源数"
-            value={`${resourceCount.toLocaleString('zh-CN')} 个`}
-          />
-          <MetaRow
-            icon={<Hash size={14} />}
-            label="词数"
-            value={wordCount.toLocaleString('zh-CN')}
-          />
-          <MetaRow
-            icon={<FileText size={14} />}
-            label="行数"
-            value={lineCount.toLocaleString('zh-CN')}
-          />
-          <MetaRow
-            icon={<Hash size={14} />}
-            label="字符"
-            value={characterCount.toLocaleString('zh-CN')}
-          />
-          <MetaRow
-            icon={<FileText size={14} />}
-            label="编码"
-            value="UTF-8"
-          />
-          <DocumentModeRow
-            readOnly={readOnly}
-            onToggleReadOnly={onToggleReadOnly}
-          />
+          <MetaRow label="编码" value="UTF-8" />
+        </dl>
+        <div className="border-t border-border/60">
+          <DocumentModeRow readOnly={readOnly} onToggleReadOnly={onToggleReadOnly} />
         </div>
-      </div>
+      </MetaSection>
+
+      <MetaSection title="内容统计">
+        <dl className="divide-y divide-border/60">
+          <MetaRow label="词数" value={wordCount.toLocaleString('zh-CN')} />
+          <MetaRow label="字符" value={characterCount.toLocaleString('zh-CN')} />
+          <MetaRow label="行数" value={lineCount.toLocaleString('zh-CN')} />
+          <MetaRow label="资源数" value={`${resourceCount.toLocaleString('zh-CN')} 个`} />
+        </dl>
+      </MetaSection>
 
       <FrontmatterDetails frontmatter={documentPanelData?.frontmatter ?? {}} />
     </div>
+  );
+}
+
+function MetaSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="min-w-0">
+      <h3 className="mb-2 px-1 text-xs font-medium text-muted-foreground">{title}</h3>
+      <div className="rounded-xl border border-border/65 bg-background px-3.5">
+        {children}
+      </div>
+    </section>
   );
 }
 
@@ -280,109 +249,60 @@ function DocumentModeRow({
   readOnly: boolean;
   onToggleReadOnly?: () => void;
 }) {
-  const Icon = readOnly ? Eye : PenLine;
-
   return (
-    <div className="flex min-h-11 items-center gap-3 py-2.5">
-      <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground/80">
-        <Icon size={14} strokeWidth={1.8} />
-      </span>
-      <span className="min-w-0 flex-1 text-xs text-muted-foreground">
-        模式
-      </span>
-      <span className="flex max-w-[58%] justify-end">
-        <button
-            aria-label={readOnly ? '切换为编辑模式' : '切换为阅读模式'}
+    <div className="flex min-h-12 items-center justify-between gap-3 py-2.5">
+      <span className="text-xs text-muted-foreground">模式</span>
+      <div role="group" aria-label="文档模式" className="flex shrink-0 gap-0.5 rounded-lg bg-muted/60 p-0.5">
+        {[
+          { label: '编辑', value: false, icon: PenLine },
+          { label: '阅读', value: true, icon: Eye },
+        ].map(({ label, value, icon: Icon }) => (
+          <button
+            key={label}
+            aria-label={`切换为${label}模式`}
+            aria-pressed={readOnly === value}
             className={cn(
-              'grid h-7 w-[58px] shrink-0 grid-cols-2 rounded-lg border border-border/70 bg-background/80 p-0.5 text-muted-foreground shadow-[inset_0_1px_1px_rgba(15,23,42,0.03)] transition-colors',
-              'hover:border-border hover:bg-background disabled:pointer-events-none disabled:opacity-50',
+              'flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50',
+              readOnly === value && 'bg-background text-foreground shadow-sm',
             )}
-          disabled={!onToggleReadOnly}
-          type="button"
-          onClick={onToggleReadOnly}
-        >
-          <span
-            aria-hidden="true"
-            className={cn(
-              'flex size-6 items-center justify-center rounded-md transition-colors',
-              !readOnly && 'bg-sidebar-accent text-foreground shadow-sm',
-            )}
+            disabled={!onToggleReadOnly}
+            type="button"
+            onClick={() => {
+              if (readOnly !== value) onToggleReadOnly?.();
+            }}
           >
-            <PenLine size={13} strokeWidth={1.8} />
-          </span>
-          <span
-            aria-hidden="true"
-            className={cn(
-              'flex size-6 items-center justify-center rounded-md transition-colors',
-              readOnly && 'bg-sidebar-accent text-foreground shadow-sm',
-            )}
-          >
-            <Eye size={13} strokeWidth={1.8} />
-          </span>
-        </button>
-      </span>
+            <Icon size={13} strokeWidth={1.8} aria-hidden="true" />
+            {label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
 
-function FrontmatterDetails({
-  frontmatter,
-}: {
-  frontmatter: Record<string, string>;
-}) {
+function FrontmatterDetails({ frontmatter }: { frontmatter: Record<string, string> }) {
   const entries = Object.entries(frontmatter);
-
-  if (entries.length === 0) {
-    return null;
-  }
+  if (entries.length === 0) return null;
 
   return (
-    <section className="rounded-xl bg-muted/25 px-4 py-3">
-      <h3 className="text-[11px] font-medium text-muted-foreground">
-        Frontmatter
-      </h3>
-      <dl className="mt-2 divide-y divide-border/60">
+    <MetaSection title="Frontmatter">
+      <dl className="divide-y divide-border/60">
         {entries.map(([key, value]) => (
-          <div
-            className="grid grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)] gap-3 py-2 text-xs"
-            key={key}
-          >
-            <dt className="truncate text-muted-foreground" title={key}>
-              {key}
-            </dt>
-            <dd
-              className="break-words text-right font-medium text-foreground"
-              title={value}
-            >
-              {value}
-            </dd>
+          <div className="grid grid-cols-[minmax(0,0.38fr)_minmax(0,0.62fr)] items-start gap-3 py-3 text-xs leading-5" key={key}>
+            <dt className="text-muted-foreground [overflow-wrap:anywhere]">{key}</dt>
+            <dd className="min-w-0 text-right tabular-nums [overflow-wrap:anywhere]">{value}</dd>
           </div>
         ))}
       </dl>
-    </section>
+    </MetaSection>
   );
 }
 
-function MetaRow({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-}) {
+function MetaRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex min-h-11 items-center gap-3 py-2.5">
-      <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground/80">
-        {icon}
-      </span>
-      <span className="min-w-0 flex-1 text-xs text-muted-foreground">
-        {label}
-      </span>
-      <span className="max-w-[58%] truncate text-right text-xs font-medium">
-        {value}
-      </span>
+    <div className="flex min-h-11 items-center justify-between gap-3 py-3 text-xs leading-5">
+      <dt className="shrink-0 text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 text-right tabular-nums [overflow-wrap:anywhere]">{value}</dd>
     </div>
   );
 }

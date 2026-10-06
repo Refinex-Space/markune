@@ -878,3 +878,34 @@ The implementation follows the reference's narrow centered content, quiet sideba
 Browser checks covered light/dark selection, system navigation selection and its dependent disabled switch, font search and selection, category navigation with scroll reset, and the empty search state. Component regression covers persistence callbacks, keyboard radio selection, Escape search clearing, and active-category semantics. Native transparency, authentication, Git network operations and installation were not exercised in this browser QA; their existing handlers remain in place.
 
 final result: passed
+
+---
+
+# Document metadata refinement — 2026-10-06
+
+- Scope: bring the document metadata panel into the settings page's visual system. Existing resource and relation implementations remain in use.
+- Sources: user screenshot `/var/folders/0w/8y5fmh897_gc458bn5q2s7240000gp/T/codex-clipboard-518d7953-1e6e-4037-b3c4-868937676bd8.png` (4594 × 2420) for the current panel; `/tmp/markune-settings-wide.jpg` (2560 × 1347) for the approved local settings style.
+- Implementation: `/tmp/markune-meta-light.jpg` and `/tmp/markune-meta-dark-narrow.jpg`, both 1000 × 1000 pixels, CSS viewport 1000 × 1000, DPR 1; panel widths 420px and 320px.
+- Evidence uses the real `DocumentMetaPanel` rendered with sample metadata in a temporary local route, removed after inspection. It is component-level browser QA, not native workspace acceptance. Sample statistics deliberately differ from the user's document.
+
+## Comparison and findings
+
+The settings reference and both implementation screenshots were viewed together. This is a visual-system adaptation across different surfaces, not a pixel match. At full view the independent title, section spacing and aligned field values establish the same hierarchy as settings. The panel occupies enough of each screenshot to inspect individual rows without an additional crop. No actionable P0/P1/P2 findings remained on this first comparison.
+
+- Typography: existing UI font and 12px field text, 14px title; numeric values use tabular figures. Long Frontmatter keys and values wrap rather than disappear behind truncation.
+- Spacing: 16px outer padding, 24px between sections, compact rows and 12px corner radius; groups use inset dividers.
+- Tokens: background, foreground, muted text and thin border tokens match settings; both light and dark themes were inspected.
+- Assets: existing Lucide document, edit and reading icons; no new raster assets or approximated logos.
+- Content: document information and content statistics are separate groups, raw Frontmatter remains readable and unchanged. Edit/read controls have explicit labels and selected states.
+
+## Interaction evidence and limits
+
+- Browser: mode selection updates the selected state; resources and relations open their existing empty states; narrow content measured 318px client width and 318px scroll width. Browser console returned no warnings or errors.
+- Component regression: mode changes fire only for a different choice, both controls disable without a callback, keyboard arrows/Home navigate tabs, changing document returns to metadata, raw timestamp remains intact.
+- No native resource downloads, metadata writes or full editor interaction were exercised; this task changes presentation and selection controls only.
+
+final result: passed
+
+## Metadata follow-up — remove title block
+
+Per user feedback, removed the independent document title block; the panel now starts with document information. Existing Frontmatter values, including `title`, remain unchanged. The metadata screenshots above record the earlier layout before this removal.

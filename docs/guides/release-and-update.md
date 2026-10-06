@@ -56,7 +56,7 @@ GitHub 只会从默认分支加载可手工触发的工作流，因此 `.github/
 
 在创建 Tag 前准备用户可读的 Release Notes，至少包含本次更新、支持平台、升级提示和已知限制。不得包含密钥、Token、真实用户路径或用户文档。
 
-当前发布目标为 `0.2.8`，配套编辑器为 `markweave@0.10.6` 与 `@markweave/react@0.10.6`。本次说明涵盖全局搜索跳转保持 Live，以及避免 AI 画图被捆绑浏览器自动化干扰。Tag 前同步 `.github/workflows/release.yml` 的 `releaseBody` 与官网 `markune-web` 的 `src/content/changelog.ts`；官网发布日期以正式 Release 返回的时间为准。
+当前发布目标为 `0.2.8`，配套编辑器为 `markweave@0.10.8` 与 `@markweave/react@0.10.8`。本次说明涵盖全局搜索跳转保持 Live，以及避免 AI 画图被捆绑浏览器自动化干扰。Tag 前同步 `.github/workflows/release.yml` 的 `releaseBody` 与官网 `markune-web` 的 `src/content/changelog.ts`；官网发布日期以正式 Release 返回的时间为准。
 
 ## 4. 本地门禁
 

@@ -134,6 +134,16 @@ cargo check --manifest-path src-tauri/Cargo.toml
 pnpm build:desktop:web
 ```
 
+## Image Scheduling Acceptance
+
+当前依赖为 `markweave@0.10.8` 与 `@markweave/react@0.10.8`。该版本合并同一图片的重复排队请求，忽略过期取消回调，并通过有界空闲队列恢复任务，修复图片调度的微任务循环。升级时同步两个包、锁文件及精确版本的 `minimumReleaseAgeExclude`；不得通过关闭发布年龄策略替代受控版本列表。
+
+运行 `pnpm exec vitest run components/editor/__tests__/markweave-media-scheduling.test.tsx components/editor/__tests__/markweave-image-paste.test.tsx components/editor/__tests__/use-workspace-asset-uploader.test.ts`。集成回归直接加载已安装的发布包，验证快速滚动与重复唤醒后定时器仍能运行、仅解析一次图片、最终队列归零且 Markdown 不变；旧包循环会被测试上限截断，避免挂死测试进程。
+
+原生验收使用带多张图片的文档，覆盖滚动中开关元信息面板、拖动侧栏宽度、快速切换标签及图片进入视口，检查界面响应与 CPU 是否恢复空闲。依赖测试不等于已验收所有平台的 WebView。
+
+2026-10-06 已使用 npm 0.10.8 构建本地 macOS 26.5.2 桌面包，在独立的 18 处图片引用（6 个 SVG 资源）文档中连续 6 次交替滚动与开关元信息面板，操作持续响应、图片显示正常。操作后 WebKit CPU 为约 0.2%，3 秒线程采样的主线程均处于事件等待；验收后恢复原工作区。本次不覆盖 Windows、拖拽宽度、快速标签切换或长时间耐久测试。
+
 ## Reference Link Pointer Acceptance
 
 使用独立测试工作区检查 `[[` 引用，不在唯一生产文档中做输入实验。在长文档中分别打开、筛选、取消与选择候选，使用方向键滚过候选列表，随后点击正文的相邻段落；再打开引用预览抽屉重复操作。普通链接地址浮层和引用抽屉也应覆盖打开、关闭与焦点返回。
