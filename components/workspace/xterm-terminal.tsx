@@ -13,6 +13,7 @@ interface XtermTerminalProps {
   outputStore?: TerminalOutputStore;
   sessionId: string;
   themeMode: 'dark' | 'light';
+  writable?: boolean;
   onData: (sessionId: string, data: string) => void;
   onResize: (sessionId: string, cols: number, rows: number) => void;
 }
@@ -23,6 +24,7 @@ export function XtermTerminal({
   outputStore,
   sessionId,
   themeMode,
+  writable = true,
   onData,
   onResize,
 }: XtermTerminalProps) {
@@ -47,6 +49,7 @@ export function XtermTerminal({
         'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
       fontSize: 13,
       lineHeight: 1.35,
+      minimumContrastRatio: 4.5,
       screenReaderMode: false,
       scrollback: 5000,
       theme: getTerminalTheme(initialThemeModeRef.current),
@@ -56,6 +59,7 @@ export function XtermTerminal({
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(new WebLinksAddon());
     terminal.open(containerRef.current);
+    terminal.textarea?.setAttribute('aria-label', '终端');
     fitAddon.fit();
     onResize(sessionId, terminal.cols, terminal.rows);
     terminal.onData((data) => onData(sessionId, data));
@@ -69,6 +73,16 @@ export function XtermTerminal({
       fitAddonRef.current = null;
     };
   }, [onData, onResize, sessionId]);
+
+  React.useEffect(() => {
+    const terminal = terminalRef.current;
+
+    if (!terminal) {
+      return;
+    }
+
+    syncTerminalInput(terminal, isActive && writable);
+  }, [isActive, writable]);
 
   React.useEffect(() => {
     const terminal = terminalRef.current;
@@ -118,7 +132,7 @@ export function XtermTerminal({
   }, [outputStore, sessionId]);
 
   React.useEffect(() => {
-    if (!isActive || !containerRef.current) {
+    if (!isActive || !writable || !containerRef.current) {
       return;
     }
 
@@ -145,7 +159,7 @@ export function XtermTerminal({
     observer.observe(containerRef.current);
 
     return () => observer.disconnect();
-  }, [isActive, onResize, sessionId]);
+  }, [isActive, onResize, sessionId, writable]);
 
   return (
     <div
@@ -154,6 +168,14 @@ export function XtermTerminal({
       ref={containerRef}
     />
   );
+}
+
+function syncTerminalInput(terminal: Terminal, canWrite: boolean) {
+  terminal.options.disableStdin = !canWrite;
+
+  if (canWrite) {
+    terminal.focus();
+  }
 }
 
 function getTerminalTheme(themeMode: 'dark' | 'light') {

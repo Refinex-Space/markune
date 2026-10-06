@@ -190,6 +190,10 @@ export function DocumentTree({
   const draggedNodeRef = React.useRef<WorkspaceNode | null>(null);
   const iconPickerOpenFrameRef = React.useRef<number | null>(null);
   const treeRootRef = React.useRef<HTMLDivElement>(null);
+  const consumedRevealRef = React.useRef<{
+    path: string;
+    requestId: number | undefined;
+  } | null>(null);
   const visibleNodes = React.useMemo(
     () => filterWorkspaceNodes(nodes, searchQuery),
     [nodes, searchQuery],
@@ -248,6 +252,13 @@ export function DocumentTree({
 
   React.useEffect(() => {
     if (!revealNodePath) {
+      consumedRevealRef.current = null;
+      return;
+    }
+    if (
+      consumedRevealRef.current?.path === revealNodePath &&
+      consumedRevealRef.current.requestId === revealNodeRequestId
+    ) {
       return;
     }
 
@@ -278,7 +289,24 @@ export function DocumentTree({
           (row) => row.dataset.workspaceNodePath === revealNodePath,
         );
 
-        targetRow?.scrollIntoView?.({ block: 'nearest' });
+        // refinex: Reveal only inside the tree; scrollIntoView also scrolls
+        // overflow-hidden workspace/WebView ancestors and can shift the shell.
+        const scroller = targetRow?.closest<HTMLElement>(
+          '[data-workspace-tree-scroll-container="true"]',
+        );
+        if (!targetRow || !scroller) return;
+        consumedRevealRef.current = {
+          path: revealNodePath,
+          requestId: revealNodeRequestId,
+        };
+        const rowBounds = targetRow.getBoundingClientRect();
+        const viewportTop = scroller.getBoundingClientRect().top + scroller.clientTop;
+        const viewportBottom = viewportTop + scroller.clientHeight;
+        if (rowBounds.top < viewportTop) {
+          scroller.scrollTop += rowBounds.top - viewportTop;
+        } else if (rowBounds.bottom > viewportBottom) {
+          scroller.scrollTop += rowBounds.bottom - viewportBottom;
+        }
       });
     }, 0);
 
@@ -1732,18 +1760,11 @@ function getNodeDisplayName(node: WorkspaceNode) {
     return node.name;
   }
 
-  return node.title?.trim() || node.name.replace(/\.md$/i, '');
+  return node.name.replace(/\.(md|mdx)$/i, '');
 }
 
 function isWorkspaceNodeRenameNoop(node: WorkspaceNode, nextName: string) {
-  if (node.kind === 'directory') {
-    return nextName === node.name;
-  }
-
-  const physicalName = node.name.replace(/\.md$/i, '');
-  const documentTitle = node.title?.trim() || physicalName;
-
-  return nextName === physicalName && nextName === documentTitle;
+  return nextName === getNodeDisplayName(node);
 }
 
 function hasDescendantByAbsolutePath(

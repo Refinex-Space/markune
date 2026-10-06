@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-12
+updated: 2026-10-06
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -31,6 +31,7 @@ referenced_by: AGENTS.md#knowledge-map
 - `inspect_workspace_brand(rootPath) -> { state }` 是加载既有工作区前的只读品牌检查，`state` 只能为 `new | current | legacy | conflict`。前端在 `legacy` 或 `conflict` 状态不得继续调用工作区树读取和初始化命令。
 - `migrate_legacy_workspace_brand(rootPath) -> WorkspaceBrandMigrationReport` 只能由用户在品牌迁移弹窗明确确认后调用。命令返回备份相对路径、改写文件数、设置/provider/凭据迁移状态和警告；目录并存、符号链接、路径逃逸、超限文件或事务失败必须返回错误，不能静默部分成功。
 - Git 命令必须在阻塞任务中执行，不得占用 Tauri 原生主线程；本地命令超时为 60 秒，网络及提交等长操作超时为 180 秒，超时后必须终止对应进程树。Windows 启动 Git 子进程时必须使用无窗口标志，前端命令名称、参数和返回结构保持不变。
+- 终端命令为 `terminal_spawn({ rootPath, cols, rows }) -> { id, cwd, shell }`、`terminal_write({ sessionId, data })`、`terminal_resize({ sessionId, cols, rows })` 和幂等的 `terminal_kill({ sessionId })`。单次写入最多 64 KiB；尺寸钳制为最大 300×120。事件为 `terminal:data`、`terminal:exit`（`code` 为进程退出码，等待失败时为 `null`）和 `terminal:error`。折叠面板不调用 kill；主窗口销毁由 Rust 清理仍在运行的会话。
 - `system_fonts.rs` 仅可返回字体家族名称与推荐元数据，不得暴露字体文件路径或内容。
 - 桌面端网络功能应走 Tauri 命令；生产桌面构建使用静态导出，不包含 Next API routes。
 
@@ -82,12 +83,12 @@ referenced_by: AGENTS.md#knowledge-map
 - 工具摘要优先使用 App Server 的 `commandActions`，原始 shell 包装只可出现在展开详情。文件路径只有在规范化后仍位于当前工作区时才可作为可点击文档入口；其他路径仅显示为文本。
 - 审批请求必须保存 `turnId`、`itemId` 和服务端原始候选，并尽量附着到对应工具 item。Rust 将字符串决定、execpolicy amendment、network policy amendment 与 permissions grant 投影为可展示的 opaque choice id；界面只能回传该 id，Rust 必须在对应 pending request 内重新映射，不能接受前端提交的任意结构化决定。
 - 命令审批必须区分 `decline`（拒绝并继续 turn）与 `cancel`（拒绝并中断 turn），并按服务端候选显示一次允许、会话允许和规则授权。`item/permissions/requestApproval` 的允许响应只能复制服务端原始 permissions，可选择 turn、session 或 strict auto-review；拒绝固定返回空 permissions 和 turn scope。
-- `thread/start` 使用命名 `permissions`、`approvalPolicy`、`approvalsReviewer` 与 `runtimeWorkspaceRoots` 建立权限状态，且不得同时发送 legacy `sandbox`。`thread/resume` 不覆盖权限，`turn/start` 不发送安全字段；切换模式只用 `thread/settings/update`，且不得同时发送 `sandboxPolicy`。界面以 `thread/settings/updated` 和 start/resume response 为真实状态来源。
+- `thread/start` 使用命名 `permissions`、`approvalPolicy`、`approvalsReviewer` 与 `runtimeWorkspaceRoots` 建立权限状态，且不得同时发送 legacy `sandbox`。新任务 `config` 固定为 `web_search: "live"`，并关闭 `features.browser_use`、`features.browser_use_external`、`features.browser_use_full_cdp_access`、`features.computer_use` 与 `features.in_app_browser`；不得因此设置 `features.plugins` 或 `features.apps`，也不得改写用户 `config.toml`。`thread/resume` 不覆盖权限，`turn/start` 不发送安全字段；切换模式只用 `thread/settings/update`，且不得同时发送 `sandboxPolicy`。界面以 `thread/settings/updated` 和 start/resume response 为真实状态来源。
 - `thread/read` 默认 `includeTurns: true`。若 App Server 返回 `paginated_threads is not supported yet`，必须立即重试 `includeTurns: false`，并将 `thread/resume` 降级为 `excludeTurns: true`。自动恢复优先选择非 paginated 线程；用户手动打开仍失败时只显示中文说明，不得升级为全局 runtime crash。
 - 协作模式必须先通过实验接口 `collaborationMode/list` 发现 Plan 与 Default 预设；缺少任一预设时降级到 Default。模式可用后，每个 `turn/start` 必须显式发送 `{ collaborationMode: { mode, settings: { model, reasoning_effort, developer_instructions: null } } }`，且不得同时发送顶层 `model`、`effort` 或开发者指令。Plan 的 `reasoning_effort` 固定为 `medium`；模式名、模型和推理强度均由 Rust 再校验。
 - Markdown 文档不得作为 Codex 原生 `mention` 输入发送；该类型只用于 `app://` 与 `plugin://` 目标。显式文档提及必须把带引号的工作区相对路径写入文本，并用 `text_elements.placeholder` 保存显示标题；`byteRange` 使用替换后文本的 UTF-8 字节偏移。插件输入框节点可以只显示名称和真实图标，但模型文本必须恢复 `@Plugin` 与对应 `text_elements`，并额外发送名称和 `plugin://{id}` 原生 mention。
 - Drawing 不得伪装为 Codex 原生 mention。显式图稿提及必须把规范 `markune-drawing://<uuid>` 写入文本、用 `text_elements.placeholder` 保留标题，并通过私有 `markuneDrawingReferences` 提交 active/mention 角色。`inspect_drawing({ drawingId })` 只能消费当前 turn 授权的 UUID，响应正文限制为 16 KiB，预览只允许 Markune 读取的 2 MiB 内 PNG/WebP Data URL。
-- 核心运行时就绪后必须自动调用一次 `plugin/installed`，请求参数固定为当前工作区根目录的单元素 `cwds` 与空 `installSuggestionPluginNames`；同一运行时代际成功后不得重复请求，失败时允许用户从加号菜单重试。不得借加载安装建议或查询其他目录；结果只展示 installed、enabled 且 `availability` 非 `DISABLED_BY_ADMIN` 的插件。该接口在固定 sidecar `0.153.4` 中仍标记为开发中，升级时必须重新生成 schema 并验证降级行为。
+- 核心运行时就绪后必须自动调用一次 `plugin/installed`，请求参数固定为当前工作区根目录的单元素 `cwds` 与空 `installSuggestionPluginNames`；同一运行时代际成功后不得重复请求，失败时允许用户从加号菜单重试。不得借加载安装建议或查询其他目录；结果只展示 installed、enabled 且 `availability` 非 `DISABLED_BY_ADMIN` 的插件，并额外隐藏 Codex 捆绑的 `chrome`、`browser`、`browser-use` 与 `computer-use`（`openai-bundled`）。该接口在固定 sidecar `0.153.4` 中仍标记为开发中，升级时必须重新生成 schema 并验证降级行为。
 - `read_codex_plugin_icon(path) -> { mediaType, base64Data }` 只服务最近一次成功关联的 `plugin/installed` 响应。Rust 必须先按客户端请求 ID 关联响应，只登记其中 `composerIcon`、`logo`、`logoDark` 声明且可 canonicalize 的普通文件；命令仅接受与登记结果完全相同的 canonical path，限制 1 MiB，并按内容签名识别 PNG、JPEG、GIF、WebP 或 SVG。重新请求插件清单时先清空旧授权，运行时重启、停止或工作区切换后不得沿用。
 - 插件图标解析顺序固定为 `composerIcon` / `composerIconUrl`、当前主题 `logoDark` / `logo`、当前主题 `logoUrlDark` / `logoUrl`。本地资源读取失败后可以继续尝试下一候选；远程候选只接受 HTTPS，渲染时必须使用 `referrerPolicy="no-referrer"`，加载错误降级为通用插件图标且不得把整个插件清单标记为失败。
 - 核心运行时就绪后必须调用 `skills/list`，参数固定为当前工作区根目录的单元素 `cwds` 与 `forceReload: false`；收到 `skills/changed` 后使用相同 `cwds` 和 `forceReload: true` 刷新。只展示 enabled Skill，名称优先使用 `interface.displayName`，描述优先使用 `interface.shortDescription`，来源由 `scope` 映射。输入框选择结果必须把模型文本编码为 `$skill-name` 并带 UTF-8 `text_elements`，同时追加精确的 `{ type: "skill", name, path }` 原生输入。

@@ -243,6 +243,7 @@ export function WorkspaceSettingsPage({
     setActiveSection(initialSectionId);
   }
   const [searchQuery, setSearchQuery] = React.useState('');
+  const contentScrollRef = React.useRef<HTMLDivElement>(null);
   const [settings, setSettings] = React.useState(
     () => withDefaultAppSettings(cacheEntry.settings ?? initialSettings),
   );
@@ -490,6 +491,9 @@ export function WorkspaceSettingsPage({
   )
     ? activeSection
     : visibleSections[0]?.id;
+  React.useEffect(() => {
+    if (contentScrollRef.current) contentScrollRef.current.scrollTop = 0;
+  }, [effectiveSection]);
   const assetDirectory = workspaceRootPath
     ? toUserAbsolutePath(
         `${workspaceRootPath.replace(/[\\/]+$/, '')}/.markune/assets/files`,
@@ -504,7 +508,7 @@ export function WorkspaceSettingsPage({
     >
       <div className="relative flex min-h-0 min-w-0 max-w-full flex-1 overflow-hidden bg-background">
       <aside
-        className="flex h-full shrink-0 flex-col overflow-hidden border-r border-border/70 bg-background text-sidebar-foreground"
+        className="flex h-full shrink-0 flex-col overflow-hidden border-r border-border/50 bg-muted/20 text-sidebar-foreground"
         data-testid="workspace-settings-sidebar"
         style={{ width: sidebarWidth }}
       >
@@ -525,20 +529,22 @@ export function WorkspaceSettingsPage({
               : undefined
           }
         />
-        <div className="px-2 pb-2 pr-4">
+        <div className="flex items-center justify-between px-4 pb-4 pt-2">
+          <h1 className="text-base font-semibold tracking-tight">设置</h1>
           <button
             aria-label="返回应用"
-            className="inline-flex h-8 max-w-full items-center gap-1.5 rounded-md px-2 text-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            title="返回应用"
+            className="inline-flex size-8 items-center justify-center rounded-lg text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             type="button"
             onClick={onBack}
           >
             <ArrowLeft size={14} strokeWidth={1.8} />
-            <span>返回应用</span>
+            <span className="sr-only">返回应用</span>
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-2 pb-4 pr-4">
-          <label className="flex h-8 items-center gap-2 rounded-md border border-sidebar-border/60 bg-background/70 px-2 text-muted-foreground focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-3 pb-4">
+          <label className="flex h-9 items-center gap-2 rounded-lg border border-transparent bg-muted/70 px-3 text-muted-foreground focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
             <Search size={14} />
             <input
               aria-label="搜索设置"
@@ -547,6 +553,13 @@ export function WorkspaceSettingsPage({
               type="search"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && searchQuery) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setSearchQuery('');
+                }
+              }}
             />
             {searchQuery ? (
               <button
@@ -560,27 +573,38 @@ export function WorkspaceSettingsPage({
             ) : null}
           </label>
 
-          <nav aria-label="设置分类" className="grid gap-1">
-            <p className="px-2 pb-1 text-[11px] font-semibold text-muted-foreground">
-              常规
-            </p>
-            {visibleSections.map((section) => {
-              const Icon = section.icon;
+          <nav aria-label="设置分类" className="space-y-5">
+            {[
+              { label: '偏好设置', ids: ['appearance', 'calendar'] },
+              { label: '工作区', ids: ['storage', 'git-sync'] },
+              { label: '连接与应用', ids: ['codex', 'version'] },
+            ].map(group => {
+              const sections = visibleSections.filter(section => group.ids.includes(section.id));
+              if (!sections.length) return null;
               return (
-                <button
-                  className={cn(
-                    'flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                    effectiveSection === section.id
-                      ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                      : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/75 hover:text-sidebar-accent-foreground',
-                  )}
-                  key={section.id}
-                  type="button"
-                  onClick={() => setActiveSection(section.id)}
-                >
-                  <Icon size={15} strokeWidth={1.8} />
-                  {section.label}
-                </button>
+                <div key={group.label} className="space-y-1">
+                  <p className="px-2.5 pb-1 text-[11px] font-medium text-muted-foreground">{group.label}</p>
+                  {sections.map(section => {
+                    const Icon = section.icon;
+                    return (
+                      <button
+                        aria-current={effectiveSection === section.id ? 'page' : undefined}
+                        className={cn(
+                          'flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                          effectiveSection === section.id
+                            ? 'bg-foreground/[0.06] font-medium text-foreground'
+                            : 'text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground',
+                        )}
+                        key={section.id}
+                        type="button"
+                        onClick={() => setActiveSection(section.id)}
+                      >
+                        <Icon size={16} strokeWidth={1.65} />
+                        {section.label}
+                      </button>
+                    );
+                  })}
+                </div>
               );
             })}
           </nav>
@@ -609,9 +633,9 @@ export function WorkspaceSettingsPage({
           data-testid="workspace-settings-main-surface"
         >
           {header}
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="min-h-0 flex-1 overflow-y-auto" ref={contentScrollRef} data-testid="settings-content-scrollarea">
             <div
-              className="mx-auto w-full max-w-[1120px] px-8 py-10 pb-24"
+              className="mx-auto w-full max-w-[840px] px-6 py-10 pb-20 lg:px-10"
               data-testid="workspace-settings-content"
             >
               {effectiveSection === 'appearance' ? (
@@ -764,32 +788,29 @@ function AppearanceSection({
         title="外观"
       />
 
-      <section className="rounded-xl bg-muted/30 p-5">
-        <h3 className="text-sm font-medium">主题</h3>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          跟随系统会同步当前操作系统外观。
-        </p>
-        <div className="mt-4 grid gap-3 sm:grid-cols-3" role="radiogroup">
-          <ThemePreviewRadioButton
-            checked={theme === 'system'}
-            label="跟随系统"
-            testId="theme-preview-system"
-            variant="system"
-            onClick={() => onThemeChange('system')}
+      <section className="space-y-3">
+        <h3 className="text-xs font-medium text-muted-foreground">界面与阅读</h3>
+        <div className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border/65 bg-background">
+          <SettingRow
+            label="主题"
+            description="选择外观，或自动跟随系统。"
+            control={
+              <SettingsRadioGroup label="主题">
+                <ThemePreviewRadioButton checked={theme === 'system'} label="跟随系统" testId="theme-preview-system" variant="system" onClick={() => onThemeChange('system')} />
+                <ThemePreviewRadioButton checked={theme === 'light'} label="亮色" testId="theme-preview-light" variant="light" onClick={() => onThemeChange('light')} />
+                <ThemePreviewRadioButton checked={theme === 'dark'} label="暗色" testId="theme-preview-dark" variant="dark" onClick={() => onThemeChange('dark')} />
+              </SettingsRadioGroup>
+            }
           />
-          <ThemePreviewRadioButton
-            checked={theme === 'light'}
-            label="亮色"
-            testId="theme-preview-light"
-            variant="light"
-            onClick={() => onThemeChange('light')}
-          />
-          <ThemePreviewRadioButton
-            checked={theme === 'dark'}
-            label="暗色"
-            testId="theme-preview-dark"
-            variant="dark"
-            onClick={() => onThemeChange('dark')}
+          <SettingRow
+            label="页面宽度"
+            description="调整正文的阅读宽度。"
+            control={
+              <SettingsRadioGroup label="页面宽度">
+                <PageWidthPreviewRadioButton checked={settings.appearance.pageWidthMode === 'standard'} label="标准" testId="page-width-preview-standard" onClick={() => onPageWidthChange('standard')} />
+                <PageWidthPreviewRadioButton checked={settings.appearance.pageWidthMode === 'wide'} label="全宽" testId="page-width-preview-wide" onClick={() => onPageWidthChange('wide')} />
+              </SettingsRadioGroup>
+            }
           />
         </div>
       </section>
@@ -801,36 +822,13 @@ function AppearanceSection({
         onPreview={onWindowOpacityPreview}
       />
 
-      <section className="rounded-xl bg-muted/30 p-5">
-        <h3 className="text-sm font-medium">页面宽度</h3>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          控制文档正文宽度，不改变左右侧栏宽度。
-        </p>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2" role="radiogroup">
-          <PageWidthPreviewRadioButton
-            checked={settings.appearance.pageWidthMode === 'standard'}
-            label="标准"
-            testId="page-width-preview-standard"
-            variant="standard"
-            onClick={() => onPageWidthChange('standard')}
-          />
-          <PageWidthPreviewRadioButton
-            checked={settings.appearance.pageWidthMode === 'wide'}
-            label="全宽"
-            testId="page-width-preview-wide"
-            variant="wide"
-            onClick={() => onPageWidthChange('wide')}
-          />
-        </div>
-      </section>
-
       <section data-testid="system-nav-settings">
-        <h3 className="text-sm font-medium">系统入口</h3>
+        <h3 className="text-xs font-medium text-muted-foreground">系统入口</h3>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">
           控制左侧顶部入口的排列与折叠。
         </p>
-        <div className="mt-4 overflow-hidden rounded-xl bg-muted/30">
-          <div className="grid gap-3 border-b border-border/60 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_240px] sm:items-center">
+        <div className="mt-3 overflow-hidden rounded-xl border border-border/65 bg-background">
+          <div className="grid gap-3 border-b border-border/60 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_200px] sm:items-center">
             <div className="min-w-0">
               <p className="text-sm font-medium">排列方式</p>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
@@ -842,12 +840,12 @@ function AppearanceSection({
               onChange={onSystemNavLayoutChange}
             />
           </div>
-          <div className="grid gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_240px] sm:items-center">
+          <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_200px] sm:items-center">
             <div className="min-w-0">
               <p className="text-sm font-medium">收起系统入口</p>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
                 {settings.appearance.systemNavLayout === 'horizontal'
-                  ? '横向排列始终展示七个入口，仅通过省略号切换形态。'
+                  ? '横向排列时保持展开；切换为纵向后可收起。'
                   : '收起后仅在悬停命中条时显示展开控件。'}
               </p>
             </div>
@@ -868,12 +866,12 @@ function AppearanceSection({
       </section>
 
       <section>
-        <h3 className="text-sm font-medium">字体</h3>
+        <h3 className="text-xs font-medium text-muted-foreground">字体</h3>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">
           分别控制系统界面、文档正文和代码块字体。
         </p>
         <div
-          className="mt-4 overflow-hidden rounded-xl bg-muted/30"
+          className="mt-3 overflow-hidden rounded-xl border border-border/65 bg-background"
           data-testid="appearance-fonts-card"
         >
           <FontSettingRow
@@ -937,16 +935,13 @@ function WindowOpacitySetting({
 
   return (
     <section data-testid="window-opacity-settings">
-      <h3 className="text-sm font-medium">窗口</h3>
-      <p className="mt-1 text-xs leading-5 text-muted-foreground">
-        调整整个应用窗口与桌面背景之间的通透程度。
-      </p>
-      <div className="mt-4 rounded-xl bg-muted/30 px-5 py-4">
-        <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_300px] sm:items-center">
+      <h3 className="text-xs font-medium text-muted-foreground">窗口</h3>
+      <div className="mt-3 rounded-xl border border-border/65 bg-background px-4 py-3.5">
+        <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-center">
           <div className="min-w-0">
             <p className="text-sm font-medium">应用透明度</p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              拖动时会即时预览。为保证文字清晰和窗口可找回，最低限制为 70%。
+              拖动即刻预览，松开后保存。最低为 70%。
             </p>
             {!available ? (
               <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
@@ -1352,7 +1347,7 @@ function CodexSection({
       </div>
 
       {editorMode === 'chatgpt' ? (
-        <section className="rounded-xl bg-muted/30 p-4" data-testid="codex-chatgpt-panel">
+        <section className="rounded-xl border border-border/65 bg-background p-4" data-testid="codex-chatgpt-panel">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
               <h3 className="text-sm font-medium">ChatGPT 账户</h3>
@@ -1399,7 +1394,7 @@ function CodexSection({
         </section>
       ) : (
         <section
-          className="space-y-4 rounded-xl bg-muted/30 p-4"
+          className="space-y-4 rounded-xl border border-border/65 bg-background p-4"
           data-testid="codex-custom-provider-form"
         >
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1521,10 +1516,10 @@ function CalendarSection({
       />
 
       <section
-        className="overflow-hidden rounded-xl bg-muted/30"
+        className="overflow-hidden rounded-xl border border-border/65 bg-background"
         data-testid="calendar-settings-card"
       >
-        <div className="grid gap-3 border-b border-border/60 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_240px] sm:items-center">
+        <div className="grid gap-3 border-b border-border/60 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_200px] sm:items-center">
           <div className="min-w-0">
             <p className="text-sm font-medium">展开日历</p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
@@ -1540,7 +1535,7 @@ function CalendarSection({
             />
           </div>
         </div>
-        <div className="grid gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_240px] sm:items-center">
+        <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_200px] sm:items-center">
           <div className="min-w-0">
             <p className="text-sm font-medium">每周起始日</p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
@@ -1670,7 +1665,7 @@ function StorageSection({
         </Button>
       </div>
       <section
-        className="overflow-hidden rounded-xl bg-muted/30"
+        className="overflow-hidden rounded-xl border border-border/65 bg-background"
         data-testid="storage-provider-card"
       >
         <SettingRow
@@ -1746,7 +1741,7 @@ function StorageSection({
       </section>
       {managed ? (
         <section
-          className="overflow-hidden rounded-xl bg-muted/30"
+          className="overflow-hidden rounded-xl border border-border/65 bg-background"
           data-testid="storage-local-card"
         >
           <ReadonlyField label="本地资源目录" value={assetDirectory} />
@@ -1757,7 +1752,7 @@ function StorageSection({
       ) : null}
       <section>
         <h3 className="mb-3 text-sm font-medium">插入图片时</h3>
-        <div className="divide-y divide-border/50 rounded-xl bg-muted/30">
+        <div className="divide-y divide-border/50 rounded-xl border border-border/65 bg-background">
           <SettingRow
             labelClassName="text-sm font-normal tracking-normal"
             label="对本地图片应用规则"
@@ -1787,7 +1782,7 @@ function StorageSection({
       {!managed ? (
         <section data-testid="storage-path-options">
           <h3 className="mb-3 text-sm font-medium">文档中的路径</h3>
-          <div className="divide-y divide-border/50 rounded-xl bg-muted/30">
+          <div className="divide-y divide-border/50 rounded-xl border border-border/65 bg-background">
             <SettingRow
               labelClassName="text-sm font-normal tracking-normal"
               label="优先使用相对路径"
@@ -1851,37 +1846,39 @@ function VersionSection({ appUpdate }: { appUpdate: AppUpdateController }) {
       />
 
       <section
-        className="overflow-hidden rounded-xl bg-muted/30"
+        className="overflow-hidden rounded-xl border border-border/65 bg-background"
         data-testid="markune-version-card"
       >
-        <div className="flex flex-col items-center px-6 py-10 text-center">
+        <div className="flex items-center gap-4 px-5 py-6">
           <div
             aria-label="Markune Logo"
-            className="flex size-20 items-center justify-center rounded-2xl border border-border/60 bg-background/80 shadow-sm"
+            className="flex size-14 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-background shadow-sm"
             role="img"
           >
             <Image
               alt=""
-              className="size-12 opacity-90 dark:hidden"
+              className="size-8 opacity-90 dark:hidden"
               height={48}
               src="/brand/markune-logo-dark.svg"
               width={48}
             />
             <Image
               alt=""
-              className="hidden size-12 opacity-90 dark:block"
+              className="hidden size-8 opacity-90 dark:block"
               height={48}
               src="/brand/markune-logo-light.svg"
               width={48}
             />
           </div>
-          <h2 className="mt-5 text-xl font-semibold tracking-tight">Markune</h2>
-          <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">
-            以 Markdown 为核心的本地知识库桌面应用。
-          </p>
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold tracking-tight">Markune</h2>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              以 Markdown 为核心的本地知识库桌面应用。
+            </p>
+          </div>
         </div>
 
-        <div className="grid gap-3 border-t border-border/60 px-5 py-4 text-sm sm:grid-cols-[160px_minmax(0,1fr)] sm:items-center">
+        <div className="grid gap-3 border-t border-border/60 px-4 py-3.5 text-sm sm:grid-cols-[160px_minmax(0,1fr)] sm:items-center">
           <span className="text-muted-foreground">当前版本</span>
           <code
             aria-live="polite"
@@ -1906,7 +1903,7 @@ function VersionSection({ appUpdate }: { appUpdate: AppUpdateController }) {
         ) : null}
       </section>
 
-      <section className="rounded-xl bg-muted/30 p-5">
+      <section className="rounded-xl border border-border/65 bg-background p-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <h3 className="text-sm font-medium">应用更新</h3>
@@ -1987,7 +1984,7 @@ function VersionSection({ appUpdate }: { appUpdate: AppUpdateController }) {
       </section>
 
       {appUpdate.update?.body ? (
-        <section className="rounded-xl bg-muted/30 p-5">
+        <section className="rounded-xl border border-border/65 bg-background p-5">
           <h3 className="text-sm font-medium">更新说明</h3>
           <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">
             {appUpdate.update.body}
@@ -2006,7 +2003,7 @@ function VersionMetadataRow({
   value: string;
 }) {
   return (
-    <div className="grid gap-3 border-t border-border/60 px-5 py-4 text-sm sm:grid-cols-[160px_minmax(0,1fr)] sm:items-center">
+    <div className="grid gap-3 border-t border-border/60 px-4 py-3.5 text-sm sm:grid-cols-[160px_minmax(0,1fr)] sm:items-center">
       <span className="text-muted-foreground">{label}</span>
       <code className="font-mono text-sm text-foreground sm:text-right">
         {value}
@@ -2112,7 +2109,7 @@ function GitSyncSection({
       ) : null}
 
       <section
-        className="rounded-xl bg-muted/30"
+        className="rounded-xl border border-border/65 bg-background"
         data-testid="git-sync-enable-card"
       >
         <SettingRow
@@ -2134,10 +2131,10 @@ function GitSyncSection({
       <section>
         <h3 className="text-sm font-medium text-muted-foreground">仓库</h3>
         <div
-          className="mt-2 overflow-hidden rounded-xl bg-muted/30"
+          className="mt-2 overflow-hidden rounded-xl border border-border/65 bg-background"
           data-testid="git-sync-repository-card"
         >
-          <div className="grid gap-3 border-b border-border/60 px-5 py-4 text-sm sm:grid-cols-[160px_minmax(0,1fr)] sm:items-center">
+          <div className="grid gap-3 border-b border-border/60 px-4 py-3.5 text-sm sm:grid-cols-[160px_minmax(0,1fr)] sm:items-center">
             <span className="text-muted-foreground">远程仓库地址</span>
             <div className="flex min-w-0 items-center gap-3 sm:justify-end">
               <code
@@ -2164,7 +2161,7 @@ function GitSyncSection({
               ) : null}
             </div>
           </div>
-          <div className="grid gap-3 px-5 py-4 text-sm sm:grid-cols-[160px_minmax(0,1fr)] sm:items-center">
+          <div className="grid gap-3 px-4 py-3.5 text-sm sm:grid-cols-[160px_minmax(0,1fr)] sm:items-center">
             <span className="text-muted-foreground">上次同步时间</span>
             <span
               className="min-w-0 leading-6 text-foreground sm:text-right"
@@ -2181,7 +2178,7 @@ function GitSyncSection({
       <section>
         <h3 className="text-sm font-medium text-muted-foreground">界面入口</h3>
         <div
-          className="mt-2 divide-y divide-border/60 overflow-hidden rounded-xl bg-muted/30"
+          className="mt-2 divide-y divide-border/60 overflow-hidden rounded-xl border border-border/65 bg-background"
           data-testid="git-entry-preferences-card"
         >
           <SettingRow
@@ -2217,7 +2214,7 @@ function GitSyncSection({
       <section>
         <h3 className="text-sm font-medium text-muted-foreground">同步偏好</h3>
         <div
-          className="mt-2 divide-y divide-border/60 overflow-hidden rounded-xl bg-muted/30"
+          className="mt-2 divide-y divide-border/60 overflow-hidden rounded-xl border border-border/65 bg-background"
           data-testid="git-sync-preferences-card"
         >
           <SettingRow
@@ -2323,8 +2320,8 @@ function SettingsSectionHeader({
   title: string;
 }) {
   return (
-    <header>
-      <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
+    <header className="pb-2">
+      <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
       <p className="mt-1 text-sm leading-6 text-muted-foreground">
         {description}
       </p>
@@ -2332,185 +2329,52 @@ function SettingsSectionHeader({
   );
 }
 
-function ThemePreviewRadioButton({
-  checked,
-  label,
-  testId,
-  variant,
-  onClick,
-}: {
-  checked: boolean;
-  label: string;
-  testId: string;
-  variant: 'dark' | 'light' | 'system';
-  onClick: () => void;
+function SettingsRadioGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div
+      aria-label={label}
+      className="inline-flex max-w-full items-center gap-0.5 rounded-lg bg-muted/60 p-1"
+      role="radiogroup"
+      onKeyDown={(event) => {
+        if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+        const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]'));
+        const current = buttons.indexOf(event.target as HTMLButtonElement);
+        if (current < 0 || !buttons.length) return;
+        event.preventDefault();
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+          : (current + (event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1) + buttons.length) % buttons.length;
+        buttons[next].focus();
+        buttons[next].click();
+      }}
+    >{children}</div>
+  );
+}
+
+function ThemePreviewRadioButton({ checked, label, testId, variant, onClick }: {
+  checked: boolean; label: string; testId: string;
+  variant: 'dark' | 'light' | 'system'; onClick: () => void;
 }) {
   const Icon = variant === 'system' ? Monitor : variant === 'light' ? Sun : Moon;
   return (
-    <button
-      aria-checked={checked}
-      aria-label={label}
-      className={cn(
-        'group grid min-h-[156px] gap-2 rounded-lg border bg-background/80 p-2 text-left transition-[border-color,background-color,box-shadow] hover:border-[#3574f0]/60 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3574f0]/45',
-        checked ? 'border-[#3574f0] shadow-sm' : 'border-border',
-      )}
-      data-testid={testId}
-      role="radio"
-      type="button"
-      onClick={onClick}
-    >
-      <div className="relative h-24 overflow-hidden rounded-md border border-border/70 bg-muted/30 transition-colors group-hover:border-[#3574f0]/35">
-        <ThemeArticlePreview variant={variant} />
-        {checked ? <SelectedBadge /> : null}
-      </div>
-      <span
-        className={cn(
-          'flex min-w-0 items-center justify-center gap-1.5 text-sm font-medium',
-          checked ? 'text-foreground' : 'text-muted-foreground',
-        )}
-      >
-        <Icon size={15} strokeWidth={1.8} />
-        {label}
-      </span>
+    <button aria-checked={checked} aria-label={label} data-testid={testId} role="radio" type="button"
+      tabIndex={checked ? 0 : -1}
+      className={cn('inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        checked ? 'bg-background font-medium text-foreground shadow-sm ring-1 ring-border/60' : 'text-muted-foreground hover:text-foreground')}
+      onClick={onClick}>
+      <Icon size={14} strokeWidth={1.7} />{label}
     </button>
   );
 }
 
-function ThemeArticlePreview({
-  variant,
-}: {
-  variant: 'dark' | 'light' | 'system';
-}) {
-  if (variant === 'system') {
-    return (
-      <div className="grid h-full grid-cols-2">
-        <ArticleMiniature mode="light" />
-        <ArticleMiniature mode="dark" />
-      </div>
-    );
-  }
-  return <ArticleMiniature mode={variant} />;
-}
-
-function ArticleMiniature({ mode }: { mode: 'dark' | 'light' }) {
-  const dark = mode === 'dark';
-  return (
-    <div
-      className={cn(
-        'relative h-full overflow-hidden px-3 py-2',
-        dark ? 'bg-[#181b20]' : 'bg-[#f8fafc]',
-      )}
-    >
-      <div
-        className={cn(
-          'mx-auto h-full max-w-[112px] rounded-md border px-3 py-2 shadow-sm',
-          dark ? 'border-white/10 bg-[#242932]' : 'border-slate-200 bg-white',
-        )}
-      >
-        <div
-          className={cn(
-            'mb-1 h-1.5 w-10 rounded-full',
-            dark ? 'bg-slate-500' : 'bg-slate-300',
-          )}
-        />
-        <div
-          className={cn(
-            'mb-2 h-2 w-16 rounded-full',
-            dark ? 'bg-slate-300' : 'bg-slate-700',
-          )}
-        />
-        <div className="space-y-1">
-          <PreviewLine mode={mode} width="w-full" />
-          <PreviewLine mode={mode} width="w-4/5" />
-          <PreviewLine mode={mode} width="w-11/12" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PageWidthPreviewRadioButton({
-  checked,
-  label,
-  testId,
-  variant,
-  onClick,
-}: {
-  checked: boolean;
-  label: string;
-  testId: string;
-  variant: PageWidthMode;
-  onClick: () => void;
+function PageWidthPreviewRadioButton({ checked, label, testId, onClick }: {
+  checked: boolean; label: string; testId: string; onClick: () => void;
 }) {
   return (
-    <button
-      aria-checked={checked}
-      aria-label={label}
-      className={cn(
-        'group grid min-h-32 gap-2 rounded-lg border bg-background/80 p-2 text-left transition-[border-color,background-color,box-shadow] hover:border-[#3574f0]/60 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3574f0]/45',
-        checked ? 'border-[#3574f0] shadow-sm' : 'border-border',
-      )}
-      data-testid={testId}
-      role="radio"
-      type="button"
-      onClick={onClick}
-    >
-      <div className="relative h-20 overflow-hidden rounded-md border border-border/70 bg-muted/20 px-3 py-2 transition-colors group-hover:border-[#3574f0]/35">
-        <div
-          className={cn(
-            'mx-auto h-full rounded-md border bg-background px-3 py-2 shadow-sm',
-            variant === 'standard' ? 'max-w-[104px]' : 'max-w-[172px]',
-          )}
-        >
-          <div className="mb-2 h-2 w-14 rounded-full bg-foreground/50" />
-          <div className="space-y-1">
-            <PreviewLine mode="light" width="w-full" />
-            <PreviewLine mode="light" width="w-11/12" />
-            <PreviewLine mode="light" width="w-4/5" />
-          </div>
-          <div className="mt-2 grid grid-cols-3 gap-1">
-            <span className="h-2 rounded bg-[#3574f0]/20" />
-            <span className="h-2 rounded bg-[#3574f0]/15" />
-            <span className="h-2 rounded bg-[#3574f0]/10" />
-          </div>
-        </div>
-        {checked ? <SelectedBadge /> : null}
-      </div>
-      <span
-        className={cn(
-          'text-center text-sm font-medium',
-          checked ? 'text-foreground' : 'text-muted-foreground',
-        )}
-      >
-        {label}
-      </span>
-    </button>
-  );
-}
-
-function SelectedBadge() {
-  return (
-    <span className="absolute right-2 top-2 grid size-5 place-items-center rounded-full bg-[#3574f0] text-white shadow-sm">
-      <CheckCircle2 size={13} strokeWidth={2.2} />
-    </span>
-  );
-}
-
-function PreviewLine({
-  mode,
-  width,
-}: {
-  mode: 'dark' | 'light';
-  width: string;
-}) {
-  return (
-    <span
-      className={cn(
-        'block h-1 rounded-full',
-        width,
-        mode === 'dark' ? 'bg-slate-500/80' : 'bg-slate-200',
-      )}
-    />
+    <button aria-checked={checked} aria-label={label} data-testid={testId} role="radio" type="button"
+      tabIndex={checked ? 0 : -1}
+      className={cn('h-8 min-w-[76px] rounded-md px-3 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        checked ? 'bg-background font-medium text-foreground shadow-sm ring-1 ring-border/60' : 'text-muted-foreground hover:text-foreground')}
+      onClick={onClick}>{label}</button>
   );
 }
 
@@ -2529,46 +2393,19 @@ function SystemNavLayoutPicker({
   value: SystemNavLayout;
   onChange: (layout: SystemNavLayout) => void;
 }) {
-  const [open, setOpen] = React.useState(false);
-  const selectedLabel =
-    SYSTEM_NAV_LAYOUT_OPTIONS.find((option) => option.value === value)?.label ??
-    '纵向';
-
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          aria-expanded={open}
-          aria-label="系统入口排列方式"
-          className="flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-input bg-background/70 px-2.5 text-sm outline-none transition-[background-color,border-color,box-shadow] hover:border-ring/45 hover:bg-accent/60 hover:text-accent-foreground hover:shadow-sm focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 data-[state=open]:border-ring/60 data-[state=open]:bg-accent data-[state=open]:text-accent-foreground data-[state=open]:shadow-sm"
-          data-testid="system-nav-layout-select"
-          role="combobox"
-          type="button"
-        >
-          <span className="min-w-0 truncate">{selectedLabel}</span>
-          <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-[240px] gap-0 overflow-hidden p-1">
-        {SYSTEM_NAV_LAYOUT_OPTIONS.map((option) => (
-          <button
-            key={option.value}
-            className={cn(
-              'flex w-full items-center rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground',
-              option.value === value && 'bg-accent/70 font-medium',
-            )}
-            data-testid={`system-nav-layout-${option.value}`}
-            type="button"
-            onClick={() => {
-              onChange(option.value);
-              setOpen(false);
-            }}
-          >
+    <Select value={value} onValueChange={(next) => onChange(next as SystemNavLayout)}>
+      <SelectTrigger aria-label="系统入口排列方式" data-testid="system-nav-layout-select" className="h-8 w-full rounded-lg text-sm">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent align="end">
+        {SYSTEM_NAV_LAYOUT_OPTIONS.map(option => (
+          <SelectItem key={option.value} value={option.value} data-testid={`system-nav-layout-${option.value}`}>
             {option.label}
-          </button>
+          </SelectItem>
         ))}
-      </PopoverContent>
-    </Popover>
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -2589,7 +2426,7 @@ function FontSettingRow({
 }) {
   const normalizedOptions = ensureFontOption(options, value);
   return (
-    <div className="grid gap-3 border-b border-border/60 px-5 py-4 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_240px] sm:items-center">
+    <div className="grid gap-3 border-b border-border/60 px-4 py-3.5 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_200px] sm:items-center">
       <div className="min-w-0">
         <p className="text-sm font-medium">{label}</p>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">
@@ -2648,7 +2485,7 @@ function FontFamilyPicker({
           aria-controls={listboxId}
           aria-expanded={open}
           aria-label={label}
-          className="flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-input bg-background/70 px-2.5 text-sm outline-none transition-[background-color,border-color,box-shadow] hover:border-ring/45 hover:bg-accent/60 hover:text-accent-foreground hover:shadow-sm focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 data-[state=open]:border-ring/60 data-[state=open]:bg-accent data-[state=open]:text-accent-foreground data-[state=open]:shadow-sm"
+          className="flex h-8 w-full items-center justify-between gap-2 rounded-lg border border-input bg-background/70 px-2.5 text-sm outline-none transition-[background-color,border-color,box-shadow] hover:border-ring/45 hover:bg-accent/60 hover:text-accent-foreground hover:shadow-sm focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 data-[state=open]:border-ring/60 data-[state=open]:bg-accent data-[state=open]:text-accent-foreground data-[state=open]:shadow-sm"
           role="combobox"
           type="button"
         >
@@ -2692,6 +2529,7 @@ function FontFamilyPicker({
                 >
                   {fontFamily}
                 </span>
+                {fontFamily === value ? <CheckCircle2 size={14} className="ml-auto shrink-0 text-primary" /> : null}
               </CommandItem>
             ))}
           </CommandList>
@@ -2718,12 +2556,12 @@ function SettingRow({
   labelClassName?: string;
 }) {
   return (
-    <div className="grid gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_minmax(200px,auto)] sm:items-center">
+    <div className="grid gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
       <div className="min-w-0">
-        <p className={cn('text-base font-medium tracking-tight', labelClassName)}>
+        <p className={cn('text-sm font-medium', labelClassName)}>
           {label}
         </p>
-        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
           {description}
         </p>
       </div>
@@ -2771,7 +2609,7 @@ function PillSwitch({
 
 function ReadonlyField({ label, value }: { label: string; value: string }) {
   return (
-    <label className="grid gap-3 px-5 py-4 text-sm sm:grid-cols-[160px_minmax(0,1fr)] sm:items-center">
+    <label className="grid gap-3 px-4 py-3.5 text-sm sm:grid-cols-[160px_minmax(0,1fr)] sm:items-center">
       <span className="text-muted-foreground">{label}</span>
       <Input
         className="h-9 min-w-0 rounded-lg border-border/60 bg-background/70 font-mono text-xs"

@@ -47,6 +47,7 @@ import { cn } from '@/lib/utils';
 
 import { RightSidePanel, RightToolRail } from './right-side-panel';
 import { AiDocumentPreview } from './ai-document-preview';
+import { DocumentReferenceDrawer } from './document-reference-drawer';
 import { DirectoryPage } from './directory-page';
 import { DailyNoteCalendar } from './daily-note-calendar';
 import {
@@ -89,6 +90,12 @@ import { GitPanel } from './git-panel';
 import { InboxPage } from './inbox-page';
 import { InboxSidebar } from './inbox-sidebar';
 import { TerminalPanel, type TerminalTab } from './terminal-panel';
+import {
+  isClosedTerminalSessionError,
+  retainTerminalTabs,
+  shouldAutoCreateTerminal,
+  splitTerminalInput,
+} from './terminal-session';
 import type {
   AiFileChange,
   AiProposedPlan,
@@ -1000,6 +1007,8 @@ export function WorkspaceLayout({
   >(null);
   const [terminalError, setTerminalError] = React.useState<string | null>(null);
   const terminalTabsRef = React.useRef<TerminalTab[]>([]);
+  const terminalClosedByUserRef = React.useRef(false);
+  const terminalWriteQueuesRef = React.useRef(new Map<string, Promise<void>>());
   const [terminalOutputStore] = React.useState(createTerminalOutputStore());
   const terminalSpawnInFlightRef = React.useRef(false);
   const pendingDocumentOpenTimerRef = React.useRef<ReturnType<
@@ -1097,6 +1106,36 @@ export function WorkspaceLayout({
   React.useEffect(() => {
     terminalTabsRef.current = terminalTabs;
   }, [terminalTabs]);
+
+  React.useEffect(() => {
+    if (!terminalOpen) {
+      terminalClosedByUserRef.current = false;
+    }
+  }, [terminalOpen]);
+
+  React.useEffect(() => {
+    terminalClosedByUserRef.current = false;
+    const { kept, stale } = retainTerminalTabs(
+      terminalTabsRef.current,
+      workspaceRootPath,
+    );
+
+    if (stale.length === 0) {
+      return;
+    }
+
+    stale.forEach((tab) => {
+      terminalWriteQueuesRef.current.delete(tab.id);
+      terminalOutputStore.clear(tab.id);
+      void terminalKill(tab.id);
+    });
+    setTerminalTabs(kept);
+    setTerminalActiveTabId((active) =>
+      active && kept.some((tab) => tab.id === active)
+        ? active
+        : (kept[0]?.id ?? null),
+    );
+  }, [terminalOutputStore, workspaceRootPath]);
 
   React.useEffect(() => {
     return () => {
@@ -1934,7 +1973,13 @@ export function WorkspaceLayout({
     terminalSpawnInFlightRef.current = true;
 
     try {
-      const info = await terminalSpawn(workspaceRootPath, 120, 32);
+      const requestedRoot = workspaceRootPath;
+      const info = await terminalSpawn(requestedRoot, 120, 32);
+
+      if (workspaceRootPathRef.current !== requestedRoot) {
+        void terminalKill(info.id);
+        return;
+      }
 
       setTerminalTabs((current) => [
         ...current,
@@ -1953,11 +1998,23 @@ export function WorkspaceLayout({
     }
   }, [isTauriRuntime, workspaceRootPath]);
 
+  const reportTerminalError = React.useCallback((error: unknown) => {
+    const message = formatUnknownError(error);
+
+    if (isClosedTerminalSessionError(message)) {
+      return;
+    }
+
+    setTerminalError(message);
+  }, []);
+
   const handleTerminalCloseTab = React.useCallback(
     (tabId: string) => {
-      void terminalKill(tabId).catch((error) =>
-        setTerminalError(formatUnknownError(error)),
-      );
+      terminalWriteQueuesRef.current.delete(tabId);
+      void terminalKill(tabId).catch((error) => reportTerminalError(error));
+      if (terminalTabs.filter((tab) => tab.id !== tabId).length === 0) {
+        terminalClosedByUserRef.current = true;
+      }
       setTerminalTabs((current) => current.filter((tab) => tab.id !== tabId));
       terminalOutputStore.clear(tabId);
       setTerminalActiveTabId((current) => {
@@ -1970,25 +2027,38 @@ export function WorkspaceLayout({
         return nextTab?.id ?? null;
       });
     },
-    [terminalOutputStore, terminalTabs],
+    [reportTerminalError, terminalOutputStore, terminalTabs],
   );
 
   const handleTerminalData = React.useCallback(
     (sessionId: string, data: string) => {
-      void terminalWrite(sessionId, data).catch((error) =>
-        setTerminalError(formatUnknownError(error)),
-      );
+      const chunks = splitTerminalInput(data);
+
+      if (chunks.length === 0) {
+        return;
+      }
+
+      const queues = terminalWriteQueuesRef.current;
+      let chain = queues.get(sessionId) ?? Promise.resolve();
+
+      for (const chunk of chunks) {
+        chain = chain
+          .then(() => terminalWrite(sessionId, chunk))
+          .catch((error: unknown) => reportTerminalError(error));
+      }
+
+      queues.set(sessionId, chain);
     },
-    [],
+    [reportTerminalError],
   );
 
   const handleTerminalResize = React.useCallback(
     (sessionId: string, cols: number, rows: number) => {
       void terminalResize(sessionId, cols, rows).catch((error) =>
-        setTerminalError(formatUnknownError(error)),
+        reportTerminalError(error),
       );
     },
-    [],
+    [reportTerminalError],
   );
 
   React.useEffect(() => {
@@ -2009,10 +2079,12 @@ export function WorkspaceLayout({
       }
     });
 
-    void listenTerminalExit(({ sessionId }) => {
+    void listenTerminalExit(({ sessionId, code }) => {
       setTerminalTabs((current) =>
         current.map((tab) =>
-          tab.id === sessionId ? { ...tab, status: 'exited' } : tab,
+          tab.id === sessionId
+            ? { ...tab, exitCode: code, status: 'exited' }
+            : tab,
         ),
       );
     }).then((unlisten) => {
@@ -2041,10 +2113,13 @@ export function WorkspaceLayout({
 
   React.useEffect(() => {
     if (
-      !terminalOpen ||
-      terminalTabs.length > 0 ||
-      !workspaceRootPath ||
-      !isTauriRuntime
+      !shouldAutoCreateTerminal({
+        isTauriRuntime,
+        rootPath: workspaceRootPath,
+        tabCount: terminalTabs.length,
+        terminalOpen,
+        userClosedLastTab: terminalClosedByUserRef.current,
+      })
     ) {
       return;
     }
@@ -3452,7 +3527,7 @@ export function WorkspaceLayout({
   return (
     <WorkspaceDocumentIndexProvider nodes={workspace.snapshot?.nodes ?? []}>
       <main
-        className="relative flex h-screen w-full overflow-hidden bg-sidebar text-foreground antialiased"
+        className="relative flex h-screen w-full shrink-0 overflow-hidden bg-sidebar text-foreground antialiased"
         data-chrome="workspace"
         data-testid="workspace-shell"
       >
@@ -4107,6 +4182,34 @@ export function WorkspaceLayout({
                     />
                   ) : null}
 
+                  {workspaceRootPath ? (
+                    <DocumentReferenceDrawer
+                      key={workspaceRootPath}
+                      nodes={workspace.snapshot?.nodes ?? []}
+                      workspaceRootPath={workspaceRootPath}
+                      pageWidthMode={pageWidthMode}
+                      getDraft={(path) =>
+                        path === currentDocumentPath
+                          ? workspace.draftDocument?.markdown ?? null
+                          : editorSessions[path]?.markdown ?? null
+                      }
+                      onOpenDocument={async (location) => {
+                        await openKnowledgeLocation(location);
+                        const target = findWorkspaceDocumentByRelativePath(
+                          workspace.snapshot?.nodes ?? [],
+                          location.relativePath,
+                        );
+                        const opened = workspaceRootPathRef.current === location.workspaceRootPath &&
+                          currentDocumentPathRef.current === target?.absolutePath &&
+                          documentLoadStateRef.current === 'loaded';
+                        if (opened && target) {
+                          revealNodeInWorkspaceTree(target.absolutePath);
+                        }
+                        return opened;
+                      }}
+                    />
+                  ) : null}
+
                   <WorkspaceStatusBar
                     characterCount={documentCharacterCount}
                     lineCount={documentLineCount}
@@ -4194,6 +4297,7 @@ export function WorkspaceLayout({
                             outputStore={terminalOutputStore}
                             sessionId={tab.id}
                             themeMode={terminalThemeMode}
+                            writable={tab.status === 'running'}
                             onData={handleTerminalData}
                             onResize={handleTerminalResize}
                           />

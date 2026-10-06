@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-12
+updated: 2026-10-06
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -16,7 +16,7 @@ referenced_by: AGENTS.md#knowledge-map
 
 - `src-tauri/capabilities/default.json`、Tauri 插件、shell/process 能力和资源协议范围均为安全敏感区域。
 - 未经明确批准不得扩大文件系统、进程、shell、opener 或资源协议权限。
-- 终端和 Git 操作只可作用于已选择工作区根目录。
+- Git 文件操作只可作用于已选择工作区根目录。终端的初始目录必须是 canonicalize 后的现有目录，由前端传入当前工作区根；交互式 shell 以当前系统用户运行，启动后可以离开该目录。spawn 时移除名称含凭据标记的环境变量，避免 API key、token 或 Codex provider 密钥进入用户 shell。关闭标签、切换或移除工作区以及主窗口销毁时必须结束对应进程组。
 - 系统 Markdown 打开方式只登记 `.md` / `.mdx` 且 `rank` 为 `Alternate`，不得登记 `*`、目录或把 Markune 设为默认应用。外部打开路径只来自操作系统参数或 `Opened` 事件，必须 canonicalize、拒绝符号链接和工作区私有文件，再交给现有工作区命令；不得因此扩大 `fs` 插件、capability 或 `assetProtocol.scope`。`tauri-plugin-single-instance` 只在原生层转发第二次启动，不新增前端权限。
 
 ## Knowledge Graph Reading
@@ -65,7 +65,7 @@ referenced_by: AGENTS.md#knowledge-map
 - 新任务使用工作区 Agent 与原生审批，允许按用户明确请求读取或修改文档。不强制文档预审、写作风格或引用数量门禁；普通文件锁定、保存冲突、路径授权与原生权限审批不得移除。资料中的指令仍为不可信内容。
 
 
-- Codex App Server 必须由 Tauri 在本地通过 stdio 启动；不得监听 TCP，也不得把 API key、登录 Token 或认证响应传入 React state、local storage、应用设置或日志。
+- Codex App Server 必须由 Tauri 在本地通过 stdio 启动；不得监听 TCP，也不得把 API key、登录 Token 或认证响应传入 React state、local storage、应用设置或日志。sidecar 启动除 `sqlite_home` 外，只允许额外注入关闭 Browser Use / Chrome / Computer Use / 应用内浏览器的 `features.*` 覆盖，避免 CUA 在 Tauri 中挂起；不得借此写入用户 `config.toml`，也不得关闭全部 `features.plugins`。
 - 自定义 provider 密钥只能写入 OS keyring（服务名 `markune.codex.custom-provider`），并由 Rust 在 sidecar spawn 时注入 `MARKUNE_CODEX_PROVIDER_API_KEY`；不得把该环境变量写入用户 shell profile、共享日志或诊断导出。受控 TOML patch 只允许顶层 `model` / `model_provider` 与 `[model_providers.markune_custom]`（`wire_api = "responses"`、`env_key` 固定），禁止开放通用 `config/*` 写入。
 - 设置页 Codex 状态只允许通过受控命令读取 `CODEX_HOME/config.toml` 与 `auth.json` 的非敏感摘要（是否已登录、auth_mode、可选 email）；不得返回 access/refresh/id token 或 API key。设置页刷新不得为探测状态启动 App Server，也不得依赖可能挂起的 `account/read` RPC。
 - 权限模式必须保持 profile 与 reviewer 分层：自动审查只可使用 `:workspace + on-request + auto_review`，不得扩大文件或网络边界；完全访问必须经过显式风险确认并固定为 `:danger-full-access + never + user`；输入框“只读访问”使用 `:read-only + on-request + user`；恢复历史任务不改写其已有权限策略。运行中的 turn 或待审批请求存在时禁止切换。

@@ -108,7 +108,14 @@ export function createWorkspaceReferenceRenderer(options?: {
     const activeRow = container.querySelector<HTMLElement>(
       `[data-index="${activeIndex}"]`,
     );
-    activeRow?.scrollIntoView({ block: 'nearest' });
+    // refinex: Keep selection scrolling inside the popup, never its body ancestors.
+    if (activeRow && container.isConnected && container.clientHeight > 0) {
+      const row = activeRow.getBoundingClientRect();
+      const top = container.getBoundingClientRect().top + container.clientTop;
+      const bottom = top + container.clientHeight;
+      if (row.top < top) container.scrollTop += row.top - top;
+      else if (row.bottom > bottom) container.scrollTop += row.bottom - bottom;
+    }
   };
 
   const sync = (state: MarkweaveReferenceRenderState<WorkspaceReferenceItem>) => {
@@ -125,6 +132,11 @@ export function createWorkspaceReferenceRenderer(options?: {
       container = document.createElement('div');
       container.className = CONTAINER_CLASS;
       // Hard-cap width so Floating UI / flex content cannot expand the panel.
+      // refinex: Floating UI applies coordinates asynchronously after mounting.
+      // Start out of flow at the origin so mounting cannot scroll the app root.
+      container.style.position = 'absolute';
+      container.style.top = '0px';
+      container.style.left = '0px';
       container.style.width = SUGGESTION_WIDTH;
       container.style.maxWidth = `min(${SUGGESTION_WIDTH}, calc(100vw - 2rem))`;
       container.style.boxSizing = 'border-box';

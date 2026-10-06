@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-12
+updated: 2026-10-06
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -11,7 +11,7 @@ referenced_by: AGENTS.md#knowledge-map
 
 - `pnpm dev`：先执行 `pnpm runtime:stage`，再在固定的 `3000` 端口启动 Next.js 开发服务；端口已被占用时直接失败，不回退到其他端口。
 - `pnpm desktop:dev`：先在 Tauri 文件监听启动前准备 Codex 与专业文档导出 sidecar，再启动 Tauri 开发模式。
-- `pnpm codex:stage`：从固定版本 `@openai/codex` 平台包同时复制 `codex` 与 `codex-code-mode-host`，校验主程序版本、两项 SHA256 和可执行性。
+- `pnpm codex:stage`：从固定版本 `@openai/codex` 平台包同时复制 `codex` 与 `codex-code-mode-host`，校验主程序版本、两项 SHA256 和可执行性。当前平台的 `@openai/codex-<os>-<arch>` optionalDependency 必须已解压；缺少该包时脚本失败，需完整 `pnpm install --frozen-lockfile`，不能用 `--offline` 或 `--ignore-scripts` 跳过。
 - `pnpm document-export:stage`：下载并校验当前目标的 Pandoc 3.10.1、Typst 0.15.1 及对应许可证文本，生成被 Git 忽略的 Tauri sidecar；成功缓存后重复执行是幂等的。
 - `pnpm test:run`：运行一次 Vitest。
 - `pnpm lint`：运行 ESLint。
@@ -49,7 +49,7 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 - `MARKUNE_PANDOC_BIN` / `MARKUNE_TYPST_BIN`：只供 `document-export:stage` 在离线构建环境复制精确锁定版本，不是应用运行时路径覆盖。版本探测不匹配时 staging 失败。
 - `MARKUNE_DOCUMENT_EXPORT_ENGINE=legacy`：运行时诊断/紧急回滚开关，使 PDF 与 Word 使用原兼容引擎；默认值和其他值都优先使用专业引擎。
 - `CODEX_HOME`：可选的共享 Codex 用户状态目录。未设置时 Markune 使用 `~/.codex`；显式值必须是工作区之外的既有绝对目录。Markune 会把解析后的值显式传给 App Server sidecar，以共享 ChatGPT/Codex CLI 的认证、配置、技能、MCP 与线程历史。
-- `CODEX_SQLITE_HOME`：不控制 Markune 启动的 sidecar。Markune 会从子进程环境移除此变量，并以 `-c sqlite_home="<CODEX_HOME>"` 固定 SQLite 投影目录，防止相对路径按工作区 `cwd` 解析或项目配置把运行时状态写入知识库。
+- `CODEX_SQLITE_HOME`：不控制 Markune 启动的 sidecar。Markune 会从子进程环境移除此变量，并以 `-c sqlite_home="<CODEX_HOME>"` 固定 SQLite 投影目录，防止相对路径按工作区 `cwd` 解析或项目配置把运行时状态写入知识库。同一 sidecar 还会注入 `features.browser_use=false`、`features.browser_use_external=false`、`features.browser_use_full_cdp_access=false`、`features.computer_use=false` 与 `features.in_app_browser=false`，仅作用于 Markune 进程，不改用户 `config.toml`。
 - `MARKUNE_CODEX_PROVIDER_API_KEY`：仅由桌面宿主在启用 `markune_custom` provider 时注入到 Codex sidecar 进程环境；对应 `CODEX_HOME/config.toml` 中 `[model_providers.markune_custom].env_key`。用户不应手动配置该变量，明文 Key 只存放在 OS keyring。
 - `MARKUNE_UPDATER_PUBLIC_KEY`：只在发布构建时提供 Tauri CLI 生成的 `.key.pub` 文件原始单行 Base64 内容，由 `release:prepare` 校验解码后的 minisign 结构并写入 `.tauri-build/tauri.release.generated.json`。脚本兼容完整两行 minisign 输入并自动规范化为 Base64；普通开发和 Web 构建不需要该变量。
 - `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`：只允许存在于 GitHub Actions Secrets 或受控本机发布环境，用于生成 updater artifact 签名；不得写入仓库、生成配置或日志。
@@ -72,6 +72,7 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 - 画板不新增文件协议或 capability。图稿场景、预览和组件库只通过 `src-tauri/src/drawings.rs` 的受限 Raw IPC 传输；缩略图以可撤销 Blob URL 展示，`assetProtocol.scope` 保持不变。
 - `src-tauri/resources/skills/` 作为只读 Tauri bundle resource 随应用发布。运行时只接受同时包含 `markune-diagram` 与 `markune-mindmap` 的完整内置 Skill 根目录，并要求每项同时具有 `SKILL.md` 与 `agents/openai.yaml`；注册时只提供这两个 Skill 子目录，避免旧暂存目录中的已移除 Skill 被继续加载；开发态暂存资源不完整时回退到源码资源目录，不读取渲染器提供的 Skill 物理路径。
 - 基础 `src-tauri/tauri.conf.json` 使用 `endpoints: []` 与空 `pubkey` 保留结构有效但不可用的 updater 配置。Tag 发布时生成的 release override 注入 `https://github.com/Refinex-Space/markune/releases/latest/download/latest.json`、公钥、updater artifacts、macOS ad-hoc identity `-` 和 Windows passive 模式。渲染器不能覆盖 endpoint。
+- `reqwest-updater` 是 updater 所用 `reqwest 0.13` 的依赖别名，只补充 `system-proxy` 与 `socks` 特性，保留既有 `reqwest 0.12` 调用点与 updater 的 TLS 配置。Cargo 会合并共享 `hyper-util` 的系统代理特性，其他使用默认代理的原生 HTTP 客户端也可读取系统代理；显式 `.no_proxy()` 的受限下载仍禁用代理。代理来源、支持范围与验收见 [更新网络与代理](../guides/release-and-update.md#更新网络与代理)。
 - Rust 侧 Tauri 依赖固定在 `2.11.x`，以约束 `with_webview` 平台类型；Windows 直接使用与当前 Wry 对齐的 `webview2-com 0.38.2`，macOS 使用 `objc2 0.6.4` 与 `objc2-*-kit 0.3.2`。Word 生成依赖精确锁定为 `docx 9.7.1`。
 
 ## Document Import Dependencies
@@ -82,7 +83,11 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 
 Markweave 0.10.4 将所有 `@tiptap/*` 运行时固定为 `3.29.2`；`pnpm-workspace.yaml` 的 `@tiptap/markdown` override 必须同步为 `3.29.2`，不得把 Markdown 扩展降级到旧 minor 后再与新版 Core/PM 混装。
 
-`markweave@0.10.4` 与 `@markweave/react@0.10.4` 必须保持同版本。0.10.4 对 Markdown 执行 canonical whole-document parse，首次加载、后续 Markdown 更新与大文档加载共用规范化逻辑，在严格 Schema 校验前拆分包含块图片与相邻文本的混合段落，并保留列表项所需的首段落；图片开头的无序列表与含块媒体的表格保存时使用原生 HTML 回退，重开后保持结构；HTTP(S) 页面可以使用 Blob Worker，`tauri:` 等自定义桌面协议立即走同语义主线程解析，避免 WKWebView 静默等待 Worker 超时。文本、选择、撤销、搜索和 TOC 完整 `ready` 后才开放编辑；序列化遵循 GFM 词中下划线规则，已写入磁盘的 `doc\_review\_agent` 会在重新保存时收成 `doc_review_agent`。Markune 必须消费 `onDocumentLoadStateChange`：`parsing | mounting | finalizing` 显示明确进度，`error` 显示有界诊断、重新加载和源码模式恢复，不能把加载过程或解析异常静默为空编辑器。DOM 导出必须在 `ready` 后调用官方 `prepareMarkweaveEditorForOutput`，不能以固定等待或直接克隆未补齐 DOM 代替。媒体 resolver request 保留可选 `attempt` / `reason`；Markune 以 5 秒负缓存、恢复原因强制刷新、750 ms 文档恢复波合并、每批最多 2,048 个资产和 8 root / 8,192 entry 缓存边界接入。resolver URL 只是候选，图片只有真实 `load` 才确认成功；本地视频的 DOM-only bridge 复用同一 resolver 和 output 事件，但不得修改 PM 文档或持久化 Markdown。
+`markweave@0.10.6` 与 `@markweave/react@0.10.6` 必须保持同版本。0.10.4 对 Markdown 执行 canonical whole-document parse，首次加载、后续 Markdown 更新与大文档加载共用规范化逻辑，在严格 Schema 校验前拆分包含块图片与相邻文本的混合段落，并保留列表项所需的首段落；图片开头的无序列表与含块媒体的表格保存时使用原生 HTML 回退，重开后保持结构；HTTP(S) 页面可以使用 Blob Worker，`tauri:` 等自定义桌面协议立即走同语义主线程解析，避免 WKWebView 静默等待 Worker 超时。文本、选择、撤销、搜索和 TOC 完整 `ready` 后才开放编辑；序列化遵循 GFM 词中下划线规则，已写入磁盘的 `doc\_review\_agent` 会在重新保存时收成 `doc_review_agent`。Markune 必须消费 `onDocumentLoadStateChange`：`parsing | mounting | finalizing` 显示明确进度，`error` 显示有界诊断、重新加载和源码模式恢复，不能把加载过程或解析异常静默为空编辑器。DOM 导出必须在 `ready` 后调用官方 `prepareMarkweaveEditorForOutput`，不能以固定等待或直接克隆未补齐 DOM 代替。媒体 resolver request 保留可选 `attempt` / `reason`；Markune 以 5 秒负缓存、恢复原因强制刷新、750 ms 文档恢复波合并、每批最多 2,048 个资产和 8 root / 8,192 entry 缓存边界接入。resolver URL 只是候选，图片只有真实 `load` 才确认成功；本地视频的 DOM-only bridge 复用同一 resolver 和 output 事件，但不得修改 PM 文档或持久化 Markdown。
+
+0.10.5 在共享主线程与 Worker 解析层兼容含裸空格的本地 `.md` / `.mdx` 链接地址，段落、列表与表格中的引用可直接渲染；序列化时将这些地址的空格规范化为 `%20`。代码示例、标准链接及安全协议边界保持原有行为，Markune 不增加 Markdown 字符串替换补丁。
+
+0.10.6 将 Live 模式的链接地址编辑移到正文之外的固定浮层：`[[` 插入引用和光标移入不再自动展开源码，显式普通点击链接才打开地址编辑。浮层开关与长地址换行不改变正文行高；切换到后台的编辑器会清理浮层。Ctrl/Cmd 点击及 View 模式点击工作区链接仍由 Markune 捕获并打开引用预览抽屉。
 
 Markune 图片剪贴板桥接只解析受控 `markune-asset://` 地址，并识别严格匹配 64 位资产 ID 与 UUID Drawing ID 的规范图稿引用；不得借此接受 `asset://`、`file://` 或任意自定义协议。Slash 附件经统一 `onSlashCommandUpload`（`kind: "attachment"`）写入工作区资产，文档持久化为不透明 `markune-asset://` 定位符与 `name`/`mimeType`/`size`；激活下载走宿主 `onAttachmentDownload`，不依赖 `http(s)` fallback。Live 模式由 Markweave 核心统一处理链接点击：普通链接不渲染原生 `target="_blank"`，同一次鼠标手势只允许一次安全 opener，`Ctrl/Cmd + 点击` 不得同时打开整行链接 composer；View 模式仍直接打开安全链接。内置 `/details` 折叠块、`askAi` 文本/表格请求和宿主驱动 `MarkweaveAiEditController` 保持原契约，均不增加环境变量、持久化 schema、HTTP API 或 Tauri capability。Markune 不应用历史本地补丁。升级 Markweave 时必须核对 npm tarball 与上游源码一致，并执行 canonical parse、ready、output barrier、图片/视频失败恢复、链接点击、AI 文本/表格、图稿富文本、附件上传下载、折叠块往返和纯文本粘贴回归测试。
 

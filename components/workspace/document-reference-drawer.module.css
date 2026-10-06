@@ -1,0 +1,18 @@
+.drawer {
+  border-top: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+  overflow: hidden;
+}
+
+/* refinex: Keep reference preview content readable at the minimum drawer width. */
+.drawer :global(.workspace-editor-shell) :global(.markweave-editor-frame) {
+  padding: 1.5rem 1.5rem 3rem 2.75rem;
+}
+
+.drawer :global(.workspace-editor-shell) :global(.markweave-editor-frame) :global(.markweave-editor-surface) {
+  max-width: 100%;
+  min-height: 0;
+  padding: 0;
+  margin-inline: 0;
+}

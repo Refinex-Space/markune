@@ -7,6 +7,11 @@ const EXPLICIT_SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*:/i;
 const MARKWEAVE_DOC_PREFIX = 'markweave://doc/';
 
 export const OPEN_WORKSPACE_DOCUMENT_EVENT = 'markune:open-document';
+export const PREVIEW_WORKSPACE_DOCUMENT_EVENT = 'markune:preview-document';
+
+export interface PreviewWorkspaceDocumentDetail extends OpenWorkspaceDocumentDetail {
+  workspaceRootPath: string;
+}
 
 export interface OpenWorkspaceDocumentDetail {
   relativePath: string;

@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-13
+updated: 2026-10-06
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -18,6 +18,14 @@ referenced_by: AGENTS.md#knowledge-map
 - 安装包命名：`Markune_[arch][setup][ext]`。
 - GitHub Release 必须包含 9 个资产：两个 DMG、两个 macOS updater archive、对应两个签名、一个 Windows NSIS 安装器、对应签名和 `latest.json`。
 - updater minisign 是自动更新的强制安全边界。当前 macOS ad-hoc 签名与 Windows 未签名状态不能替代 minisign，也不能通过关闭 updater 校验规避发布故障。
+
+### 更新网络与代理
+
+检查 `latest.json` 与下载更新包共用 Tauri updater 的 HTTP 客户端配置，启用 macOS／Windows 系统 HTTP(S) 代理检测。VPN 客户端开启系统代理后，更新请求按该代理配置连接；没有匹配代理时按系统路由连接，TUN／全局隧道仍由操作系统接管。每次检查和下载都会创建客户端并重新读取代理配置，应用启动后切换系统代理也能生效。
+
+继承到应用进程中的 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY` 及其小写形式、`NO_PROXY` 继续由 HTTP 库处理，支持 SOCKS 代理 URL。macOS 系统代理检测只读取手动 HTTP／HTTPS 项，不读取系统 SOCKS 项或执行 PAC／WPAD；仅启用 PAC 或系统 SOCKS 时，应在 VPN 客户端开启 HTTP(S) 系统代理或 TUN 模式。更新源、TLS 校验和 minisign 验签保持原有边界，不向前端开放代理地址参数，也不记录代理凭据。
+
+修改 updater 或 HTTP 依赖后先运行 `cargo test --manifest-path src-tauri/Cargo.toml app_update`，其中依赖图回归检查确认 updater 实际使用的 reqwest 启用了 `system-proxy` 和 `socks`。真实安装版验收还需分别测试关闭代理、启用系统代理、应用启动后切换代理，并从 VPN 客户端连接记录确认 GitHub 与 Release 资产重定向请求的路由；自动化依赖检查不能替代下载速度或三平台 N-1 → N 验收。
 
 ## 2. 一次性 GitHub 配置
 
@@ -48,7 +56,7 @@ GitHub 只会从默认分支加载可手工触发的工作流，因此 `.github/
 
 在创建 Tag 前准备用户可读的 Release Notes，至少包含本次更新、支持平台、升级提示和已知限制。不得包含密钥、Token、真实用户路径或用户文档。
 
-当前发布目标为 `0.2.7`，配套编辑器为 `markweave@0.10.4` 与 `@markweave/react@0.10.4`。本次说明涵盖系统打开 Markdown、侧栏系统入口、分栏外壳，以及视图页与编辑器拖拽条修复。Tag 前同步 `.github/workflows/release.yml` 的 `releaseBody` 与官网 `markune-web` 的 `src/content/changelog.ts`；官网发布日期以正式 Release 返回的时间为准。
+当前发布目标为 `0.2.9`，配套编辑器为 `markweave@0.10.8` 与 `@markweave/react@0.10.8`。本次说明涵盖终端退出提示与会话清理、更新代理，以及编辑器和工作区界面整理。Tag 前同步 `.github/workflows/release.yml` 的 `releaseBody` 与官网 `markune-web` 的 `src/content/changelog.ts`；官网发布日期以正式 Release 返回的时间为准。
 
 ## 4. 本地门禁
 

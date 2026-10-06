@@ -178,6 +178,7 @@ vi.mock('next/dynamic', async () => {
         editorRef: React.RefObject<{
           focus: () => void;
           getSelectedText: () => string;
+          revealLine: (line: number) => void;
           selectRange: (from: number, to: number) => void;
           setValue: (value: string) => void;
         } | null>;
@@ -200,6 +201,7 @@ vi.mock('next/dynamic', async () => {
                   )
                 : '';
             },
+            revealLine: () => undefined,
             selectRange: (from, to) =>
               textareaRef.current?.setSelectionRange(from, to),
             setValue: (nextValue) => {
@@ -549,17 +551,17 @@ describe('MarkdownEditor', () => {
     const targetClick = vi.fn();
     link.addEventListener('click', targetClick);
     const openDocument = vi.fn();
-    window.addEventListener('markune:open-document', openDocument);
+    window.addEventListener('markune:preview-document', openDocument);
 
     const dispatched = fireEvent.click(link);
 
     expect(dispatched).toBe(false);
     expect(targetClick).toHaveBeenCalledTimes(1);
     expect(openDocument).not.toHaveBeenCalled();
-    window.removeEventListener('markune:open-document', openDocument);
+    window.removeEventListener('markune:preview-document', openDocument);
   });
 
-  it('Ctrl/Cmd 点击段落内工作区文档链接时由 Markune 打开目标文档', () => {
+  it('Ctrl/Cmd 点击段落内工作区文档链接时由 Markune 预览目标文档', () => {
     render(
       <MarkdownEditor
         documentPath="/vault/plans/2026.md"
@@ -574,7 +576,7 @@ describe('MarkdownEditor', () => {
     const targetClick = vi.fn();
     link.addEventListener('click', targetClick);
     const openDocument = vi.fn();
-    window.addEventListener('markune:open-document', openDocument);
+    window.addEventListener('markune:preview-document', openDocument);
 
     const dispatched = fireEvent.click(link, { metaKey: true });
 
@@ -584,8 +586,29 @@ describe('MarkdownEditor', () => {
     expect((openDocument.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({
       hash: '实践',
       relativePath: '技术团队.md',
+      workspaceRootPath: '/vault',
     });
-    window.removeEventListener('markune:open-document', openDocument);
+    window.removeEventListener('markune:preview-document', openDocument);
+  });
+
+  it('引用卡片单击只请求预览，不直接切换文档', () => {
+    render(<MarkdownEditor documentPath="/vault/README.md" markdown="正文" workspaceRootPath="/vault" />);
+    const card = document.createElement('a');
+    card.href = '01_A.md';
+    card.dataset.markweaveInternalLinkCard = 'true';
+    screen.getByTestId('markweave-editor').append(card);
+    const preview = vi.fn();
+    const open = vi.fn();
+    window.addEventListener('markune:preview-document', preview);
+    window.addEventListener('markune:open-document', open);
+    expect(fireEvent.click(card)).toBe(false);
+    expect(preview).toHaveBeenCalledOnce();
+    expect((preview.mock.calls[0][0] as CustomEvent).detail).toEqual({
+      relativePath: '01_A.md', hash: null, workspaceRootPath: '/vault',
+    });
+    expect(open).not.toHaveBeenCalled();
+    window.removeEventListener('markune:preview-document', preview);
+    window.removeEventListener('markune:open-document', open);
   });
 
   it('缺少路径上下文时仍阻止 Markdown 文档链接落入浏览器', () => {
@@ -1314,6 +1337,126 @@ describe('MarkdownEditor', () => {
     window.removeEventListener('markune:open-drawing', onOpenDrawing);
   });
 
+  it('reveals a search line in live mode instead of switching to source', async () => {
+    const ref = React.createRef<MarkdownEditorHandle>();
+    const revealPosition = vi.fn().mockResolvedValue({ status: 'revealed' });
+    viewportCoordinatorForElementMock.mockReturnValue({
+      editor: {
+        state: {
+          doc: {
+            descendants(
+              visitor: (
+                node: {
+                  isTextblock: boolean;
+                  textContent: string;
+                  type: { name: string };
+                },
+                pos: number,
+              ) => boolean | void,
+            ) {
+              visitor(
+                {
+                  isTextblock: true,
+                  textContent: 'Agent 工程实践',
+                  type: { name: 'paragraph' },
+                },
+                24,
+              );
+            },
+          },
+        },
+      },
+      revealPosition,
+    });
+
+    render(
+      <MarkdownEditor
+        ref={ref}
+        documentPath="/vault/a.md"
+        markdown={'# Title\n\nAgent 工程实践\n'}
+      />,
+    );
+
+    expect(
+      await ref.current!.revealLocation({ line: 3, isCurrent: () => true }),
+    ).toBe(true);
+    expect(revealPosition).toHaveBeenCalledWith(
+      24,
+      expect.objectContaining({ align: 'center', focus: true }),
+    );
+    expect(
+      screen.getByTestId('markdown-editor-root').getAttribute('data-editor-mode'),
+    ).toBe('live');
+  });
+
+  it('keeps live mode when location reveal runs before the viewport coordinator is ready', async () => {
+    const ref = React.createRef<MarkdownEditorHandle>();
+    viewportCoordinatorForElementMock.mockReturnValue(null);
+
+    render(
+      <MarkdownEditor
+        ref={ref}
+        documentPath="/vault/a.md"
+        markdown={'# Title\n\nAgent 工程实践\n'}
+      />,
+    );
+
+    expect(
+      await ref.current!.revealLocation({ line: 3, isCurrent: () => true }),
+    ).toBe(false);
+    expect(
+      screen.getByTestId('markdown-editor-root').getAttribute('data-editor-mode'),
+    ).toBe('live');
+  });
+
+  it('keeps live mode when a search line cannot be revealed yet', async () => {
+    const ref = React.createRef<MarkdownEditorHandle>();
+    const revealPosition = vi.fn().mockResolvedValue({ status: 'missing' });
+    viewportCoordinatorForElementMock.mockReturnValue({
+      editor: {
+        state: {
+          doc: {
+            descendants(
+              visitor: (
+                node: {
+                  isTextblock: boolean;
+                  textContent: string;
+                  type: { name: string };
+                },
+                pos: number,
+              ) => boolean | void,
+            ) {
+              visitor(
+                {
+                  isTextblock: true,
+                  textContent: '应用型AI Agent 实践',
+                  type: { name: 'heading' },
+                },
+                1,
+              );
+            },
+          },
+        },
+      },
+      revealPosition,
+    });
+
+    render(
+      <MarkdownEditor
+        ref={ref}
+        documentPath="/vault/a.md"
+        markdown={'---\ntitle: 应用型AI Agent 实践\n---\n\n# 应用型AI Agent 实践\n'}
+      />,
+    );
+
+    expect(
+      await ref.current!.revealLocation({ line: 2, isCurrent: () => true }),
+    ).toBe(false);
+    expect(revealPosition).toHaveBeenCalled();
+    expect(
+      screen.getByTestId('markdown-editor-root').getAttribute('data-editor-mode'),
+    ).toBe('live');
+  });
 });
 
 it('opens a heading through the editor viewport and rejects a stale source navigation', async () => {

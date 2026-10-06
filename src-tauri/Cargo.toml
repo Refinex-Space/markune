@@ -36,6 +36,8 @@ portable-pty = "0.9.0"
 pulldown-cmark = { version = "=0.13.4", default-features = false }
 quick-xml = "=0.39.4"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# refinex: Enable native proxies on the updater's separate reqwest version.
+reqwest-updater = { package = "reqwest", version = "0.13", default-features = false, features = ["system-proxy", "socks"] }
 tauri = { version = "~2.11.2", features = ["protocol-asset"] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2.7.1"

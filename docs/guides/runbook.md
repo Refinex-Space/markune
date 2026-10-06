@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-12
+updated: 2026-10-06
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -33,6 +33,15 @@ pnpm lint
 pnpm build
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
+
+## Terminal Acceptance
+
+```bash
+pnpm exec vitest run components/workspace/__tests__/terminal-panel.test.tsx components/workspace/__tests__/xterm-terminal.test.tsx components/workspace/__tests__/terminal-output-store.test.ts components/workspace/__tests__/terminal-session.test.ts
+cargo test --manifest-path src-tauri/Cargo.toml terminal::
+```
+
+桌面验收需要 `pnpm desktop:dev`：打开终端后折叠面板，原会话仍在；关闭最后一个标签后面板保持空白，直到再次新建或重新打开面板；`exit` 后显示退出码且不能继续输入；切换工作区后旧会话被关闭，面板仍打开时会为新工作区创建会话。
 
 ## Graph Acceptance
 
@@ -102,7 +111,7 @@ pnpm exec tsc --noEmit
 
 Warm Tab 验收应打开至少 4 篇含本地图片和视频的文档，在最近 3 个 EditorView 间反复切换：已成功资源复用有界正缓存，失败资源仍能在重新可见、选择或 output 时恢复，旧 Tab 的晚到结果不能写入当前工作区。导出前确认 editor 已 `ready`，官方 output barrier 能唤醒未访问过的末尾媒体并返回缺失、不可读、超时报告；DOM snapshot/打印只在 barrier 结束后克隆，输出完成后编辑器仍可继续滚动和输入。
 
-另需人工覆盖中文 IME、撤销重做、列表回车、跨块/全选复制、搜索替换、TOC 跳转、快速滚动后编辑、Live/Source 往返、导出、AI 发送和应用关闭 flush。任何保存失败都必须阻止切换/发送/退出并保留草稿。
+另需人工覆盖中文 IME、撤销重做、列表回车、跨块/全选复制、搜索替换、TOC 跳转、全局搜索打开文档后保持 Live 并滚到匹配处（含 YAML title 命中）、快速滚动后编辑、Live/Source 往返、导出、AI 发送和应用关闭 flush。任何保存失败都必须阻止切换/发送/退出并保留草稿。
 
 For single-document export changes, run the focused suites first:
 
@@ -133,6 +142,26 @@ pnpm lint
 cargo check --manifest-path src-tauri/Cargo.toml
 pnpm build:desktop:web
 ```
+
+## Image Scheduling Acceptance
+
+当前依赖为 `markweave@0.10.8` 与 `@markweave/react@0.10.8`。该版本合并同一图片的重复排队请求，忽略过期取消回调，并通过有界空闲队列恢复任务，修复图片调度的微任务循环。升级时同步两个包、锁文件及精确版本的 `minimumReleaseAgeExclude`；不得通过关闭发布年龄策略替代受控版本列表。
+
+运行 `pnpm exec vitest run components/editor/__tests__/markweave-media-scheduling.test.tsx components/editor/__tests__/markweave-image-paste.test.tsx components/editor/__tests__/use-workspace-asset-uploader.test.ts`。集成回归直接加载已安装的发布包，验证快速滚动与重复唤醒后定时器仍能运行、仅解析一次图片、最终队列归零且 Markdown 不变；旧包循环会被测试上限截断，避免挂死测试进程。
+
+原生验收使用带多张图片的文档，覆盖滚动中开关元信息面板、拖动侧栏宽度、快速切换标签及图片进入视口，检查界面响应与 CPU 是否恢复空闲。依赖测试不等于已验收所有平台的 WebView。
+
+2026-10-06 已使用 npm 0.10.8 构建本地 macOS 26.5.2 桌面包，在独立的 18 处图片引用（6 个 SVG 资源）文档中连续 6 次交替滚动与开关元信息面板，操作持续响应、图片显示正常。操作后 WebKit CPU 为约 0.2%，3 秒线程采样的主线程均处于事件等待；验收后恢复原工作区。本次不覆盖 Windows、拖拽宽度、快速标签切换或长时间耐久测试。
+
+## Reference Link Pointer Acceptance
+
+使用独立测试工作区检查 `[[` 引用，不在唯一生产文档中做输入实验。在长文档中分别打开、筛选、取消与选择候选，使用方向键滚过候选列表，随后点击正文的相邻段落；再打开引用预览抽屉重复操作。普通链接地址浮层和引用抽屉也应覆盖打开、关闭与焦点返回。
+
+应用外层 `window.scrollY` 必须始终为 0，编辑区顶边不得因候选列表挂载而移动；只有正文和候选列表各自的滚动值可以变化。记录点击前的目标段落、点击坐标及最终 DOM/ProseMirror 选区，不能仅凭截图中“光标看起来正常”判断通过。macOS 必须包含 WebKit 与原生窗口验证，Chromium 单独通过不足以证明修复。
+
+2026-10-06 的复现使用当前演示 README、Songti SC 字体与 2560 × 1347 视口：修复前 `[[` 候选打开造成页面根滚动 37px；修复后打开、筛选与关闭均为 0。包含候选挂载修复和固定外层视口的本地 macOS 测试包已由用户在原生窗口复测，确认光标不再偏移；这不代表 Windows 或其他 macOS 版本已实机验收。
+
+聚焦自动化：`pnpm exec vitest run components/editor/__tests__/workspace-reference-suggestion.test.ts components/editor/__tests__/markweave-local-links.test.tsx`。候选 renderer 的测试检查挂载前已脱离文档流，以及键盘选中只滚动候选容器；临时诊断路由和采样代码必须在交付前移除。
 
 ## Drawing Acceptance
 
@@ -235,13 +264,13 @@ pnpm test:run -- components/workspace/__tests__/codex-app-server.test.ts compone
 
 ## Codex Startup Acceptance
 
-`pnpm codex:stage` 必须同时准备 `codex` 和 `codex-code-mode-host`。出现 `failed to spawn code-mode host` / `No such file or directory` 时先核对二者是否同目录、来自同一版本且可执行；开发环境重新执行 `pnpm desktop:dev`，安装版重新构建完整安装包。不要通过关闭只读权限或清空 Codex 历史解决资源缺失。运行 `node --test scripts/stage-codex-sidecar.test.mjs` 可验证独立临时目录中的真实辅助程序握手与工具往返，随后检查 `bundle.externalBin` 中包含两项。
+`pnpm codex:stage` 必须同时准备 `codex` 和 `codex-code-mode-host`。出现 `Cannot find module '@openai/codex-<platform>/vendor/...'` 或“缺少当前平台 Codex sidecar 包”时，说明 `@openai/codex` 的平台 optionalDependency 没有解压，常见于中断的 install、`--offline` 或 `--ignore-scripts`。删除空的 `node_modules/.pnpm/@openai+codex@*-<platform>` 后执行完整 `pnpm install --frozen-lockfile`，再重跑 `pnpm desktop:dev`。出现 `failed to spawn code-mode host` / `No such file or directory` 时先核对二者是否同目录、来自同一版本且可执行；开发环境重新执行 `pnpm desktop:dev`，安装版重新构建完整安装包。不要通过关闭只读权限或清空 Codex 历史解决资源缺失。运行 `node --test scripts/stage-codex-sidecar.test.mjs` 可验证独立临时目录中的真实辅助程序握手与工具往返，随后检查 `bundle.externalBin` 中包含两项。
 
 首次启动桌面端并打开工作区后，不先打开 AI 面板，确认 App Server 已在后台启动；随后首次展开 AI 面板时应直接显示正常的新任务界面，不出现占满会话区的“正在连接 Codex”。在核心握手尚未完成时，输入区仍可编辑，点击发送后应显示轻量准备状态，核心成功后自动继续发送；启动失败时必须保留输入内容并显示可诊断错误。
 
 分别模拟慢速或失败的 `model/list`、`thread/list`、`plugin/installed` 与 `skills/list`，确认：核心就绪后可以使用 App Server 默认模型发送，历史页显示独立加载、重试或空状态，启动过程不会预取 `mcpServerStatus/list`，但会按当前工作区自动加载已安装插件和 enabled Skill。展开加号菜单应显示“文件和文件夹”、可用时的“目标”、计划模式和已加载插件；插件仍在加载时显示轻量状态，失败时才提供重试且不阻塞输入。菜单必须完整位于输入框上方并与输入框保持间距。输入空白边界上的 `/` 应打开命令与 Skill 面板，目标和压缩命令位于“技能”分组上方，Skill 显示统一立方体图标、名称、描述与来源。选择目标后输入框显示目标提示，首次发送应依次出现 `turn/start` 与 `thread/goal/set`；状态条必须可编辑、暂停、恢复和清除，重开任务通过 `thread/goal/get` 恢复，续跑只由 Codex Core 驱动。折叠 AI 面板、切换到元信息面板再返回时，正在运行的 turn、Goal、草稿与线程状态必须保留；切换工作区根目录时才允许重建对应的 Codex 运行时边界。
 
-使用真实安装的 Documents、PDF、Spreadsheets、Presentations 等插件检查加号菜单：本地 `composerIcon` 优先，其次使用当前明暗主题 logo，远程资源只允许 HTTPS；图标保持 `16 × 16`、完整缩放且不挤压名称和描述。切换浅色/深色主题后应使用相应资源。临时移除一个图标文件、提供错误格式或让远程图片加载失败时，只有该项降级为通用插件图标，其他插件仍可见且可插入 `plugin://{id}` mention。重新检测插件、切换工作区或重启 App Server 后，旧本地图标路径必须不可再读取。
+使用真实安装的 Documents、PDF、Spreadsheets、Presentations 等插件检查加号菜单：本地 `composerIcon` 优先，其次使用当前明暗主题 logo，远程资源只允许 HTTPS；图标保持 `16 × 16`、完整缩放且不挤压名称和描述。切换浅色/深色主题后应使用相应资源。临时移除一个图标文件、提供错误格式或让远程图片加载失败时，只有该项降级为通用插件图标，其他插件仍可见且可插入 `plugin://{id}` mention。重新检测插件、切换工作区或重启 App Server 后，旧本地图标路径必须不可再读取。即使用户已在 Codex Desktop 启用 Chrome / Browser Use / Computer Use，加号菜单也不得出现这些捆绑项；图稿改写必须走 `markune_drawing`，不得出现 `cua.getState()` 或 `js execution timed out; kernel reset`。
 
 在输入框分别插入文档、插件与 Skill：三者都应显示 `16 × 16` 图标并与文字基线对齐，文档使用文件图标，插件沿用菜单中的真实明暗主题图标，Skill 使用统一立方体图标；视觉标签不显示 `@` 或 `$`。发送后检查 App Server 请求：文档仍编码为带引号相对路径，插件模型文本恢复 `@Plugin` 并带 `plugin://` mention，Skill 模型文本恢复 `$skill-name` 并带精确的原生 `skill` 输入。伪造名称、未列出的路径或收到 `skills/changed` 后沿用旧授权都必须被 Rust 拒绝。
 

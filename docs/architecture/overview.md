@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-12
+updated: 2026-10-06
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -11,12 +11,17 @@ Markune 是一个以本地 Markdown 文档为核心的桌面知识库，使用 N
 
 ## Runtime Shape
 
+- 应用外层 `html/body` 是固定视口，不承担滚动；正文、侧栏和浮层分别持有各自的滚动容器。`[[` 引用候选在挂到 `body` 之前必须设置初始绝对定位和零坐标，不能等 Floating UI 异步定位后才脱离文档流；键盘与鼠标选中候选时只调整候选容器的 `scrollTop`，不得对候选行使用会滚动祖先的 `scrollIntoView`。否则 WebKit 可在浮层挂载的短暂布局中滚动页面根节点，造成整个应用的视觉位置与后续点击发生偏移。
 - Web shell：Next.js App Router 与 React client components。
-- Editor：`components/editor/markdown-editor.tsx` 以非受控 `defaultContent` 包装 `@markweave/react@0.10.4` / `markweave@0.10.4`；Markweave 对正文执行一次 canonical whole-document parse，并在严格 Schema 校验前把混合 Markdown 段落中的块图片提升为有序兄弟节点，避免大文档因图片与相邻文本共处段落而加载失败。首次加载与后续 Markdown 更新共用同一规范化逻辑，图片开头的列表项保留必要首段落；无序列表与表格在需要时通过 HTML 回退保留块媒体结构。HTTP(S) 页面可以使用完整 Markdown lexer Worker，`tauri:` 等桌面自定义协议立即走同语义的主线程解析，避免 WKWebView 构造 Blob Worker 后静默等待超时。只有文本、选择、撤销、搜索与 TOC 完成 `ready` 后才开放编辑，视觉资源再按视口渐进补齐；`parsing`、`mounting` 与 `finalizing` 显示明确进度，加载失败时 Markune 保留本地正文并提供重新加载与源码模式恢复，不再显示无诊断白板。序列化遵循 GFM 词中下划线规则，标识符如 `doc_review_agent` 不再写成 `doc\_review\_agent`。编辑事务只保留惰性 payload 和 dirty 状态，完整 Markdown 字符串边界只位于 load/flush。源码模式动态加载 CodeMirror 6，Live/Source 切换只在边界互转一次。Slash 附件经 `onSlashCommandUpload` 写入工作区资产并以 `markune-asset://` 持久化，激活下载由 `onAttachmentDownload` 处理。
+- Editor：`components/editor/markdown-editor.tsx` 以非受控 `defaultContent` 包装 `@markweave/react@0.10.8` / `markweave@0.10.8`；Markweave 对正文执行一次 canonical whole-document parse，并在严格 Schema 校验前把混合 Markdown 段落中的块图片提升为有序兄弟节点，避免大文档因图片与相邻文本共处段落而加载失败。首次加载与后续 Markdown 更新共用同一规范化逻辑，图片开头的列表项保留必要首段落；无序列表与表格在需要时通过 HTML 回退保留块媒体结构。HTTP(S) 页面可以使用完整 Markdown lexer Worker，`tauri:` 等桌面自定义协议立即走同语义的主线程解析，避免 WKWebView 构造 Blob Worker 后静默等待超时。只有文本、选择、撤销、搜索与 TOC 完成 `ready` 后才开放编辑，视觉资源再按视口渐进补齐；`parsing`、`mounting` 与 `finalizing` 显示明确进度，加载失败时 Markune 保留本地正文并提供重新加载与源码模式恢复，不再显示无诊断白板。序列化遵循 GFM 词中下划线规则，标识符如 `doc_review_agent` 不再写成 `doc\_review\_agent`。编辑事务只保留惰性 payload 和 dirty 状态，完整 Markdown 字符串边界只位于 load/flush。源码模式动态加载 CodeMirror 6，Live/Source 切换只在边界互转一次。全局搜索、图谱和 AI 来源跳转通过 `revealLocation` 定位：Live 优先按标题锚点或正文行映射到视口，YAML `title` 命中映射到对应 H1；协调器未就绪或 `revealPosition` 尚未成功时由调用方重试，Live 下不得自动切源码。源码模式只保留用户已经处于源码时的行跳转。Slash 附件经 `onSlashCommandUpload` 写入工作区资产并以 `markune-asset://` 持久化，激活下载由 `onAttachmentDownload` 处理。
 - Workspace shell：`components/workspace/workspace-layout.tsx` 管理文档树、编辑器标签、全文搜索、Git、终端、设置、文档元信息与 AI 侧栏。左侧顶部系统入口（笔记、日程、Inbox、画板、视图、图谱、Codex）由 `workspace-system-nav.tsx` 渲染，排列与折叠偏好写入全局 `appearance.systemNavLayout` / `appearance.systemNavCollapsed`；文档树“文件夹”标题切换到复用 `directory-page.tsx` 的工作区根级总览，根级文件夹卡片继续进入既有目录详情。
 - Native boundary：前端经 `components/workspace/workspace-api.ts` 调用 Tauri 命令；实现位于 `src-tauri/src`。macOS 原生 `Markune` 菜单中的“设置…”（`⌘,`）与“检查更新…”只发出前端事件：前者复用现有设置页，后者打开“版本”并调用既有 updater 检查，不创建第二个设置窗口，也不自动安装更新。`window_chrome.rs` 只读取 macOS AppKit 红绿灯在 WKWebView 中的垂直中心数值，使 Web 标题栏控件不依赖构建 SDK 的固定偏移；`window_opacity.rs` 通过 macOS AppKit 或 Windows 分层窗口接口调整整个原生窗口的合成透明度，Web 页面不使用 CSS `opacity` 模拟该能力。安装后的桌面包通过 `bundle.fileAssociations` 把 `.md` / `.mdx` 登记为 `Alternate` 打开方式，不抢默认应用；`external_open.rs` 消费冷启动参数、macOS `RunEvent::Opened` 和 Windows 单实例转发，解析最近的 `.markune` / `.madora` 工作区后打开该文档，并压过“恢复最近工作区”。
 - Codex runtime：`components/workspace/codex-app-server.ts` 只消费协议消息；`src-tauri/src/codex.rs` 启动随应用打包的 Codex App Server sidecar，并通过 stdio JSONL 传递允许的方法、通知与审批请求。
 - Local state：全局设置由 `src-tauri/src/settings.rs` 持久化；面板尺寸使用浏览器 local storage；AI 会话由 Codex App Server 存入用户级 Codex Home，不属于工作区状态。
+
+## Terminal
+
+桌面终端由 xterm.js 和 Rust `portable-pty` 组成，会话归原生进程所有。折叠面板只隐藏界面，不结束 shell；关闭标签、切换或移除工作区、销毁主窗口时结束对应进程组。输出按 UTF-8 流解码，避免读缓冲切开多字节字符。Shell 以交互参数启动，PowerShell 使用 `-NoLogo`，并在进入子进程前去掉凭据型环境变量。前端按最多 64 KiB 串行写入，非活动或已退出标签不接收键盘输入。进程自然退出后保留最后一屏并显示退出码，需要用户新建标签，不会自动重启。
 
 ## External Markdown Open Boundary
 
@@ -36,9 +41,23 @@ Markune 是一个以本地 Markdown 文档为核心的桌面知识库，使用 N
 
 ## Directory Tree Appearance Boundary
 
+左侧目录树的文档名称只使用实际文件名去掉末尾 `.md` / `.mdx` 扩展名（大小写不敏感），保留 `01_` 等编号前缀，不采用 YAML frontmatter 的 `title` 或正文一级标题。目录树内的重命名初始值与删除确认沿用同一名称；文件名未改动或取消重命名不触发写入，即使文档内部标题不同。该规则只影响目录树展示与交互，不改变后端标题元数据及其他视图的标题来源。
+
+目录定位请求按目标路径与请求序号消费一次，节点刷新不能再次展开或滚回旧目标。定位只调整 `data-workspace-tree-scroll-container` 的 `scrollTop`，不能用 `scrollIntoView` 滚动工作区外层或 WebView 根容器。
+
 目录自定义外观只作用于目录节点，不改变文档图标、系统导航或文件系统名称。节点使用默认文件夹图标时不写显式外观；用户可选择离线打包的 Tabler 图标、单个 Emoji 或导入到当前工作区资产库的 SVG/PNG/WebP，并可独立设置语义预设色或六位 HEX。目录树与置顶区统一读取 `WorkspaceNode.appearance`，无效、缺失或仍在加载的图标回退到现有文件夹图标。
 
 工作区级权威状态保存在 `.markune/workspace.json` 的 `nodeState[relativePath].appearance`，随目录重命名和移动一起重写相对路径，删除目录时清除对应前缀。全局 `appearance.treeIconPicker` 只保存选择器最后标签和最多 20 个最近使用项，不保存节点选择。本地图标继续使用内容寻址的 `.markune/assets` 存储；外观切换、恢复默认或目录删除后，只有不再被 Markdown、Inbox 或其他目录外观引用的旧资产才会清理。
+
+## Settings Surface
+
+设置页沿用独立侧栏与内容滚动容器，导航按“偏好设置 / 工作区 / 连接与应用”分组；内容列最大 840px，设置以细边框分组和左右对齐的紧凑行呈现。主题与正文宽度采用分段单选，支持方向键、Home/End 和可见焦点；当前分类通过 `aria-current` 标识。切换分类只复位设置内容容器的滚动位置，搜索框 Escape 只清空查询，不触发应用级快捷动作。
+
+外观、日历、存储、Codex、Git Sync 和版本的原有设置值、缓存与保存边界保持不变；透明度仍只在桌面端预览、提交时保存，字体列表继续支持搜索和当前值标记。浏览器预览不能代替原生透明度、系统字体枚举、登录和更新安装验收。
+
+## Document Information Surface
+
+文档元信息面板沿用设置页的细边框与紧凑行布局：直接展示文档信息、内容统计和 Frontmatter 分组，不重复展示文档标题块。字段值保持原样，较长键值在面板内换行。编辑／阅读使用显式选择按钮，点击当前模式不重复调用切换；未提供回调时均禁用。顶部元信息、资源、关联及可选来源使用 Radix Tabs，支持方向键与 Home/End；滚动限制在面板内容容器内，资源与关联继续复用原有组件与数据接口。
 
 ## Main Modules
 
@@ -144,11 +163,11 @@ AI 面板是工作区级 App Server 客户端。固定 0.153.4 的协议、运�
 
 AI 画图是宿主内的受控 Codex 能力，不接入远程 Excalidraw MCP UI。随应用打包的 `markune-diagram` Skill 负责检查当前或显式提及图稿、收敛单一视角、选择图型和质量 profile、编排 Mermaid，并根据预览最多修复两轮；Rust 在新线程中固定注入 `markune_drawing.inspect_drawing`、两类 preview 工具、`markune_drawing.apply_preview_to_active` 与 `markune_drawing.create_from_preview`，渲染器不能提供其他 dynamic tools。`inspect_drawing` 只接受当前 turn 已授权的 Drawing UUID，返回去除 files/blob 的有界元素结构和可选 PNG/WebP 预览。Mermaid 编译器只在工具调用时动态加载，成功结果必须是可编辑 Excalidraw 元素，SVG/image fallback 会作为失败返回；编译后按 `architecture | flow | default` profile 计算交叉、穿越节点、关系和分组预算、扇出、转折、逆向关系、重叠、标签裁切与画布比例，返回确定性的 grade、blockers 和 repair suggestions。预览按工作区和 turn 保存在前端内存中，最多 3 个且 10 分钟有效；未达 A 级或存在 blocker 的预览保留供模型检查，但应用和创建都必须失败关闭。模型只能提交 opaque `previewId`：活动图稿改写由 Rust 注入本 turn 绑定的 Drawing ID、kind 与 revision，前端再次校验后复用普通原子保存、备份和冲突机制；显式提及图稿始终只读。用户明确要求新建或副本、或没有活动图稿时才走 generated-create。
 
-随应用打包的 `markune-mindmap` Skill 通过同一命名空间调用 `preview_mindmap { title, direction, root }`。`markune-diagram` 与 `markune-mindmap` 依靠互斥且有界的 description 参与 Codex 隐式 Skill 选择；AI 面板标题栏不固定插入任一绘图 Skill，用户仍可通过 `/` 显式选择。模型只提供递归 `topic/children`，编译器生成稳定节点 ID、Markune 主题和规范 Mind Elixir 数据；模型不能控制 ID、主题、样式、链接、图片、存储路径或目标图集。脑图 A 级门禁限制 80 个节点、6 层、每节点 8 个直接子节点和 48 字符标题，并拒绝重复内容与极端横向比例。每个 turn 与白板共用三次预览上限；活动脑图的改写应用到原图并重新载入编辑器，没有活动图稿或用户明确要求副本时才锁定宿主派生的目标图集并新建。
+随应用打包的 `markune-mindmap` Skill 通过同一命名空间调用 `preview_mindmap { title, direction, root }`。`markune-diagram` 与 `markune-mindmap` 依靠互斥且有界的 description 参与 Codex 隐式 Skill 选择；AI 面板标题栏不固定插入任一绘图 Skill，用户仍可通过 `/` 显式选择。模型只提供递归 `topic/children`，编译器生成稳定节点 ID、Markune 主题和规范 Mind Elixir 数据；模型不能控制 ID、主题、样式、链接、图片、存储路径或目标图集。脑图 A 级门禁限制 80 个节点、6 层、每节点 8 个直接子节点和 48 字符标题，并拒绝重复内容与极端横向比例。每个 turn 与白板共用三次预览上限；活动脑图的改写应用到原图并重新载入编辑器，没有活动图稿或用户明确要求副本时才锁定宿主派生的目标图集并新建。离屏预览 `exportPng` 必须在 8 秒内完成，超时作为工具失败返回，避免阻塞 App Server。Markune 不是 Chrome 页面；图稿理解与改写不得走 Chrome / Browser Use / Computer Use / `cua.getState()`，这些捆绑自动化在 Tauri WebView 中会卡到 `js execution timed out; kernel reset`。
 
 生成图稿继续复用 Drawing Raw IPC，但使用独立 generated-create session。场景与 PNG/WebP 预览完整暂存并通过 Rust 校验后，revision 1 bundle 才从 `.staging` 原子 rename 到当前普通图集或未归类根目录；任何失败都不创建空白 bundle。成功后前端刷新图稿库、切换到 Drawings system page 并打开结果，后续保存、备份、冲突和导出完全复用普通图稿流程。
 
-Codex 运行时在工作区根目录就绪后后台预热，关闭右侧 AI 面板只隐藏视图，不卸载会话组件或终止 App Server。启动采用分层加载：App Server、账户与权限约束构成可发送消息的核心就绪条件，模型目录、线程历史、当前工作区的已安装插件与 Skill 在核心就绪后后台加载。Markune 不为输入框菜单预取 MCP inventory，也不在普通 Agent 任务开始前额外禁用用户的连接器或插件。模型、历史、插件或 Skill 加载慢或失败都不得退回全屏“正在连接”状态，也不得阻塞使用服务端默认模型发送消息。用户在核心握手期间可以编辑并提交，提交操作等待同一个启动 Promise，核心成功后继续执行，失败时保留草稿并显示错误。
+Codex 运行时在工作区根目录就绪后后台预热，关闭右侧 AI 面板只隐藏视图，不卸载会话组件或终止 App Server。启动采用分层加载：App Server、账户与权限约束构成可发送消息的核心就绪条件，模型目录、线程历史、当前工作区的已安装插件与 Skill 在核心就绪后后台加载。Markune 不为输入框菜单预取 MCP inventory，也不在普通 Agent 任务开始前禁用用户的连接器或其他插件。固定 sidecar 启动与 `thread/start` 只关闭 Codex 捆绑的 Browser Use / Chrome / Computer Use / 应用内浏览器：这些能力在 Tauri WebView 中会挂起 JS kernel，不能用来检查 Markune 画布。加号菜单同样隐藏 `chrome@openai-bundled`、`browser@openai-bundled`、`browser-use@openai-bundled` 与 `computer-use@openai-bundled`，不改用户 `config.toml`。模型、历史、插件或 Skill 加载慢或失败都不得退回全屏“正在连接”状态，也不得阻塞使用服务端默认模型发送消息。用户在核心握手期间可以编辑并提交，提交操作等待同一个启动 Promise，核心成功后继续执行，失败时保留草稿并显示错误。
 
 Codex 同时提供右侧紧凑面板和主工作区两种展示形态，但两者必须复用同一个持续挂载的 `AiPanel` 实例；从左侧固定的“Codex”入口进入主工作区时，只切换 presentation，不新建运行时、线程或消息状态，也不清空当前文档与已打开标签。主工作区中的文档动作先打开右侧只读预览检查器，不立即替换编辑器当前文档；预览优先使用当前未保存草稿或已缓存编辑器 session，否则通过既有 `readMarkdownDocument` 读取磁盘内容。用户只有显式选择“在编辑器中打开”时，才把该文档提升为普通编辑器标签。预览宽度只保存在浏览器 local storage，不属于工作区或 AI 会话状态。
 
@@ -204,7 +223,11 @@ Codex App Server 是 AI 会话持久化的唯一所有者。Markune 默认把 si
 
 ## Storage And Editor Boundary
 
-持久化文档始终为 Markdown 文件。磁盘格式、内存草稿和编辑器输入/输出必须保持 Markdown 字符串边界，禁止重新引入富文本投影层。文档树标题来自文件头 frontmatter 或 H1，读取时收起词中 `\_`，与 Markweave 0.10.4 的 GFM 序列化规则对齐。
+持久化文档始终为 Markdown 文件。磁盘格式、内存草稿和编辑器输入/输出必须保持 Markdown 字符串边界，禁止重新引入富文本投影层。文档标题元数据来自文件头 frontmatter 或 H1，读取时收起词中 `\_`，与 Markweave 0.10.4 的 GFM 序列化规则对齐；左侧目录树另按实际文件名显示。
+
+编辑器内引用卡片单击、Live 模式 Ctrl/Cmd 点击文档链接及 View 模式普通点击文档链接通过带工作区根的 `markune:preview-document` 事件打开右侧只读抽屉，不切换主文档或定位目录。`document-reference-drawer.tsx` 仅解析当前工作区索引中的目标，复用 `AiDocumentPreview`，优先显示已打开文档的内存草稿，保留锚点定位、加载失败重试与迟到响应隔离。预览中的引用继续在同一个抽屉显示；只有标题栏带 tooltip 的“在编辑器中打开”按钮才经过现有保存、打开和定位流程，失败保留抽屉并提示。
+
+引用抽屉覆盖编辑区右侧，不使用模态遮罩、body 滚动锁或主界面 transform；默认宽度为编辑区的三分之一，常规最小 320px、最大不超过 960px 和编辑区的 75%，窄窗口同步收缩边界。宽度比例只保留在当前挂载会话内，支持拖拽、方向键及 Home/End；Escape 或关闭按钮退出预览。共享尺寸手柄在 pointercancel、窗口失焦或卸载后释放拖拽状态与 body 光标、文本选择样式。
 
 受控 `title` 写入必须按 YAML 字符串转义，前端 `markdown-frontmatter.ts` 与原生 `document_frontmatter.rs` 保持同一规则；加粗标记、冒号、引号、反斜杠、换行、数字或布尔样式标题不能直接插值进 YAML。重新读取时解码 JSON 兼容双引号和 YAML 单引号，避免转义字符泄漏到树标题。普通标题保持原有简洁表示，未知字段不因标题修复被整体重写。
 

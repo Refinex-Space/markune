@@ -107,7 +107,18 @@ describe('InboxSidebar', () => {
       target: screen.getByTestId('inbox-capture-row'),
     });
 
-    expect(await screen.findByRole('menuitem', { name: /状态/ })).not.toBeNull();
+    const statusItem = await screen.findByRole('menuitem', { name: /状态/ });
+    const priorityItem = screen.getByRole('menuitem', { name: /优先级/ });
+
+    expect(statusItem.querySelector('[data-slot="inbox-menu-value"]')?.textContent).toBe(
+      '未处理',
+    );
+    expect(
+      statusItem.querySelector('[data-slot="inbox-menu-value"]')?.className,
+    ).toContain('ml-auto');
+    expect(
+      priorityItem.querySelector('[data-slot="inbox-menu-value"]')?.textContent,
+    ).toBe('普通');
     expect(screen.queryByRole('menuitem', { name: '何时查看' })).toBeNull();
     expect(screen.getByRole('menuitem', { name: '归档' })).not.toBeNull();
     expect(screen.getByRole('menuitem', { name: '永久删除' })).not.toBeNull();

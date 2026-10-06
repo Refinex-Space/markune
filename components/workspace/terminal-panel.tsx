@@ -12,6 +12,7 @@ export interface TerminalTab {
   title: string;
   cwd: string;
   status: TerminalTabStatus;
+  exitCode?: number | null;
 }
 
 interface TerminalPanelProps {
@@ -118,6 +119,23 @@ export function TerminalPanel({
         </div>
       ) : null}
 
+      {activeTab?.status === 'exited' ? (
+        <div
+          className="flex items-center justify-between gap-3 border-b px-3 py-1.5 text-xs text-muted-foreground"
+          role="status"
+        >
+          <span>{formatTerminalExit(activeTab.exitCode)}</span>
+          <button
+            className="inline-flex h-6 items-center rounded-md px-2 text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!isTauriRuntime || !rootPath}
+            type="button"
+            onClick={onNewTab}
+          >
+            新建终端
+          </button>
+        </div>
+      ) : null}
+
       <div className="min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
         {!isTauriRuntime ? (
           <TerminalEmptyState text="终端仅在桌面应用中可用。" />
@@ -131,6 +149,14 @@ export function TerminalPanel({
       </div>
     </section>
   );
+}
+
+function formatTerminalExit(exitCode: number | null | undefined) {
+  if (exitCode == null) {
+    return '进程已退出';
+  }
+
+  return `进程已退出（${exitCode}）`;
 }
 
 function TerminalEmptyState({ text }: { text: string }) {

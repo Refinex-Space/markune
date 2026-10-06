@@ -103,7 +103,6 @@ export function WorkspaceGlobalSearchDialog({
             ESC
           </kbd>
         </div>
-        <div className="border-b px-3 py-2 text-xs text-muted-foreground">支持精确短语及筛选，例如：<code>{'"设计方案" path:项目 tag:研究 prop:status=进行中 after:2026-01-01'}</code></div>
         {queryError ? <p role="alert" className="px-3 py-2 text-xs text-destructive">{queryError}</p> : null}
         {warnings.length ? <details className="px-3 py-2 text-xs text-muted-foreground"><summary>部分内容未完整索引</summary>{warnings.map((warning) => <p key={warning}>{warning}</p>)}</details> : null}
         <div

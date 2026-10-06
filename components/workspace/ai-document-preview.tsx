@@ -102,33 +102,47 @@ export function AiDocumentPreview({
   React.useEffect(() => {
     if (!source || (!location?.line && !location?.hash)) return;
     let active = true;
+    let timeoutId = 0;
+    const started = Date.now();
+    const attempt = async () => {
+      if (!active) return;
+      if (location.line && location.line > source.split(/\r\n?|\n/).length) {
+        setLocationError('引用行号超出当前版本，请核对来源');
+        return;
+      }
+      if (
+        location.fingerprint &&
+        (await contentFingerprint(source)) !== location.fingerprint
+      ) {
+        setLocationError(
+          '来源已变化，当前内容可能不再支持原结论，请重新核对',
+        );
+        return;
+      }
+      const found = await editorRef.current?.revealLocation({
+        ...location,
+        isCurrent: () => active,
+      });
+      if (!active) return;
+      if (found) {
+        setLocationError(null);
+        return;
+      }
+      if (Date.now() - started < 15000) {
+        timeoutId = window.setTimeout(() => {
+          void attempt();
+        }, 100);
+        return;
+      }
+      setLocationError('当前版本未找到引用位置');
+    };
     const frame = requestAnimationFrame(() => {
-      void (async () => {
-        if (location.line && location.line > source.split(/\r\n?|\n/).length) {
-          if (active) setLocationError('引用行号超出当前版本，请核对来源');
-          return;
-        }
-        if (
-          location.fingerprint &&
-          (await contentFingerprint(source)) !== location.fingerprint
-        ) {
-          if (active)
-            setLocationError(
-              '来源已变化，当前内容可能不再支持原结论，请重新核对',
-            );
-          return;
-        }
-        const editor = editorRef.current;
-        const found = await editor?.revealLocation({
-          ...location,
-          isCurrent: () => active,
-        });
-        if (active) setLocationError(found ? null : '当前版本未找到引用位置');
-      })();
+      void attempt();
     });
     return () => {
       active = false;
       cancelAnimationFrame(frame);
+      window.clearTimeout(timeoutId);
     };
   }, [source, location]);
 

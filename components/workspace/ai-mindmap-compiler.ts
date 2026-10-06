@@ -45,6 +45,7 @@ const MAX_AI_MINDMAP_DEPTH = 6;
 const MAX_AI_MINDMAP_CHILDREN = 8;
 const MAX_AI_MINDMAP_TOPIC_CHARS = 48;
 const MAX_PREVIEW_BYTES = 2 * 1024 * 1024;
+const PREVIEW_RENDER_TIMEOUT_MS = 8_000;
 
 export async function compileAiMindMap(
   title: string,
@@ -218,14 +219,18 @@ async function renderMindMapPreview(data: MindElixirData) {
     editable: false,
     el: host,
     keypress: false,
-    overflowHidden: true,
+    overflowHidden: false,
     toolBar: false,
   });
   try {
     const error = mind.init(data);
     if (error) throw error;
     mind.scaleFit();
-    const blob = await mind.exportPng(true);
+    const blob = await withTimeout(
+      mind.exportPng(true),
+      PREVIEW_RENDER_TIMEOUT_MS,
+      '脑图预览渲染超时。请减少节点后重试，不要改用浏览器自动化。',
+    );
     if (!blob) throw new Error('脑图预览渲染失败。');
     const bytes = new Uint8Array(await blob.arrayBuffer());
     if (!isPng(bytes)) throw new Error('脑图预览不是有效 PNG。');
@@ -269,6 +274,26 @@ function collectTopics(root: AiMindMapNode) {
   };
   visit(root);
   return topics;
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 function dataUrl(bytes: Uint8Array, mediaType: string) {
