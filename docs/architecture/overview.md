@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-13
+updated: 2026-10-06
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -35,6 +35,8 @@ Markune 是一个以本地 Markdown 文档为核心的桌面知识库，使用 N
 完成工作区事务后，迁移命令会以不覆盖 Markune 现有状态为前提，尝试复制旧应用设置、Codex provider 配置和 keyring 凭据；这些用户级附属迁移失败只产生警告。浏览器 local storage 使用相同的“目标不存在才复制”规则迁移 `madora:` key。成功备份保存在 `.markune/migrations/brand-rename/<migration-id>`；若备份目录移动失败，暂存目录仍保留并在报告中返回。
 
 ## Directory Tree Appearance Boundary
+
+左侧目录树的文档名称只使用实际文件名去掉末尾 `.md` / `.mdx` 扩展名（大小写不敏感），保留 `01_` 等编号前缀，不采用 YAML frontmatter 的 `title` 或正文一级标题。目录树内的重命名初始值与删除确认沿用同一名称；文件名未改动或取消重命名不触发写入，即使文档内部标题不同。该规则只影响目录树展示与交互，不改变后端标题元数据及其他视图的标题来源。
 
 目录自定义外观只作用于目录节点，不改变文档图标、系统导航或文件系统名称。节点使用默认文件夹图标时不写显式外观；用户可选择离线打包的 Tabler 图标、单个 Emoji 或导入到当前工作区资产库的 SVG/PNG/WebP，并可独立设置语义预设色或六位 HEX。目录树与置顶区统一读取 `WorkspaceNode.appearance`，无效、缺失或仍在加载的图标回退到现有文件夹图标。
 

@@ -1732,18 +1732,11 @@ function getNodeDisplayName(node: WorkspaceNode) {
     return node.name;
   }
 
-  return node.title?.trim() || node.name.replace(/\.md$/i, '');
+  return node.name.replace(/\.(md|mdx)$/i, '');
 }
 
 function isWorkspaceNodeRenameNoop(node: WorkspaceNode, nextName: string) {
-  if (node.kind === 'directory') {
-    return nextName === node.name;
-  }
-
-  const physicalName = node.name.replace(/\.md$/i, '');
-  const documentTitle = node.title?.trim() || physicalName;
-
-  return nextName === physicalName && nextName === documentTitle;
+  return nextName === getNodeDisplayName(node);
 }
 
 function hasDescendantByAbsolutePath(

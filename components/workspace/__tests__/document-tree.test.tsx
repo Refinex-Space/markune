@@ -80,6 +80,38 @@ const countedNodes: WorkspaceNode[] = [
 ];
 
 describe('DocumentTree', () => {
+  it.each(['md', 'mdx', 'MD', 'MDX'])(
+    'shows the filename stem and preserves numbering for .%s documents',
+    (extension) => {
+      const name = `01_建立第一个工作区.${extension}`;
+      render(
+        <DocumentTree
+          currentDocumentPath={null}
+          nodes={[
+            {
+              id: name,
+              name,
+              kind: 'document',
+              relativePath: name,
+              absolutePath: `/repo/${name}`,
+              title: '文档内部标题',
+            },
+          ]}
+          searchQuery=""
+          onCreateDirectory={vi.fn()}
+          onCreateDocument={vi.fn()}
+          onDeleteNode={vi.fn()}
+          onImportMarkdown={vi.fn()}
+          onRenameNode={vi.fn()}
+          onSelectDocument={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByText('01_建立第一个工作区')).toBeTruthy();
+      expect(screen.queryByText('文档内部标题')).toBeNull();
+    },
+  );
+
   it('keeps the icon picker open after launching it from the context menu', async () => {
     const user = userEvent.setup();
 
@@ -372,7 +404,7 @@ describe('DocumentTree', () => {
     expect(documentSurface.className).not.toContain(
       'group-hover/tree-row:bg-sidebar-accent/70',
     );
-    expect(screen.getByText('入门').parentElement?.className).toContain(
+    expect(screen.getByText('intro').parentElement?.className).toContain(
       'z-[1]',
     );
   });
@@ -600,7 +632,7 @@ describe('DocumentTree', () => {
     );
 
     await user.click(screen.getByText('Guides'));
-    await user.click(screen.getByText('入门'));
+    await user.click(screen.getByText('intro'));
 
     expect(onSelectDocument).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'intro.md' }),
@@ -787,7 +819,7 @@ describe('DocumentTree', () => {
 
       await user.pointer({
         keys: '[MouseRight]',
-        target: screen.getByText('项目说明'),
+        target: screen.getByText('README'),
       });
       await user.click(screen.getByRole('menuitem', { name: '复制路径' }));
       fireEvent.click(await screen.findByRole('menuitem', { name: '绝对路径' }));
@@ -841,7 +873,7 @@ describe('DocumentTree', () => {
 
       await user.pointer({
         keys: '[MouseRight]',
-        target: screen.getByText('项目说明'),
+        target: screen.getByText('README'),
       });
       await user.click(screen.getByRole('menuitem', { name: '复制路径' }));
       fireEvent.click(await screen.findByRole('menuitem', { name: '绝对路径' }));
@@ -982,8 +1014,11 @@ describe('DocumentTree', () => {
 
     await user.click(screen.getByLabelText('打开 README.md 操作菜单'));
     await user.click(screen.getByRole('menuitem', { name: '重命名' }));
-    await user.clear(await screen.findByDisplayValue('项目说明'));
-    await user.type(screen.getByRole('textbox', { name: '重命名 项目说明' }), '新的说明{Enter}');
+    await user.clear(await screen.findByDisplayValue('README'));
+    await user.type(
+      screen.getByRole('textbox', { name: '重命名 README' }),
+      '新的说明{Enter}',
+    );
 
     expect(onRenameNode).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'README.md' }),
@@ -991,44 +1026,44 @@ describe('DocumentTree', () => {
     );
   });
 
-  it('submits rename when the displayed title already matches but the physical file name differs', async () => {
-    const user = userEvent.setup();
-    const onRenameNode = vi.fn();
-    const mismatchedDocument: WorkspaceNode = {
-      absolutePath: '/workspace/Test.md',
-      id: 'Test.md',
-      kind: 'document',
-      name: 'Test.md',
-      relativePath: 'Test.md',
-      title: 'Spring Boot 介绍',
-    };
+  it.each(['{Enter}', '{Escape}'])(
+    'does not rename an unchanged filename when its title differs (%s)',
+    async (key) => {
+      const user = userEvent.setup();
+      const onRenameNode = vi.fn();
+      const mismatchedDocument: WorkspaceNode = {
+        absolutePath: '/workspace/Test.md',
+        id: 'Test.md',
+        kind: 'document',
+        name: 'Test.md',
+        relativePath: 'Test.md',
+        title: 'Spring Boot 介绍',
+      };
 
-    render(
-      <DocumentTree
-        currentDocumentPath={mismatchedDocument.absolutePath}
-        nodes={[mismatchedDocument]}
-        searchQuery=""
-        onCreateDirectory={vi.fn()}
-        onCreateDocument={vi.fn()}
-        onDeleteNode={vi.fn()}
-        onImportMarkdown={vi.fn()}
-        onRenameNode={onRenameNode}
-        onSelectDocument={vi.fn()}
-      />,
-    );
+      render(
+        <DocumentTree
+          currentDocumentPath={mismatchedDocument.absolutePath}
+          nodes={[mismatchedDocument]}
+          searchQuery=""
+          onCreateDirectory={vi.fn()}
+          onCreateDocument={vi.fn()}
+          onDeleteNode={vi.fn()}
+          onImportMarkdown={vi.fn()}
+          onRenameNode={onRenameNode}
+          onSelectDocument={vi.fn()}
+        />,
+      );
 
-    await user.click(screen.getByLabelText('打开 Test.md 操作菜单'));
-    await user.click(screen.getByRole('menuitem', { name: '重命名' }));
-    await user.type(
-      screen.getByRole('textbox', { name: '重命名 Spring Boot 介绍' }),
-      '{Enter}',
-    );
+      await user.click(screen.getByLabelText('打开 Test.md 操作菜单'));
+      await user.click(screen.getByRole('menuitem', { name: '重命名' }));
+      await user.type(
+        screen.getByRole('textbox', { name: '重命名 Test' }),
+        key,
+      );
 
-    expect(onRenameNode).toHaveBeenCalledWith(
-      mismatchedDocument,
-      'Spring Boot 介绍',
-    );
-  });
+      expect(onRenameNode).not.toHaveBeenCalled();
+    },
+  );
 
   it('keeps rename as a no-op when the document title and physical file name already match', async () => {
     const user = userEvent.setup();
