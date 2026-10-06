@@ -38,6 +38,8 @@ Markune 是一个以本地 Markdown 文档为核心的桌面知识库，使用 N
 
 左侧目录树的文档名称只使用实际文件名去掉末尾 `.md` / `.mdx` 扩展名（大小写不敏感），保留 `01_` 等编号前缀，不采用 YAML frontmatter 的 `title` 或正文一级标题。目录树内的重命名初始值与删除确认沿用同一名称；文件名未改动或取消重命名不触发写入，即使文档内部标题不同。该规则只影响目录树展示与交互，不改变后端标题元数据及其他视图的标题来源。
 
+目录定位请求按目标路径与请求序号消费一次，节点刷新不能再次展开或滚回旧目标。定位只调整 `data-workspace-tree-scroll-container` 的 `scrollTop`，不能用 `scrollIntoView` 滚动工作区外层或 WebView 根容器。
+
 目录自定义外观只作用于目录节点，不改变文档图标、系统导航或文件系统名称。节点使用默认文件夹图标时不写显式外观；用户可选择离线打包的 Tabler 图标、单个 Emoji 或导入到当前工作区资产库的 SVG/PNG/WebP，并可独立设置语义预设色或六位 HEX。目录树与置顶区统一读取 `WorkspaceNode.appearance`，无效、缺失或仍在加载的图标回退到现有文件夹图标。
 
 工作区级权威状态保存在 `.markune/workspace.json` 的 `nodeState[relativePath].appearance`，随目录重命名和移动一起重写相对路径，删除目录时清除对应前缀。全局 `appearance.treeIconPicker` 只保存选择器最后标签和最多 20 个最近使用项，不保存节点选择。本地图标继续使用内容寻址的 `.markune/assets` 存储；外观切换、恢复默认或目录删除后，只有不再被 Markdown、Inbox 或其他目录外观引用的旧资产才会清理。
@@ -206,7 +208,11 @@ Codex App Server 是 AI 会话持久化的唯一所有者。Markune 默认把 si
 
 ## Storage And Editor Boundary
 
-持久化文档始终为 Markdown 文件。磁盘格式、内存草稿和编辑器输入/输出必须保持 Markdown 字符串边界，禁止重新引入富文本投影层。文档树标题来自文件头 frontmatter 或 H1，读取时收起词中 `\_`，与 Markweave 0.10.4 的 GFM 序列化规则对齐。
+持久化文档始终为 Markdown 文件。磁盘格式、内存草稿和编辑器输入/输出必须保持 Markdown 字符串边界，禁止重新引入富文本投影层。文档标题元数据来自文件头 frontmatter 或 H1，读取时收起词中 `\_`，与 Markweave 0.10.4 的 GFM 序列化规则对齐；左侧目录树另按实际文件名显示。
+
+编辑器内引用卡片单击、Live 模式 Ctrl/Cmd 点击文档链接及 View 模式普通点击文档链接通过带工作区根的 `markune:preview-document` 事件打开右侧只读抽屉，不切换主文档或定位目录。`document-reference-drawer.tsx` 仅解析当前工作区索引中的目标，复用 `AiDocumentPreview`，优先显示已打开文档的内存草稿，保留锚点定位、加载失败重试与迟到响应隔离。预览中的引用继续在同一个抽屉显示；只有标题栏带 tooltip 的“在编辑器中打开”按钮才经过现有保存、打开和定位流程，失败保留抽屉并提示。
+
+引用抽屉覆盖编辑区右侧，不使用模态遮罩、body 滚动锁或主界面 transform；默认宽度为编辑区的三分之一，常规最小 320px、最大不超过 960px 和编辑区的 75%，窄窗口同步收缩边界。宽度比例只保留在当前挂载会话内，支持拖拽、方向键及 Home/End；Escape 或关闭按钮退出预览。共享尺寸手柄在 pointercancel、窗口失焦或卸载后释放拖拽状态与 body 光标、文本选择样式。
 
 受控 `title` 写入必须按 YAML 字符串转义，前端 `markdown-frontmatter.ts` 与原生 `document_frontmatter.rs` 保持同一规则；加粗标记、冒号、引号、反斜杠、换行、数字或布尔样式标题不能直接插值进 YAML。重新读取时解码 JSON 兼容双引号和 YAML 单引号，避免转义字符泄漏到树标题。普通标题保持原有简洁表示，未知字段不因标题修复被整体重写。
 

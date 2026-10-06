@@ -47,6 +47,7 @@ import { cn } from '@/lib/utils';
 
 import { RightSidePanel, RightToolRail } from './right-side-panel';
 import { AiDocumentPreview } from './ai-document-preview';
+import { DocumentReferenceDrawer } from './document-reference-drawer';
 import { DirectoryPage } from './directory-page';
 import { DailyNoteCalendar } from './daily-note-calendar';
 import {
@@ -4104,6 +4105,34 @@ export function WorkspaceLayout({
                       onLoadExternal={() =>
                         void handleResolveExternalDocumentConflict('external')
                       }
+                    />
+                  ) : null}
+
+                  {workspaceRootPath ? (
+                    <DocumentReferenceDrawer
+                      key={workspaceRootPath}
+                      nodes={workspace.snapshot?.nodes ?? []}
+                      workspaceRootPath={workspaceRootPath}
+                      pageWidthMode={pageWidthMode}
+                      getDraft={(path) =>
+                        path === currentDocumentPath
+                          ? workspace.draftDocument?.markdown ?? null
+                          : editorSessions[path]?.markdown ?? null
+                      }
+                      onOpenDocument={async (location) => {
+                        await openKnowledgeLocation(location);
+                        const target = findWorkspaceDocumentByRelativePath(
+                          workspace.snapshot?.nodes ?? [],
+                          location.relativePath,
+                        );
+                        const opened = workspaceRootPathRef.current === location.workspaceRootPath &&
+                          currentDocumentPathRef.current === target?.absolutePath &&
+                          documentLoadStateRef.current === 'loaded';
+                        if (opened && target) {
+                          revealNodeInWorkspaceTree(target.absolutePath);
+                        }
+                        return opened;
+                      }}
                     />
                   ) : null}
 

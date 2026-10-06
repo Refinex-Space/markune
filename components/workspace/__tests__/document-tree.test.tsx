@@ -442,6 +442,14 @@ describe('DocumentTree', () => {
 
   it('reveals and scrolls to a deeply nested document for repeated requests', async () => {
     const user = userEvent.setup();
+    const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const top = this.dataset.workspaceNodePath ? 300 : 0;
+      return { top, bottom: top + 32, left: 0, right: 200, width: 200, height: 32, x: 0, y: top, toJSON() {} };
+    });
+    const scroller = document.createElement('div');
+    scroller.dataset.workspaceTreeScrollContainer = 'true';
+    Object.defineProperty(scroller, 'clientHeight', { value: 100 });
+    document.body.append(scroller);
     const scrollIntoView = vi.fn();
     const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
     const nestedNodes: WorkspaceNode[] = [
@@ -496,18 +504,35 @@ describe('DocumentTree', () => {
           revealNodePath="/repo/Parent/Child/leaf.md"
           revealNodeRequestId={1}
         />,
+        { container: scroller },
       );
 
       await waitFor(() => {
         expect(screen.getByTestId('tree-row-leaf')).toBeTruthy();
-        expect(scrollIntoView).toHaveBeenCalledTimes(1);
+        expect(scroller.scrollTop).toBe(232);
+        expect(scrollIntoView).not.toHaveBeenCalled();
       });
       expect(screen.getByTestId('directory-folder-open-parent')).toBeTruthy();
       expect(screen.getByTestId('directory-folder-open-child')).toBeTruthy();
 
+      scroller.scrollTop = 0;
+      rerender(
+        <DocumentTree
+          {...props}
+          nodes={[...nestedNodes]}
+          revealNodePath="/repo/Parent/Child/leaf.md"
+          revealNodeRequestId={1}
+        />,
+      );
+      await act(async () => {
+        await new Promise((resolve) => window.setTimeout(resolve, 40));
+      });
+      expect(scroller.scrollTop).toBe(0);
+
       await user.click(screen.getByText('Parent'));
       expect(screen.queryByTestId('tree-row-leaf')).toBeNull();
 
+      scroller.scrollTop = 0;
       rerender(
         <DocumentTree
           {...props}
@@ -518,9 +543,12 @@ describe('DocumentTree', () => {
 
       await waitFor(() => {
         expect(screen.getByTestId('tree-row-leaf')).toBeTruthy();
-        expect(scrollIntoView).toHaveBeenCalledTimes(2);
+        expect(scroller.scrollTop).toBe(232);
+        expect(scrollIntoView).not.toHaveBeenCalled();
       });
     } finally {
+      bounds.mockRestore();
+      scroller.remove();
       Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
         configurable: true,
         value: originalScrollIntoView,

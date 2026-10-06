@@ -55,7 +55,7 @@ import { installMarkweaveVideoMediaBridge } from '@/components/editor/markweave-
 import type { MarkdownSourceEditorHandle } from '@/components/editor/markdown-source-editor';
 import {
   buildWorkspaceDocumentHref,
-  OPEN_WORKSPACE_DOCUMENT_EVENT,
+  PREVIEW_WORKSPACE_DOCUMENT_EVENT,
   parseInternalDocumentHref,
   resolveWorkspaceDocumentTarget,
   toWorkspaceRootRelativePath,
@@ -938,10 +938,7 @@ export const MarkdownEditor = React.forwardRef<
           return;
         }
 
-        // Open workspace document links as tabs.
-        // - Document reference cards: always open in Markune (never the browser).
-        // - Inline []() links: Ctrl/Cmd-click in live mode; plain click in view.
-        // author: liyao
+        // refinex: Preview document cards and explicit inline-link navigation.
         const internalCard = target.closest<HTMLElement>(
           '[data-markweave-internal-link-card="true"], .markweave-internal-link-card',
         );
@@ -983,8 +980,8 @@ export const MarkdownEditor = React.forwardRef<
         if (!documentTarget) return;
 
         window.dispatchEvent(
-          new CustomEvent(OPEN_WORKSPACE_DOCUMENT_EVENT, {
-            detail: documentTarget,
+          new CustomEvent(PREVIEW_WORKSPACE_DOCUMENT_EVENT, {
+            detail: { ...documentTarget, workspaceRootPath },
           }),
         );
       }}

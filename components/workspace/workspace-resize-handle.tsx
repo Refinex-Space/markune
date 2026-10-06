@@ -97,6 +97,8 @@ export function WorkspaceResizeHandle({
     document.body.style.userSelect = 'none';
     document.addEventListener('pointermove', handlePointerMove);
     document.addEventListener('pointerup', handlePointerUp);
+    document.addEventListener('pointercancel', handlePointerUp);
+    window.addEventListener('blur', handlePointerUp);
 
     return () => {
       document.body.style.cursor = previousCursor;
@@ -108,10 +110,13 @@ export function WorkspaceResizeHandle({
       pendingWidthRef.current = null;
       document.removeEventListener('pointermove', handlePointerMove);
       document.removeEventListener('pointerup', handlePointerUp);
+      document.removeEventListener('pointercancel', handlePointerUp);
+      window.removeEventListener('blur', handlePointerUp);
     };
   }, [direction, isDragging, max, min, onResize]);
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
     event.preventDefault();
     dragStateRef.current = {
       startPointerX: event.clientX,

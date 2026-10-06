@@ -551,17 +551,17 @@ describe('MarkdownEditor', () => {
     const targetClick = vi.fn();
     link.addEventListener('click', targetClick);
     const openDocument = vi.fn();
-    window.addEventListener('markune:open-document', openDocument);
+    window.addEventListener('markune:preview-document', openDocument);
 
     const dispatched = fireEvent.click(link);
 
     expect(dispatched).toBe(false);
     expect(targetClick).toHaveBeenCalledTimes(1);
     expect(openDocument).not.toHaveBeenCalled();
-    window.removeEventListener('markune:open-document', openDocument);
+    window.removeEventListener('markune:preview-document', openDocument);
   });
 
-  it('Ctrl/Cmd 点击段落内工作区文档链接时由 Markune 打开目标文档', () => {
+  it('Ctrl/Cmd 点击段落内工作区文档链接时由 Markune 预览目标文档', () => {
     render(
       <MarkdownEditor
         documentPath="/vault/plans/2026.md"
@@ -576,7 +576,7 @@ describe('MarkdownEditor', () => {
     const targetClick = vi.fn();
     link.addEventListener('click', targetClick);
     const openDocument = vi.fn();
-    window.addEventListener('markune:open-document', openDocument);
+    window.addEventListener('markune:preview-document', openDocument);
 
     const dispatched = fireEvent.click(link, { metaKey: true });
 
@@ -586,8 +586,29 @@ describe('MarkdownEditor', () => {
     expect((openDocument.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({
       hash: '实践',
       relativePath: '技术团队.md',
+      workspaceRootPath: '/vault',
     });
-    window.removeEventListener('markune:open-document', openDocument);
+    window.removeEventListener('markune:preview-document', openDocument);
+  });
+
+  it('引用卡片单击只请求预览，不直接切换文档', () => {
+    render(<MarkdownEditor documentPath="/vault/README.md" markdown="正文" workspaceRootPath="/vault" />);
+    const card = document.createElement('a');
+    card.href = '01_A.md';
+    card.dataset.markweaveInternalLinkCard = 'true';
+    screen.getByTestId('markweave-editor').append(card);
+    const preview = vi.fn();
+    const open = vi.fn();
+    window.addEventListener('markune:preview-document', preview);
+    window.addEventListener('markune:open-document', open);
+    expect(fireEvent.click(card)).toBe(false);
+    expect(preview).toHaveBeenCalledOnce();
+    expect((preview.mock.calls[0][0] as CustomEvent).detail).toEqual({
+      relativePath: '01_A.md', hash: null, workspaceRootPath: '/vault',
+    });
+    expect(open).not.toHaveBeenCalled();
+    window.removeEventListener('markune:preview-document', preview);
+    window.removeEventListener('markune:open-document', open);
   });
 
   it('缺少路径上下文时仍阻止 Markdown 文档链接落入浏览器', () => {
