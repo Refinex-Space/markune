@@ -1,5 +1,6 @@
 'use client';
 
+import { settleEditorNavigation } from './markdown-editor-navigation';
 import * as React from 'react';
 import {
   ArrowUp,
@@ -193,6 +194,17 @@ export const MarkdownEditor = React.forwardRef<
     React.useState<MarkweaveDocumentLoadState | null>(null);
   const [documentLoadRetryRevision, setDocumentLoadRetryRevision] =
     React.useState(0);
+  const editorLoadKey = `${documentKey ?? 'document'}:${liveEditorRevisionRef.current}:${documentLoadRetryRevision}`;
+  const documentLoadRef = React.useRef<{ key: string; phase: MarkweaveDocumentLoadState['phase'] | null }>({ key: editorLoadKey, phase: null });
+  const revealAbortRef = React.useRef<AbortController | null>(null);
+  if (documentLoadRef.current.key !== editorLoadKey) {
+    documentLoadRef.current = { key: editorLoadKey, phase: null };
+    setDocumentLoadState(null);
+  }
+  React.useLayoutEffect(() => () => {
+    revealAbortRef.current?.abort();
+    revealAbortRef.current = null;
+  }, [editorLoadKey]);
   const loadedDocumentRef = React.useRef({ documentKey, markdown });
 
   if (loadedDocumentRef.current.documentKey !== documentKey) {
@@ -393,7 +405,6 @@ export const MarkdownEditor = React.forwardRef<
     setSourceFindText(normalizedMarkdown);
     setFindRequest(null);
     setSourceMode(false);
-    setDocumentLoadState(null);
   }, [documentKey, normalizedMarkdown]);
 
   const serializeBody = React.useCallback(
@@ -656,7 +667,8 @@ export const MarkdownEditor = React.forwardRef<
   );
 
   const revealLocation = React.useCallback(async (location: { line?: number; hash?: string | null; isCurrent?: () => boolean }) => {
-    if (!(await flushDraft('source-toggle')) || location.isCurrent?.() === false) return false;
+    const loadKey = documentLoadRef.current.key;
+    if (!(await flushDraft('source-toggle')) || location.isCurrent?.() === false || documentLoadRef.current.key !== loadKey) return false;
     let hash = location.hash?.replace(/^#/, '') ?? '';
     try { hash = decodeURIComponent(hash); } catch { /* Keep literal anchors readable. author: refinex */ }
     const raw = sourceDraftMarkdownRef.current;
@@ -667,6 +679,8 @@ export const MarkdownEditor = React.forwardRef<
     });
 
     if (!sourceMode) {
+      // refinex: A viewport can exist while the document is still being replaced during load.
+      if (documentLoadRef.current.phase !== 'ready') return false;
       const surface = markweaveModeRef.current?.querySelector<HTMLElement>('.markweave-editor-surface');
       const coordinator = surface ? getMarkweaveDocumentViewportCoordinatorForElement(surface) : null;
       if (!coordinator) {
@@ -689,12 +703,34 @@ export const MarkdownEditor = React.forwardRef<
 
       if (position === undefined) return false;
 
-      const result = await coordinator.revealPosition(position, {
-        reason: 'host',
-        align: 'center',
-        focus: true,
-      });
-      return result.status === 'revealed';
+      revealAbortRef.current?.abort();
+      const controller = new AbortController();
+      revealAbortRef.current = controller;
+      let interrupted = false;
+      const interrupt = () => { interrupted = true; controller.abort(); };
+      const ownerDocument = surface!.ownerDocument;
+      for (const event of ['pointerdown', 'wheel', 'keydown'])
+        ownerDocument.addEventListener(event, interrupt, { capture: true, passive: true });
+      try {
+        const result = await coordinator.revealPosition(position, {
+          reason: 'host',
+          align: 'center',
+          focus: true,
+          signal: controller.signal,
+        });
+        const isCurrent = () => documentLoadRef.current.key === loadKey &&
+          documentLoadRef.current.phase === 'ready' && location.isCurrent?.() !== false;
+        if (!isCurrent()) return false;
+        if (interrupted) return true;
+        if (controller.signal.aborted) return false;
+        if (result.status !== 'revealed') return false;
+        const settled = await settleEditorNavigation(coordinator, position, controller.signal, isCurrent, () => interrupted);
+        return isCurrent() && (interrupted || settled);
+      } finally {
+        for (const event of ['pointerdown', 'wheel', 'keydown'])
+          ownerDocument.removeEventListener(event, interrupt, true);
+        if (revealAbortRef.current === controller) revealAbortRef.current = null;
+      }
     }
 
     if (line === undefined) return false;
@@ -775,10 +811,13 @@ export const MarkdownEditor = React.forwardRef<
 
   const handleDocumentLoadStateChange = React.useCallback(
     (state: MarkweaveDocumentLoadState) => {
+      if (documentLoadRef.current.key !== editorLoadKey) return;
+      documentLoadRef.current.phase = state.phase;
+      if (state.phase !== 'ready') revealAbortRef.current?.abort();
       setDocumentLoadState(state);
       onDocumentLoadStateChange?.(state);
     },
-    [onDocumentLoadStateChange],
+    [editorLoadKey, onDocumentLoadStateChange],
   );
 
   const retryDocumentLoad = React.useCallback(() => {
@@ -1084,7 +1123,7 @@ export const MarkdownEditor = React.forwardRef<
             editable={!readOnly}
             innerToc
             innerTocPlacement="container"
-            key={`${documentKey ?? 'document'}:${liveEditorRevisionRef.current}:${documentLoadRetryRevision}`}
+            key={editorLoadKey}
             lang="zh"
             mode={readOnly ? 'view' : 'live'}
             onAiEditControllerChange={handleAiEditControllerChange}

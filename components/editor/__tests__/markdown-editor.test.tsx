@@ -33,6 +33,7 @@ const {
   searchListeners,
   searchState,
   viewportCoordinatorForElementMock,
+  loadBehavior,
 } = vi.hoisted(() => ({
   aiEditControllerMock: {
     discard: vi.fn(),
@@ -84,7 +85,10 @@ const {
   },
   searchListeners: new Set<(state: unknown) => void>(),
   viewportCoordinatorForElementMock: vi.fn(),
+  loadBehavior: { autoReady: true },
 }));
+
+vi.mock('../markdown-editor-navigation', () => ({ settleEditorNavigation: async () => true }));
 
 vi.mock('@markweave/react', async () => {
   const React = await import('react');
@@ -102,7 +106,9 @@ vi.mock('@markweave/react', async () => {
       const onSearchControllerChange = props.onSearchControllerChange as
         | ((controller: typeof searchControllerMock | null) => void)
         | undefined;
+      const onDocumentLoadStateChange = props.onDocumentLoadStateChange as ((state: unknown) => void) | undefined;
       React.useEffect(() => {
+        if (loadBehavior.autoReady) onDocumentLoadStateChange?.({ phase: 'ready', progress: 1, tier: 'standard', profile: null, error: null });
         onAiEditControllerChange?.(aiEditControllerMock);
         onSearchControllerChange?.(searchControllerMock);
 
@@ -111,7 +117,7 @@ vi.mock('@markweave/react', async () => {
           onSearchControllerChange?.(null);
           markweaveUnmountMock();
         };
-      }, [onAiEditControllerChange, onSearchControllerChange]);
+      }, [onAiEditControllerChange, onSearchControllerChange, onDocumentLoadStateChange]);
 
       return (
         <div
@@ -240,6 +246,7 @@ vi.mock('next-themes', () => ({
 
 describe('MarkdownEditor', () => {
   beforeEach(() => {
+    loadBehavior.autoReady = true;
     vi.useFakeTimers();
     cancelAnimationFrameMock.mockClear();
     aiEditControllerMock.discard.mockClear();
@@ -1457,6 +1464,86 @@ describe('MarkdownEditor', () => {
       screen.getByTestId('markdown-editor-root').getAttribute('data-editor-mode'),
     ).toBe('live');
   });
+
+  it('waits for the document ready phase even when the viewport already exists', async () => {
+    loadBehavior.autoReady = false;
+    const ref = React.createRef<MarkdownEditorHandle>();
+    const revealPosition = vi.fn().mockResolvedValue({ status: 'revealed' });
+    viewportCoordinatorForElementMock.mockReturnValue({ editor: { state: { doc: {} } }, revealPosition });
+    render(<MarkdownEditor ref={ref} documentKey="search-target" markdown="# Source Heading" />);
+    const emit = markweaveEditorMock.mock.calls.at(-1)![0].onDocumentLoadStateChange as (state: unknown) => void;
+    expect(await ref.current!.revealLocation({ hash: 'source-heading' })).toBe(false);
+    for (const phase of ['parsing', 'mounting', 'finalizing', 'error', 'cancelled']) {
+      act(() => emit({ phase, progress: null, profile: null, tier: 'standard', error: null }));
+      expect(await ref.current!.revealLocation({ hash: 'source-heading' })).toBe(false);
+    }
+    expect(revealPosition).not.toHaveBeenCalled();
+    act(() => emit({ phase: 'ready', progress: 1, profile: null, tier: 'standard', error: null }));
+    expect(await ref.current!.revealLocation({ hash: 'source-heading' })).toBe(true);
+    expect(revealPosition).toHaveBeenCalledTimes(1);
+  });
+
+  it('aborts a location reveal when the editor generation changes and ignores stale ready events', async () => {
+    loadBehavior.autoReady = false;
+    const ref = React.createRef<MarkdownEditorHandle>();
+    let resolve!: (result: { status: string }) => void;
+    const revealPosition = vi.fn(() => new Promise<{ status: string }>((done) => { resolve = done; }));
+    viewportCoordinatorForElementMock.mockReturnValue({ editor: { state: { doc: {} } }, revealPosition });
+    const { rerender } = render(<MarkdownEditor ref={ref} documentKey="version-1" markdown="# Source Heading" />);
+    const ready = { phase: 'ready', progress: 1, profile: null, tier: 'standard', error: null };
+    const oldEmit = markweaveEditorMock.mock.calls.at(-1)![0].onDocumentLoadStateChange as (state: unknown) => void;
+    act(() => oldEmit(ready));
+    const pending = ref.current!.revealLocation({ hash: 'source-heading' });
+    await act(async () => { await Promise.resolve(); });
+    const signal = (revealPosition.mock.calls[0] as unknown as [number, { signal: AbortSignal }])[1].signal;
+    rerender(<MarkdownEditor ref={ref} documentKey="version-2" markdown="# Source Heading" />);
+    expect(signal.aborted).toBe(true);
+    act(() => oldEmit(ready));
+    expect(await ref.current!.revealLocation({ hash: 'source-heading' })).toBe(false);
+    resolve({ status: 'revealed' });
+    expect(await pending).toBe(false);
+    const newEmit = markweaveEditorMock.mock.calls.at(-1)![0].onDocumentLoadStateChange as (state: unknown) => void;
+    act(() => newEmit(ready));
+    revealPosition.mockResolvedValue({ status: 'revealed' });
+    expect(await ref.current!.revealLocation({ hash: 'source-heading' })).toBe(true);
+  });
+
+  it('cancels pending focus navigation when the user takes over scrolling', async () => {
+    const ref = React.createRef<MarkdownEditorHandle>();
+    let resolve!: (result: { status: string }) => void;
+    const revealPosition = vi.fn(() => new Promise<{ status: string }>((done) => { resolve = done; }));
+    viewportCoordinatorForElementMock.mockReturnValue({ editor: { state: { doc: {} } }, revealPosition });
+    render(<MarkdownEditor ref={ref} markdown="# Source Heading" />);
+    const pending = ref.current!.revealLocation({ hash: 'source-heading' });
+    await act(async () => { await Promise.resolve(); });
+    const signal = (revealPosition.mock.calls[0] as unknown as [number, { signal: AbortSignal }])[1].signal;
+    fireEvent.wheel(screen.getByTestId('markdown-editor-scrollarea'));
+    expect(signal.aborted).toBe(true);
+    resolve({ status: 'cancelled' });
+    expect(await pending).toBe(true);
+  });
+
+  it('does not accept a delayed reveal after a newer search or an editor unmount', async () => {
+    const ref = React.createRef<MarkdownEditorHandle>();
+    let resolve!: (result: { status: string }) => void;
+    const revealPosition = vi.fn(() => new Promise<{ status: string }>((done) => { resolve = done; }));
+    viewportCoordinatorForElementMock.mockReturnValue({ editor: { state: { doc: {} } }, revealPosition });
+    const { unmount } = render(<MarkdownEditor ref={ref} markdown="# Source Heading" />);
+    let current = true;
+    const pending = ref.current!.revealLocation({ hash: 'source-heading', isCurrent: () => current });
+    await act(async () => { await Promise.resolve(); });
+    current = false;
+    resolve({ status: 'revealed' });
+    expect(await pending).toBe(false);
+    const next = ref.current!.revealLocation({ hash: 'source-heading' });
+    await act(async () => { await Promise.resolve(); });
+    const signal = (revealPosition.mock.calls.at(-1) as unknown as [number, { signal: AbortSignal }])[1].signal;
+    unmount();
+    expect(signal.aborted).toBe(true);
+    resolve({ status: 'revealed' });
+    expect(await next).toBe(false);
+  });
+
 });
 
 it('opens a heading through the editor viewport and rejects a stale source navigation', async () => {
