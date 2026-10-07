@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-09-13
+updated: 2026-10-07
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -13,7 +13,7 @@ Markune 固定使用 Codex 0.153.4。`contracts/codex/manifest.json` 保存对�
 
 ## 连接与任务所有权
 
-`codex-app-server.ts` 持有应用级单一 native listener 与 RPC 表，`codex-runtime-supervisor.ts` 管理启动、会话代际与重连。打开设置只隐藏工作区，保留监听与任务状态。每条原生通知带 `markuneSessionId`；迟到的旧进程消息丢弃，启动握手间到达的交互在采用新代际后派发。
+`codex-app-server.ts` 持有应用级单一 native listener 与 RPC 表，`codex-runtime-supervisor.ts` 管理启动、会话代际与重连。打开设置只隐藏工作区，保留监听与任务状态。紧凑 AI 侧栏与 Codex 全宽页共用常驻的 `workspace-content-region`：绝对定位只覆盖主内容区，左侧导航和宽度拖拽条保留在该区域之外。侧栏开关、展示模式切换和文档预览不会重挂 `AiPanel` 或创建第二个运行时。每条原生通知带 `markuneSessionId`；迟到的旧进程消息丢弃，启动握手间到达的交互在采用新代际后派发。
 
 RPC 默认 15 秒，启动 turn/恢复任务 30 秒，最多 256 项，可取消。Rust 的版本探测 3 秒、初始化 15 秒、写入确认 10 秒；帧上限 32 MiB、写队列 32 条且累计 64 MiB。原生阻塞工作在后台池执行。非预期退出最多重连 3 次，间隔 0.5/1.5/4 秒；恢复后重新取得核心状态和历史，绝不重放用户 turn 或工具写入。诊断只记录分类计数，不记录请求正文、密钥或 stderr。
 

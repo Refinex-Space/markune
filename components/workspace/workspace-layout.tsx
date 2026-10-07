@@ -3883,6 +3883,10 @@ export function WorkspaceLayout({
             ) : null}
 
               <div
+                className="relative flex h-full min-h-0 min-w-0 flex-1 overflow-hidden"
+                data-testid="workspace-content-region"
+              >
+              <div
                 className="relative z-0 flex min-h-0 min-w-0 max-w-full flex-1 flex-col overflow-hidden bg-background"
                 data-testid="workspace-editor-column"
               >
@@ -4403,6 +4407,7 @@ export function WorkspaceLayout({
                         )
                 }
               />
+              </div>
             </div>
           </div>
         </div>
