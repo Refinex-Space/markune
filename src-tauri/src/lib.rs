@@ -300,6 +300,9 @@ pub fn run() {
             workspace::rename_workspace_document_path,
             workspace::delete_workspace_node,
             workspace::move_workspace_node,
+            workspace::move_workspace_nodes,
+            workspace::undo_workspace_tree_move,
+            workspace::set_workspace_tree_sort,
             workspace::write_export_file,
         ])
         .setup(|app| {

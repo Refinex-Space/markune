@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-10-06
+updated: 2026-10-07
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -83,6 +83,21 @@ cargo test --manifest-path src-tauri/Cargo.toml workspace::tests --lib
 连续输入期间做外部改写，确认 500 ms 尚未 flush 的输入也被保留，重复事件不会覆盖冲突草稿；分别确认加载磁盘版本和用当前版本覆盖。触碰时间戳或应用自身保存时，编辑器不能闪烁或重置选区。删除当前文件应保留正文并报告错误；文件恢复后刷新应能重新读取。切换工作区、休眠恢复及关闭窗口后检查旧监听已释放，迟到结果不进入新工作区。
 
 当前自动化包含本机真实文件事件、同时间戳改写、并发保存及符号链接回归。Windows/Linux、网络盘、云盘占位文件和超大知识库必须分别验收，不能以 Chromium 或 macOS 临时目录结果代替；监听不可用时应展示每 3 秒复核的降级提示。
+
+## Directory Tree Sorting Acceptance
+
+```bash
+pnpm exec vitest run components/workspace/__tests__/document-tree.test.tsx components/workspace/__tests__/document-tree-interactions.test.tsx components/workspace/__tests__/workspace-tree-sort.test.ts components/workspace/__tests__/use-workspace-tree.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml workspace::tree::tests --lib
+```
+
+以独立样本工作区验收：名称与时间的六种排序、中文/数字自然顺序、未知时间、文件夹优先、目录覆盖与继承、自动/手动切换及重启后的保留；旧工作区不得因升级丢失原顺序。目录改名/移动/删除后排序偏好跟随或清理。标题只保留总览文字与更多菜单，与置顶对齐；当前、选择和 hover 背景均不得遮挡目录引导线。
+
+用至少五个兄弟节点验证所有前后插入组合，并覆盖展开子树首位、子树之后、空目录、根目录空白、多选父子项去重、同名冲突、同目录无操作、连续拖动、Escape 取消、悬停离开后不展开与边缘滚动。自动排序只提供移入目录，不显示会被排序覆盖的任意插入位置。检查拖拽前后预览、真实磁盘位置、重启后的顺序一致，活动/后台标签、目录展开、近期文档、链接和附件仍正确。
+
+键盘覆盖上下、左右、Home/End、Shift 连选、Cmd/Ctrl 点选和全选、输入名称定位、F2、Shift-F10、Alt-上下移动以及“移动到…”的目标与插入位置。完成后检查新位置可见且焦点正确，通知消失后仍可从更多菜单撤销。跨目录移动后修改内容或占用原位置，撤销应拒绝覆盖；同层排列后的正文编辑则应保留。批次外部干扰必须报告实际完成项。
+
+浏览器的独立样本页面只验证真实 React 组件、菜单、主题和浏览器原生拖拽事件；Rust 临时文件测试覆盖落盘与撤销。两者不能代替 macOS WKWebView、Windows WebView2、网络文件系统及大量展开节点的端到端帧率/磁盘验收。
 
 ## Markdown Open With Acceptance
 

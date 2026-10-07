@@ -1,5 +1,8 @@
 'use client';
 
+import { remapTreePath } from './workspace-tree-move';
+import type { WorkspaceTreeMoveResult } from './workspace-types';
+
 import * as React from 'react';
 import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
@@ -101,7 +104,7 @@ import type {
   AiProposedPlan,
   AiWorkspaceChangeEvent,
 } from './ai-panel-state';
-import { useWorkspace, getMovedNodePath } from './use-workspace';
+import { useWorkspace } from './use-workspace';
 import { useGitAutoSync } from './use-git-auto-sync';
 import { useAiDrawingTools } from './use-ai-drawing-tools';
 import { drawingReferenceFromDescriptor } from './ai-drawing-inspector';
@@ -2720,28 +2723,32 @@ export function WorkspaceLayout({
     [rememberRecentDocument, workspace],
   );
 
-  const handleMoveWorkspaceNode = React.useCallback(
-    async (request: WorkspaceMoveRequest) => {
-      if (!(await flushActiveMarkdownEditor('document-switch'))) return;
-      const moved = await workspace.moveNode(request);
-      if (!moved) return;
+  const reconcileTreeMove = React.useCallback(
+    async (result: WorkspaceTreeMoveResult) => {
+      const moved = result.snapshot;
       const updates: Array<{
         oldPath: string;
         node: WorkspaceNode;
-        content: MarkdownDocumentContent;
+        content: MarkdownDocumentContent | null;
       }> = [];
       for (const tab of documentEditorLayoutRef.current.tabs) {
         if (tab.kind !== 'document') continue;
-        const path = getMovedNodePath(tab.absolutePath, request);
+        const path = remapTreePath(tab.absolutePath, result.changes);
         if (path === tab.absolutePath) continue;
         const node = findWorkspaceDocumentByPath(moved.nodes, path);
-        if (node)
-          updates.push({
-            oldPath: tab.absolutePath,
-            node,
-            content: await readMarkdownDocument(moved.rootPath, path),
-          });
+        if (node) {
+          let content: MarkdownDocumentContent | null = null;
+          try {
+            content = await readMarkdownDocument(moved.rootPath, path);
+          } catch {
+            result.error =
+              result.error ?? '项目已移动，但部分标签暂时无法重新读取，请刷新';
+          }
+          updates.push({ oldPath: tab.absolutePath, node, content });
+        }
       }
+      if (workspaceRootPathRef.current !== moved.rootPath)
+        throw new Error('工作区已切换');
       documentEditorLayoutRef.current = updates.reduce(
         (layout, item) => renameDocumentTab(layout, item.oldPath, item.node),
         documentEditorLayoutRef.current,
@@ -2762,10 +2769,12 @@ export function WorkspaceLayout({
         for (const item of updates) {
           const previous = next[item.oldPath];
           delete next[item.oldPath];
-          next[item.node.absolutePath] = {
-            markdown: item.content.content,
-            documentVersion: (previous?.documentVersion ?? 0) + 1,
-          };
+          if (item.content)
+            next[item.node.absolutePath] = {
+              markdown: item.content.content,
+              documentVersion: (previous?.documentVersion ?? 0) + 1,
+            };
+          else if (previous) next[item.node.absolutePath] = previous;
         }
         return next;
       });
@@ -2773,14 +2782,38 @@ export function WorkspaceLayout({
         current.map((item) => {
           const node = findWorkspaceDocumentByPath(
             moved.nodes,
-            getMovedNodePath(item.absolutePath, request),
+            remapTreePath(item.absolutePath, result.changes),
           );
           return node ? toRecentDocument(node) : item;
         }),
       );
-      await workspaceRefresh.refresh();
+      try {
+        await workspaceRefresh.refresh();
+      } catch {
+        result.error =
+          result.error ?? '项目已移动，但目录树刷新失败，请重试刷新';
+      }
+      return result;
     },
-    [flushActiveMarkdownEditor, workspace, workspaceRefresh],
+    [workspaceRefresh],
+  );
+
+  const handleMoveWorkspaceNode = React.useCallback(
+    async (request: WorkspaceMoveRequest) => {
+      if (!(await flushActiveMarkdownEditor('document-switch')))
+        throw new Error('文档尚未保存，移动已取消');
+      return reconcileTreeMove(await workspace.moveTreeNodes(request));
+    },
+    [flushActiveMarkdownEditor, reconcileTreeMove, workspace],
+  );
+
+  const handleUndoTreeMove = React.useCallback(
+    async (token: string) => {
+      if (!(await flushActiveMarkdownEditor('document-switch')))
+        throw new Error('文档尚未保存，撤销已取消');
+      return reconcileTreeMove(await workspace.undoTreeMove(token));
+    },
+    [flushActiveMarkdownEditor, reconcileTreeMove, workspace],
   );
 
   const handleRenameWorkspaceNode = React.useCallback(
@@ -3756,6 +3789,7 @@ export function WorkspaceLayout({
                 onRemoveWorkspace={handleRemoveWorkspace}
                 onDeleteNode={handleDeleteWorkspaceNode}
                 onMoveNode={handleMoveWorkspaceNode}
+                onUndoTreeMove={handleUndoTreeMove}
                 onRenameNode={handleRenameWorkspaceNode}
                 revealNodePath={treeRevealRequest?.absolutePath ?? null}
                 revealNodeRequestId={treeRevealRequest?.requestId}

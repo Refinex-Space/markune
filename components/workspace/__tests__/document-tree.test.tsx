@@ -242,7 +242,7 @@ describe('DocumentTree', () => {
     expect(onCreateDocument).toHaveBeenCalledWith('');
 
     fireEvent.contextMenu(rootCreationArea);
-    await user.click(screen.getByRole('menuitem', { name: '新建目录' }));
+    await user.click(screen.getByRole('menuitem', { name: '新建文件夹' }));
     expect(onCreateDirectory).toHaveBeenCalledWith('');
   });
 
@@ -1175,7 +1175,7 @@ describe('DocumentTree', () => {
     );
 
     expect(screen.getByText('Guides').closest('button')).toBeNull();
-    expect(screen.getByText('Guides').closest('[role="button"]')).toBeTruthy();
+    expect(screen.getByText('Guides').closest('[role="treeitem"]')).toBeTruthy();
   });
 
   it('confirms recursive directory deletion from the node menu', async () => {

@@ -2,7 +2,11 @@
 
 import * as React from 'react';
 import {
-  ChevronDown,
+  ChevronsDownUp,
+  Undo2,
+  Move,
+  ArrowUp,
+  ArrowDown,
   Copy,
   Download,
   ExternalLink,
@@ -17,7 +21,6 @@ import {
   MoreHorizontal,
   Pencil,
   Pin,
-  Plus,
   RefreshCw,
   RotateCcw,
   Shapes,
@@ -57,15 +60,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
-import { isDescendantPath, toUserAbsolutePath } from './workspace-paths';
+import { getParentPath, toUserAbsolutePath } from './workspace-paths';
 import { hasTreeNodeAppearance, TreeNodeIconRenderer } from './tree-node-icon';
 import { filterWorkspaceNodes } from './workspace-tree';
 import type {
@@ -76,6 +73,13 @@ import type {
   TreeIconPickerSettings,
   TreeNodeAppearance,
 } from './workspace-types';
+
+import { TreeSortMenu } from './tree-sort-menu';
+import { TreeMoveDialog } from './tree-move-dialog';
+import { TreeControllerContext, useTreeController, useTreeControllerContext } from './use-tree-controller';
+import { getTreeSortPolicy } from './workspace-tree-sort';
+import type { TreeDropPreview } from './tree-drop-target';
+import type { TreeSortPolicy, TreeSortPreferences, WorkspaceTreeMoveResult } from './workspace-types';
 
 const TreeIconPicker = React.lazy(() => import('./tree-icon-picker'));
 
@@ -108,7 +112,10 @@ interface DocumentTreeProps {
     format: WorkspaceImportFormat,
   ) => Promise<void> | void;
   onImportMarkdown: (targetDir: string) => void;
-  onMoveNode?: (request: WorkspaceMoveRequest) => Promise<void> | void;
+  onMoveNode?: (request: WorkspaceMoveRequest) => Promise<WorkspaceTreeMoveResult | void> | void;
+  onUndoTreeMove?: (token: string) => Promise<WorkspaceTreeMoveResult>;
+  treeSort?: TreeSortPreferences;
+  onTreeSortChange?: (parent: string, policy: TreeSortPolicy | null) => Promise<void>;
   onOpenInFileManager?: (node: WorkspaceNode) => Promise<void> | void;
   onOpenInPreferredEditor?: (node: WorkspaceNode) => Promise<void> | void;
   onOpenWorkspaceOverview?: () => void;
@@ -152,6 +159,9 @@ export function DocumentTree({
   onImportDocuments,
   onImportMarkdown,
   onMoveNode,
+  onUndoTreeMove,
+  treeSort,
+  onTreeSortChange,
   onOpenInFileManager,
   onOpenInPreferredEditor,
   onOpenWorkspaceOverview,
@@ -172,38 +182,44 @@ export function DocumentTree({
   workspaceOverviewActive = false,
 }: DocumentTreeProps) {
   const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set());
-  const [isTreeCollapsed, setIsTreeCollapsed] = React.useState(false);
   const [editingNodeId, setEditingNodeId] = React.useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = React.useState<WorkspaceNode | null>(
-    null,
-  );
-  const [draggedNode, setDraggedNode] = React.useState<WorkspaceNode | null>(
-    null,
-  );
-  const [dropPreview, setDropPreview] = React.useState<DropPreview | null>(
     null,
   );
   const [iconPickerTarget, setIconPickerTarget] = React.useState<{
     anchor: { left: number; top: number };
     nodePath: string;
   } | null>(null);
-  const draggedNodeRef = React.useRef<WorkspaceNode | null>(null);
   const iconPickerOpenFrameRef = React.useRef<number | null>(null);
   const treeRootRef = React.useRef<HTMLDivElement>(null);
   const consumedRevealRef = React.useRef<{
     path: string;
     requestId: number | undefined;
   } | null>(null);
+  const forceExpanded = searchQuery.trim().length > 0;
+  const controller = useTreeController({
+    nodes,
+    rootPath,
+    preferences: treeSort,
+    expanded,
+    setExpanded,
+    treeRef: treeRootRef,
+    forceExpanded,
+    disabled: forceExpanded,
+    onMove: onMoveNode,
+    onUndo: onUndoTreeMove,
+    onSort: onTreeSortChange,
+  });
+  const { draggedNode, dropPreview } = controller;
   const visibleNodes = React.useMemo(
-    () => filterWorkspaceNodes(nodes, searchQuery),
-    [nodes, searchQuery],
+    () => filterWorkspaceNodes(controller.renderedNodes, searchQuery),
+    [controller.renderedNodes, searchQuery],
   );
   const directoryDocumentCounts = React.useMemo(
-    () => countDirectoryDocuments(nodes),
-    [nodes],
+    () => countDirectoryDocuments(controller.renderedNodes),
+    [controller.renderedNodes],
   );
-  const forceExpanded = searchQuery.trim().length > 0;
-  const dragDisabled = searchQuery.trim().length > 0 || !onMoveNode;
+  const dragDisabled = forceExpanded || !onMoveNode || controller.busy;
   const iconPickerNode = iconPickerTarget
     ? findNodeByAbsolutePath(nodes, iconPickerTarget.nodePath)
     : null;
@@ -213,7 +229,9 @@ export function DocumentTree({
       treeRootRef.current?.querySelectorAll<HTMLElement>(
         '[data-workspace-node-path]',
       ) ?? [],
-    ).find((element) => element.dataset.workspaceNodePath === node.absolutePath);
+    ).find(
+      (element) => element.dataset.workspaceNodePath === node.absolutePath,
+    );
     const bounds = row?.getBoundingClientRect();
     if (iconPickerOpenFrameRef.current !== null) {
       window.cancelAnimationFrame(iconPickerOpenFrameRef.current);
@@ -285,9 +303,7 @@ export function DocumentTree({
           treeRootRef.current?.querySelectorAll<HTMLElement>(
             '[data-workspace-node-path]',
           ) ?? [],
-        ).find(
-          (row) => row.dataset.workspaceNodePath === revealNodePath,
-        );
+        ).find((row) => row.dataset.workspaceNodePath === revealNodePath);
 
         // refinex: Reveal only inside the tree; scrollIntoView also scrolls
         // overflow-hidden workspace/WebView ancestors and can shift the shell.
@@ -300,7 +316,8 @@ export function DocumentTree({
           requestId: revealNodeRequestId,
         };
         const rowBounds = targetRow.getBoundingClientRect();
-        const viewportTop = scroller.getBoundingClientRect().top + scroller.clientTop;
+        const viewportTop =
+          scroller.getBoundingClientRect().top + scroller.clientTop;
         const viewportBottom = viewportTop + scroller.clientHeight;
         if (rowBounds.top < viewportTop) {
           scroller.scrollTop += rowBounds.top - viewportTop;
@@ -377,26 +394,93 @@ export function DocumentTree({
     },
     [onRenameNode],
   );
-  const handleDragStart = React.useCallback((node: WorkspaceNode) => {
-    draggedNodeRef.current = node;
-    setDraggedNode(node);
-  }, []);
-  const handleDragEnd = React.useCallback(() => {
-    draggedNodeRef.current = null;
-    setDraggedNode(null);
-    setDropPreview(null);
-  }, []);
-  const resolveDraggedNode = React.useCallback(
-    (event: React.DragEvent<HTMLElement>) => {
-      if (draggedNodeRef.current) {
-        return draggedNodeRef.current;
-      }
-
-      const draggedPath = event.dataTransfer.getData('text/plain');
-
-      return findNodeByAbsolutePath(nodes, draggedPath);
-    },
-    [nodes],
+  const handleDragStart = controller.startDrag;
+  const handleDragEnd = controller.endDrag;
+  const collapseAll = () => {
+    setExpanded(new Set());
+  };
+  const refresh = async () => {
+    try {
+      await onRefresh?.();
+    } catch (error) {
+      toast.error(getDocumentTreeErrorMessage(error, '无法刷新目录树'));
+    }
+  };
+  const treeHeader = (
+    <div
+      className={cn(
+        'group mx-2 flex h-8 items-center justify-between rounded-md px-2 text-[13px] font-medium text-sidebar-foreground/50 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground/80',
+        workspaceOverviewActive &&
+          'bg-sidebar-accent text-sidebar-accent-foreground',
+        dropPreview?.indicatorPath === rootPath && 'bg-accent ring-1 ring-ring',
+      )}
+      data-tree-root-target="true"
+      onDragOver={controller.overRoot}
+      onDragEnter={controller.overRoot}
+      onDrop={controller.drop}
+    >
+      <button
+        aria-current={workspaceOverviewActive ? 'page' : undefined}
+        aria-label="打开工作区文件夹总览"
+        disabled={!onOpenWorkspaceOverview}
+        className="h-full min-w-0 flex-1 rounded text-left focus-visible:outline-2 focus-visible:outline-ring"
+        onClick={onOpenWorkspaceOverview}
+      >
+        文件夹
+      </button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            aria-label="文件夹操作"
+            title="文件夹操作"
+            variant="ghost"
+            disabled={controller.busy}
+            className="size-6 shrink-0 p-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
+          >
+            <MoreHorizontal size={14} />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuItem onSelect={() => void handleCreateDocument('')}>
+            <FilePlus2 />
+            新建文档
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => void handleCreateDirectory('')}>
+            <FolderPlus />
+            新建文件夹
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <TreeSortMenu
+            preferences={treeSort}
+            disabled={!onTreeSortChange}
+            onChange={(policy) => void controller.sort(rootPath, policy)}
+          />
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            disabled={!onRefresh}
+            onSelect={() => void refresh()}
+          >
+            <RefreshCw />
+            刷新目录树
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={collapseAll}>
+            <ChevronsDownUp />
+            折叠所有文件夹
+          </DropdownMenuItem>
+          {controller.undoToken && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() => void controller.undo(controller.undoToken!)}
+              >
+                <Undo2 />
+                撤销移动
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 
   let treeContent: React.ReactNode;
@@ -451,140 +535,117 @@ export function DocumentTree({
     );
   } else if (visibleNodes.length === 0) {
     treeContent = (
-      <p className="px-2 py-6 text-sm text-muted-foreground">
-        没有匹配的文档
-      </p>
+      <p className="px-2 py-6 text-sm text-muted-foreground">没有匹配的文档</p>
     );
   } else {
-    const showTree = !isTreeCollapsed || searchQuery.trim().length > 0;
-
     treeContent = (
       <div className="flex flex-col">
         <div
-          className={cn(
-            // Avoid focus-within rings here: Windows keeps button focus after
-            // click, and the outer ring overlaps neighboring sidebar rows.
-            // author: refinex
-            'group mx-2 flex h-8 items-center justify-between rounded-md px-2 text-[13px] font-medium transition-colors',
-            workspaceOverviewActive
-              ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-              : 'text-sidebar-foreground/50 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground/80',
-          )}
+          className="mt-1 space-y-0.5 px-2"
+          role="tree"
+          aria-label="工作区文件夹"
+          aria-multiselectable="true"
+          aria-busy={controller.busy}
         >
-          <button
-            aria-current={workspaceOverviewActive ? 'page' : undefined}
-            aria-label="打开工作区文件夹总览"
-            className="flex h-full min-w-0 flex-1 items-center rounded-md text-left outline-none focus-visible:outline-none"
-            disabled={!onOpenWorkspaceOverview}
-            type="button"
-            onClick={onOpenWorkspaceOverview}
-          >
-            <span>文件夹</span>
-          </button>
-          <div className="flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    aria-label="新建文件夹"
-                    className="size-6 rounded-sm p-0 text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-                    type="button"
-                    variant="ghost"
-                    onClick={() => void handleCreateDirectory('')}
-                  >
-                    <Plus size={14} strokeWidth={2} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="top">新建文件夹</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <Button
-              aria-label={isTreeCollapsed ? '展开文件夹' : '折叠文件夹'}
-              className="size-6 rounded-sm p-0 text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-              type="button"
-              variant="ghost"
-              onClick={() => setIsTreeCollapsed(!isTreeCollapsed)}
-            >
-              <ChevronDown
-                className={cn(
-                  'transition-transform duration-200',
-                  isTreeCollapsed && '-rotate-90',
-                )}
-                size={14}
-                strokeWidth={2}
-              />
-            </Button>
-          </div>
+          {visibleNodes.map((node) => (
+            <TreeNode
+              key={node.id}
+              currentDocumentPath={currentDocumentPath}
+              currentDirectoryPath={currentDirectoryPath}
+              directoryDocumentCounts={directoryDocumentCounts}
+              dragDisabled={dragDisabled}
+              draggedNode={draggedNode}
+              dropPreview={dropPreview}
+              editingNodeId={editingNodeId}
+              expanded={expanded}
+              forceExpanded={forceExpanded}
+              level={0}
+              node={node}
+              pendingRenameNodePath={pendingRenameNodePath}
+              onCreateTemplate={onCreateTemplate}
+              onCreateDirectory={handleCreateDirectory}
+              onCreateDocument={handleCreateDocument}
+              onDeleteRequest={setDeleteTarget}
+              onExportNode={onExportNode}
+              onImportDocuments={onImportDocuments}
+              onCustomizeIcon={
+                onUpdateNodeAppearance ? openIconPicker : undefined
+              }
+              onOpenInFileManager={onOpenInFileManager}
+              onOpenInPreferredEditor={onOpenInPreferredEditor}
+
+              onExpandedChange={setExpanded}
+              onPendingRenameConsumed={onPendingRenameConsumed}
+              onRefreshNode={onRefreshNode}
+              onResetIcon={
+                onUpdateNodeAppearance ? resetNodeAppearance : undefined
+              }
+              onRenameRequest={startEditingNode}
+              onRenameSubmit={handleRenameNode}
+
+              onSelectDirectory={onSelectDirectory}
+              onTogglePinned={onTogglePinned}
+              onTreeDragEnd={handleDragEnd}
+              onTreeDragStart={handleDragStart}
+              onSelectDocument={onSelectDocument}
+              preferredEditorLabel={preferredEditorLabel}
+              rootPath={rootPath}
+            />
+          ))}
         </div>
-        {showTree && (
-          <div className="mt-1 space-y-0.5 px-2">
-            {visibleNodes.map((node) => (
-              <TreeNode
-                key={node.id}
-                currentDocumentPath={currentDocumentPath}
-                currentDirectoryPath={currentDirectoryPath}
-                directoryDocumentCounts={directoryDocumentCounts}
-                dragDisabled={dragDisabled}
-                draggedNode={draggedNode}
-                dropPreview={dropPreview}
-                editingNodeId={editingNodeId}
-                expanded={expanded}
-                forceExpanded={forceExpanded}
-                level={0}
-                node={node}
-                pendingRenameNodePath={pendingRenameNodePath}
-                onCreateTemplate={onCreateTemplate}
-                onCreateDirectory={handleCreateDirectory}
-                onCreateDocument={handleCreateDocument}
-                onDeleteRequest={setDeleteTarget}
-                onExportNode={onExportNode}
-                onImportDocuments={onImportDocuments}
-                onCustomizeIcon={
-                  onUpdateNodeAppearance ? openIconPicker : undefined
-                }
-                onOpenInFileManager={onOpenInFileManager}
-                onOpenInPreferredEditor={onOpenInPreferredEditor}
-                onDropPreviewChange={setDropPreview}
-                onExpandedChange={setExpanded}
-                onMoveNode={onMoveNode}
-                onPendingRenameConsumed={onPendingRenameConsumed}
-                onRefreshNode={onRefreshNode}
-                onResetIcon={
-                  onUpdateNodeAppearance ? resetNodeAppearance : undefined
-                }
-                onRenameRequest={startEditingNode}
-                onRenameSubmit={handleRenameNode}
-                onResolveDraggedNode={resolveDraggedNode}
-                onSelectDirectory={onSelectDirectory}
-                onTogglePinned={onTogglePinned}
-                onTreeDragEnd={handleDragEnd}
-                onTreeDragStart={handleDragStart}
-                onSelectDocument={onSelectDocument}
-                preferredEditorLabel={preferredEditorLabel}
-                rootPath={rootPath}
-              />
-            ))}
-          </div>
-        )}
       </div>
     );
   }
 
   return (
-    <>
+    <TreeControllerContext.Provider value={controller}>
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div
             ref={treeRootRef}
             className="flex flex-1 flex-col pb-3 pt-2"
             data-testid="workspace-tree-context-area"
+            onDragLeave={controller.leave}
+            onDragOver={controller.overContainer}
+            onDrop={controller.drop}
+            onContextMenu={(event) => {
+              if (controller.busy) event.preventDefault();
+            }}
           >
             {header}
+            {treeHeader}
             {treeContent}
             <div
-              className="min-h-16 flex-1"
+              className={cn(
+                'min-h-16 flex-1 rounded-md mx-2',
+                dropPreview?.indicatorPath === rootPath &&
+                  'bg-accent/70 ring-1 ring-ring',
+              )}
               data-testid="workspace-tree-root-creation-area"
-            />
+              data-tree-root-target="true"
+              onDragOver={controller.overRoot}
+              onDragEnter={controller.overRoot}
+              onDrop={controller.drop}
+            >
+              {draggedNode && (
+                <p className="px-3 py-4 text-xs text-muted-foreground">
+                  移至工作区根目录
+                </p>
+              )}
+            </div>
+            <div className="sr-only" role="status" aria-live="polite">
+              {controller.announcement}
+            </div>
+            {(draggedNode || controller.busy) && (
+              <div
+                className="pointer-events-none sticky bottom-0 mx-2 rounded bg-popover px-3 py-2 text-xs shadow-sm"
+                aria-hidden="true"
+              >
+                {controller.busy
+                  ? '正在处理…'
+                  : `${controller.dragCount > 1 ? `${controller.dragCount} 个项目 · ` : ''}${controller.dragMessage}`}
+              </div>
+            )}
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent
@@ -593,26 +654,46 @@ export function DocumentTree({
         >
           {onRefresh ? (
             <>
-              <ContextMenuItem onSelect={() => void onRefresh()}>
+              <ContextMenuItem onSelect={() => void refresh()}>
                 <RefreshCw />
                 刷新
               </ContextMenuItem>
               <ContextMenuSeparator />
             </>
           ) : null}
-          <ContextMenuItem
-            onSelect={() => void handleCreateDocument('')}
-          >
+          <ContextMenuItem onSelect={() => void handleCreateDocument('')}>
             <FilePlus2 />
             新建文档
           </ContextMenuItem>
-          {onCreateTemplate ? <ContextMenuItem onSelect={() => onCreateTemplate('')}><FilePlus2 />从模板新建...</ContextMenuItem> : null}
-          <ContextMenuItem
-            onSelect={() => void handleCreateDirectory('')}
-          >
+          {onCreateTemplate ? (
+            <ContextMenuItem onSelect={() => onCreateTemplate('')}>
+              <FilePlus2 />
+              从模板新建...
+            </ContextMenuItem>
+          ) : null}
+          <ContextMenuItem onSelect={() => void handleCreateDirectory('')}>
             <FolderPlus />
-            新建目录
+            新建文件夹
           </ContextMenuItem>
+          <ContextMenuSeparator />
+          <TreeSortMenu
+            context
+            preferences={treeSort}
+            disabled={!onTreeSortChange}
+            onChange={(policy) => void controller.sort(rootPath, policy)}
+          />
+          <ContextMenuItem onSelect={collapseAll}>
+            <ChevronsDownUp />
+            折叠所有文件夹
+          </ContextMenuItem>
+          {controller.undoToken && (
+            <ContextMenuItem
+              onSelect={() => void controller.undo(controller.undoToken!)}
+            >
+              <Undo2 />
+              撤销移动
+            </ContextMenuItem>
+          )}
         </ContextMenuContent>
       </ContextMenu>
 
@@ -655,7 +736,16 @@ export function DocumentTree({
           />
         </React.Suspense>
       ) : null}
-    </>
+      <TreeMoveDialog
+        nodes={nodes}
+        rootPath={rootPath}
+        preferences={treeSort}
+        paths={controller.moveDialogPaths}
+        busy={controller.busy}
+        onClose={controller.closeMoveDialog}
+        onMove={controller.move}
+      />
+    </TreeControllerContext.Provider>
   );
 }
 
@@ -681,16 +771,13 @@ function TreeNode({
   onImportDocuments,
   onOpenInFileManager,
   onOpenInPreferredEditor,
-  onDropPreviewChange,
   onExpandedChange,
-  onMoveNode,
   onPendingRenameConsumed,
   onRefreshNode,
   onResetIcon,
   onSelectDirectory,
   onRenameRequest,
   onRenameSubmit,
-  onResolveDraggedNode,
   onTogglePinned,
   onTreeDragEnd,
   onTreeDragStart,
@@ -698,12 +785,14 @@ function TreeNode({
   preferredEditorLabel,
   rootPath,
 }: TreeNodeProps) {
+  const controller = useTreeControllerContext();
   const isDirectory = node.kind === 'directory';
   const isExpanded =
     forceExpanded ||
     expanded.has(node.id) ||
     hasDescendantByAbsolutePath(node, pendingRenameNodePath);
   const isCurrent = node.absolutePath === currentDocumentPath;
+  const isSelected = controller.selection.has(node.absolutePath);
   const isCurrentDirectory =
     isDirectory && node.absolutePath === currentDirectoryPath;
   const isPendingRename = pendingRenameNodePath === node.absolutePath;
@@ -716,7 +805,7 @@ function TreeNode({
   const rowSurfaceLeft = visualLevel * 20;
   const isDragSource = draggedNode?.absolutePath === node.absolutePath;
   const previewPosition =
-    dropPreview?.targetPath === node.absolutePath ? dropPreview.position : null;
+    dropPreview?.indicatorPath === node.absolutePath ? dropPreview.edge : null;
   const activatePendingRename = React.useCallback(() => {
     onRenameRequest(node);
     onPendingRenameConsumed?.();
@@ -752,28 +841,8 @@ function TreeNode({
     onSelectDocument,
   ]);
 
-  const updateDropPreview = React.useCallback(
-    (event: React.DragEvent<HTMLDivElement>) => {
-      const activeDraggedNode = onResolveDraggedNode(event);
-
-      if (!activeDraggedNode || !onMoveNode) {
-        return;
-      }
-
-      const position = getDropPosition(event.currentTarget, event.clientY, node);
-
-      if (!position || !canDropOnNode(activeDraggedNode, node, position)) {
-        onDropPreviewChange(null);
-        return;
-      }
-
-      event.preventDefault();
-      event.dataTransfer.dropEffect = 'move';
-      scrollTreeContainer(event.currentTarget, event.clientY);
-      onDropPreviewChange({ position, targetPath: node.absolutePath });
-    },
-    [node, onDropPreviewChange, onMoveNode, onResolveDraggedNode],
-  );
+  const updateDropPreview = (event: React.DragEvent<HTMLDivElement>) =>
+    controller.over(event, node);
 
   React.useEffect(() => {
     if (
@@ -792,7 +861,7 @@ function TreeNode({
         next.add(node.id);
         return next;
       });
-    }, 450);
+    }, 500);
 
     return () => window.clearTimeout(timer);
   }, [
@@ -806,25 +875,41 @@ function TreeNode({
   ]);
 
   return (
-    <div className="space-y-0.5" data-testid={`tree-node-${node.id}`}>
+    <div className="relative space-y-0.5" data-testid={`tree-node-${node.id}`}>
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div
             className={cn(
-              'group/tree-row relative flex h-7 w-full items-center text-[13px]',
+              'group/tree-row relative flex h-7 w-full items-center text-[13px] select-none rounded-md outline-none',
               isDragSource && 'opacity-45',
             )}
             data-testid={`tree-row-${node.id}`}
             data-workspace-node-path={node.absolutePath}
             draggable={!dragDisabled && !isEditing}
-            role={isEditing ? undefined : 'button'}
-            tabIndex={isEditing ? undefined : 0}
+            role="treeitem"
+            aria-level={level + 1}
+            aria-owns={
+              isDirectory && isExpanded && node.children?.length
+                ? `tree-group-${encodeURIComponent(node.id)}`
+                : undefined
+            }
+            aria-expanded={isDirectory ? isExpanded : undefined}
+            aria-selected={controller.selection.has(node.absolutePath)}
+            tabIndex={
+              isEditing
+                ? undefined
+                : controller.focused === node.absolutePath
+                  ? 0
+                  : -1
+            }
+            onFocus={() => controller.setFocused(node.absolutePath)}
             onClick={(event) => {
               if (isTreeDragDisabledTarget(event.target)) {
                 return;
               }
 
-              toggleOrSelect();
+              if (!controller.busy && !controller.select(event, node))
+                toggleOrSelect();
             }}
             onDragEnd={onTreeDragEnd}
             onDragEnter={updateDropPreview}
@@ -843,48 +928,32 @@ function TreeNode({
               event.dataTransfer.setData('text/plain', node.absolutePath);
               onTreeDragStart(node);
             }}
-            onDrop={(event) => {
-              const activeDraggedNode = onResolveDraggedNode(event);
-
-              if (!activeDraggedNode || !onMoveNode) {
-                return;
-              }
-
-              const position = getDropPosition(
-                event.currentTarget,
-                event.clientY,
-                node,
-              );
-
-              if (!position || !canDropOnNode(activeDraggedNode, node, position)) {
-                onDropPreviewChange(null);
-                return;
-              }
-
-              event.preventDefault();
-              onDropPreviewChange(null);
-              void onMoveNode({
-                nodePath: activeDraggedNode.absolutePath,
-                position,
-                targetPath: node.absolutePath,
-              });
-            }}
+            onDrop={controller.drop}
             onKeyDown={(event) => {
               if (isEditing || isTreeDragDisabledTarget(event.target)) {
                 return;
               }
 
-              if (event.key === 'Enter' || event.key === ' ') {
+              controller.keyDown(event, node);
+              if (event.key === 'F2' && !controller.busy) {
+                event.preventDefault();
+                onRenameRequest(node);
+              }
+              if (
+                !event.defaultPrevented &&
+                !controller.busy &&
+                (event.key === 'Enter' || event.key === ' ')
+              ) {
                 event.preventDefault();
                 toggleOrSelect();
               }
             }}
           >
-            {previewPosition && previewPosition !== 'inside' ? (
+            {previewPosition === 'before' || previewPosition === 'after' ? (
               <span
                 aria-hidden="true"
                 className={cn(
-                  'pointer-events-none absolute right-2 h-0.5 rounded-full bg-[#3574f0]',
+                  'pointer-events-none absolute right-2 h-0.5 rounded-full bg-primary',
                   previewPosition === 'before' ? 'top-0' : 'bottom-0',
                 )}
                 style={{ left: rowPaddingLeft + 19 }}
@@ -895,15 +964,14 @@ function TreeNode({
               className={cn(
                 'relative isolate flex h-full min-w-0 flex-1 items-center rounded-md transition-colors',
                 isDirectory
-                  ? 'group-hover/tree-row:bg-sidebar-accent/70'
-                  : "before:pointer-events-none before:absolute before:inset-y-0 before:left-5 before:right-0 before:z-0 before:rounded-md before:transition-colors before:content-[''] group-hover/tree-row:before:bg-sidebar-accent/70",
+                  ? 'group-hover/tree-row:bg-sidebar-accent/70 group-focus-visible/tree-row:ring-2 group-focus-visible/tree-row:ring-inset group-focus-visible/tree-row:ring-ring'
+                  : "before:pointer-events-none before:absolute before:inset-y-0 before:left-5 before:right-0 before:z-0 before:rounded-md before:transition-colors before:content-[''] group-hover/tree-row:before:bg-sidebar-accent/70 group-focus-visible/tree-row:before:ring-2 group-focus-visible/tree-row:before:ring-inset group-focus-visible/tree-row:before:ring-ring",
                 isCurrentDirectory && 'bg-sidebar-accent',
-                isCurrent &&
+                (isCurrent || isSelected) &&
                   (isDirectory
                     ? 'bg-sidebar-accent'
                     : 'before:bg-sidebar-accent'),
-                previewPosition === 'inside' &&
-                  'bg-[#eef4ff] outline outline-1 outline-[#3574f0]/25',
+                previewPosition === 'inside' && 'bg-accent ring-1 ring-primary',
               )}
               data-testid={`tree-row-surface-${node.id}`}
               style={{ marginLeft: rowSurfaceLeft }}
@@ -973,6 +1041,7 @@ function TreeNode({
           className="w-44"
           onCloseAutoFocus={(event) => event.preventDefault()}
         >
+          <TreeNodeMoveActions node={node} context />
           <NodeContextActions
             node={node}
             onCreateTemplate={onCreateTemplate}
@@ -997,6 +1066,8 @@ function TreeNode({
         <div
           className="relative space-y-0.5"
           data-testid={`tree-children-${node.id}`}
+          role="group"
+          id={`tree-group-${encodeURIComponent(node.id)}`}
         >
           <span
             aria-hidden="true"
@@ -1029,15 +1100,14 @@ function TreeNode({
               onImportDocuments={onImportDocuments}
               onOpenInFileManager={onOpenInFileManager}
               onOpenInPreferredEditor={onOpenInPreferredEditor}
-              onDropPreviewChange={onDropPreviewChange}
+
               onExpandedChange={onExpandedChange}
-              onMoveNode={onMoveNode}
               onPendingRenameConsumed={onPendingRenameConsumed}
               onRefreshNode={onRefreshNode}
               onResetIcon={onResetIcon}
               onRenameRequest={onRenameRequest}
               onRenameSubmit={onRenameSubmit}
-              onResolveDraggedNode={onResolveDraggedNode}
+
               onSelectDirectory={onSelectDirectory}
               onTogglePinned={onTogglePinned}
               onTreeDragEnd={onTreeDragEnd}
@@ -1049,6 +1119,13 @@ function TreeNode({
           ))}
         </div>
       ) : null}
+      {previewPosition === 'subtree-after' && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute bottom-0 right-2 h-0.5 rounded-full bg-primary"
+          style={{ left: rowPaddingLeft + 19 }}
+        />
+      )}
     </div>
   );
 }
@@ -1084,18 +1161,14 @@ interface TreeNodeProps {
   onOpenInFileManager?: (node: WorkspaceNode) => Promise<void> | void;
   onOpenInPreferredEditor?: (node: WorkspaceNode) => Promise<void> | void;
   preferredEditorLabel?: string;
-  onDropPreviewChange: (preview: DropPreview | null) => void;
   onExpandedChange: React.Dispatch<React.SetStateAction<Set<string>>>;
-  onMoveNode?: (request: WorkspaceMoveRequest) => Promise<void> | void;
+  onMoveNode?: (request: WorkspaceMoveRequest) => Promise<WorkspaceTreeMoveResult | void> | void;
   onPendingRenameConsumed?: () => void;
   onRefreshNode?: (node: WorkspaceNode) => Promise<unknown> | void;
   onResetIcon?: (node: WorkspaceNode) => Promise<void> | void;
   onSelectDirectory?: (node: WorkspaceNode) => Promise<void> | void;
   onRenameRequest: (node: WorkspaceNode) => void;
   onRenameSubmit: (node: WorkspaceNode, nextName: string) => Promise<void>;
-  onResolveDraggedNode: (
-    event: React.DragEvent<HTMLElement>,
-  ) => WorkspaceNode | null;
   onTogglePinned?: (node: WorkspaceNode) => void;
   onTreeDragEnd: () => void;
   onTreeDragStart: (node: WorkspaceNode) => void;
@@ -1103,10 +1176,7 @@ interface TreeNodeProps {
   rootPath: string;
 }
 
-interface DropPreview {
-  targetPath: string;
-  position: WorkspaceMoveRequest['position'];
-}
+type DropPreview = TreeDropPreview;
 
 function countDirectoryDocuments(nodes: WorkspaceNode[]) {
   const counts = new Map<string, number>();
@@ -1140,7 +1210,7 @@ function DirectoryDocumentCount({
 }) {
   return (
     <span
-      className="absolute right-2 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center text-center text-[10px] font-medium leading-4 text-sidebar-foreground/55 tabular-nums transition-opacity group-hover/tree-row:opacity-0"
+      className="absolute right-2 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center text-center text-[10px] font-medium leading-4 text-sidebar-foreground/55 tabular-nums transition-opacity group-hover/tree-row:opacity-0 group-focus-within/tree-row:opacity-0"
       data-testid={`directory-document-count-${nodeId}`}
     >
       {count}
@@ -1264,6 +1334,88 @@ function RenameInput({
   );
 }
 
+function TreeNodeMoveActions({
+  node,
+  context = false,
+}: {
+  node: WorkspaceNode;
+  context?: boolean;
+}) {
+  const controller = useTreeControllerContext();
+  const Item = context ? ContextMenuItem : DropdownMenuItem;
+  const Separator = context ? ContextMenuSeparator : DropdownMenuSeparator;
+  const parent = getParentPath(node.absolutePath);
+  const relativeParent = node.relativePath.split('/').slice(0, -1).join('/');
+  const manual =
+    getTreeSortPolicy(controller.preferences, relativeParent).mode === 'manual';
+  const siblings = controller.all.filter(
+    (item) => getParentPath(item.absolutePath) === parent,
+  );
+  const selected = controller.selection.has(node.absolutePath)
+    ? controller.all.filter((item) =>
+        controller.selection.has(item.absolutePath),
+      )
+    : [node];
+  const sameParent = selected.every(
+    (item) => getParentPath(item.absolutePath) === parent,
+  );
+  const indices = selected.map((item) => siblings.indexOf(item));
+  return (
+    <>
+      {controller.canMove && (
+        <>
+          <Item
+            disabled={controller.busy}
+            onSelect={() => controller.openMoveDialog(node)}
+          >
+            <Move />
+            移动到…
+          </Item>
+          <Item
+            disabled={
+              controller.busy ||
+              !manual ||
+              !sameParent ||
+              Math.min(...indices) <= 0
+            }
+            onSelect={() => controller.moveStep(node, -1)}
+          >
+            <ArrowUp />
+            上移
+          </Item>
+          <Item
+            disabled={
+              controller.busy ||
+              !manual ||
+              !sameParent ||
+              Math.max(...indices) >= siblings.length - 1
+            }
+            onSelect={() => controller.moveStep(node, 1)}
+          >
+            <ArrowDown />
+            下移
+          </Item>
+          <Separator />
+        </>
+      )}
+      {node.kind === 'directory' && controller.canSort && (
+        <>
+          <TreeSortMenu
+            context={context}
+            preferences={controller.preferences}
+            parent={node.relativePath}
+            disabled={controller.busy}
+            onChange={(policy) =>
+              void controller.sort(node.absolutePath, policy)
+            }
+          />
+          <Separator />
+        </>
+      )}
+    </>
+  );
+}
+
 function NodeActionDropdown({
   node,
   onCreateTemplate,
@@ -1280,12 +1432,16 @@ function NodeActionDropdown({
   onRenameRequest,
   onTogglePinned,
 }: NodeActionProps) {
+  const controller = useTreeControllerContext();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           aria-label={`打开 ${node.name} 操作菜单`}
-          className="absolute right-2 top-0.5 z-[1] hidden size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground group-hover/tree-row:flex data-[state=open]:flex"
+          className="absolute right-2 top-0.5 z-[1] flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-0 hover:bg-background hover:text-foreground group-hover/tree-row:opacity-100 group-focus-within/tree-row:opacity-100 data-[state=open]:opacity-100"
+          data-tree-actions="true"
+          tabIndex={controller.focused === node.absolutePath ? 0 : -1}
+          disabled={controller.busy}
           data-tree-drag-disabled="true"
           type="button"
           onClick={(event) => event.stopPropagation()}
@@ -1298,6 +1454,7 @@ function NodeActionDropdown({
         className="w-44"
         onCloseAutoFocus={(event) => event.preventDefault()}
       >
+        <TreeNodeMoveActions node={node} />
         <NodeDropdownActions
           node={node}
           onCreateTemplate={onCreateTemplate}
@@ -1834,77 +1991,11 @@ function findNodeByAbsolutePath(
   return null;
 }
 
-function getDropPosition(
-  row: HTMLElement,
-  clientY: number,
-  target: WorkspaceNode,
-): WorkspaceMoveRequest['position'] | null {
-  const rect = row.getBoundingClientRect();
-  const rowTop = rect.top;
-  const rowHeight = rect.height > 0 ? rect.height : 32;
-  const offset = clientY - rowTop;
-  const topZone = rowHeight * 0.28;
-  const bottomZone = rowHeight * 0.72;
-
-  if (offset <= topZone) {
-    return 'before';
-  }
-
-  if (offset >= bottomZone) {
-    return 'after';
-  }
-
-  return target.kind === 'directory' ? 'inside' : null;
-}
-
-function canDropOnNode(
-  dragged: WorkspaceNode,
-  target: WorkspaceNode,
-  position: WorkspaceMoveRequest['position'],
-) {
-  if (dragged.absolutePath === target.absolutePath) {
-    return false;
-  }
-
-  if (
-    dragged.kind === 'directory' &&
-    isDescendantPath(target.absolutePath, dragged.absolutePath)
-  ) {
-    return false;
-  }
-
-  if (position === 'inside' && target.kind !== 'directory') {
-    return false;
-  }
-
-  return true;
-}
-
 function isTreeDragDisabledTarget(target: EventTarget) {
   return (
     target instanceof HTMLElement &&
     Boolean(target.closest('[data-tree-drag-disabled="true"]'))
   );
-}
-
-function scrollTreeContainer(row: HTMLElement, clientY: number) {
-  const container = row.closest('[data-workspace-tree-scroll-container="true"]');
-
-  if (!(container instanceof HTMLElement)) {
-    return;
-  }
-
-  const rect = container.getBoundingClientRect();
-  const edgeSize = 36;
-
-  if (clientY - rect.top < edgeSize) {
-    container.scrollTop -= 12;
-    return;
-  }
-
-  if (rect.bottom - clientY < edgeSize) {
-    container.scrollTop += 12;
-  }
 }
 
 function getDocumentTreeErrorMessage(error: unknown, fallback: string) {

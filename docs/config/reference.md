@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-10-06
+updated: 2026-10-07
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -112,6 +112,8 @@ Markune 不在自身设置或 `.markune` 中复制 Codex 权限配置。权限�
 ## Workspace Metadata
 
 每个工作区根目录下的 `.markune/workspace.json` 保存最近文档、目录展开状态、排序、每日笔记索引、Git Sync 偏好和目录节点外观。目录外观位于 `nodeState[relativePath].appearance`，支持 `builtin`、`emoji`、`local` 图标及 `preset`、`custom` 颜色；默认外观不写入节点状态。文档正文仍保存在工作区可见的 Markdown 文件中。
+
+`sortOrder.preferences` 保存目录树显示规则：`default: { mode, foldersFirst }` 与 `folders: { [relativePath]: { mode, foldersFirst } }`。`mode` 为 `manual`、`name-asc`、`name-desc`、`created-asc`、`created-desc`、`modified-asc`、`modified-desc`。文件夹覆盖按最近祖先继承；恢复“使用上级排序”删除该覆盖。`foldersFirst` 只在自动排序中生效。旧配置缺失此字段时保留手动排序；新建元数据默认名称升序且文件夹优先。原 `sortOrder.nodes` 的稀疏 rank 持续保留，切换显示方式不会删除手动顺序。未知文件系统时间不使用 YAML 时间代替。
 
 Inbox Capture 独立保存在 `.markune/inbox/cap_YYYYMMDD_HHMMSS_SSS_<uuid8>.md`，不写入 `workspace.json`，也不需要配置项或 schema 迁移。是否被 Git 跟踪完全遵循用户工作区自己的 ignore 规则，Markune 不改写 `.gitignore`。
 

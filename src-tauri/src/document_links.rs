@@ -169,6 +169,11 @@ pub(crate) fn move_documents(
     result
 }
 
+pub(crate) fn apply_metadata_change(change: FileChange) -> Result<(), String> {
+    let _guard = MOVE_LOCK.lock().map_err(|_| "文档移动状态不可用")?;
+    apply_changes(&[change], || Ok(()))
+}
+
 fn apply_changes(
     changes: &[FileChange],
     finish: impl FnOnce() -> Result<(), String>,

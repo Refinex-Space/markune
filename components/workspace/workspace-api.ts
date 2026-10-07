@@ -1,3 +1,4 @@
+import type { TreeSortPolicy, WorkspaceTreeMoveResult } from './workspace-types';
 import type {
   StoredDocumentAsset,
   AppUpdateCheckResult,
@@ -1105,6 +1106,46 @@ export async function moveWorkspaceNode(
         : getParentPath(request.targetPath),
     beforePath: request.position === 'before' ? request.targetPath : null,
     afterPath: request.position === 'after' ? request.targetPath : null,
+  });
+}
+
+export async function setWorkspaceTreeSort(
+  rootPath: string,
+  parentPath: string,
+  policy: TreeSortPolicy | null,
+  visibleOrders: string[][],
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<WorkspaceSnapshot>('set_workspace_tree_sort', {
+    rootPath,
+    parentPath,
+    policy,
+    visibleOrders,
+  });
+}
+
+export async function moveWorkspaceNodes(
+  rootPath: string,
+  request: WorkspaceMoveRequest,
+) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<WorkspaceTreeMoveResult>('move_workspace_nodes', {
+    rootPath,
+    nodePaths: request.nodePaths ?? [request.nodePath],
+    targetParentPath:
+      request.position === 'inside'
+        ? request.targetPath
+        : getParentPath(request.targetPath),
+    beforePath: request.position === 'before' ? request.targetPath : null,
+    afterPath: request.position === 'after' ? request.targetPath : null,
+  });
+}
+
+export async function undoWorkspaceTreeMove(rootPath: string, token: string) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<WorkspaceTreeMoveResult>('undo_workspace_tree_move', {
+    rootPath,
+    token,
   });
 }
 

@@ -20,6 +20,10 @@ use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 
 pub(crate) const WORKSPACE_PRIVATE_DIR: &str = ".markune";
+#[path = "workspace_tree.rs"]
+mod tree;
+pub use tree::{TreeSortPolicy, TreeSortPreferences, WorkspaceTreeMoveResult};
+
 const PERFORMANCE_LOG_ENV: &str = "MARKUNE_PERF_LOG";
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -28,6 +32,8 @@ pub struct WorkspaceSnapshot {
     pub root_path: String,
     pub root_name: String,
     pub nodes: Vec<WorkspaceNode>,
+    #[serde(default)]
+    pub tree_sort: TreeSortPreferences,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
 }
@@ -43,6 +49,9 @@ pub struct WorkspaceNode {
     pub title: Option<String>,
     pub created_at: u128,
     pub updated_at: u128,
+    pub file_created_at: Option<u128>,
+    pub file_modified_at: Option<u128>,
+    pub manual_order: Option<usize>,
     pub pinned: bool,
     pub locked: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -165,6 +174,8 @@ const SORT_ORDER_STEP: i64 = 1024;
 struct WorkspaceSortOrder {
     version: u32,
     nodes: BTreeMap<String, WorkspaceSortRecord>,
+    #[serde(default)]
+    preferences: TreeSortPreferences,
 }
 
 impl Default for WorkspaceSortOrder {
@@ -172,6 +183,7 @@ impl Default for WorkspaceSortOrder {
         Self {
             version: 1,
             nodes: BTreeMap::new(),
+            preferences: TreeSortPreferences::default(),
         }
     }
 }
@@ -1265,6 +1277,7 @@ fn rename_workspace_node_impl(
     new_name: String,
     update_title: bool,
 ) -> Result<WorkspaceNode, String> {
+    let _guard = tree::operation_guard()?;
     let (root, node, kind) = validate_workspace_node_path(&root_path, &node_path)?;
     if !update_title && kind != WorkspaceNodeKind::Document {
         return Err("仅文档支持保留标题改名".into());
@@ -1290,6 +1303,9 @@ fn rename_workspace_node_impl(
     let old_relative = to_relative_path(&root, &node);
     let new_relative = to_relative_path(&root, &target);
     rewrite_node_state_path_prefix(&mut metadata.node_state, &old_relative, &new_relative);
+    let mut sort_order = read_sort_order(&metadata);
+    rewrite_sort_order_path_prefix(&mut sort_order, &old_relative, &new_relative);
+    write_sort_order(&mut metadata, &sort_order).map_err(|_| "无法更新目录排序")?;
     let change = metadata_move_change(&root, old_metadata, &metadata)?;
     crate::document_links::move_documents(
         &root,
@@ -1323,6 +1339,7 @@ pub fn delete_workspace_node(
     root_path: String,
     node_path: String,
 ) -> Result<DeletedWorkspaceNode, String> {
+    let _guard = tree::operation_guard()?;
     let (root, node, kind) = validate_workspace_node_path(&root_path, &node_path)?;
     let deleted_path = node.to_string_lossy().to_string();
     let mut cleanup_candidates = match kind {
@@ -1361,12 +1378,65 @@ pub fn delete_workspace_node(
             .map(str::to_string),
     );
     remove_node_state_path_prefix(&mut metadata.node_state, &relative_path);
+    let mut sort_order = read_sort_order(&metadata);
+    sort_order.nodes.retain(|path, _| {
+        path != &relative_path && !path.starts_with(&format!("{relative_path}/"))
+    });
+    sort_order.preferences.folders.retain(|path, _| {
+        path != &relative_path && !path.starts_with(&format!("{relative_path}/"))
+    });
+    write_sort_order(&mut metadata, &sort_order).map_err(|_| "无法更新目录排序")?;
     write_workspace_metadata(&root, &metadata).map_err(|_| "无法写入工作区元数据".to_string())?;
     if let Err(error) = cleanup_unreferenced_assets(&root, cleanup_candidates) {
         log::warn!("本地资产清理失败：{error}");
     }
 
     Ok(DeletedWorkspaceNode { path: deleted_path })
+}
+
+#[tauri::command]
+pub async fn set_workspace_tree_sort(
+    root_path: String,
+    parent_path: String,
+    policy: Option<TreeSortPolicy>,
+    visible_orders: Vec<Vec<String>>,
+) -> Result<WorkspaceSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tree::set_sort(root_path, parent_path, policy, visible_orders)
+    })
+    .await
+    .map_err(|_| "保存排序任务失败".to_string())?
+}
+
+#[tauri::command]
+pub async fn move_workspace_nodes(
+    root_path: String,
+    node_paths: Vec<String>,
+    target_parent_path: String,
+    before_path: Option<String>,
+    after_path: Option<String>,
+) -> Result<WorkspaceTreeMoveResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tree::move_nodes(
+            root_path,
+            node_paths,
+            target_parent_path,
+            before_path,
+            after_path,
+        )
+    })
+    .await
+    .map_err(|_| "移动任务失败".to_string())?
+}
+
+#[tauri::command]
+pub async fn undo_workspace_tree_move(
+    root_path: String,
+    token: String,
+) -> Result<WorkspaceTreeMoveResult, String> {
+    tauri::async_runtime::spawn_blocking(move || tree::undo_move(root_path, token))
+        .await
+        .map_err(|_| "撤销任务失败".to_string())?
 }
 
 #[tauri::command]
@@ -1397,6 +1467,25 @@ fn move_workspace_node_sync(
     before_path: Option<String>,
     after_path: Option<String>,
 ) -> Result<WorkspaceSnapshot, String> {
+    let _guard = tree::operation_guard()?;
+    let root = canonical_workspace_root(&root_path)?;
+    move_workspace_node_inner(
+        root_path,
+        node_path,
+        target_parent_path,
+        before_path,
+        after_path,
+    )?;
+    build_workspace_snapshot(&root).map_err(|error| format!("读取工作区失败：{error}"))
+}
+
+fn move_workspace_node_inner(
+    root_path: String,
+    node_path: String,
+    target_parent_path: String,
+    before_path: Option<String>,
+    after_path: Option<String>,
+) -> Result<(), String> {
     let root = canonical_workspace_root(&root_path)?;
     let (source, kind) = resolve_workspace_node_for_move(&root, &node_path)?;
     let target_parent = resolve_workspace_directory_for_move(&root, &target_parent_path)?;
@@ -1442,15 +1531,14 @@ fn move_workspace_node_sync(
     ensure_parent_sort_records(&root, &target_parent, &mut sort_order)
         .map_err(|error| format!("初始化排序元数据失败：{error}"))?;
 
-    let previous_relative_path = match after.as_ref() {
-        Some(path) => Some(to_relative_path(&root, path)),
-        None if before.is_none() => {
-            find_last_sibling_relative_path(&root, &target_parent, &new_relative_path, &sort_order)
-                .map_err(|error| format!("读取目标排序失败：{error}"))?
-        }
-        None => None,
-    };
-    let next_relative_path = before.as_ref().map(|path| to_relative_path(&root, path));
+    let (previous_relative_path, next_relative_path) = tree::insertion_neighbors(
+        &root,
+        &target_parent,
+        &new_relative_path,
+        before.as_deref(),
+        after.as_deref(),
+        &sort_order,
+    )?;
 
     assign_rank_with_rebalance(
         &mut sort_order,
@@ -1470,7 +1558,7 @@ fn move_workspace_node_sync(
         Some(metadata_change),
     )?;
 
-    build_workspace_snapshot(&root).map_err(|error| format!("读取工作区失败：{error}"))
+    Ok(())
 }
 
 #[tauri::command]
@@ -1501,6 +1589,7 @@ pub fn build_workspace_snapshot(root: &Path) -> std::io::Result<WorkspaceSnapsho
         root_path: root.to_string_lossy().to_string(),
         root_name,
         nodes: read_children(&root, &root, &sort_order, &metadata.node_state)?,
+        tree_sort: sort_order.preferences.clone(),
         warnings: Vec::new(),
     })
 }
@@ -1571,7 +1660,14 @@ fn read_children(
         )
     });
 
-    Ok(nodes.into_iter().map(|(node, _)| node).collect())
+    Ok(nodes
+        .into_iter()
+        .enumerate()
+        .map(|(index, (mut node, _))| {
+            node.manual_order = Some(index);
+            node
+        })
+        .collect())
 }
 
 fn is_skippable_tree_entry_error(error: &io::Error) -> bool {
@@ -1636,10 +1732,10 @@ fn assign_rank_with_rebalance(
     });
 
     let candidate = match (previous_rank, next_rank) {
-        (Some(previous), Some(next)) if next - previous > 1 => {
-            Some(previous + ((next - previous) / 2))
+        (Some(previous), Some(next)) if (next as i128) - (previous as i128) > 1 => {
+            Some(((previous as i128) + ((next as i128) - (previous as i128)) / 2) as i64)
         }
-        (Some(previous), None) => Some(previous + SORT_ORDER_STEP),
+        (Some(previous), None) => previous.checked_add(SORT_ORDER_STEP),
         (None, Some(next)) if next > 1 => Some(next / 2),
         (None, None) => Some(SORT_ORDER_STEP),
         _ => None,
@@ -1779,26 +1875,6 @@ fn ensure_parent_sort_records(
     Ok(())
 }
 
-fn find_last_sibling_relative_path(
-    root: &Path,
-    parent: &Path,
-    moved_path: &str,
-    sort_order: &WorkspaceSortOrder,
-) -> std::io::Result<Option<String>> {
-    let parent_path = to_relative_path(root, parent);
-    let mut entries = read_sortable_child_entries(root, parent)?;
-
-    entries.sort_by(|left, right| {
-        compare_sortable_child_entries(&parent_path, left, right, sort_order)
-    });
-
-    Ok(entries
-        .into_iter()
-        .filter(|entry| entry.relative_path != moved_path)
-        .next_back()
-        .map(|entry| entry.relative_path))
-}
-
 fn read_sortable_child_entries(
     root: &Path,
     parent: &Path,
@@ -1818,7 +1894,15 @@ fn read_sortable_child_entries(
             continue;
         }
 
-        if path.is_dir() || is_markdown_document_file(&path) {
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if is_skippable_tree_entry_error(&error) => continue,
+            Err(error) => return Err(error),
+        };
+        if metadata.file_type().is_symlink() {
+            continue;
+        }
+        if metadata.is_dir() || (metadata.is_file() && is_markdown_document_file(&path)) {
             let sort_timestamp = match read_sort_timestamp(&path) {
                 Ok(timestamp) => timestamp,
                 Err(error) if is_skippable_tree_entry_error(&error) => continue,
@@ -1871,6 +1955,7 @@ fn rewrite_sort_order_path_prefix(
     old_prefix: &str,
     new_prefix: &str,
 ) {
+    tree::rewrite_preferences(&mut sort_order.preferences, old_prefix, new_prefix);
     let affected = sort_order
         .nodes
         .iter()
@@ -2056,7 +2141,7 @@ fn default_workspace_metadata() -> WorkspaceMetadata {
         recent_document_path: None,
         recent_document_paths: Vec::new(),
         expanded_paths: Vec::new(),
-        sort_order: serde_json::Map::new(),
+        sort_order: tree::new_workspace_sort_order(),
         daily_notes: WorkspaceDailyNotes::default(),
         node_state: BTreeMap::new(),
         git_sync: WorkspaceGitSyncSettings::default(),
@@ -3039,17 +3124,6 @@ fn sort_timestamp_from_metadata(metadata: &fs::Metadata) -> u128 {
         .unwrap_or(0)
 }
 
-fn read_node_timestamps(path: &Path) -> std::io::Result<(u128, u128)> {
-    let metadata = fs::metadata(path)?;
-    let created = metadata
-        .created()
-        .or_else(|_| metadata.modified())
-        .map(system_time_to_millis)?;
-    let updated = metadata.modified().map(system_time_to_millis)?;
-
-    Ok((created, updated))
-}
-
 fn read_markdown_frontmatter(raw: &str) -> Option<&str> {
     let rest = raw.strip_prefix("---\n")?;
     let end = rest.find("\n---")?;
@@ -3079,7 +3153,12 @@ fn build_directory_node(
 ) -> std::io::Result<WorkspaceNode> {
     let relative_path = to_relative_path(root, path);
     let state = node_state.get(&relative_path).cloned().unwrap_or_default();
-    let (created_at, updated_at) = read_node_timestamps(path)?;
+    let file_metadata = fs::metadata(path)?;
+    let created_at = file_metadata
+        .created()
+        .or_else(|_| file_metadata.modified())
+        .map(system_time_to_millis)?;
+    let updated_at = file_metadata.modified().map(system_time_to_millis)?;
 
     Ok(WorkspaceNode {
         id: relative_path.clone(),
@@ -3090,6 +3169,9 @@ fn build_directory_node(
         title: None,
         created_at,
         updated_at,
+        file_created_at: file_metadata.created().ok().map(system_time_to_millis),
+        file_modified_at: file_metadata.modified().ok().map(system_time_to_millis),
+        manual_order: None,
         pinned: state.pinned,
         locked: state.locked,
         appearance: state.appearance,
@@ -3103,6 +3185,7 @@ fn build_document_node(
     name: String,
     node_state: &BTreeMap<String, WorkspaceNodeState>,
 ) -> std::io::Result<WorkspaceNode> {
+    let file_metadata = fs::metadata(path).ok();
     let relative_path = to_relative_path(root, path);
     let state = node_state.get(&relative_path).cloned().unwrap_or_default();
     let markdown_metadata =
@@ -3115,7 +3198,18 @@ fn build_document_node(
                 _ => None,
             },
         )
-        .or_else(|| read_node_timestamps(path).ok())
+        .or_else(|| {
+            file_metadata.as_ref().and_then(|metadata| {
+                Some((
+                    metadata
+                        .created()
+                        .or_else(|_| metadata.modified())
+                        .ok()
+                        .map(system_time_to_millis)?,
+                    metadata.modified().ok().map(system_time_to_millis)?,
+                ))
+            })
+        })
         .unwrap_or((0, 0));
     let title = markdown_metadata
         .and_then(|metadata| metadata.title)
@@ -3130,6 +3224,15 @@ fn build_document_node(
         title: Some(title),
         created_at,
         updated_at,
+        file_created_at: file_metadata
+            .as_ref()
+            .and_then(|m| m.created().ok())
+            .map(system_time_to_millis),
+        file_modified_at: file_metadata
+            .as_ref()
+            .and_then(|m| m.modified().ok())
+            .map(system_time_to_millis),
+        manual_order: None,
         pinned: state.pinned,
         locked: state.locked,
         appearance: None,

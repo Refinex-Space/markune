@@ -1,3 +1,4 @@
+import type { WorkspaceTreeMoveResult } from './workspace-types';
 import { Settings } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useMemo } from 'react';
@@ -59,7 +60,8 @@ interface WorkspaceSidebarProps {
   onRefreshWorkspaceNode?: (node: WorkspaceNode) => Promise<unknown> | void;
   onOpenSettings?: (sectionId?: 'appearance' | 'version') => void;
   onRemoveWorkspace?: (rootPath: string) => void;
-  onMoveNode?: (request: Parameters<ReturnType<typeof useWorkspace>['moveNode']>[0]) => Promise<void> | void;
+  onMoveNode?: (request: Parameters<ReturnType<typeof useWorkspace>['moveNode']>[0]) => Promise<WorkspaceTreeMoveResult | void> | void;
+  onUndoTreeMove?: (token: string) => Promise<WorkspaceTreeMoveResult>;
   onRenameNode?: (
     node: WorkspaceNode,
     newName: string,
@@ -126,6 +128,7 @@ export function WorkspaceSidebar({
   onRemoveWorkspace,
   onRenameNode,
   onMoveNode,
+  onUndoTreeMove,
   preferredEditorLabel,
   revealNodePath,
   revealNodeRequestId,
@@ -238,6 +241,10 @@ export function WorkspaceSidebar({
           ) : workspace.snapshot ? (
             <div className="flex min-h-full flex-col">
               <DocumentTree
+                key={workspace.snapshot.rootPath}
+                treeSort={workspace.snapshot.treeSort}
+                onTreeSortChange={workspace.setTreeSort}
+                onUndoTreeMove={onUndoTreeMove ?? workspace.undoTreeMove}
                 header={
                   onOpenPinnedNode && onOpenPinnedOverview && onUnpinNode ? (
                     <PinnedSidebarSection
@@ -275,7 +282,7 @@ export function WorkspaceSidebar({
                 onImportMarkdown={(targetDir) =>
                   void onImportDocuments?.(targetDir, 'markdown')
                 }
-                onMoveNode={onMoveNode ?? (async (request) => { await workspace.moveNode(request); })}
+                onMoveNode={onMoveNode ?? workspace.moveTreeNodes}
                 onUpdateNodeAppearance={workspace.updateTreeNodeAppearance}
                 onTreeIconPickerSettingsChange={
                   onTreeIconPickerSettingsChange

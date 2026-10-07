@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-10-06
+updated: 2026-10-07
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -49,6 +49,14 @@ referenced_by: AGENTS.md#knowledge-map
 - `refresh_workspace_node(rootPath, nodePath)` 对目录返回递归子树，对文档返回最新树描述；缺失返回 `null`，权限或读取失败必须返回错误。前端协调器另行重读范围内已打开标签的完整正文。
 - `save_markdown_document` 新增可选 `expectedContent`，编辑器保存与冲突覆盖均提交所读取的正文基线；即使修改时间相同，也必须拒绝覆盖不同的磁盘内容。该参数只用于内存比较，不写日志或额外持久化。
 - `external-refresh` 是编辑器内部 flush 原因，必须只捕获输入，不触发磁盘保存或标题重命名；随后由外部版本比较决定重载、保持草稿或进入冲突。
+
+### Directory Tree Commands
+
+- `WorkspaceSnapshot.treeSort` 返回默认排序及目录覆盖；`WorkspaceNode.fileCreatedAt` / `fileModifiedAt` 是可空的文件系统时间，`manualOrder` 是当前父级的手动序号，不改变既有正文元数据时间含义。
+- `set_workspace_tree_sort(rootPath, parentPath, policy, visibleOrders)` 保存当前目录的策略。根目录不可继承，子目录 `policy: null` 表示删除覆盖。首次手动排序的可见顺序必须与真实目录清单一致；最多 50,000 个节点，拒绝过期、重复、跨目录或越界节点。
+- `move_workspace_nodes(rootPath, nodePaths, targetParentPath, beforePath, afterPath)` 接收 1–100 个源项。选中父子项时只移动父项；前后锚点互斥，须属于目标父级且不在选中项中。自动排序只允许移入目录。返回 `{ snapshot, changes: [{oldPath,newPath}], undoToken, error }`；`error` 非空时仍须先应用实际完成的 `changes`，不能把部分完成显示成完全失败或完全成功。
+- `undo_workspace_tree_move(rootPath, token)` 只接受原生层生成且仍有效的最近收据，返回相同结果结构。前端不提供任意备份内容或恢复路径。树内 Cmd/Ctrl-Z 和“撤销移动”共用此命令，不接管编辑器正文撤销。
+- 旧 `move_workspace_node` 保留单项兼容入口并共用修复后的邻居计算；前端目录树统一通过批量入口获得完成结果与撤销能力。移动、撤销和排序结果不得覆盖切换后的工作区，操作前开始的刷新结果必须失效。
 
 ### Daily Commands
 

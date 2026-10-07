@@ -1,5 +1,10 @@
 'use client';
 
+import { collectVisibleOrders, projectWorkspaceSnapshot, remapTreeSortPreferences } from './workspace-tree-sort';
+import { remapTreePath } from './workspace-tree-move';
+import { moveWorkspaceNodes, setWorkspaceTreeSort, undoWorkspaceTreeMove } from './workspace-api';
+import type { TreeSortPolicy, WorkspaceTreeMoveResult } from './workspace-types';
+
 import * as React from 'react';
 
 import {
@@ -73,14 +78,17 @@ export interface PendingWorkspaceBrandMigration {
 
 export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   const [snapshot, setSnapshotState] = React.useState<WorkspaceSnapshot | null>(
-    initialSnapshot ?? null,
+    () => initialSnapshot ? projectWorkspaceSnapshot(initialSnapshot) : null,
   );
   const snapshotRef = React.useRef<WorkspaceSnapshot | null>(snapshot);
   const setSnapshot = React.useCallback((next: WorkspaceSnapshot | null) => {
-    snapshotRef.current = next;
-    setSnapshotState(next);
+    const projected = next ? projectWorkspaceSnapshot(next) : null;
+    snapshotRef.current = projected;
+    setSnapshotState(projected);
   }, []);
   const treeRefreshIdRef = React.useRef(0);
+  const treeMutationIdRef = React.useRef(0);
+  const treeMutationRootRef = React.useRef<string | null>(null);
   const [currentDocument, setCurrentDocument] =
     React.useState<WorkspaceNode | null>(null);
   const [currentDirectoryPath, setCurrentDirectoryPath] = React.useState<
@@ -218,13 +226,14 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
   const refreshWorkspaceTree = React.useCallback(async () => {
     const base = snapshotRef.current;
     if (!base) return null;
+    if (treeMutationRootRef.current === base.rootPath) return base;
     const requestId = ++treeRefreshIdRef.current;
     const generation = loadWorkspaceRequestIdRef.current;
     const nextSnapshot = await loadWorkspaceTree(base.rootPath);
     if (
       snapshotRef.current?.rootPath !== base.rootPath ||
       generation !== loadWorkspaceRequestIdRef.current ||
-      requestId !== treeRefreshIdRef.current
+      (requestId !== treeRefreshIdRef.current || treeMutationRootRef.current === base.rootPath)
     )
       return snapshotRef.current;
     setSnapshot(nextSnapshot);
@@ -278,7 +287,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
 
       const latest = snapshotRef.current;
 
-      if (!latest || latest.rootPath !== rootPath || generation !== loadWorkspaceRequestIdRef.current || requestId !== treeRefreshIdRef.current) {
+      if (!latest || latest.rootPath !== rootPath || generation !== loadWorkspaceRequestIdRef.current || (requestId !== treeRefreshIdRef.current || treeMutationRootRef.current === base.rootPath)) {
         return latest;
       }
 
@@ -714,7 +723,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         !latest ||
         latest.rootPath !== rootPath ||
         generation !== loadWorkspaceRequestIdRef.current ||
-        requestId !== treeRefreshIdRef.current
+        (requestId !== treeRefreshIdRef.current || treeMutationRootRef.current === base.rootPath)
       )
         return null;
       if (latest) {
@@ -894,9 +903,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         isRenamingRef.current,
       );
 
-      // Incremental update: swap the renamed subtree in place. Rename keeps the
-      // node's timestamps (and drops any manual rank, matching a full rescan),
-      // so ordering stays consistent without a whole-tree reload. author: liyao
+      // Preserve the manual slot and migrate folder policies with the renamed subtree. author: refinex
       const baseSnapshot = snapshotRef.current;
       if (baseSnapshot) {
         const nextNodes = replaceWorkspaceNodeInList(
@@ -906,7 +913,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         );
 
         if (nextNodes !== baseSnapshot.nodes) {
-          setSnapshot({ ...baseSnapshot, nodes: nextNodes });
+          setSnapshot({ ...baseSnapshot, nodes: nextNodes, treeSort: remapTreeSortPreferences(baseSnapshot.treeSort, node.relativePath, renamed.relativePath) });
         }
       }
 
@@ -1107,7 +1114,7 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
         );
 
         if (nextNodes !== baseSnapshot.nodes) {
-          setSnapshot({ ...baseSnapshot, nodes: nextNodes });
+          setSnapshot({ ...baseSnapshot, nodes: nextNodes, treeSort: remapTreeSortPreferences(baseSnapshot.treeSort, node.relativePath, null) });
         }
       }
 
@@ -1194,6 +1201,126 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
       return movedSnapshot;
     },
     [snapshot, setSnapshot, currentDirectoryPath, currentDocument, saveCurrentDocumentNow, resetDocumentState],
+  );
+
+  const applyTreeMoveResult = React.useCallback(
+    async (result: WorkspaceTreeMoveResult) => {
+      const generation = loadWorkspaceRequestIdRef.current;
+      setSnapshot(result.snapshot);
+      setCurrentDirectoryPath((path) =>
+        path ? remapTreePath(path, result.changes) : null,
+      );
+      const previous = currentDocumentRef.current;
+      if (previous) {
+        const nextPath = remapTreePath(previous.absolutePath, result.changes);
+        const node = findNodeByAbsolutePath(result.snapshot.nodes, nextPath);
+        if (node) {
+          setCurrentDocument(node);
+          currentDocumentRef.current = node;
+          if (nextPath !== previous.absolutePath) {
+            try {
+              const content = await readMarkdownDocument(
+                result.snapshot.rootPath,
+                nextPath,
+              );
+              if (generation !== loadWorkspaceRequestIdRef.current)
+                throw new Error('工作区已切换');
+              const draft = createMarkdownDraft(content, node.name);
+              documentContentRef.current = content;
+              draftDocumentRef.current = draft;
+              setDocumentContent(content);
+              setDraftDocument(draft);
+              lastSavedMarkdownRef.current = content.content;
+              setDocumentVersion((version) => version + 1);
+              setLastSavedAt(content.modifiedAt);
+            } catch {
+              result.error =
+                result.error ??
+                '项目已移动，但当前文档暂时无法重新读取，请刷新';
+            }
+          }
+        }
+      }
+      if (generation !== loadWorkspaceRequestIdRef.current)
+        throw new Error('工作区已切换');
+      return result;
+    },
+    [setSnapshot],
+  );
+
+  const runTreeMutation = React.useCallback(
+    async <T>(
+      action: (base: WorkspaceSnapshot) => Promise<T>,
+      save: boolean,
+    ): Promise<T> => {
+      const base = snapshotRef.current;
+      const generation = loadWorkspaceRequestIdRef.current;
+      if (!base) throw new Error('工作区尚未打开');
+      if (save && (conflictRef.current || !(await saveCurrentDocumentNow())))
+        throw new Error('文档尚未保存，操作已取消');
+      if (
+        snapshotRef.current?.rootPath !== base.rootPath ||
+        generation !== loadWorkspaceRequestIdRef.current
+      )
+        throw new Error('工作区已切换');
+      const mutation = ++treeMutationIdRef.current;
+      treeMutationRootRef.current = base.rootPath;
+      ++treeRefreshIdRef.current;
+      try {
+        const result = await action(base);
+        if (
+          snapshotRef.current?.rootPath !== base.rootPath ||
+          generation !== loadWorkspaceRequestIdRef.current
+        )
+          throw new Error('工作区已切换，原工作区的操作结果已保留');
+        return result;
+      } finally {
+        if (treeMutationIdRef.current === mutation) {
+          treeMutationRootRef.current = null;
+          ++treeRefreshIdRef.current;
+        }
+      }
+    },
+    [saveCurrentDocumentNow],
+  );
+
+  const moveTreeNodes = React.useCallback(
+    async (request: WorkspaceMoveRequest) => {
+      const result = await runTreeMutation(
+        (base) => moveWorkspaceNodes(base.rootPath, request),
+        true,
+      );
+      return applyTreeMoveResult(result);
+    },
+    [applyTreeMoveResult, runTreeMutation],
+  );
+
+  const undoTreeMove = React.useCallback(
+    async (token: string) => {
+      const result = await runTreeMutation(
+        (base) => undoWorkspaceTreeMove(base.rootPath, token),
+        true,
+      );
+      return applyTreeMoveResult(result);
+    },
+    [applyTreeMoveResult, runTreeMutation],
+  );
+
+  const setTreeSort = React.useCallback(
+    async (parentPath: string, policy: TreeSortPolicy | null) => {
+      const result = await runTreeMutation(
+        (base) =>
+          setWorkspaceTreeSort(
+            base.rootPath,
+            parentPath,
+            policy,
+            collectVisibleOrders(base.nodes, parentPath, base.rootPath),
+          ),
+        false,
+      );
+      setSnapshot(result);
+    },
+    [runTreeMutation, setSnapshot],
   );
 
   const updateNodeState = React.useCallback(
@@ -1499,6 +1626,9 @@ export function useWorkspace(initialSnapshot?: WorkspaceSnapshot | null) {
     lastSavedAt,
     migratePendingBrandWorkspace,
     moveNode,
+    moveTreeNodes,
+    undoTreeMove,
+    setTreeSort,
     openDocument,
     selectDirectory,
     openWorkspace,
@@ -1668,7 +1798,7 @@ function replaceWorkspaceNodeInList(
   const nextNodes = nodes.map((node) => {
     if (node.absolutePath === targetPath) {
       changed = true;
-      return replacement;
+      return { ...replacement, manualOrder: replacement.manualOrder ?? node.manualOrder };
     }
 
     if (node.children && node.children.length > 0) {

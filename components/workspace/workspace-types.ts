@@ -217,6 +217,9 @@ export interface WorkspaceNode {
   title?: string;
   createdAt?: number;
   updatedAt?: number;
+  fileCreatedAt?: number | null;
+  fileModifiedAt?: number | null;
+  manualOrder?: number | null;
   pinned?: boolean;
   locked?: boolean;
   appearance?: TreeNodeAppearance;
@@ -252,7 +255,20 @@ export interface TreeNodeAppearance {
   color?: TreeNodeIconColor;
 }
 
+export type TreeSortMode = 'manual' | 'name-asc' | 'name-desc' | 'created-asc' | 'created-desc' | 'modified-asc' | 'modified-desc';
+
+export interface TreeSortPolicy { mode: TreeSortMode; foldersFirst: boolean }
+export interface TreeSortPreferences { default: TreeSortPolicy; folders: Record<string, TreeSortPolicy> }
+export interface TreePathChange { oldPath: string; newPath: string }
+export interface WorkspaceTreeMoveResult {
+  snapshot: WorkspaceSnapshot;
+  changes: TreePathChange[];
+  undoToken: string | null;
+  error: string | null;
+}
+
 export interface WorkspaceSnapshot {
+  treeSort?: TreeSortPreferences;
   warnings?: string[];
   rootPath: string;
   rootName: string;
@@ -514,6 +530,7 @@ export interface DeletedWorkspaceNode {
 export type WorkspaceMovePosition = 'before' | 'after' | 'inside';
 
 export interface WorkspaceMoveRequest {
+  nodePaths?: string[];
   nodePath: string;
   targetPath: string;
   position: WorkspaceMovePosition;
