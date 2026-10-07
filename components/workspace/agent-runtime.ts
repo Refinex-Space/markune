@@ -380,7 +380,7 @@ export class AgentRuntime {
         'initialize',
         {
           protocolVersion: 1,
-          clientInfo: { name: 'markune', title: 'Markune', version: '0.2.9' },
+          clientInfo: { name: 'markune', title: 'Markune', version: '0.3.0' },
           clientCapabilities: {
             fs: { readTextFile: true, writeTextFile: true },
             terminal: true,

@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-10-06
+updated: 2026-10-07
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -56,7 +56,7 @@ GitHub 只会从默认分支加载可手工触发的工作流，因此 `.github/
 
 在创建 Tag 前准备用户可读的 Release Notes，至少包含本次更新、支持平台、升级提示和已知限制。不得包含密钥、Token、真实用户路径或用户文档。
 
-当前发布目标为 `0.2.9`，配套编辑器为 `markweave@0.10.8` 与 `@markweave/react@0.10.8`。本次说明涵盖终端退出提示与会话清理、更新代理，以及编辑器和工作区界面整理。Tag 前同步 `.github/workflows/release.yml` 的 `releaseBody` 与官网 `markune-web` 的 `src/content/changelog.ts`；官网发布日期以正式 Release 返回的时间为准。
+当前发布目标为 `0.3.0`，配套编辑器为 `markweave@0.10.8` 与 `@markweave/react@0.10.8`。本次说明涵盖本地 ACP 智能体、文档树排序与移动，以及视图页签精简。Tag 前同步 `.github/workflows/release.yml` 的 `releaseBody` 与官网 `markune-web` 的 `src/content/changelog.ts`；官网发布日期以正式 Release 返回的时间为准。
 
 ## 4. 本地门禁
 

@@ -112,16 +112,16 @@ jobs:
           prerelease: false
           releaseAssetNamePattern: Markune_[arch][setup][ext]
           releaseBody: |
-            ## Markune v0.2.9
+            ## Markune v0.3.0
 
-            改进终端退出提示与会话清理，检查更新可走系统代理，并升级编辑器、整理工作区界面。
+            智能体改为连接本机独立程序，文档树支持排序和移动，视图只保留文档与附件。
 
             ### 本次更新
 
-            - **终端退出状态更明确**：进程退出后保留最后一屏并显示退出码，可直接新建标签。折叠面板不结束正在运行的命令；关闭最后一个标签不会立刻自动再建；切换工作区会结束旧终端。输出按完整字符显示，启动时不继承密钥型环境变量。
-            - **检查更新支持代理**：更新检查和下载读取系统 HTTP(S) 代理，也支持进程中的 SOCKS 代理。切换系统代理后再次检查即可生效。
-            - **编辑器升级到 Markweave 0.10.8**：改进本地 Markdown 链接解析。目录树按文件名显示并保留编号前缀；编辑器中的文档链接先打开预览。
-            - **界面滚动与设置更稳**：页面根节点不再跟着引用浮层滚动。设置切换分类时内容回到顶部，可用 Escape 清空搜索。文档元信息面板和 Inbox 菜单的对齐与操作更整齐。
+            - **本地智能体**：可安装 Claude、Codex、Cursor、GitHub Copilot、GLM、Grok、Kimi、MiniMax、OpenCode、Codebuddy、Qoder，或使用本机已有程序。在 Markune 中登录、对话、批准工具并查看历史。新会话从这里开始；原来的 Codex 会话仍留在 Codex 中。模型请求由各智能体自己发出。
+            - **文档树排序与移动**：可按名称或时间排序，文件夹可单独设置；可移动文档和文件夹，并撤销这次移动。
+            - **视图只保留文档和附件**：去掉任务和研究页签。
+            - **全宽页面不再挡住侧栏**：全宽内容只覆盖主区域，侧栏保持可操作。
 
             ### 支持平台
 
@@ -135,7 +135,7 @@ jobs:
 
             ### 已知限制
 
-            macOS 安装包使用 ad-hoc 签名，Windows 安装包暂未使用 Authenticode，首次安装时系统可能显示安全确认提示；自动更新包仍使用独立 minisign 签名校验。
+            macOS 安装包使用 ad-hoc 签名，Windows 安装包暂未使用 Authenticode，首次安装时系统可能显示安全确认提示；自动更新包仍使用独立 minisign 签名校验。智能体以本机权限运行，可访问工作区并执行本地命令，请只安装信任的程序。
           releaseCommitish: ${{ github.sha }}
           releaseDraft: true
           releaseName: Markune v__VERSION__
