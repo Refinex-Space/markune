@@ -67,9 +67,9 @@ export function useAiDrawingTools({
       window.sessionStorage.removeItem(AI_MINDMAP_TARGET_ALBUM_KEY);
     };
     clear();
-    window.addEventListener('markune:codex-runtime-stopped', clear);
+    window.addEventListener('markune:agent-runtime-stopped', clear);
     return () => {
-      window.removeEventListener('markune:codex-runtime-stopped', clear);
+      window.removeEventListener('markune:agent-runtime-stopped', clear);
       clear();
     };
   }, [workspaceRootPath]);

@@ -1,11 +1,13 @@
 ---
 owner: refinex
 updated: 2026-09-09
-status: active
+status: superseded
 referenced_by: docs/README.md
 ---
 
 # Codex 专业化实施清单
+
+> 本计划对应迁移前的 Codex App Server 产品路径，已由 [ACP 智能体迁移](acp-agent-host-migration.md) 取代。以下记录作为历史证据保留。
 
 用户已批准《Markune Codex 专业化评估与实施计划》S0-S5 全阶段。本文件记录实现与证据；可选语音、远程生态、普通笔记回收站和本地版本历史不在本轮范围。保留 Markdown 权威模型、原生权限校验及 Codex 自有历史，不改写真实知识库或共享账号配置进行测试。
 

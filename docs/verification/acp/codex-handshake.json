@@ -1,0 +1,60 @@
+{
+  "checkedAt": "2026-10-07T07:38:53.938Z",
+  "platform": "darwin-arm64",
+  "credentialPolicy": "isolated HOME and credential environment removed; no authentication or prompts",
+  "results": [
+    {
+      "name": "Codex catalog 2.1.1",
+      "version": "2.1.1",
+      "outcome": "initialized",
+      "durationMs": 999,
+      "protocolVersion": 1,
+      "capabilities": {
+        "auth": {
+          "logout": {}
+        },
+        "providers": {},
+        "loadSession": true,
+        "promptCapabilities": {
+          "embeddedContext": true,
+          "image": true
+        },
+        "sessionCapabilities": {
+          "resume": {},
+          "list": {},
+          "close": {},
+          "delete": {},
+          "fork": {},
+          "additionalDirectories": {},
+          "subagents": {}
+        },
+        "mcpCapabilities": {
+          "acp": false,
+          "http": true,
+          "sse": false
+        },
+        "_meta": {
+          "authStatus": {}
+        }
+      },
+      "authMethods": [
+        {
+          "id": "api-key",
+          "name": "API Key",
+          "type": "agent"
+        },
+        {
+          "id": "chat-gpt",
+          "name": "ChatGPT",
+          "type": "agent"
+        },
+        {
+          "id": "chat-gpt-device-code",
+          "name": "ChatGPT (device code)",
+          "type": "agent"
+        }
+      ],
+      "modelPromptSent": false
+    }
+  ]
+}

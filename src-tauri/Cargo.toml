@@ -35,7 +35,7 @@ sha2 = "0.10"
 portable-pty = "0.9.0"
 pulldown-cmark = { version = "=0.13.4", default-features = false }
 quick-xml = "=0.39.4"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 # refinex: Enable native proxies on the updater's separate reqwest version.
 reqwest-updater = { package = "reqwest", version = "0.13", default-features = false, features = ["system-proxy", "socks"] }
 tauri = { version = "~2.11.2", features = ["protocol-asset"] }
@@ -51,6 +51,8 @@ uuid = { version = "1.18.1", features = ["v4"] }
 fontdb = "0.23.0"
 zip = { version = "=2.4.2", default-features = false, features = ["deflate"] }
 fs2 = "=0.4.3"
+flate2 = "1"
+tar = "0.4"
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.38.2"

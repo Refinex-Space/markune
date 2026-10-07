@@ -1,8 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Openai } from '@thesvg/react';
-import { Info, Palette, Settings } from 'lucide-react';
+import { Bot, Info, Palette, Settings } from 'lucide-react';
 import { useTheme } from 'next-themes';
 
 import {
@@ -31,7 +30,7 @@ import {
   type AiResourceReference,
 } from './ai-artifact-viewer';
 import { AiContentProvider } from './ai-content-context';
-import { AiPanel } from './ai-panel';
+import { AgentPanel } from './agent-panel';
 import type {
   CodexDynamicToolRequest,
   CodexDynamicToolResponse,
@@ -186,7 +185,7 @@ export function RightSidePanel({
         <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
           <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
             <AiContentProvider value={contentContext}>
-              <AiPanel
+              <AgentPanel
               researchDraft={researchDraft}
               onResearchDraftConsumed={onResearchDraftConsumed}
               activeDrawing={activeDrawing}
@@ -286,7 +285,7 @@ export function RightToolRail({
               type="button"
               onClick={() => onModeChange(nextAiMode)}
             >
-              <Openai className="size-[17px]" variant="light" />
+              <Bot className="size-[17px]" />
             </button>
           </TooltipTrigger>
           <TooltipContent side={orientation === 'header' ? 'bottom' : 'left'} sideOffset={8}>

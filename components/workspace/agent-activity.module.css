@@ -1,0 +1,27 @@
+.transcript > * + * {
+  margin-block-start: 20px;
+}
+.transcript > :is([data-agent-tool], [data-agent-thought]) + :is([data-agent-tool], [data-agent-thought]) {
+  margin-block-start: 4px;
+}
+.disclosure {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 160ms ease-out,
+    opacity 160ms ease-out;
+}
+.disclosure[data-open='true'] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.content {
+  min-height: 0;
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  .disclosure {
+    transition: none;
+  }
+}

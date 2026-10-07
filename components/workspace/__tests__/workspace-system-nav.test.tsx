@@ -42,7 +42,7 @@ describe('WorkspaceSystemNav', () => {
   it('renders seven vertical labeled entries by default', () => {
     render(<WorkspaceSystemNav />);
 
-    for (const name of ['笔记', '日程', 'Inbox', '画板', '视图', '图谱', 'Codex']) {
+    for (const name of ['笔记', '日程', 'Inbox', '画板', '视图', '图谱', '智能体']) {
       expect(screen.getByRole('button', { name })).toBeTruthy();
     }
     expect(screen.queryByRole('button', { name: '全局搜索' })).toBeNull();
@@ -178,7 +178,7 @@ describe('WorkspaceSystemNav', () => {
     render(<WorkspaceSystemNav collapsed layout="horizontal" />);
 
     expect(screen.getByRole('button', { name: '笔记' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Codex' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '智能体' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '系统入口选项' })).toBeTruthy();
     expect(screen.queryByTestId('system-nav-collapse-button')).toBeNull();
     expect(screen.queryByTestId('system-nav-hitbox')).toBeNull();

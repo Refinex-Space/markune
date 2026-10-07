@@ -1,11 +1,17 @@
+pub mod agents;
 mod app_update;
 mod assets;
 mod brand_migration;
+#[cfg(test)]
 mod codex;
 mod codex_artifacts;
+#[cfg(test)]
 mod codex_context;
+#[cfg(test)]
 mod codex_elicitation;
+#[cfg(test)]
 mod codex_provider;
+#[cfg(test)]
 mod codex_transport;
 mod document_assets;
 mod document_converter;
@@ -118,10 +124,11 @@ pub fn run() {
                 if window.label() == "main" {
                     window.state::<terminal::TerminalState>().shutdown();
                 }
+                window.state::<agents::AgentHostState>().shutdown_window(window.label());
             }
         })
         .manage(terminal::TerminalState::default())
-        .manage(codex::CodexState::default())
+        .manage(agents::AgentHostState::default())
         .manage(drawings::DrawingState::default())
         .manage(export_state)
         .manage(import::ImportState::default())
@@ -143,10 +150,27 @@ pub fn run() {
             external_open::handle_argv(app, argv);
         }))
         .invoke_handler(tauri::generate_handler![
+            agents::agent_catalog,
+            agents::agent_install,
+            agents::agent_install_status,
+            agents::agent_cancel_install,
+            agents::agent_use_local,
+            agents::agent_select_program,
+            agents::agent_save_profile,
+            agents::agent_set_secret,
+            agents::agent_uninstall,
+            agents::agent_connect,
+            agents::agent_auth_terminal,
+            agents::agent_send,
+            agents::agent_disconnect,
+            agents::agent_client_operation,
+            agents::process::agent_context,
+            agents::mcp::agent_tool_respond,
+            agents::agent_history,
+            agents::agent_read_session,
+            agents::agent_save_session,
             codex_artifacts::read_codex_artifact,
             codex_artifacts::preview_codex_tool_image,
-            codex_context::read_codex_instruction_manifest,
-            codex::codex_app_server_respond_elicitation,
             document_assets::store_document_asset,
             document_assets::resolve_document_assets,
             document_assets::read_document_asset_data,
@@ -164,23 +188,6 @@ pub fn run() {
             assets::discard_unreferenced_tree_icon_asset,
             brand_migration::inspect_workspace_brand,
             brand_migration::migrate_legacy_workspace_brand,
-            codex::codex_runtime_probe,
-            codex::codex_runtime_start,
-            codex::codex_runtime_stop,
-            codex_provider::codex_connection_status,
-            codex_provider::codex_custom_provider_get,
-            codex_provider::codex_custom_provider_set,
-            codex_provider::codex_custom_provider_clear,
-            codex_provider::codex_auth_mode_set,
-            codex::codex_app_server_request,
-            codex::codex_app_server_respond,
-            codex::codex_app_server_respond_user_input,
-            codex::codex_app_server_respond_dynamic_tool,
-            codex::read_codex_plugin_icon,
-            codex::select_codex_context_attachments,
-            codex::paste_codex_context_attachments,
-            codex::read_codex_context_attachment_preview,
-            codex::release_codex_context_attachments,
             drawings::load_drawing_library,
             drawings::read_drawing_meta,
             drawings::read_drawing_scene,

@@ -10,8 +10,7 @@ referenced_by: AGENTS.md#knowledge-map
 ## Package Scripts
 
 - `pnpm dev`：先执行 `pnpm runtime:stage`，再在固定的 `3000` 端口启动 Next.js 开发服务；端口已被占用时直接失败，不回退到其他端口。
-- `pnpm desktop:dev`：先在 Tauri 文件监听启动前准备 Codex 与专业文档导出 sidecar，再启动 Tauri 开发模式。
-- `pnpm codex:stage`：从固定版本 `@openai/codex` 平台包同时复制 `codex` 与 `codex-code-mode-host`，校验主程序版本、两项 SHA256 和可执行性。当前平台的 `@openai/codex-<os>-<arch>` optionalDependency 必须已解压；缺少该包时脚本失败，需完整 `pnpm install --frozen-lockfile`，不能用 `--offline` 或 `--ignore-scripts` 跳过。
+- `pnpm desktop:dev`：先在 Tauri 文件监听启动前准备专业文档导出 sidecar，再启动 Tauri 开发模式。
 - `pnpm document-export:stage`：下载并校验当前目标的 Pandoc 3.10.1、Typst 0.15.1 及对应许可证文本，生成被 Git 忽略的 Tauri sidecar；成功缓存后重复执行是幂等的。
 - `pnpm test:run`：运行一次 Vitest。
 - `pnpm lint`：运行 ESLint。
@@ -45,12 +44,9 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 
 - `NEXT_OUTPUT=export`：启用静态导出行为。
 - `TAURI_DEV_HOST`：覆盖桌面开发模式的资源 host。
-- `MARKUNE_CODEX_BIN`：仅用于本地诊断或开发，显式覆盖 Codex 可执行文件。配置路径必须通过 `codex --version` 探测；不得指向脚本包装器或不受信任文件。
 - `MARKUNE_PANDOC_BIN` / `MARKUNE_TYPST_BIN`：只供 `document-export:stage` 在离线构建环境复制精确锁定版本，不是应用运行时路径覆盖。版本探测不匹配时 staging 失败。
 - `MARKUNE_DOCUMENT_EXPORT_ENGINE=legacy`：运行时诊断/紧急回滚开关，使 PDF 与 Word 使用原兼容引擎；默认值和其他值都优先使用专业引擎。
-- `CODEX_HOME`：可选的共享 Codex 用户状态目录。未设置时 Markune 使用 `~/.codex`；显式值必须是工作区之外的既有绝对目录。Markune 会把解析后的值显式传给 App Server sidecar，以共享 ChatGPT/Codex CLI 的认证、配置、技能、MCP 与线程历史。
 - `CODEX_SQLITE_HOME`：不控制 Markune 启动的 sidecar。Markune 会从子进程环境移除此变量，并以 `-c sqlite_home="<CODEX_HOME>"` 固定 SQLite 投影目录，防止相对路径按工作区 `cwd` 解析或项目配置把运行时状态写入知识库。同一 sidecar 还会注入 `features.browser_use=false`、`features.browser_use_external=false`、`features.browser_use_full_cdp_access=false`、`features.computer_use=false` 与 `features.in_app_browser=false`，仅作用于 Markune 进程，不改用户 `config.toml`。
-- `MARKUNE_CODEX_PROVIDER_API_KEY`：仅由桌面宿主在启用 `markune_custom` provider 时注入到 Codex sidecar 进程环境；对应 `CODEX_HOME/config.toml` 中 `[model_providers.markune_custom].env_key`。用户不应手动配置该变量，明文 Key 只存放在 OS keyring。
 - `MARKUNE_UPDATER_PUBLIC_KEY`：只在发布构建时提供 Tauri CLI 生成的 `.key.pub` 文件原始单行 Base64 内容，由 `release:prepare` 校验解码后的 minisign 结构并写入 `.tauri-build/tauri.release.generated.json`。脚本兼容完整两行 minisign 输入并自动规范化为 Base64；普通开发和 Web 构建不需要该变量。
 - `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`：只允许存在于 GitHub Actions Secrets 或受控本机发布环境，用于生成 updater artifact 签名；不得写入仓库、生成配置或日志。
 
@@ -64,13 +60,11 @@ AI 画图直接依赖固定的 `@excalidraw/mermaid-to-excalidraw@2.2.2`。由�
 - `bundle.fileAssociations` 登记 `.md` 与 `.mdx`，`role` 为 `Editor`、`rank` 为 `Alternate`，使安装后的应用出现在系统打开方式中，但不抢 Markdown 默认应用。该登记由安装器写入；`pnpm desktop:dev` 不会修改系统关联。
 - 资源协议的静态范围仅允许 `$HOME/**/.markune/assets/files/**/*`。对于用户目录外、Windows 非系统盘或 macOS 外置卷上的工作区，Rust 仅在资产已经通过当前工作区索引、canonicalize 和 `.markune/assets/files` 边界校验后，向当前进程动态授权解析出的单个文件；不得授权整个工作区、磁盘或卷。
 - opener 插件关闭了自动接管 `target="_blank"` 链接的全局点击脚本；桌面外链必须显式调用 `openUrl`，避免覆盖编辑器自身的链接交互规则。
-- `bundle.externalBin` 包含 `binaries/codex`、`binaries/codex-code-mode-host`、`binaries/pandoc` 和 `binaries/typst`。Codex 主程序与辅助宿主必须随包放在同一目录。`desktop:dev` 会在 Tauri 文件监听启动前运行幂等 staging，避免写入 `src-tauri` 时触发重复启动；桌面构建仍在 `beforeBuildCommand` 中 staging。生成的目标平台二进制位于 `src-tauri/binaries/*-{target-triple}` 且被 Git 忽略。
-- Codex 运行时优先使用应用随附 sidecar；开发诊断时才依次检查 `MARKUNE_CODEX_BIN`、PATH 和 macOS ChatGPT App 内置 Codex。
-- 自定义 Responses 端点使用固定 provider ID `markune_custom`：设置页通过 `codex_custom_provider_*` / `codex_auth_mode_set` 写入 `CODEX_HOME/markune-provider.toml` 与版本化 keyring，使用 fingerprint 防止并发覆盖；启动时通过受控 `-c` overlay 应用，不修改共享 `config.toml`，保存后重启 App Server；不开放任意 config 键。
+- `bundle.externalBin` 仅包含 `binaries/pandoc` 和 `binaries/typst`；Agent 不作为 Tauri 固定 sidecar 捆绑，按独立目录安装与更新。桌面启动/构建只 staging 文档导出运行时。
 - 专业 Word/PDF 模板和第三方通知位于 `src-tauri/resources/document-export`。PDF 启用前必须由 Typst 字体清单确认平台存在受支持的中文字体；否则只降级 PDF，不影响专业 Word。兼容 PDF 注册内部 `markune-export://` 协议，但不扩大 `capabilities/default.json` 或 `assetProtocol.scope`。
 - 多格式导入不新增文件协议或 capability。源文件访问只通过 `src-tauri/src/import.rs` 的限时授权与 Raw IPC；`assetProtocol.scope` 保持不变。
 - 画板不新增文件协议或 capability。图稿场景、预览和组件库只通过 `src-tauri/src/drawings.rs` 的受限 Raw IPC 传输；缩略图以可撤销 Blob URL 展示，`assetProtocol.scope` 保持不变。
-- `src-tauri/resources/skills/` 作为只读 Tauri bundle resource 随应用发布。运行时只接受同时包含 `markune-diagram` 与 `markune-mindmap` 的完整内置 Skill 根目录，并要求每项同时具有 `SKILL.md` 与 `agents/openai.yaml`；注册时只提供这两个 Skill 子目录，避免旧暂存目录中的已移除 Skill 被继续加载；开发态暂存资源不完整时回退到源码资源目录，不读取渲染器提供的 Skill 物理路径。
+- `src-tauri/resources/skills/` 保留既有文档资源；ACP 不自动调用 Codex 专属 Skill 注册接口。Markune 绘图能力通过 MCP 工具与受限上下文提供。
 - 基础 `src-tauri/tauri.conf.json` 使用 `endpoints: []` 与空 `pubkey` 保留结构有效但不可用的 updater 配置。Tag 发布时生成的 release override 注入 `https://github.com/Refinex-Space/markune/releases/latest/download/latest.json`、公钥、updater artifacts、macOS ad-hoc identity `-` 和 Windows passive 模式。渲染器不能覆盖 endpoint。
 - `reqwest-updater` 是 updater 所用 `reqwest 0.13` 的依赖别名，只补充 `system-proxy` 与 `socks` 特性，保留既有 `reqwest 0.12` 调用点与 updater 的 TLS 配置。Cargo 会合并共享 `hyper-util` 的系统代理特性，其他使用默认代理的原生 HTTP 客户端也可读取系统代理；显式 `.no_proxy()` 的受限下载仍禁用代理。代理来源、支持范围与验收见 [更新网络与代理](../guides/release-and-update.md#更新网络与代理)。
 - Rust 侧 Tauri 依赖固定在 `2.11.x`，以约束 `with_webview` 平台类型；Windows 直接使用与当前 Wry 对齐的 `webview2-com 0.38.2`，macOS 使用 `objc2 0.6.4` 与 `objc2-*-kit 0.3.2`。Word 生成依赖精确锁定为 `docx 9.7.1`。
@@ -101,13 +95,13 @@ Markune 图片剪贴板桥接只解析受控 `markune-asset://` 地址，并识�
 
 旧设置文件中的未知字段读取时会忽略；用户保存设置后仅写回当前 schema 支持的字段。
 
-品牌迁移命令会在用户确认迁移旧工作区后，尝试把旧应用标识 `com.madora.app` 的设置复制到 `com.markune.app` 配置目录；现有 Markune 设置永不被覆盖。旧 Codex provider 表与 OS keyring 凭据采用同样的“目标不存在才迁移”规则，失败只产生迁移警告，不回滚已安全完成的工作区文件迁移。
+品牌迁移命令会在用户确认迁移旧工作区后，尝试把旧应用标识 `com.madora.app` 的设置复制到 `com.markune.app` 配置目录；现有 Markune 设置永不被覆盖。旧 Codex provider 表与 OS keyring 凭据保留原样，新的 ACP Profile 独立配置。
 
-## Codex Permission Profiles
+## ACP Agent Configuration
 
-Markune 不在自身设置或 `.markune` 中复制 Codex 权限配置。权限目录由共享 `CODEX_HOME/config.toml` 管理，App Server 通过 `permissionProfile/list` 返回内置 `:workspace`、`:read-only`、`:danger-full-access` 及用户定义的 `[permissions.<id>]` profile；`allowed: false` 的 profile 在界面中保持可见但不可选。
+Agent 数据独立位于 Tauri `app_local_data_dir()/agents`：`profiles.json` 保存安装/Profile/非敏感环境与凭据名称；`installations/<agent>/<version>-<uuid>` 保存不可变安装版本与收据；`runtime` 保存必要 Node 运行时；`ownership` 保存原生会话归属凭据；`sessions` 保存 Markune 会话，`session-index/<workspaceHash>` 保存轻量摘要索引。凭据值仅存系统 keyring `com.markune.agents`，账号键为 `<profileId>:<variableName>`。
 
-新任务默认“请求审批”，使用 `:workspace + on-request + user`。替我审批使用同一 `:workspace` profile，仅把 reviewer 切换为 `auto_review`；完全访问使用 `:danger-full-access + never + user`；只读访问使用 `:read-only + on-request + user`。普通 Agent 根据用户请求问答或直接编辑，不附加单独写作模式。历史任务保持其保存的权限；切换权限不清空当前会话与输入。企业级 `requirements.toml` / MDM 限制仍由原生运行时校验。
+模型、模式和配置选项由 ACP 会话返回。厂商额外模型提供商、沙箱、API 端点与原生 MCP 遵循其 CLI 文档；Markune 不把 Codex 特有 permission profile 或 Responses 接口伪装成统一 Agent 参数。
 
 ## Workspace Metadata
 
@@ -132,4 +126,4 @@ Inbox Capture 独立保存在 `.markune/inbox/cap_YYYYMMDD_HHMMSS_SSS_<uuid8>.md
 
 PDF 阅读使用既有 `public/import-runtime` 离线资源，不增加远程 Worker。网页摘录由用户填写 HTTP(S) 来源及原文。普通笔记的回收站与本地版本历史未增加；移动恢复文件是短期事务现场，正常完成即清理。
 
-Codex 的三个验证入口为 `test:codex:contract`、`test:codex:probe` 和 `test:codex:eval`，具体边界见 [专项架构](../architecture/codex.md)。
+ACP 验证入口和等级见 [验收记录](../verification/acp/acceptance.md)，历史 Codex 契约不再代表产品运行时。

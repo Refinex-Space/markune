@@ -8,8 +8,8 @@ vi.mock('next-themes', () => ({
   useTheme: () => ({ setTheme: vi.fn(), theme: 'light' }),
 }));
 
-vi.mock('../ai-panel', () => ({
-  AiPanel: ({
+vi.mock('../agent-panel', () => ({
+  AgentPanel: ({
     onOpenDocument,
     onOpenPlanPreview,
     presentation,
@@ -74,9 +74,9 @@ describe('right AI panel integration', () => {
 
     const aiPanelButton = screen.getByTestId('ai-panel-icon-button');
     const aiPanelIcon = aiPanelButton.querySelector('svg');
-    expect(aiPanelIcon?.getAttribute('viewBox')).toBe('0 0 256 260');
+    expect(aiPanelIcon?.getAttribute('viewBox')).toBe('0 0 24 24');
     expect(aiPanelIcon?.getAttribute('class')).toContain('size-[17px]');
-    expect(aiPanelIcon?.getAttribute('fill')).toBe('currentColor');
+    expect(aiPanelIcon?.getAttribute('stroke')).toBe('currentColor');
     expect(aiPanelButton.className).toContain('size-8');
 
     await user.click(screen.getByRole('button', { name: '展开 AI 面板' }));

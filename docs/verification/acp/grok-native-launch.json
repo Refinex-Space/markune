@@ -1,0 +1,59 @@
+{
+  "platform": "darwin-aarch64",
+  "results": [
+    {
+      "agentInfo": null,
+      "capabilities": {
+        "_meta": {
+          "x.ai/capabilities": {
+            "toolOverrides": {
+              "x_keyword_search": true,
+              "x_semantic_search": true,
+              "x_thread_fetch": false,
+              "x_user_search": false
+            }
+          },
+          "x.ai/fs_notify": true,
+          "x.ai/hooks": {
+            "blockingEvents": [
+              "pre_tool_use",
+              "stop",
+              "subagent_stop"
+            ],
+            "decisions": [
+              "deny",
+              "block"
+            ],
+            "stopSignals": [
+              "continue",
+              "stopReason",
+              "additionalContext"
+            ]
+          }
+        },
+        "auth": {},
+        "loadSession": true,
+        "mcpCapabilities": {
+          "http": true,
+          "sse": true
+        },
+        "promptCapabilities": {
+          "audio": false,
+          "embeddedContext": true,
+          "image": false
+        },
+        "sessionCapabilities": {
+          "close": {},
+          "list": {},
+          "resume": {}
+        }
+      },
+      "durationMs": 6281,
+      "id": "grok-build",
+      "modelPromptSent": false,
+      "outcome": "installed-and-initialized",
+      "version": "1.0.50"
+    }
+  ],
+  "sourceDigest": "26672baa7aaa5bf506828783ebb89ad9727efd4d7b1d5e3f211959207da87737"
+}

@@ -7,7 +7,7 @@
     "frontendDist": "../out",
     "devUrl": "http://localhost:3000",
     "beforeDevCommand": "pnpm dev",
-    "beforeBuildCommand": "pnpm codex:stage && pnpm document-export:stage && pnpm build:desktop:web"
+    "beforeBuildCommand": "pnpm document-export:stage && pnpm build:desktop:web"
   },
   "app": {
     "windows": [
@@ -46,8 +46,6 @@
     "active": true,
     "targets": "all",
     "externalBin": [
-      "binaries/codex",
-      "binaries/codex-code-mode-host",
       "binaries/pandoc",
       "binaries/typst"
     ],
@@ -66,11 +64,16 @@
       {
         "name": "Markdown",
         "description": "Markdown Document",
-        "ext": ["md", "mdx"],
+        "ext": [
+          "md",
+          "mdx"
+        ],
         "mimeType": "text/markdown",
         "role": "Editor",
         "rank": "Alternate",
-        "contentTypes": ["net.daringfireball.markdown"]
+        "contentTypes": [
+          "net.daringfireball.markdown"
+        ]
       }
     ],
     "android": {

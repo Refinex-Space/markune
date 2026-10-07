@@ -1,0 +1,48 @@
+{
+  "platform": "darwin-aarch64",
+  "results": [
+    {
+      "durationMs": 450641,
+      "error": "安装版本未通过 ACP v1 握手",
+      "id": "codex-acp",
+      "modelPromptSent": false,
+      "outcome": "failed"
+    },
+    {
+      "agentInfo": {
+        "name": "Copilot",
+        "title": "Copilot",
+        "version": "1.0.92"
+      },
+      "capabilities": {
+        "loadSession": true,
+        "mcpCapabilities": {
+          "http": true,
+          "sse": true
+        },
+        "promptCapabilities": {
+          "audio": false,
+          "embeddedContext": true,
+          "image": true
+        },
+        "sessionCapabilities": {
+          "close": {},
+          "list": {}
+        }
+      },
+      "durationMs": 88216,
+      "id": "github-copilot-cli",
+      "modelPromptSent": false,
+      "outcome": "installed-and-initialized",
+      "version": "1.0.92"
+    },
+    {
+      "durationMs": 2789,
+      "error": "安装验证连接已结束",
+      "id": "grok-build",
+      "modelPromptSent": false,
+      "outcome": "failed"
+    }
+  ],
+  "sourceDigest": "26672baa7aaa5bf506828783ebb89ad9727efd4d7b1d5e3f211959207da87737"
+}

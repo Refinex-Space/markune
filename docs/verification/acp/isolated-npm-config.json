@@ -1,0 +1,33 @@
+{
+  "platform": "darwin-aarch64",
+  "results": [
+    {
+      "agentInfo": {
+        "name": "glm-acp-agent",
+        "version": "1.14.0"
+      },
+      "capabilities": {
+        "loadSession": true,
+        "mcpCapabilities": {
+          "http": true
+        },
+        "promptCapabilities": {
+          "embeddedContext": true,
+          "image": true
+        },
+        "sessionCapabilities": {
+          "close": {},
+          "fork": {},
+          "list": {},
+          "resume": {}
+        }
+      },
+      "durationMs": 5165,
+      "id": "glm-acp-agent",
+      "modelPromptSent": false,
+      "outcome": "installed-and-initialized",
+      "version": "1.14.0"
+    }
+  ],
+  "sourceDigest": "26672baa7aaa5bf506828783ebb89ad9727efd4d7b1d5e3f211959207da87737"
+}

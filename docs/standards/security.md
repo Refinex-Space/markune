@@ -58,38 +58,21 @@ referenced_by: AGENTS.md#knowledge-map
 - 打开含旧数据的工作区时必须在任何工作区写操作前阻断并取得用户明确确认；`.madora/` 与 `.markune/` 同时存在时必须失败关闭，不能猜测合并、删除或覆盖。
 - 迁移前必须拒绝旧私有目录及其内容中的符号链接，为所有待改写文件创建原文备份和 SHA-256 清单。目录重命名和逐文件替换任一步失败时必须恢复已修改文件与旧目录；备份必须保留并向用户返回相对位置。
 - 只改写应用拥有的持久化协议、标记与私有目录路径，不能替换用户正文中的普通品牌文字。单文件读取应有明确大小上限，扫描必须跳过 Git、依赖、构建与迁移暂存目录。
-- 旧应用设置、Codex provider 配置与 keyring 凭据只能在 Markune 目标不存在时复制，并在校验新凭据可读后删除旧 keyring 项。非工作区附属状态迁移失败只返回警告，不能静默覆盖当前 Markune 配置。
+- 旧应用设置只能在 Markune 目标不存在时复制。ACP 迁移不复制、删除或重写旧 Codex provider 配置与 keyring 凭据。非工作区附属状态迁移失败只返回警告，不能静默覆盖当前 Markune 配置。
 
-## Codex Runtime
+## ACP Agent Runtime
 
-- 新任务使用工作区 Agent 与原生审批，允许按用户明确请求读取或修改文档。不强制文档预审、写作风格或引用数量门禁；普通文件锁定、保存冲突、路径授权与原生权限审批不得移除。资料中的指令仍为不可信内容。
-
-
-- Codex App Server 必须由 Tauri 在本地通过 stdio 启动；不得监听 TCP，也不得把 API key、登录 Token 或认证响应传入 React state、local storage、应用设置或日志。sidecar 启动除 `sqlite_home` 外，只允许额外注入关闭 Browser Use / Chrome / Computer Use / 应用内浏览器的 `features.*` 覆盖，避免 CUA 在 Tauri 中挂起；不得借此写入用户 `config.toml`，也不得关闭全部 `features.plugins`。
-- 自定义 provider 密钥只能写入 OS keyring（服务名 `markune.codex.custom-provider`），并由 Rust 在 sidecar spawn 时注入 `MARKUNE_CODEX_PROVIDER_API_KEY`；不得把该环境变量写入用户 shell profile、共享日志或诊断导出。受控 TOML patch 只允许顶层 `model` / `model_provider` 与 `[model_providers.markune_custom]`（`wire_api = "responses"`、`env_key` 固定），禁止开放通用 `config/*` 写入。
-- 设置页 Codex 状态只允许通过受控命令读取 `CODEX_HOME/config.toml` 与 `auth.json` 的非敏感摘要（是否已登录、auth_mode、可选 email）；不得返回 access/refresh/id token 或 API key。设置页刷新不得为探测状态启动 App Server，也不得依赖可能挂起的 `account/read` RPC。
-- 权限模式必须保持 profile 与 reviewer 分层：自动审查只可使用 `:workspace + on-request + auto_review`，不得扩大文件或网络边界；完全访问必须经过显式风险确认并固定为 `:danger-full-access + never + user`；输入框“只读访问”使用 `:read-only + on-request + user`；恢复历史任务不改写其已有权限策略。运行中的 turn 或待审批请求存在时禁止切换。
-- Codex collaboration mode 与权限模式必须保持分离。Plan 只能使用 `collaborationMode/list` 返回的内置预设、当前模型、`medium` 推理强度和显式空 `developer_instructions`；渲染器不得提交自定义开发者指令、未知模式或非法强度。Plan 依赖指令禁止实施，并不提供强制只读安全边界；不得因此绕过现有 permission profile、审批或审计。
-- 上下文压缩不得成为通用 App Server 参数透传入口。Rust 只允许 `thread/compact/start` 的精确 `threadId`，拒绝缺失、空值、控制字符、超长值、未知字段和自定义压缩指令。上下文用量只作为当前面板的临时协议状态，不得写入日志、工作区、local storage 或 Markune 会话镜像；自动压缩必须继续由 Codex Core 原生阈值控制，前端不得按百分比重复触发。
-- Goal 不得成为扩大权限或无限前端重试的入口。Rust 只允许用户设置非空、最多 4,000 字符且不含非法控制字符的 objective，并只允许 `active | paused` 生命周期写入；模型终态、token budget、自定义 continuation prompt 和未知字段一律拒绝。Goal 的续跑、预算、空转保护和运行中 objective steering 由 Codex Core 负责，Markune 不得建立定时轮询、后台重发或第二份持久化状态。目标文本仍属于会话用户内容，会遵循 Codex Home 的线程持久化规则，不得写入共享日志。
-- 自定义 permission profile 只能来自 App Server `permissionProfile/list`，并遵循其 `allowed` 标记与 `configRequirements/read` 的企业要求；Markune 不得开放通用 `config/read`、配置写入或实验功能写入。渲染器直接提交的 `localImage` 路径必须在工作区内；所有 App Server 内联 `image` 只能由 Rust 从有效原生附件授权生成，外部 URL、客户端 Data URL 和伪造图片必须拒绝。Codex 原生 `mention` 只允许非空的 `app://` 或 `plugin://` 目标。
-- Codex 文件与文件夹附件必须由 Tauri 原生选择器创建授权；剪贴板文件列表或位图只能在显式粘贴时由原生命令读取。授权不可猜测且最多 15 分钟有效，渲染器只可取得 ID、显示名称、类型、媒体类型、大小与预览标记。路径附件记录 canonical path、真实类型、大小和修改时间，图片额外记录内容散列；剪贴板图片只保存内存字节和散列。Rust 在每次预览与 `turn/start` 重新校验、去重并限制最多 20 个，图片还必须满足签名、解码、20 MiB 单图、40 MiB 单 turn 和 2500 万像素边界；未知、过期、伪造或已变化的授权必须失败关闭。发送完成、移除附件、切换线程或工作区、运行时停止时应幂等释放授权。
-- 原生附件授权不等于扩大 Codex 文件系统权限。非图片附件只把所选路径作为不可信用户上下文交给 App Server，工作区外读取仍必须服从当前 permission profile 和审批；不得为附件修改 Tauri capability、资源协议 scope 或 runtime workspace roots。
-- 图片预览必须由 Rust 解码、缩放并重新编码后通过 Raw IPC 返回，最长边不超过 2048 px、响应不超过 2 MiB；不得把绝对路径或任意本地 URL 暴露给渲染器。图片输入会随 App Server 任务历史进入用户级 Codex Home，但不得复制到 `.markune`、local storage、资源协议或普通文件 staging。
-- 插件本地图标不是通用文件读取入口。Rust 只能授权当前运行时最近一次 `plugin/installed` 响应中声明的 `composerIcon`、`logo`、`logoDark` 精确 canonical path，并在读取时重新 canonicalize、拒绝目录、符号链接改指、超过 1 MiB 或签名不属于 PNG/JPEG/GIF/WebP/SVG 的内容。重新检测、运行时停止或工作区切换必须撤销授权；不得为图标扩大 Tauri capability、文件系统插件权限或 asset protocol scope。
-- 插件远程图标只允许 HTTPS，必须禁用 Referer。SVG 仅作为经 Rust 大小与类型检查后的 `<img>` 数据源使用，不得以内联 HTML、`dangerouslySetInnerHTML` 或脚本可执行 DOM 注入；图标数据不得写入 mention、消息历史、local storage 或工作区。
-- Skill 路径不是渲染器可自由提交的文件路径。`skills/list` 只允许查询当前工作区根目录；Rust 必须按客户端请求 ID 关联响应，只登记 enabled Skill 的精确名称与 canonical 普通文件路径。`turn/start` 的 `skill` 输入必须同时匹配名称和路径授权；列表刷新、`skills/changed`、运行时停止或工作区切换必须撤销旧授权。Skill 输入框统一使用应用内置图标，不读取 Skill 自定义图标路径，也不得扩大 Tauri capability 或资源协议范围。
-- 内置 AI 画图 Skill 根目录只能由 Tauri resource resolver 取得并经 Rust 注入；渲染器提交任意 `extraRoots` 或 `dynamicTools` 必须失败关闭。动态工具请求必须精确匹配 `markune_drawing` namespace、允许的工具名、字段与受限 profile，未知字段、超长 Mermaid、非 UUID previewId/drawingId、重复响应、外链 Data URL 和伪造图片签名一律拒绝。`inspect_drawing` 只能读取当前 turn 的 active/mention 授权集合；`apply_preview_to_active` 只能消费同 turn 的 A 级缓存预览，且目标 Drawing ID、kind 和 expectedRevision 必须由 Rust 从 active 授权注入，再由前端与当前编辑器状态复核。mention 图稿不得被原地写入，模型不得指定覆盖目标。授权在 turn 完成、运行时退出、工作区切换或下一 turn 时撤销。质量不合格的预览可以返回给模型检查，但缓存必须保留 `creatable: false`，原子应用与创建流程都不得绕过该标记。
-- Markune 图稿引用只接受规范小写 UUID、`active | mention` 角色和最多 32 项；Rust 必须从当前工作区非回收站 Drawing bundle 重新读取权威元数据，并拒绝未知字段、多个 active、缺失/损坏 bundle、重复 ID 和符号链接存储。模型只取得 untrusted 元数据、移除 files/blob 的有界场景投影和受签名校验的现有 PNG/WebP 预览，不得取得物理路径或 raw scene。
-- Markune 文档引用必须由 Rust canonicalize，并验证为当前工作区内真实存在的 Markdown 文件；必须拒绝相对路径、目录、非 Markdown 文件、工作区外路径、符号链接逃逸、未知角色、多个活跃文档和超过 32 个引用。传给 Codex 的只是不可信工作区相对路径，不得由前端预读、上传或复制文档正文。
-- 渲染器不得直接构造 `additionalContext` 或 developer 级上下文。固定读取策略只能由 Tauri 生成，活跃文档和显式引用路径必须分别使用 `untrusted` 信任级别；文件名、路径和文档内容均不得解释为指令。空活跃文档必须编码为 `null`，防止跨 turn 沿用旧文档。
-- `on-request` 审批是 Agent 的默认策略。命令、文件修改和 `item/permissions/requestApproval` 在用户或 auto-reviewer 决定前不得继续；“拒绝并继续”与“拒绝并停止”必须保持不同语义，“本次任务允许”只作用于当前 App Server 会话。
-- Rust 必须保存每个 server request 的原始允许候选，前端只能回传 opaque choice id。结构化 execpolicy/network amendment 与临时文件/网络权限必须由 Rust 从原始请求复制，渲染器不得构造或修改。未登记、已处理或未知的 server request 必须失败关闭并返回 JSON-RPC 错误，不得静默允许或让 turn 无限等待。
-- 用户决策 request 必须同样使用 Rust 生成的 opaque question/option ID；前端不得回传原始协议 question ID 或自行构造 option label。秘密输入只能保留在交互组件的临时内存中，不得写入 Markune 日志、React 会话历史、local storage、工作区或应用设置；提交后仍会进入 Codex，并遵循 App Server 自身的会话持久化规则。Markune 不得根据 `autoResolutionMs` 自动代答；App Server resolved、interrupt、运行时退出或首次成功回答后必须撤销 pending 映射，后续回答一律拒绝。
-- App Server stderr 必须被消费但不得原样转发到前端或共享日志，避免泄露绝对路径、命令输出和文档内容。
-- 生产包只使用构建阶段从锁定版本 `@openai/codex` 平台包提取的 sidecar。`MARKUNE_CODEX_BIN` 仅是显式开发覆盖，不得作为默认生产分发方式。
-- Codex 会话只能存入工作区之外的共享 Codex Home。启动前必须 canonicalize 存储目录并拒绝相对路径、工作区内部路径及最终落入工作区的符号链接；sidecar 的 SQLite 投影必须固定在同一用户级目录。
-- Markune 不得直接读写 Codex 的会话 JSONL、`session_index.jsonl` 或 SQLite，也不得在 `.markune`、React state、local storage 或应用设置中复制完整会话。`storageRoot` 只可作为本机诊断信息返回，不得上传、写入共享日志或默认展示。
+- Agent 是以当前用户身份运行的第三方程序，安装界面必须说明来源与系统权限；ACP、工作区 cwd 和客户端 fs 根目录均不等同于系统沙箱。不得宣称所有 Agent 的 Ask/Plan 模式提供强制只读。
+- 受管安装来源、重定向、npm 身份和精确版本由原生校验，解压拒绝越界路径并限制总量；校验通过的独立版本才可启用。旧版本不会在运行中被替换。没有发布者散列的下载不能标为发布者已校验。
+- 子进程仅继承必要系统环境，Profile 凭据从系统 keyring 注入。不得把凭据返回 UI、写会话或日志；stderr 只消费不转发。安装探测使用隔离 HOME，不认证或发送 prompt。
+- Profile 的程序路径必须来自原生选择器或受控安装；敏感环境变量使用凭据字段。聊天文本和 MCP 工具不能创建或改写 Profile。
+- 连接绑定所属窗口、canonical 工作区与 Profile；协议、安装进度和认证终端事件使用 `emit_to` 定向到所属窗口，不使用全局广播；文件/终端操作必须匹配未处理的服务端请求。只允许恢复原生登记的 Markune 会话，独占租约随进程结束释放，不能因共享 HOME 中出现同目录线程而自动接管。
+- 用户授权严格选择 Agent 提供的候选 optionId，默认等待用户，不自动代答。取消和断连撤销所有 pending 交互。终端认证只执行该 Agent 在 initialize 中声明的方法与附加参数。
+- 标准文件 API 拒绝工作区外、隐藏路径、父目录与符号链接；现有文件必须先读，修改按 SHA-256 基线及文档锁做原子冲突保护。写前 flush 失败即拒绝。直接 Agent 工具不受此 API 的路径检查覆盖。
+- 每轮引用由原生重读权威元数据，标记 untrusted。图稿检查仅限 active/mention 授权，原地修改仅限 active；模型只给 previewId，ID/kind/revision 由原生注入，既有预览质量与修订冲突校验不能跳过。
+- Markune MCP 只监听随机回环地址，使用连接限定令牌和有界帧；代理的令牌通过环境传递，不放命令行。仅在当前用户任务中开放工具，完成、取消或退出后撤销。
+- 用户显式选取的图片仅在 Agent 声明 image 能力后发送，每图 3 MiB、总编码量 6 MiB、最多 8 图；不写工作区资产。工具预览只接受签名有效的 2 MiB 内 PNG/WebP，作为 MCP image content 传递。
+- 新会话投影保存在应用私有 Agent 目录并原子写入，限记录 16 MiB / 5000 项；运行时 8 MiB 内容上限。不得读取或改写旧 Codex 的 JSONL、SQLite、session_index、账号配置或凭据。用户输入和工具内容仍可能被供应商自身持久化。
 
 ## Uploads And Links
 

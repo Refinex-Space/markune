@@ -55,7 +55,7 @@ pnpm install
 pnpm desktop:dev
 ```
 
-仅启动 Next.js 开发服务可运行 `pnpm dev`。桌面端开发会额外准备 Codex、Pandoc、Typst 与导入导出运行时。
+仅启动 Next.js 开发服务可运行 `pnpm dev`。桌面端开发会额外准备 Pandoc、Typst 与导入导出运行时；智能体在设置中独立安装或连接本机 CLI。
 
 ### 常用命令
 
@@ -80,11 +80,11 @@ Windows x64 在仓库根目录执行：
 pnpm desktop:build
 ```
 
-构建前会依次准备 Codex、Pandoc 3.10.1、Typst 0.15.1 和静态前端。首次准备 Pandoc/Typst 时需要从 GitHub Releases 下载压缩包；`document-export:stage` 对单次下载设置了 120 秒超时。网络较慢时可能出现以下错误：
+构建前会依次准备 Pandoc 3.10.1、Typst 0.15.1 和静态前端。首次准备 Pandoc/Typst 时需要从 GitHub Releases 下载压缩包；`document-export:stage` 对单次下载设置了 120 秒超时。网络较慢时可能出现以下错误：
 
 ```text
 DOMException [TimeoutError]: The operation was aborted due to timeout
-beforeBuildCommand `pnpm codex:stage && pnpm document-export:stage && pnpm build:desktop:web` failed
+beforeBuildCommand `pnpm document-export:stage && pnpm build:desktop:web` failed
 ```
 
 这表示文档导出运行时下载超时，不是 Tauri 或 Rust 编译失败。可在 Git Bash 中先把固定版本压缩包下载到脚本缓存目录，再重新执行 staging 和打包：

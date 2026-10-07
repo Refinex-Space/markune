@@ -9,7 +9,7 @@ import {
   Search,
   Sheet,
 } from 'lucide-react';
-import { Openai } from '@thesvg/react';
+import { Bot } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
 import {
@@ -148,10 +148,10 @@ export function WorkspaceSystemNav({
     },
     {
       id: 'codex',
-      label: 'Codex',
+      label: '智能体',
       testId: 'codex-workspace-entry',
       active: systemPage === 'codex',
-      icon: <Openai className="size-[13px]" variant="light" />,
+      icon: <Bot className="size-[13px]" />,
       onClick: onOpenCodex,
     },
   ];

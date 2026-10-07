@@ -17,7 +17,7 @@ describe('Codex workspace shell', () => {
     expect(views).toBeGreaterThan(-1);
     expect(codex).toBeGreaterThan(views);
     expect(sidebar).toContain("systemPage === 'codex'");
-    expect(sidebar).toContain("label: 'Codex'");
+    expect(sidebar).toContain("label: '智能体'");
   });
 
   it('以系统页切换展示形态而不是创建第二个 AiPanel', () => {
@@ -35,10 +35,10 @@ describe('Codex workspace shell', () => {
     expect(layout).toContain('handleOpenCodexPage');
     // Fullscreen Codex is workspace-scoped: do not bind leftover editor tabs as
     // the active document context.
-    expect(layout).toContain("systemPage === 'codex' ? null : activePanelDocument");
+    expect(layout).toContain("systemPage !== null ? null : activePanelDocument");
     expect(layout).toContain(
-      "systemPage === 'codex' ? null : activePanelDocumentPath",
+      "systemPage !== null ? null : activePanelDocumentPath",
     );
-    expect(rightPanel.match(/<AiPanel/g)).toHaveLength(1);
+    expect(rightPanel.match(/<AgentPanel/g)).toHaveLength(1);
   });
 });

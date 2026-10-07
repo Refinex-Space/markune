@@ -1,0 +1,108 @@
+{
+  "checkedAt": "2026-10-07T07:00:52.370Z",
+  "platform": "darwin-arm64",
+  "credentialPolicy": "isolated HOME and credential environment removed; no authentication or prompts",
+  "results": [
+    {
+      "name": "OpenCode local",
+      "version": "1.14.46",
+      "outcome": "initialized",
+      "durationMs": 1336,
+      "protocolVersion": 1,
+      "capabilities": {
+        "loadSession": true,
+        "mcpCapabilities": {
+          "http": true,
+          "sse": true
+        },
+        "promptCapabilities": {
+          "embeddedContext": true,
+          "image": true
+        },
+        "sessionCapabilities": {
+          "close": {},
+          "fork": {},
+          "list": {},
+          "resume": {}
+        }
+      },
+      "authMethods": [
+        {
+          "id": "opencode-login",
+          "name": "Login with opencode",
+          "type": "agent"
+        }
+      ],
+      "modelPromptSent": false
+    },
+    {
+      "name": "Qoder local",
+      "version": "1.1.17",
+      "outcome": "initialized",
+      "durationMs": 1180,
+      "protocolVersion": 1,
+      "capabilities": {
+        "_meta": {
+          "qoder": {
+            "promptQueueing": true
+          }
+        },
+        "loadSession": true,
+        "sessionCapabilities": {
+          "additionalDirectories": {},
+          "close": {},
+          "delete": {},
+          "fork": {},
+          "list": {},
+          "resume": {}
+        },
+        "promptCapabilities": {
+          "image": true,
+          "embeddedContext": true
+        },
+        "mcpCapabilities": {
+          "http": true,
+          "sse": true
+        }
+      },
+      "authMethods": [
+        {
+          "id": "qodercli-login-terminal",
+          "name": "Login with qodercli",
+          "type": "terminal"
+        }
+      ],
+      "modelPromptSent": false
+    },
+    {
+      "name": "GitHub Copilot local",
+      "version": "1.0.36",
+      "outcome": "initialized",
+      "durationMs": 1715,
+      "protocolVersion": 1,
+      "capabilities": {
+        "loadSession": true,
+        "mcpCapabilities": {
+          "http": true,
+          "sse": true
+        },
+        "promptCapabilities": {
+          "image": true,
+          "audio": false,
+          "embeddedContext": true
+        },
+        "sessionCapabilities": {
+          "list": {}
+        }
+      },
+      "authMethods": [
+        {
+          "id": "copilot-login",
+          "name": "Log in with Copilot CLI",
+          "type": "agent"
+        }
+      ],
+      "modelPromptSent": false
+    }
+  ]
+}

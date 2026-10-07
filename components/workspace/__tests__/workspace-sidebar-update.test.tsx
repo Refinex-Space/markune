@@ -196,7 +196,7 @@ describe('WorkspaceSidebar update entry', () => {
       />,
     );
 
-    for (const name of ['笔记', '日程', 'Inbox', '画板', '视图', '图谱', 'Codex']) {
+    for (const name of ['笔记', '日程', 'Inbox', '画板', '视图', '图谱', '智能体']) {
       const entry = screen.getByRole('button', { name });
       expect(entry.className).toContain('h-7');
       expect(entry.className).toContain('gap-1.5');

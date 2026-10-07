@@ -1,0 +1,394 @@
+{
+  "assembledAt": "2026-10-07T07:46:52.094023+00:00",
+  "platform": "darwin-aarch64",
+  "scope": "Official catalog installation and ACP v1 initialization; isolated HOME; no authentication or model prompt",
+  "allCatalogEntriesInitialized": true,
+  "results": [
+    {
+      "evidence": "codex-home-check.json",
+      "agentInfo": {
+        "name": "@agentclientprotocol/codex-acp",
+        "title": "Codex",
+        "version": "2.1.1"
+      },
+      "capabilities": {
+        "_meta": {
+          "authStatus": {}
+        },
+        "auth": {
+          "logout": {}
+        },
+        "loadSession": true,
+        "mcpCapabilities": {
+          "acp": false,
+          "http": true,
+          "sse": false
+        },
+        "promptCapabilities": {
+          "embeddedContext": true,
+          "image": true
+        },
+        "providers": {},
+        "sessionCapabilities": {
+          "additionalDirectories": {},
+          "close": {},
+          "delete": {},
+          "fork": {},
+          "list": {},
+          "resume": {},
+          "subagents": {}
+        }
+      },
+      "durationMs": 11390,
+      "id": "codex-acp",
+      "modelPromptSent": false,
+      "outcome": "installed-and-initialized",
+      "version": "2.1.1"
+    },
+    {
+      "evidence": "catalog-installations.json",
+      "agentInfo": {
+        "name": "@agentclientprotocol/claude-agent-acp",
+        "title": "Claude Agent",
+        "version": "0.86.0"
+      },
+      "capabilities": {
+        "_meta": {
+          "authStatus": {},
+          "claudeCode": {
+            "promptQueueing": true
+          }
+        },
+        "auth": {
+          "logout": {}
+        },
+        "loadSession": true,
+        "mcpCapabilities": {
+          "http": true,
+          "sse": true
+        },
+        "promptCapabilities": {
+          "embeddedContext": true,
+          "image": true
+        },
+        "providers": {},
+        "sessionCapabilities": {
+          "additionalDirectories": {},
+          "close": {},
+          "delete": {},
+          "fork": {},
+          "list": {},
+          "resume": {},
+          "subagents": {}
+        }
+      },
+      "durationMs": 124483,
+      "id": "claude-acp",
+      "modelPromptSent": false,
+      "outcome": "installed-and-initialized",
+      "version": "0.86.0"
+    },
+    {
+      "evidence": "catalog-installations.json",
+      "agentInfo": null,
+      "capabilities": {
+        "delegateToolsSupport": true,
+        "loadSession": true,
+        "mainAgentSupport": false,
+        "mcpCapabilities": {
+          "http": true,
+          "sse": true
+        },
+        "metaPromptSupport": true,
+        "multitaskSupport": true,
+        "promptCapabilities": {
+          "embeddedContext": true,
+          "image": true
+        }
+      },
+      "durationMs": 241541,
+      "id": "codebuddy-code",
+      "modelPromptSent": false,
+      "outcome": "installed-and-initialized",
+      "version": "2.161.4"
+    },
+    {
+      "evidence": "catalog-installations.json",
+      "agentInfo": {
+        "name": "glm-acp-agent",
+        "version": "1.14.0"
+      },
+      "capabilities": {
+        "loadSession": true,
+        "mcpCapabilities": {
+          "http": true
+        },
+        "promptCapabilities": {
+          "embeddedContext": true,
+          "image": true
+        },
+        "sessionCapabilities": {
+          "close": {},
+          "fork": {},
+          "list": {},
+          "resume": {}
+        }
+      },
+      "durationMs": 3467,
+      "id": "glm-acp-agent",
+      "modelPromptSent": false,
+      "outcome": "installed-and-initialized",
+      "version": "1.14.0"
+    },
+    {
+      "evidence": "catalog-installations-retry.json",
+      "agentInfo": {
+        "name": "Copilot",
+        "title": "Copilot",
+        "version": "1.0.92"
+      },
+      "capabilities": {
+        "loadSession": true,
+        "mcpCapabilities": {
+          "http": true,
+          "sse": true
+        },
+        "promptCapabilities": {
+          "audio": false,
+          "embeddedContext": true,
+          "image": true
+        },
+        "sessionCapabilities": {
+          "close": {},
+          "list": {}
+        }
+      },
+      "durationMs": 88216,
+      "id": "github-copilot-cli",
+      "modelPromptSent": false,
+      "outcome": "installed-and-initialized",
+      "version": "1.0.92"
+    },
+    {
+      "evidence": "grok-native-launch.json",
+      "agentInfo": null,
+      "capabilities": {
+        "_meta": {
+          "x.ai/capabilities": {
+            "toolOverrides": {
+              "x_keyword_search": true,
+              "x_semantic_search": true,
+              "x_thread_fetch": false,
+              "x_user_search": false
+            }
+          },
+          "x.ai/fs_notify": true,
+          "x.ai/hooks": {
+            "blockingEvents": [
+              "pre_tool_use",
+              "stop",
+              "subagent_stop"
+            ],
+            "decisions": [
+              "deny",
+              "block"
+            ],
+            "stopSignals": [
+              "continue",
+              "stopReason",
+              "additionalContext"
+            ]
+          }
+        },
+        "auth": {},
+        "loadSession": true,
+        "mcpCapabilities": {
+          "http": true,
+          "sse": true
+        },
+        "promptCapabilities": {
+          "audio": false,
+          "embeddedContext": true,
+          "image": false
+        },
+        "sessionCapabilities": {
+          "close": {},
+          "list": {},
+          "resume": {}
+        }
+      },
+      "durationMs": 6281,
+      "id": "grok-build",
+      "modelPromptSent": false,
+      "outcome": "installed-and-initialized",
+      "version": "1.0.50"
+    },
+    {
+      "evidence": "catalog-installations.json",
+      "agentInfo": {
+        "name": "minimax-code",
+        "title": "MiniMax Code",
+        "version": "0.2.7"
+      },
+      "capabilities": {
+        "loadSession": true,
+        "mcpCapabilities": {
+          "http": true,
+          "sse": true
+        },
+        "promptCapabilities": {
+          "audio": false,
+          "embeddedContext": false,
+          "image": false
+        },
+        "sessionCapabilities": {
+          "close": {},
+          "fork": {},
+          "list": {},
+          "resume": {}
+        }
+      },
+      "durationMs": 27609,
+      "id": "minimax-code",
+      "modelPromptSent": false,
+      "outcome": "installed-and-initialized",
+      "version": "0.2.7"
+    },
+    {
+      "evidence": "catalog-installations.json",
+      "agentInfo": {
+        "name": "qoder-cli",
+        "title": "Qoder CLI",
+        "version": "0.2.14"
+      },
+      "capabilities": {
+        "loadSession": true,
+        "mcpCapabilities": {
+          "http": true,
+          "sse": true
+        },
+        "promptCapabilities": {
+          "audio": true,
+          "embeddedContext": true,
+          "image": true
+        },
+        "sessionCapabilities": {
+          "list": {}
+        }
+      },
+      "durationMs": 14751,
+      "id": "qoder",
+      "modelPromptSent": false,
+      "outcome": "installed-and-initialized",
+      "version": "0.2.14"
+    },
+    {
+      "evidence": "catalog-installations.json",
+      "agentInfo": null,
+      "capabilities": {
+        "loadSession": true,
+        "mcpCapabilities": {
+          "http": true,
+          "sse": true
+        },
+        "promptCapabilities": {
+          "audio": false,
+          "embeddedContext": false,
+          "image": true
+        },
+        "sessionCapabilities": {
+          "list": {}
+        }
+      },
+      "durationMs": 248479,
+      "id": "cursor",
+      "modelPromptSent": false,
+      "outcome": "installed-and-initialized",
+      "version": "2026.10.01"
+    },
+    {
+      "evidence": "catalog-installations.json",
+      "agentInfo": {
+        "name": "Kimi Code CLI",
+        "version": "1.52.0"
+      },
+      "capabilities": {
+        "loadSession": true,
+        "mcpCapabilities": {
+          "http": true,
+          "sse": false
+        },
+        "promptCapabilities": {
+          "audio": false,
+          "embeddedContext": true,
+          "image": true
+        },
+        "sessionCapabilities": {
+          "list": {},
+          "resume": {}
+        }
+      },
+      "durationMs": 167535,
+      "id": "kimi",
+      "modelPromptSent": false,
+      "outcome": "installed-and-initialized",
+      "version": "1.52.0"
+    },
+    {
+      "evidence": "catalog-installations.json",
+      "agentInfo": {
+        "name": "OpenCode",
+        "version": "1.18.35"
+      },
+      "capabilities": {
+        "loadSession": true,
+        "mcpCapabilities": {
+          "http": true,
+          "sse": true
+        },
+        "promptCapabilities": {
+          "embeddedContext": true,
+          "image": true
+        },
+        "sessionCapabilities": {
+          "close": {},
+          "fork": {},
+          "list": {},
+          "resume": {}
+        }
+      },
+      "durationMs": 145643,
+      "id": "opencode",
+      "modelPromptSent": false,
+      "outcome": "installed-and-initialized",
+      "version": "1.18.35"
+    }
+  ],
+  "failedAttempts": [
+    {
+      "id": "codex-acp",
+      "error": "智能体安装超时",
+      "evidence": "catalog-installations.json"
+    },
+    {
+      "id": "github-copilot-cli",
+      "error": "智能体安装超时",
+      "evidence": "catalog-installations.json"
+    },
+    {
+      "id": "grok-build",
+      "error": "安装验证连接已结束",
+      "evidence": "catalog-installations.json"
+    },
+    {
+      "id": "codex-acp",
+      "error": "安装版本未通过 ACP v1 握手",
+      "evidence": "catalog-installations-retry.json"
+    },
+    {
+      "id": "grok-build",
+      "error": "安装验证连接已结束",
+      "evidence": "catalog-installations-retry.json"
+    }
+  ]
+}

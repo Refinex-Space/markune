@@ -3249,7 +3249,7 @@ export function WorkspaceLayout({
         flushAiWorkspaceChanges(includeOpenTabs),
       );
       aiWorkspaceRefreshQueueRef.current = refresh.catch((error) => {
-        console.error('刷新 Codex 修改后的工作区失败', error);
+        console.error('刷新智能体修改后的工作区失败', error);
       });
       return aiWorkspaceRefreshQueueRef.current;
     },
@@ -3307,7 +3307,7 @@ export function WorkspaceLayout({
           documentLoadStateRef.current !== 'loaded'
         ) {
           throw new Error(
-            '当前标签页尚未完成加载，无法安全发送给 Codex。请稍后重试。',
+            '当前标签页尚未完成加载，无法安全发送给智能体。请稍后重试。',
           );
         }
 
@@ -3324,7 +3324,7 @@ export function WorkspaceLayout({
           drawings.descriptor?.meta.id !== expectedDrawingId
         ) {
           throw new Error(
-            '当前图稿尚未完成加载，无法安全发送给 Codex。请稍后重试。',
+            '当前图稿尚未完成加载，无法安全发送给智能体。请稍后重试。',
           );
         }
         await drawings.flush();
@@ -4367,14 +4367,14 @@ export function WorkspaceLayout({
                   ) : null
                 }
                 aiWorkspacePreviewWidth={aiWorkspacePreviewWidth}
-                // Codex fullscreen is workspace-scoped exploration; leftover
-                // editor tabs must not become a required active document.
+                // System pages hide document tabs; cached tabs must not become
+                // active Agent context or reopen when sending a drawing task.
                 // author: refinex
                 currentDocument={
-                  systemPage === 'codex' ? null : activePanelDocument
+                  systemPage !== null ? null : activePanelDocument
                 }
                 currentDocumentPath={
-                  systemPage === 'codex' ? null : activePanelDocumentPath
+                  systemPage !== null ? null : activePanelDocumentPath
                 }
                 documentPanelData={documentPanelData}
                 documents={

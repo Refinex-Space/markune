@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-10-06
+updated: 2026-10-07
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -11,11 +11,16 @@ This directory contains routed repository knowledge for agent work. Root instruc
 
 ## Active References
 
-- Codex architecture and verification: `docs/architecture/codex.md`: [open](architecture/codex.md)
+- ACP Agent Host: `docs/architecture/agents.md`: [architecture](architecture/agents.md)
+- ACP support matrix: `docs/architecture/agents-support.md`: [open](architecture/agents-support.md)
+- ACP verification: `docs/verification/acp/acceptance.md`: [open](verification/acp/acceptance.md)
+- ACP migration plan: `docs/plans/acp-agent-host-migration.md`: [open](plans/acp-agent-host-migration.md)
+
+- Historical Codex architecture and verification: `docs/architecture/codex.md`: [open](architecture/codex.md)
 
 - Execution plans index: `docs/plans-index.md`: [open](plans-index.md)
 
-- Codex 专业化实施与验收：`docs/plans/codex-professionalization.md`：[open](plans/codex-professionalization.md)
+- 历史 Codex 专业化实施与验收：`docs/plans/codex-professionalization.md`：[open](plans/codex-professionalization.md)
 
 - Architecture overview: `docs/architecture/overview.md`: [open](architecture/overview.md)
 - Config reference: `docs/config/reference.md`: [open](config/reference.md)

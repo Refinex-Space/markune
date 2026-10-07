@@ -220,7 +220,7 @@ describe('WorkspaceSettingsPage', () => {
       'max-w-[840px]',
     );
     expect(screen.getByRole('button', { name: '外观' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Codex' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '智能体' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '存储' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Git Sync' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '版本' })).toBeTruthy();
@@ -737,76 +737,13 @@ describe('WorkspaceSettingsPage', () => {
     expect(screen.getByTestId('git-sync-settings-shell')).toBeTruthy();
   });
 
-  it('renders Codex settings and saves custom provider without writing key into app settings', async () => {
-    const user = userEvent.setup();
-    workspaceApiState.isTauriRuntime.mockReturnValue(true);
-    codexApiState.setCodexCustomProvider.mockResolvedValue({
-      baseUrl: 'https://api.openai.com/v1',
-      enabled: true,
-      envKey: 'MARKUNE_CODEX_PROVIDER_API_KEY',
-      hasApiKey: true,
-      model: 'gpt-5',
-      fingerprint: 'revision',
-      providerId: 'markune_custom',
-      wireApi: 'responses',
-    });
-
-    render(
-      <WorkspaceSettingsPage
-        appUpdate={appUpdateController}
-        initialSectionId="codex"
-        initialSettings={initialSettings}
-        sessionCache={createWorkspaceSettingsSessionCache()}
-        workspaceRootPath="D:/notes"
-        onBack={vi.fn()}
-      />,
-    );
-
-    expect(await screen.findByTestId('codex-settings-shell')).toBeTruthy();
-    await waitFor(() => {
-      expect(
-        screen
-          .getByTestId('codex-auth-mode-badge')
-          .textContent?.includes('ChatGPT'),
-      ).toBe(true);
-      expect(
-        screen
-          .getByTestId('codex-runtime-badge')
-          .textContent?.includes('运行中'),
-      ).toBe(true);
-      expect(
-        screen
-          .getByTestId('codex-account-summary')
-          .textContent?.includes('user@example.com'),
-      ).toBe(true);
-    });
-    expect(screen.queryByRole('button', { name: '登录' })).toBeNull();
-    expect(codexApiState.request).not.toHaveBeenCalled();
+  it('replaces bundled Codex settings with the agent registry without starting the old runtime', async () => {
+    render(<WorkspaceSettingsPage appUpdate={appUpdateController} initialSectionId="codex" initialSettings={initialSettings} sessionCache={createWorkspaceSettingsSessionCache()} workspaceRootPath="D:/notes" onBack={vi.fn()} />);
+    expect(await screen.findByTestId('agent-settings')).toBeTruthy();
+    expect((await screen.findAllByText('Cursor')).length).toBeGreaterThan(0);
+    expect(screen.getByText('Claude Agent')).toBeTruthy();
     expect(codexApiState.startCodexRuntime).not.toHaveBeenCalled();
-
-    await user.click(screen.getByTestId('codex-mode-tab-custom'));
-    expect(screen.getByTestId('codex-custom-provider-form')).toBeTruthy();
-
-    await user.clear(screen.getByPlaceholderText('https://api.openai.com/v1'));
-    await user.type(
-      screen.getByPlaceholderText('https://api.openai.com/v1'),
-      'https://api.openai.com/v1',
-    );
-    await user.clear(screen.getByPlaceholderText('gpt-5'));
-    await user.type(screen.getByPlaceholderText('gpt-5'), 'gpt-5');
-    await user.type(screen.getByPlaceholderText('sk-...'), 'sk-secret-test');
-    await user.click(screen.getByRole('button', { name: '保存并启用' }));
-
-    await waitFor(() => {
-      expect(codexApiState.setCodexCustomProvider).toHaveBeenCalledWith({
-        expectedFingerprint: 'revision',
-        apiKey: 'sk-secret-test',
-        baseUrl: 'https://api.openai.com/v1',
-        model: 'gpt-5',
-      });
-    });
-    expect(codexApiState.stopCodexRuntime).toHaveBeenCalled();
-    expect(codexApiState.startCodexRuntime).toHaveBeenCalledWith('D:/notes');
+    expect(codexApiState.getCodexCustomProvider).not.toHaveBeenCalled();
     expect(workspaceApiState.saveAppSettings).not.toHaveBeenCalled();
   });
 

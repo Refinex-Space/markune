@@ -12,8 +12,7 @@
   "homepage": "https://github.com/Refinex-Space/markune#readme",
   "scripts": {
     "desktop:build": "tauri build",
-    "desktop:dev": "pnpm codex:stage && pnpm document-export:stage && tauri dev",
-    "codex:stage": "node scripts/stage-codex-sidecar.mjs",
+    "desktop:dev": "pnpm document-export:stage && tauri dev",
     "document-export:stage": "node scripts/stage-document-export-runtime.mjs",
     "build:desktop:web": "node scripts/build-tauri-web.mjs",
     "dev": "pnpm runtime:stage && next dev --port 3000",
@@ -28,11 +27,11 @@
     "test": "vitest",
     "test:run": "vitest run",
     "tauri": "tauri",
-    "test:codex:contract": "node scripts/verify-codex-contract.mjs",
-    "test:codex:eval": "vitest run components/workspace/__tests__/codex-evaluation.test.ts",
-    "test:codex:probe": "node scripts/probe-codex-session.mjs"
+    "test:agents": "vitest run components/workspace/__tests__/agent-",
+    "test:agents:probe": "node scripts/probe-acp-agents.mjs"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "1.7.0",
     "@ariakit/react": "^0.4.28",
     "@codemirror/lang-markdown": "^6.5.1",
     "@excalidraw/excalidraw": "0.18.1",
@@ -107,7 +106,6 @@
   },
   "devDependencies": {
     "@iconify-json/tabler": "1.2.37",
-    "@openai/codex": "0.153.4",
     "@tailwindcss/postcss": "^4",
     "@tauri-apps/cli": "^2.11.2",
     "@testing-library/react": "^16.3.2",

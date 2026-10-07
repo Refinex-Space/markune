@@ -237,86 +237,17 @@ pnpm lint
 - Capture 引用本地资源后保存、删除和提升，确认资源只有在正式笔记、Daily 与其他 Capture 都不再引用时才被清理。
 - 在用户工作区执行 `git status --short -- .markune/inbox`，确认 Git 是否发现 Capture 完全遵循该工作区自身 ignore 规则；Markune 不改写 `.gitignore`。
 
-## Codex Session Storage
+## ACP Agent Acceptance
 
-Markune 默认复用 `~/.codex`。检查当前 Codex 解析出的用户级目录时，使用经过脱敏的 doctor 输出，不要打印认证文件或完整报告：
+1. 设置 → 智能体，刷新目录，检查发布者、版本和平台支持；安装前确认来源。安装必须通过隔离握手，失败后旧版本仍可用。
+2. 选择本机 CLI 或安装版本，开始新会话。验证需要认证时的标准登录/终端登录路径，凭据不进入普通设置。
+3. 检查模型/模式来自该 Agent；另一个 Agent 没有提供的控件不应出现。标准权限与表单、Cursor 计划和提问不能悬挂。
+4. 显式读取并修改合成 Markdown；在 Agent 读取后由编辑器改同一文件，验证冲突拒绝保留用户改动。绘图检查/预览/应用必须绑定当前任务与版本。
+5. 运行中停止任务，检查 10 秒兜底结束进程；断连后不得自动重发。侧栏/全屏切换保留面板实例，工作区切换结束旧连接。
+6. 关闭并重新打开本应用创建的会话；不能浏览/恢复其他 Codex 客户端的历史。同一会话被另一连接使用时明确拒绝。
+7. 更新安装第二版本，旧版本仍可用于新会话；卸载不会删除旧会话和自行安装 CLI。
 
-```bash
-codex doctor --json | jq '.checks["config.load"].details | {"CODEX_HOME": .CODEX_HOME, "sqlite home": ."sqlite home"}'
-```
-
-验收 AI 存储边界时，在知识库根目录执行：
-
-```bash
-git ls-files '.markune/ai-sessions/**'
-test ! -d .markune/ai-sessions
-```
-
-两条命令都不应发现旧会话。随后在 Markune 新建会话并重启应用，线程应能通过 App Server 恢复，且知识库中不得重新生成 `.markune/ai-sessions`。不要用 SQLite 或 JSONL 文件存在性替代 `thread/list`、`thread/read` 的功能验证。
-
-## Codex Permission Acceptance
-
-桌面端权限验收必须使用真实 App Server turn，至少覆盖：默认请求审批同时显示允许与“拒绝并停止”；`decline` 后 agent 可继续，`cancel` 后 turn 中断；替我审批出现自动审查进度与风险结论；只读模式拒绝文件修改；完全访问切换先显示风险确认；自定义 `config.toml` profile 可选且 requirements 禁止的 profile 保持禁用。运行中 turn 或待审批请求存在时不得切换模式，重启并恢复线程后入口必须显示 App Server 返回的实际 profile 与 reviewer。
-
-升级固定 Codex sidecar 时，重新执行 `app-server generate-json-schema --experimental`，核对 `permissionProfile/list`、`thread/settings/update`、`item/permissions/requestApproval`、命令审批候选和 `item/autoApprovalReview/*`，再运行 Rust 与前端契约测试。不得只凭现有 UI 继续兼容未知协议。
-
-## Codex Custom Provider Acceptance
-
-桌面设置 → Codex 分区验收自定义 Responses 端点：
-
-1. 填写合法 `https://…` Base URL、Model 与 API Key，保存后确认 App Server 重启；状态显示认证模式为“自定义 API”，Base URL 可见，Key 不再回显。
-2. 在 AI 面板发送消息，确认可走自定义端点；重启 Markune 后仍可用（keyring + config 持久化）。
-3. 切换回“使用 ChatGPT 路径”，确认 `model_provider` 不再指向 `markune_custom`，且需 ChatGPT 登录时可正常 OAuth。
-4. 错误 Base URL、空 Model、无 Key 必须被拒绝；纯 Chat Completions 端点即使保存成功，对话也会因 wire API 不兼容失败——产品文案已说明此限制。
-5. 确认 `settings.json`、React 会话状态与日志中没有明文 API Key；`CODEX_HOME/markune-provider.toml` 仅出现受控 provider 与凭据 ID，共享 `config.toml` 保持不变。
-
-聚焦自动化：
-
-```bash
-cargo test --manifest-path src-tauri/Cargo.toml codex_provider:: --lib
-pnpm test:run -- components/workspace/__tests__/codex-app-server.test.ts components/workspace/__tests__/workspace-settings-page.test.tsx components/workspace/__tests__/ai-panel-codex-settings-cta.test.tsx
-```
-
-## Codex Startup Acceptance
-
-`pnpm codex:stage` 必须同时准备 `codex` 和 `codex-code-mode-host`。出现 `Cannot find module '@openai/codex-<platform>/vendor/...'` 或“缺少当前平台 Codex sidecar 包”时，说明 `@openai/codex` 的平台 optionalDependency 没有解压，常见于中断的 install、`--offline` 或 `--ignore-scripts`。删除空的 `node_modules/.pnpm/@openai+codex@*-<platform>` 后执行完整 `pnpm install --frozen-lockfile`，再重跑 `pnpm desktop:dev`。出现 `failed to spawn code-mode host` / `No such file or directory` 时先核对二者是否同目录、来自同一版本且可执行；开发环境重新执行 `pnpm desktop:dev`，安装版重新构建完整安装包。不要通过关闭只读权限或清空 Codex 历史解决资源缺失。运行 `node --test scripts/stage-codex-sidecar.test.mjs` 可验证独立临时目录中的真实辅助程序握手与工具往返，随后检查 `bundle.externalBin` 中包含两项。
-
-首次启动桌面端并打开工作区后，不先打开 AI 面板，确认 App Server 已在后台启动；随后首次展开 AI 面板时应直接显示正常的新任务界面，不出现占满会话区的“正在连接 Codex”。在核心握手尚未完成时，输入区仍可编辑，点击发送后应显示轻量准备状态，核心成功后自动继续发送；启动失败时必须保留输入内容并显示可诊断错误。
-
-分别模拟慢速或失败的 `model/list`、`thread/list`、`plugin/installed` 与 `skills/list`，确认：核心就绪后可以使用 App Server 默认模型发送，历史页显示独立加载、重试或空状态，启动过程不会预取 `mcpServerStatus/list`，但会按当前工作区自动加载已安装插件和 enabled Skill。展开加号菜单应显示“文件和文件夹”、可用时的“目标”、计划模式和已加载插件；插件仍在加载时显示轻量状态，失败时才提供重试且不阻塞输入。菜单必须完整位于输入框上方并与输入框保持间距。输入空白边界上的 `/` 应打开命令与 Skill 面板，目标和压缩命令位于“技能”分组上方，Skill 显示统一立方体图标、名称、描述与来源。选择目标后输入框显示目标提示，首次发送应依次出现 `turn/start` 与 `thread/goal/set`；状态条必须可编辑、暂停、恢复和清除，重开任务通过 `thread/goal/get` 恢复，续跑只由 Codex Core 驱动。折叠 AI 面板、切换到元信息面板再返回时，正在运行的 turn、Goal、草稿与线程状态必须保留；切换工作区根目录时才允许重建对应的 Codex 运行时边界。
-
-使用真实安装的 Documents、PDF、Spreadsheets、Presentations 等插件检查加号菜单：本地 `composerIcon` 优先，其次使用当前明暗主题 logo，远程资源只允许 HTTPS；图标保持 `16 × 16`、完整缩放且不挤压名称和描述。切换浅色/深色主题后应使用相应资源。临时移除一个图标文件、提供错误格式或让远程图片加载失败时，只有该项降级为通用插件图标，其他插件仍可见且可插入 `plugin://{id}` mention。重新检测插件、切换工作区或重启 App Server 后，旧本地图标路径必须不可再读取。即使用户已在 Codex Desktop 启用 Chrome / Browser Use / Computer Use，加号菜单也不得出现这些捆绑项；图稿改写必须走 `markune_drawing`，不得出现 `cua.getState()` 或 `js execution timed out; kernel reset`。
-
-在输入框分别插入文档、插件与 Skill：三者都应显示 `16 × 16` 图标并与文字基线对齐，文档使用文件图标，插件沿用菜单中的真实明暗主题图标，Skill 使用统一立方体图标；视觉标签不显示 `@` 或 `$`。发送后检查 App Server 请求：文档仍编码为带引号相对路径，插件模型文本恢复 `@Plugin` 并带 `plugin://` mention，Skill 模型文本恢复 `$skill-name` 并带精确的原生 `skill` 输入。伪造名称、未列出的路径或收到 `skills/changed` 后沿用旧授权都必须被 Rust 拒绝。
-
-前端回归至少执行：
-
-```bash
-pnpm test:run -- components/workspace/__tests__/ai-panel-startup.test.tsx components/workspace/__tests__/ai-panel-rendering.test.tsx components/workspace/__tests__/right-side-panel.test.tsx
-pnpm exec tsc --noEmit
-pnpm lint
-pnpm build:desktop:web
-```
-
-## Codex File Change Acceptance
-
-使用真实桌面 turn 验收 AI 文件刷新时，先打开一个 Markdown 文档并让 Codex 修改当前文件、新建另一个文件，再通过 shell 命令修改第二个已打开标签。确认：
-
-- 发送前未保存草稿先写入磁盘，保存失败时消息不发送且输入仍保留；
-- patch 流式更新期间编辑器不闪烁，fileChange 成功完成后当前文档自动显示新内容；
-- turn 完成后所有已打开 Markdown 标签和目录树均与磁盘一致，新建文件可从树中打开；
-- 用户在 Codex 运行期间继续编辑同一文档时，本地草稿不会被覆盖，自动保存暂停，并显示两个带确认的冲突处理动作；
-- 最终回答后展示“已编辑 N 个文件”、净增删行数和前三个文件，展开后显示其余文件；工作区内现存 Markdown 可点击，删除项、非 Markdown 与工作区外路径不可点击；
-- 失败或拒绝的 fileChange 不触发文档重载，简单问答不生成空的文件变更摘要。
-
-前端验证至少执行：
-
-```bash
-pnpm test:run -- components/workspace/__tests__/ai-panel-state.test.ts components/workspace/__tests__/ai-panel-rendering.test.tsx components/workspace/__tests__/use-workspace-ai-sync.test.tsx
-pnpm exec tsc --noEmit
-pnpm lint
-pnpm build:desktop:web
-```
+测试和实际供应商验证见 [ACP 验收记录](../verification/acp/acceptance.md)。无账号探针只执行 initialize；真实登录和模型任务须分别记录。排障时保留 `agents/profiles.json`、安装收据和会话，不重置数据，不输出 keyring 或原始 Agent stderr。
 
 ## Release And Update Acceptance
 
@@ -382,6 +313,6 @@ PDF 用两页不同文字的专用文件检查 Canvas 与文字层对齐、选�
 
 2026-09-06 本机 debug 构建的 2,000 篇合成笔记样本：冷索引 1,626 ms，未变化复用 24 ms，修改一篇后 25 ms，投影仅替换 1 篇。该结果反映本机小型文本样本的增量复用，不代表大型单篇、网络盘或跨平台耗时。
 
-## Codex 专业化验证
+## Historical Codex Checks
 
-先执行 `pnpm test:codex:contract`、`pnpm test:codex:probe`、`pnpm test:codex:eval`，再运行相关组件与 Rust 回归。probe 创建并清理独立临时 Codex Home，不使用真实账号，也不调用模型。完整检查中 `pnpm test:run` 必须先结束，才能执行 `pnpm build:desktop:web`。Windows、登录恢复与模型质量不能以合成事件验收替代，详见 [Codex 专项架构](../architecture/codex.md)。
+原 App Server 契约、探针和验收记录保留为历史证据，见 [历史架构](../architecture/codex.md)。当前产品验证使用 ACP 检查，不再执行固定 sidecar staging。

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use uuid::Uuid;
 
 const DEFAULT_COLS: u16 = 80;
@@ -154,6 +154,69 @@ pub fn terminal_spawn(
         id: session_id,
         cwd: root.to_string_lossy().to_string(),
         shell: shell.program.to_string_lossy().to_string(),
+    })
+}
+
+// refinex: ACP terminal auth uses the configured program, never a shell string from the agent.
+pub(crate) fn spawn_agent_login(
+    app: AppHandle,
+    window: WebviewWindow,
+    state: &TerminalState,
+    root: &Path,
+    program: &Path,
+    args: &[String],
+    env: &std::collections::BTreeMap<String, String>,
+) -> Result<TerminalSessionInfo, String> {
+    let pair = native_pty_system()
+        .openpty(PtySize {
+            rows: 24,
+            cols: 90,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|_| "无法创建登录终端")?;
+    let mut command = CommandBuilder::new(program);
+    command.args(args);
+    command.cwd(root);
+    scrub_command_environment(&mut command);
+    if !env.contains_key("PATH") {
+        if let Some(parent) = program.parent() {
+            let mut paths = vec![parent.to_path_buf()];
+            if let Some(path) = std::env::var_os("PATH") {
+                paths.extend(std::env::split_paths(&path));
+            }
+            if let Ok(path) = std::env::join_paths(paths) {
+                command.env("PATH", path);
+            }
+        }
+    }
+    for (name, value) in env {
+        command.env(name, value);
+    }
+    let child = pair
+        .slave
+        .spawn_command(command)
+        .map_err(|_| "智能体登录程序启动失败")?;
+    drop(pair.slave);
+    let id = Uuid::new_v4().to_string();
+    let reader = pair
+        .master
+        .try_clone_reader()
+        .map_err(|_| "无法读取登录终端")?;
+    let writer = pair.master.take_writer().map_err(|_| "无法写入登录终端")?;
+    lock_sessions(state).insert(
+        id.clone(),
+        TerminalSession {
+            writer,
+            child,
+            master: pair.master,
+        },
+    );
+    spawn_agent_login_reader(app, window, id.clone(), reader);
+    Ok(TerminalSessionInfo {
+        id,
+        cwd: root.to_string_lossy().into_owned(),
+        shell: program.to_string_lossy().into_owned(),
     })
 }
 
@@ -681,4 +744,58 @@ mod tests {
 
         assert_eq!(terminate_session(session), Some(7));
     }
+}
+
+// refinex: Login output may contain device codes and must never be broadcast to other windows.
+fn spawn_agent_login_reader(
+    app: AppHandle,
+    window: WebviewWindow,
+    session_id: String,
+    mut reader: Box<dyn Read + Send>,
+) {
+    thread::spawn(move || {
+        let mut buffer = [0u8; READ_BUFFER_BYTES];
+        let mut decoder = Utf8StreamDecoder::default();
+        let emit = |data: String| {
+            if !data.is_empty() {
+                let _ = window.emit_to(
+                    window.label(),
+                    "terminal:data",
+                    TerminalDataEvent {
+                        session_id: session_id.clone(),
+                        data,
+                    },
+                );
+            }
+        };
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => {
+                    emit(decoder.finish());
+                    break;
+                }
+                Ok(count) => emit(decoder.push(&buffer[..count])),
+                Err(_) => {
+                    emit(decoder.finish());
+                    let _ = window.emit_to(
+                        window.label(),
+                        "terminal:error",
+                        TerminalErrorEvent {
+                            session_id: session_id.clone(),
+                            message: "读取登录终端输出失败".into(),
+                        },
+                    );
+                    break;
+                }
+            }
+        }
+        if let Some(session) = lock_sessions(&app.state::<TerminalState>()).remove(&session_id) {
+            let code = terminate_session(session);
+            let _ = window.emit_to(
+                window.label(),
+                "terminal:exit",
+                TerminalExitEvent { session_id, code },
+            );
+        }
+    });
 }

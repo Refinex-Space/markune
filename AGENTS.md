@@ -32,7 +32,8 @@ Markune is a local knowledge-base desktop app built with Next.js App Router, Rea
 - Unrelated dirty work is preserved.
 
 ## Knowledge Map
-- Codex runtime, task ownership, writing, research and contract gates -> read `docs/architecture/codex.md` before Codex changes.
+- ACP agents, installation, authentication, sessions, tools and verification -> read `docs/architecture/agents.md` and `docs/architecture/agents-support.md` before Agent changes.
+- Historical Codex App Server contracts -> read `docs/architecture/codex.md` only when inspecting the retired integration.
 - Architecture and module boundaries -> read `docs/architecture/overview.md` before design, refactor, editor/workspace shell, or Tauri boundary changes.
 - Config and environment -> read `docs/config/reference.md` before changing env vars, package scripts, Next/Tauri config, storage defaults, or desktop build behavior.
 - Coding standards -> read `docs/standards/coding.md` before implementation or test changes.

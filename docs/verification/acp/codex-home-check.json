@@ -1,0 +1,46 @@
+{
+  "platform": "darwin-aarch64",
+  "results": [
+    {
+      "agentInfo": {
+        "name": "@agentclientprotocol/codex-acp",
+        "title": "Codex",
+        "version": "2.1.1"
+      },
+      "capabilities": {
+        "_meta": {
+          "authStatus": {}
+        },
+        "auth": {
+          "logout": {}
+        },
+        "loadSession": true,
+        "mcpCapabilities": {
+          "acp": false,
+          "http": true,
+          "sse": false
+        },
+        "promptCapabilities": {
+          "embeddedContext": true,
+          "image": true
+        },
+        "providers": {},
+        "sessionCapabilities": {
+          "additionalDirectories": {},
+          "close": {},
+          "delete": {},
+          "fork": {},
+          "list": {},
+          "resume": {},
+          "subagents": {}
+        }
+      },
+      "durationMs": 11390,
+      "id": "codex-acp",
+      "modelPromptSent": false,
+      "outcome": "installed-and-initialized",
+      "version": "2.1.1"
+    }
+  ],
+  "sourceDigest": "26672baa7aaa5bf506828783ebb89ad9727efd4d7b1d5e3f211959207da87737"
+}

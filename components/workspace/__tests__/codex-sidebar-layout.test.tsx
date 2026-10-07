@@ -11,8 +11,8 @@ vi.mock('next-themes', () => ({
   }),
 }));
 
-vi.mock('../ai-panel', () => ({
-  AiPanel: ({ presentation }: { presentation: string }) => {
+vi.mock('../agent-panel', () => ({
+  AgentPanel: ({ presentation }: { presentation: string }) => {
     const [draft, setDraft] = React.useState('');
     return (
       <section data-testid="codex-test-chat" data-presentation={presentation}>
@@ -69,7 +69,7 @@ describe('Codex fullscreen sidebar boundary', () => {
     const user = userEvent.setup();
     render(<WorkspaceLayout initialSnapshot={snapshot} />);
     await user.click(
-      screen.getByRole('button', { name: 'Codex', exact: true }),
+      screen.getByRole('button', { name: '智能体', exact: true }),
     );
     const sidebar = screen.getByTestId('workspace-sidebar');
     const region = screen.getByTestId('workspace-content-region');
@@ -97,7 +97,7 @@ describe('Codex fullscreen sidebar boundary', () => {
       '保留这份草稿',
     );
     await user.click(
-      screen.getByRole('button', { name: 'Codex', exact: true }),
+      screen.getByRole('button', { name: '智能体', exact: true }),
     );
     await user.click(screen.getByRole('button', { name: '折叠侧边栏' }));
     await user.click(screen.getByRole('button', { name: '展开侧边栏' }));

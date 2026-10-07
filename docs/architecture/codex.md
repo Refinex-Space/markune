@@ -1,11 +1,13 @@
 ---
 owner: refinex
 updated: 2026-10-07
-status: active
+status: superseded
 referenced_by: AGENTS.md#knowledge-map
 ---
 
-# Codex 运行时、写作与研究
+# Codex App Server 历史架构
+
+> 此文保存迁移前契约，已被 [ACP Agent Host](agents.md) 取代。以下固定二进制、默认启动、账号配置与历史存储描述不再是当前产品路径。
 
 Markune 固定使用 Codex 0.153.4。`contracts/codex/manifest.json` 保存对应源码提交、能力状态和关键 App Server schema 指纹；`test:codex:contract` 从安装的真实二进制重新生成协议校验。未验证版本不能启动任务。会话与 Goal 的持久化仍完全由共享 Codex Home 管理，不创建 Markune 消息数据库。
 

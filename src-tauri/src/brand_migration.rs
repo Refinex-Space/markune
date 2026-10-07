@@ -5,10 +5,13 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::AppHandle;
+#[cfg(test)]
 use toml_edit::{value, DocumentMut, Item, Value};
 use uuid::Uuid;
 
-use crate::{codex, codex_provider, settings, workspace};
+#[cfg(test)]
+use crate::codex_provider;
+use crate::{settings, workspace};
 
 const LEGACY_PRIVATE_DIR: &str = ".madora";
 const LEGACY_ASSET_SCHEME: &str = "madora-asset://";
@@ -16,10 +19,12 @@ const LEGACY_DRAWING_SCHEME: &str = "madora-drawing://";
 const LEGACY_IMPORT_SCHEME: &str = "madora-import://";
 const LEGACY_EXPORT_SCHEME: &str = "madora-export://";
 const LEGACY_CAPTURE_MARKER: &str = "<!-- madora-capture:";
+#[cfg(test)]
 const LEGACY_PROVIDER_ID: &str = "madora_custom";
+#[cfg(test)]
 const LEGACY_PROVIDER_ENV_KEY: &str = "MADORA_CODEX_PROVIDER_API_KEY";
+#[cfg(test)]
 const CURRENT_PROVIDER_ENV_KEY: &str = "MARKUNE_CODEX_PROVIDER_API_KEY";
-const LEGACY_KEYRING_SERVICE: &str = "madora.codex.custom-provider";
 const LEGACY_APP_IDENTIFIER: &str = "com.madora.app";
 const MAX_MIGRATION_TEXT_BYTES: u64 = 100 * 1024 * 1024;
 
@@ -133,15 +138,9 @@ fn migrate_legacy_workspace_brand_impl(
         warnings.push(error);
         false
     });
-    let codex_provider_migrated = migrate_legacy_codex_provider(app).unwrap_or_else(|error| {
-        warnings.push(error);
-        false
-    });
-    let credential_migrated = codex_provider::migrate_api_key_from_service(LEGACY_KEYRING_SERVICE)
-        .unwrap_or_else(|error| {
-            warnings.push(error);
-            false
-        });
+    // refinex: ACP starts independently; legacy Codex configuration and credentials remain untouched.
+    let codex_provider_migrated = false;
+    let credential_migrated = false;
 
     Ok(WorkspaceBrandMigrationReport {
         backup_path: backup_dir
@@ -539,33 +538,7 @@ fn migrate_legacy_app_settings(app: &AppHandle) -> Result<bool, String> {
     Ok(true)
 }
 
-fn migrate_legacy_codex_provider(app: &AppHandle) -> Result<bool, String> {
-    let storage = codex::resolve_codex_storage(app, None)?;
-    let path = storage.root.join("config.toml");
-    if !path.is_file() {
-        return Ok(false);
-    }
-    let raw = fs::read_to_string(&path)
-        .map_err(|error| format!("读取 Codex config.toml 失败: {error}"))?;
-    let mut document = raw
-        .parse::<DocumentMut>()
-        .map_err(|error| format!("解析 Codex config.toml 失败: {error}"))?;
-
-    let changed = migrate_codex_provider_document(&mut document)?;
-    if !changed {
-        return Ok(false);
-    }
-
-    let backup = path.with_extension(format!(
-        "toml.markune-brand-backup-{}",
-        Uuid::new_v4().simple()
-    ));
-    fs::copy(&path, &backup).map_err(|error| format!("备份 Codex config.toml 失败: {error}"))?;
-    replace_file_recoverably(&path, document.to_string().as_bytes())
-        .map_err(|error| format!("迁移 Codex 自定义 Provider 失败: {error}"))?;
-    Ok(true)
-}
-
+#[cfg(test)]
 fn migrate_codex_provider_document(document: &mut DocumentMut) -> Result<bool, String> {
     let target_provider = codex_provider::CUSTOM_PROVIDER_ID;
     let legacy_enabled =

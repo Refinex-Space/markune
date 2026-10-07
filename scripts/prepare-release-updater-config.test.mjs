@@ -88,11 +88,9 @@ test('release workflow verifies source before native tag builds', async () => {
   const parsedTauriConfig = JSON.parse(tauriConfig);
   assert.equal(
     parsedTauriConfig.build.beforeBuildCommand,
-    'pnpm codex:stage && pnpm document-export:stage && pnpm build:desktop:web',
+    'pnpm document-export:stage && pnpm build:desktop:web',
   );
   assert.deepEqual(parsedTauriConfig.bundle.externalBin, [
-    'binaries/codex',
-    'binaries/codex-code-mode-host',
     'binaries/pandoc',
     'binaries/typst',
   ]);
