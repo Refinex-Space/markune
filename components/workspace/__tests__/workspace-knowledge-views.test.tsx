@@ -6,7 +6,7 @@ import { WorkspaceKnowledgeViews } from '../workspace-knowledge-views';
 import type { WorkspaceKnowledge } from '../use-workspace-knowledge';
 import { parseFrontmatter } from '@/components/editor/markdown-frontmatter';
 import { readMarkdownDocument, readWorkspaceViews, saveMarkdownDocument, saveWorkspaceViews } from '../workspace-api';
-vi.mock('../workspace-api', () => ({ readMarkdownDocument: vi.fn(), readWorkspaceViews: vi.fn(), saveMarkdownDocument: vi.fn(), saveWorkspaceViews: vi.fn(), setWorkspaceTaskChecked: vi.fn() }));
+vi.mock('../workspace-api', () => ({ readMarkdownDocument: vi.fn(), readWorkspaceViews: vi.fn(), saveMarkdownDocument: vi.fn(), saveWorkspaceViews: vi.fn() }));
 const note = { relativePath: 'a.md', name: 'a.md', title: 'A', modifiedAt: 1, properties: { tags: ['one'] }, tags: ['one'], fingerprint: 'hash', links: [], tasks: [], resources: [], errors: [] };
 const knowledge = { documents: [note], status: 'ready', warnings: [], error: null, revision: 1, refresh: vi.fn(async () => {}), search: vi.fn() } as unknown as WorkspaceKnowledge;
 const show = (next = knowledge) => render(<WorkspaceKnowledgeViews rootPath="/root" knowledge={next} onOpen={vi.fn()} onRefresh={vi.fn()} isReadOnly={() => false} />);
@@ -31,6 +31,8 @@ beforeEach(() => {
 it('writes only the selected property, preserves collection comments and supplies expected original content', async () => {
   const original = '---\r\n# header\r\ntags:\r\n  - one # retain\r\ncustom: {owner: team}\r\n---\r\nBody\r\n';
   vi.mocked(readMarkdownDocument).mockResolvedValue({ content: original, modifiedAt: 1 }); show();
+  expect(screen.queryByRole('button', { name: '任务' })).toBeNull();
+  expect(screen.queryByRole('button', { name: '研究' })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'one', exact: true }));
   fireEvent.change(await screen.findByLabelText('属性值'), { target: { value: 'one\ntwo' } });
   fireEvent.click(screen.getByRole('button', { name: '保存属性' }));

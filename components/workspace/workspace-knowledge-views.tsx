@@ -31,7 +31,6 @@ import {
   readWorkspaceViews,
   saveMarkdownDocument,
   saveWorkspaceViews,
-  setWorkspaceTaskChecked,
   type SavedWorkspaceView,
 } from './workspace-api';
 import { matchesWorkspaceQuery, parseWorkspaceQuery } from './workspace-query';
@@ -50,7 +49,6 @@ export interface KnowledgeViewsProps {
   isReadOnly: (path: string) => boolean;
   onCreateTemplate?: () => void;
   resources?: React.ReactNode;
-  research?: React.ReactNode;
 }
 
 const DEFAULT_COLUMNS = ['title', 'path', 'modifiedAt', 'prop:tags'];
@@ -126,7 +124,6 @@ export function WorkspaceKnowledgeViews({
   isReadOnly,
   onCreateTemplate,
   resources,
-  research,
 }: KnowledgeViewsProps) {
   const [mode, setMode] = React.useState('documents');
   const [query, setQuery] = React.useState('');
@@ -142,7 +139,6 @@ export function WorkspaceKnowledgeViews({
   const [viewName, setViewName] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [limit, setLimit] = React.useState(100);
-  const [taskState, setTaskState] = React.useState('open');
   const [busy, setBusy] = React.useState<string | null>(null);
   const [edit, setEdit] = React.useState<{
     path: string;
@@ -222,13 +218,6 @@ export function WorkspaceKnowledgeViews({
     }
     return [...groups];
   }, [documents, groupBy, limit]);
-  const tasks = documents
-    .flatMap((document) => document.tasks.map((task) => ({ document, task })))
-    .filter(
-      ({ task }) =>
-        taskState === 'all' || task.checked === (taskState === 'done'),
-    );
-
   function apply(view: SavedWorkspaceView) {
     setSelected(view.id);
     setQuery(view.query);
@@ -384,30 +373,6 @@ export function WorkspaceKnowledgeViews({
       setBusy(null);
     }
   }
-  async function toggleTask(
-    document: KnowledgeDocumentSummary,
-    offset: number,
-    checked: boolean,
-  ) {
-    setBusy(`${document.relativePath}:${offset}`);
-    try {
-      await setWorkspaceTaskChecked(
-        rootPath,
-        `${rootPath}/${document.relativePath}`,
-        offset,
-        document.fingerprint,
-        checked,
-      );
-      await onRefresh();
-      await knowledge.refresh();
-      setError(null);
-    } catch (error) {
-      setError(String(error));
-    } finally {
-      setBusy(null);
-    }
-  }
-
   return (
     <div
       className="flex h-full min-h-0 flex-col bg-background text-xs"
@@ -425,9 +390,7 @@ export function WorkspaceKnowledgeViews({
         <div className="flex gap-1">
           {[
             ['documents', '文档'],
-            ['tasks', '任务'],
             ...(resources ? [['resources', '附件']] : []),
-            ...(research ? [['research', '研究']] : []),
           ].map(([id, name]) => (
             <button
               key={id}
@@ -487,8 +450,6 @@ export function WorkspaceKnowledgeViews({
       ) : null}
       {mode === 'resources' ? (
         resources
-      ) : mode === 'research' ? (
-        research
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-2 border-b border-border/40 p-3">
@@ -549,9 +510,7 @@ export function WorkspaceKnowledgeViews({
                 <Trash2 size={14} />
               </button>
             ) : null}
-            {mode === 'documents' ? (
-              <>
-                <Popover>
+            <Popover>
                   <PopoverTrigger asChild>
                     <button
                       aria-label="选择视图列"
@@ -607,36 +566,12 @@ export function WorkspaceKnowledgeViews({
                     ))}
                   </SelectContent>
                 </Select>
-              </>
-            ) : (
-              <Select
-                value={taskState}
-                onValueChange={(value) => {
-                  if (value === 'open' || value === 'done' || value === 'all') {
-                    setTaskState(value);
-                  }
-                }}
-              >
-                <SelectTrigger
-                  aria-label="任务状态"
-                  className="h-8 bg-background"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent align="end" position="popper">
-                  <SelectItem value="open">未完成</SelectItem>
-                  <SelectItem value="done">已完成</SelectItem>
-                  <SelectItem value="all">全部任务</SelectItem>
-                </SelectContent>
-              </Select>
-            )}
           </div>
           {parsedQuery.error ? (
             <p className="p-3 text-destructive">{parsedQuery.error}</p>
           ) : null}
           <div className="min-h-0 flex-1 overflow-auto">
-            {mode === 'documents' ? (
-              <table className="w-full table-fixed text-left">
+            <table className="w-full table-fixed text-left">
                 <colgroup>
                   {columns.map((field) => (
                     <col key={field} style={{ width: columnWidth(field) }} />
@@ -719,61 +654,13 @@ export function WorkspaceKnowledgeViews({
                     </React.Fragment>
                   ))}
                 </tbody>
-              </table>
-            ) : (
-              tasks.slice(0, limit).map(({ document, task }) => (
-                  <div
-                    key={`${document.relativePath}:${task.offset}`}
-                    className="flex items-start gap-3 border-b border-border/40 px-4 py-3"
-                  >
-                    <input
-                      aria-label={`完成任务 ${task.text}`}
-                      type="checkbox"
-                      checked={task.checked}
-                      disabled={
-                        busy !== null || isReadOnly(document.relativePath)
-                      }
-                      onChange={(event) =>
-                        void toggleTask(
-                          document,
-                          task.offset,
-                          event.target.checked,
-                        )
-                      }
-                    />
-                    <button
-                      type="button"
-                      className="min-w-0 flex-1 text-left"
-                      onClick={() =>
-                        onOpen({
-                          relativePath: document.relativePath,
-                          line: task.line,
-                        })
-                      }
-                    >
-                      <span
-                        className={
-                          task.checked
-                            ? 'text-muted-foreground line-through'
-                            : ''
-                        }
-                      >
-                        {task.text}
-                      </span>
-                      <span className="mt-1 block text-[10px] text-muted-foreground">
-                        {document.title} · 第 {task.line} 行
-                      </span>
-                    </button>
-                  </div>
-                ))
-            )}
-            {(mode === 'documents' ? documents.length : tasks.length) === 0 ? (
+            </table>
+            {documents.length === 0 ? (
               <p className="p-8 text-center text-muted-foreground">
                 当前条件下没有匹配内容。
               </p>
             ) : null}
-            {(mode === 'documents' ? documents.length : tasks.length) >
-            limit ? (
+            {documents.length > limit ? (
               <button
                 type="button"
                 className="w-full p-3 text-muted-foreground hover:bg-accent"

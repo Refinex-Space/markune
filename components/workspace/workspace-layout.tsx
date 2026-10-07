@@ -184,7 +184,6 @@ import { WorkspaceSidebar } from './workspace-sidebar';
 import { WorkspaceGraphPage } from './workspace-graph-page';
 import {
   PdfResearchDialog,
-  WorkspaceResearchPanel,
   type PdfSourceRequest,
 } from './workspace-research';
 import type { ResearchDraftRequest } from './research-notes';
@@ -4023,24 +4022,6 @@ export function WorkspaceLayout({
                             rootPath={workspace.snapshot.rootPath}
                             knowledge={knowledge}
                             onCreateTemplate={() => setTemplateParentPath('')}
-                            research={
-                              <WorkspaceResearchPanel
-                                rootPath={workspace.snapshot.rootPath}
-                                knowledge={knowledge}
-                                onOpen={(location) =>
-                                  void openKnowledgeLocation(location)
-                                }
-                                onReadPdf={() => setPdfResearchRequest('file')}
-                                onCreated={async (node) => {
-                                  await workspace.refreshWorkspaceTree();
-                                  await openDocumentNode(node);
-                                }}
-                                onDraft={(request) => {
-                                  setResearchDraft(request);
-                                  workspace.setRightPanelMode('ai');
-                                }}
-                              />
-                            }
                             sidebarHeaderOffset={macSidebarHeaderOffset}
                             onOpen={(location) =>
                               void openKnowledgeLocation(location)

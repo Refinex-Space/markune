@@ -126,10 +126,10 @@ Inbox Capture 独立保存在 `.markune/inbox/cap_YYYYMMDD_HHMMSS_SSS_<uuid8>.md
 
 ## Knowledge Views And Research Defaults
 
-元数据解析固定使用 `yaml@2.9.0`；不在打开笔记时迁移或自动补全 YAML。默认视图列是标题、路径、修改时间、标签，按修改时间降序、不分组；任务默认展示未完成项，文档/任务每页先展示 100 条。命名视图存入工作区 `.markune/views.json`，没有额外数据库。
+元数据解析固定使用 `yaml@2.9.0`；不在打开笔记时迁移或自动补全 YAML。视图页只有文档和附件。默认文档列是标题、路径、修改时间、标签，按修改时间降序、不分组，每页先展示 100 条。命名视图存入工作区 `.markune/views.json`，没有额外数据库。
 
 模板入口位于文件树根目录空白区、目录菜单和视图页加号。内置空白、会议、项目、研究与阅读模板；用户模板来自 `Templates/`、`模板/` 或 `markuneTemplate: true`，复制时该标记变为 false。全局搜索支持 `path:`、`tag:`、`prop:`、`after:`、`before:`、`type:`，字段前加 `-` 表示排除，双引号表示精确短语；日期按 UTC 日界解释。
 
-PDF 阅读使用既有 `public/import-runtime` 离线资源，不增加远程 Worker。研究资料默认只形成 AI 草稿，保留既有输入，等待用户发送。网页摘录由用户填写 HTTP(S) 来源及原文。普通笔记的回收站与本地版本历史未增加；移动恢复文件是短期事务现场，正常完成即清理。
+PDF 阅读使用既有 `public/import-runtime` 离线资源，不增加远程 Worker。网页摘录由用户填写 HTTP(S) 来源及原文。普通笔记的回收站与本地版本历史未增加；移动恢复文件是短期事务现场，正常完成即清理。
 
 Codex 的三个验证入口为 `test:codex:contract`、`test:codex:probe` 和 `test:codex:eval`，具体边界见 [专项架构](../architecture/codex.md)。
