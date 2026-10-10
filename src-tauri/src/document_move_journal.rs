@@ -83,6 +83,11 @@ fn safe_path(root: &Path, relative: &str) -> Result<PathBuf, String> {
     }
     Ok(path)
 }
+fn move_ignore_rules_are_intact(content: &str) -> bool {
+    // Git for Windows rewrites this checkout with CRLF. Line endings are not a rule change.
+    content.replace("\r\n", "\n").replace('\r', "\n") == "*\n!.gitignore\n"
+}
+
 fn write_durable(path: &Path, value: &str) -> Result<(), String> {
     let mut file = fs::OpenOptions::new()
         .write(true)
@@ -104,8 +109,9 @@ impl MoveJournal {
         let ignore = parent.join(".gitignore");
         if !ignore.exists() {
             write_durable(&ignore, "*\n!.gitignore\n")?;
-        } else if crate::graph::read_regular_document(&ignore, 1024, &mut 0)? != "*\n!.gitignore\n"
-        {
+        } else if !move_ignore_rules_are_intact(&crate::graph::read_regular_document(
+            &ignore, 1024, &mut 0,
+        )?) {
             return Err(
                 "移动恢复目录的 Git 忽略规则已改变，请检查 .markune/moves/.gitignore".into(),
             );
@@ -396,5 +402,52 @@ mod tests {
         assert!(recover(&root).is_err());
         assert_eq!(fs::read_to_string(&a).unwrap(), "new");
         assert!(safe_path(&root, "../outside.md").is_err());
+    }
+
+    #[test]
+    fn windows_crlf_gitignore_still_allows_a_move_journal() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let moves = root.join(".markune").join("moves");
+        fs::create_dir_all(&moves).unwrap();
+        fs::write(moves.join(".gitignore"), "*\r\n!.gitignore\r\n").unwrap();
+        let note = root.join("a.md");
+        fs::write(&note, "old").unwrap();
+        MoveJournal::prepare(
+            &root,
+            &note,
+            &root.join("b.md"),
+            &[FileChange {
+                path: note.clone(),
+                old: "old".into(),
+                new: "new".into(),
+            }],
+        )
+        .expect("CRLF gitignore should not block rename");
+    }
+
+    #[test]
+    fn changed_move_gitignore_still_blocks_the_journal() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let moves = root.join(".markune").join("moves");
+        fs::create_dir_all(&moves).unwrap();
+        fs::write(moves.join(".gitignore"), "*\n").unwrap();
+        let note = root.join("a.md");
+        fs::write(&note, "old").unwrap();
+        let error = match MoveJournal::prepare(
+            &root,
+            &note,
+            &root.join("b.md"),
+            &[FileChange {
+                path: note.clone(),
+                old: "old".into(),
+                new: "new".into(),
+            }],
+        ) {
+            Ok(_) => panic!("changed ignore rules must still block"),
+            Err(error) => error,
+        };
+        assert!(error.contains("忽略规则"));
     }
 }

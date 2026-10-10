@@ -3,6 +3,20 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
+const toastError = vi.hoisted(() => vi.fn());
+
+vi.mock('sonner', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('sonner')>();
+
+  return {
+    ...actual,
+    toast: {
+      ...actual.toast,
+      error: toastError,
+    },
+  };
+});
+
 import { DocumentTree } from '../document-tree';
 import type { WorkspaceNode } from '../workspace-types';
 
@@ -1106,6 +1120,36 @@ describe('DocumentTree', () => {
     await user.keyboard('{Enter}');
     await waitFor(() => expect(onRenameNode).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByRole('textbox')).toBeNull());
+  });
+
+  it('shows a string rejection from the rename command', async () => {
+    const user = userEvent.setup();
+    const message = '移动恢复目录的 Git 忽略规则已改变，请检查 .markune/moves/.gitignore';
+    const onRenameNode = vi.fn().mockRejectedValueOnce(message);
+
+    toastError.mockClear();
+    render(
+      <DocumentTree
+        currentDocumentPath={null}
+        nodes={nodes}
+        searchQuery=""
+        onCreateDirectory={vi.fn()}
+        onCreateDocument={vi.fn()}
+        onDeleteNode={vi.fn()}
+        onImportMarkdown={vi.fn()}
+        onRenameNode={onRenameNode}
+        onSelectDocument={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByLabelText('打开 README.md 操作菜单'));
+    await user.click(screen.getByRole('menuitem', { name: '重命名' }));
+    const input = await screen.findByRole('textbox', { name: '重命名 README' });
+    await user.clear(input);
+    await user.type(input, '项目记录{Enter}');
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith(message));
+    expect(document.body.contains(input)).toBe(true);
   });
 
   it.each(['{Enter}', '{Escape}'])(
