@@ -114,9 +114,11 @@ describe('WorkspaceSwitcher', () => {
     const removeButton = screen.getByRole('button', {
       name: '移除工作区 Vault',
     });
+    const recentList = removeButton.parentElement?.parentElement;
 
-    expect(recentHeading.className).toContain('pb-1');
-    expect(recentHeading.className).toContain('pt-0.5');
+    expect(recentHeading.className).toContain('py-1');
+    expect(recentList?.className).toContain('flex-col');
+    expect(recentList?.className).toContain('gap-1');
     expect(removeButton.parentElement?.className).toContain('h-8');
     expect(removeButton.className).toContain('size-6');
     expect(removeButton.className).toContain('hover:bg-destructive/10');

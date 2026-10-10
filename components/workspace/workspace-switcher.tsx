@@ -141,56 +141,62 @@ export function WorkspaceSwitcher({
             compact ? 'left-0 right-0' : 'left-3 right-3',
           )}
         >
-          <div className="p-1.5">
+          <div className="flex flex-col gap-1 p-1">
             {history.length > 0 ? (
-              <>
-                <div className="flex items-center gap-2 px-2 pb-1 pt-0.5 text-xs font-medium text-muted-foreground">
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground">
                   <Clock3 size={13} />
                   最近工作区
                 </div>
-                <div className="max-h-64 overflow-y-auto">
-                  {history.map((item) => (
-                    <div
-                      key={item.rootPath}
-                      className={cn(
-                        'flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-muted',
-                        item.rootPath === currentWorkspace?.rootPath && 'bg-muted',
-                      )}
-                    >
-                      <button
-                        className="min-w-0 flex-1 text-left"
-                        type="button"
-                        onClick={() => {
-                          setIsOpen(false);
-                          onSwitchWorkspace(item.rootPath);
-                        }}
+                <div className="flex max-h-64 flex-col gap-1 overflow-y-auto">
+                  {history.map((item) => {
+                    const isCurrent = item.rootPath === currentWorkspace?.rootPath;
+
+                    return (
+                      <div
+                        key={item.rootPath}
+                        className={cn(
+                          'flex h-8 w-full items-center gap-1 rounded-md px-2 text-left text-sm hover:bg-sidebar-accent',
+                          isCurrent && 'bg-sidebar-accent text-sidebar-accent-foreground',
+                        )}
                       >
-                        <span className="block truncate font-medium">
-                          {item.rootName}
-                        </span>
-                      </button>
-                      <button
-                        aria-label={`移除工作区 ${item.rootName}`}
-                        className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                        type="button"
-                        onClick={() => onRemoveWorkspace(item.rootPath)}
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  ))}
+                        <button
+                          className="min-w-0 flex-1 text-left"
+                          type="button"
+                          onClick={() => {
+                            setIsOpen(false);
+                            onSwitchWorkspace(item.rootPath);
+                          }}
+                        >
+                          <span
+                            className={cn(
+                              'block truncate',
+                              isCurrent && 'font-medium',
+                            )}
+                          >
+                            {item.rootName}
+                          </span>
+                        </button>
+                        <button
+                          aria-label={`移除工作区 ${item.rootName}`}
+                          className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                          type="button"
+                          onClick={() => onRemoveWorkspace(item.rootPath)}
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
-              </>
+              </div>
             ) : null}
 
-            <div
-              className={cn(
-                'grid gap-0.5',
-                history.length > 0 && 'mt-1 border-t pt-1',
-              )}
-            >
+            {history.length > 0 ? <div className="mx-1 border-t" /> : null}
+
+            <div className="flex flex-col gap-1">
               <Button
-                className="w-full justify-start"
+                className="w-full justify-start rounded-md px-2 hover:bg-sidebar-accent dark:hover:bg-sidebar-accent"
                 type="button"
                 variant="ghost"
                 onClick={() => {
@@ -202,7 +208,7 @@ export function WorkspaceSwitcher({
                 {currentWorkspace ? '选择工作区' : '打开已有工作区'}
               </Button>
               <Button
-                className="w-full justify-start"
+                className="w-full justify-start rounded-md px-2 hover:bg-sidebar-accent dark:hover:bg-sidebar-accent"
                 type="button"
                 variant="ghost"
                 onClick={() => {
