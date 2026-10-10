@@ -399,6 +399,7 @@ export interface AppearanceSettings {
   systemNavLayout: SystemNavLayout;
   treeIconPicker: TreeIconPickerSettings;
   windowOpacity: number;
+  uiScale: number;
 }
 
 export type TreeIconPickerTab = 'builtin' | 'emoji' | 'local';

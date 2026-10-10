@@ -201,6 +201,29 @@ describe('WorkspaceSettingsPage', () => {
     codexApiState.stopCodexRuntime.mockClear();
   });
 
+  it('saves and restores compact UI scaling through appearance settings', async () => {
+    workspaceApiState.isTauriRuntime.mockReturnValue(true);
+    const user = userEvent.setup();
+    const onSettingsSaved = vi.fn();
+    const props = { appUpdate: appUpdateController, initialSettings,
+      sessionCache: createWorkspaceSettingsSessionCache(), workspaceRootPath: null,
+      onBack: vi.fn(), onSettingsSaved };
+    const view = render(<WorkspaceSettingsPage {...props} />);
+    await user.click(screen.getByRole('combobox', { name: '界面缩放' }));
+    await user.click(screen.getByRole('option', { name: '80% · 紧凑' }));
+    await waitFor(() => expect(workspaceApiState.saveAppSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ appearance: expect.objectContaining({ uiScale: 80 }) }),
+    ));
+    view.unmount();
+    render(<WorkspaceSettingsPage {...props} />);
+    expect(screen.getByRole('combobox', { name: '界面缩放' }).textContent).toContain('80%');
+    await user.click(screen.getByRole('combobox', { name: '界面缩放' }));
+    await user.click(screen.getByRole('option', { name: '100% · 默认' }));
+    await waitFor(() => expect(onSettingsSaved).toHaveBeenLastCalledWith(
+      expect.objectContaining({ appearance: expect.objectContaining({ uiScale: 100 }) }),
+    ));
+  });
+
   it('restores the full-width non-AI settings shell and appearance previews', () => {
     renderSettingsPage();
 

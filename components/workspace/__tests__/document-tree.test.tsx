@@ -1054,6 +1054,60 @@ describe('DocumentTree', () => {
     );
   });
 
+  it.each(['document', 'directory'] as const)(
+    'keeps a new %s name editable while Enter confirms an IME candidate',
+    async (kind) => {
+      const node: WorkspaceNode = {
+        ...nodes[0], kind, id: 'new-node',
+        name: kind === 'document' ? '未命名文档.md' : '未命名目录',
+        absolutePath: 'C:\\notes\\new-node', relativePath: 'new-node',
+        children: kind === 'directory' ? [] : undefined,
+      };
+      const onRenameNode = vi.fn();
+      function NewNodeTree() {
+        const [pending, setPending] = React.useState<string | null>(node.absolutePath);
+        return <DocumentTree nodes={[node]} pendingRenameNodePath={pending}
+        onPendingRenameConsumed={() => setPending(null)}
+        currentDocumentPath={null} searchQuery="" onCreateDirectory={vi.fn()}
+        onCreateDocument={vi.fn()} onDeleteNode={vi.fn()} onImportMarkdown={vi.fn()}
+        onRenameNode={onRenameNode} onSelectDocument={vi.fn()} />;
+      }
+      render(<NewNodeTree />);
+      const input = await screen.findByRole('textbox');
+      fireEvent.compositionStart(input);
+      fireEvent.keyDown(input, { key: 'Enter', isComposing: true, keyCode: 229 });
+      expect(onRenameNode).not.toHaveBeenCalled();
+      expect(document.body.contains(input)).toBe(true);
+      fireEvent.change(input, { target: { value: '项目记录' } });
+      fireEvent.compositionEnd(input);
+      fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 });
+      expect(onRenameNode).not.toHaveBeenCalled();
+      fireEvent.keyDown(input, { key: 'Enter', keyCode: 13 });
+      fireEvent.blur(input);
+      expect(onRenameNode).toHaveBeenCalledTimes(1);
+      expect(onRenameNode).toHaveBeenCalledWith(node, '项目记录');
+    },
+  );
+
+  it('retains the typed name after a failed rename and allows retry', async () => {
+    const user = userEvent.setup();
+    const onRenameNode = vi.fn().mockRejectedValueOnce(new Error('目标名称已存在')).mockResolvedValue(undefined);
+    render(<DocumentTree currentDocumentPath={null} nodes={nodes} searchQuery=""
+      onCreateDirectory={vi.fn()} onCreateDocument={vi.fn()} onDeleteNode={vi.fn()}
+      onImportMarkdown={vi.fn()} onRenameNode={onRenameNode} onSelectDocument={vi.fn()} />);
+    await user.click(screen.getByLabelText('打开 README.md 操作菜单'));
+    await user.click(screen.getByRole('menuitem', { name: '重命名' }));
+    const input = await screen.findByRole('textbox', { name: '重命名 README' });
+    await user.clear(input);
+    await user.type(input, '项目记录{Enter}');
+    await waitFor(() => expect(onRenameNode).toHaveBeenCalledTimes(1));
+    expect((input as HTMLInputElement).value).toBe('项目记录');
+    expect(document.body.contains(input)).toBe(true);
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(onRenameNode).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole('textbox')).toBeNull());
+  });
+
   it.each(['{Enter}', '{Escape}'])(
     'does not rename an unchanged filename when its title differs (%s)',
     async (key) => {

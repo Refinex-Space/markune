@@ -1714,3 +1714,8 @@ export async function closeAppWindow() {
 
   await getCurrentWindow().close();
 }
+
+export async function setAppUiScale(scale: number) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<void>('set_app_ui_scale', { scale });
+}

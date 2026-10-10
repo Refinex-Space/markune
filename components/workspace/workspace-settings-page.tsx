@@ -68,6 +68,7 @@ import type {
 import { WorkspaceResizeHandle } from './workspace-resize-handle';
 import { toUserAbsolutePath } from './workspace-paths';
 import {
+  UI_SCALE_OPTIONS,
   MAX_WINDOW_OPACITY,
   MIN_WINDOW_OPACITY,
   withDefaultAppSettings,
@@ -158,6 +159,9 @@ const SETTINGS_SECTIONS: Array<{
       '亮色',
       '暗色',
       '页面宽度',
+      '界面缩放',
+      '紧凑',
+      '比例',
       '字体',
       '系统入口',
       '纵向',
@@ -646,6 +650,9 @@ export function WorkspaceSettingsPage({
                       pageWidthMode,
                     }))
                   }
+                  onUiScaleChange={(uiScale) =>
+                    updateAppearance((current) => ({ ...current, uiScale }))
+                  }
                   onWindowOpacityCommit={commitWindowOpacity}
                   onWindowOpacityPreview={previewWindowOpacity}
                   onSystemNavCollapsedChange={(systemNavCollapsed) =>
@@ -751,6 +758,7 @@ function AppearanceSection({
   saveState,
   onFontChange,
   onPageWidthChange,
+  onUiScaleChange,
   onWindowOpacityCommit,
   onWindowOpacityPreview,
   onSystemNavCollapsedChange,
@@ -764,6 +772,7 @@ function AppearanceSection({
   saveState: 'idle' | 'saving' | 'saved' | 'error';
   onFontChange: (key: keyof AppearanceFontSettings, value: string) => void;
   onPageWidthChange: (value: PageWidthMode) => void;
+  onUiScaleChange: (value: number) => void;
   onWindowOpacityCommit: () => void;
   onWindowOpacityPreview: (value: number) => void;
   onSystemNavCollapsedChange: (collapsed: boolean) => void;
@@ -773,7 +782,7 @@ function AppearanceSection({
   return (
     <div className="space-y-6 pb-8" data-testid="appearance-settings-shell">
       <SettingsSectionHeader
-        description="调整应用主题、窗口透明度、编辑器页面宽度、系统入口和阅读字体。"
+        description="调整应用主题、界面缩放、窗口透明度、编辑器页面宽度、系统入口和阅读字体。"
         title="外观"
       />
 
@@ -789,6 +798,22 @@ function AppearanceSection({
                 <ThemePreviewRadioButton checked={theme === 'light'} label="亮色" testId="theme-preview-light" variant="light" onClick={() => onThemeChange('light')} />
                 <ThemePreviewRadioButton checked={theme === 'dark'} label="暗色" testId="theme-preview-dark" variant="dark" onClick={() => onThemeChange('dark')} />
               </SettingsRadioGroup>
+            }
+          />
+          <SettingRow
+            label="界面缩放"
+            description="缩小比例可显示更多内容，放大比例更易阅读。仅调整 Markune，100% 为默认。"
+            control={
+              <Select value={String(settings.appearance.uiScale)} onValueChange={(value) => onUiScaleChange(Number(value))}>
+                <SelectTrigger aria-label="界面缩放" className="w-40"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {UI_SCALE_OPTIONS.map((scale) => (
+                    <SelectItem key={scale} value={String(scale)}>
+                      {scale}%{scale < 100 ? ' · 紧凑' : scale === 100 ? ' · 默认' : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             }
           />
           <SettingRow

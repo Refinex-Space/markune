@@ -14,7 +14,7 @@ export function getMacosChromeContentTop(controlsTop: number) {
   return controlsTop + MAC_CHROME_CONTROLS_HEIGHT + MAC_CHROME_CONTENT_GAP;
 }
 
-export function useMacosChromeControlsTop(enabled: boolean) {
+export function useMacosChromeControlsTop(enabled: boolean, uiScale = 100) {
   const [measuredTop, setMeasuredTop] = React.useState<number | null>(null);
 
   React.useEffect(() => {
@@ -33,7 +33,7 @@ export function useMacosChromeControlsTop(enabled: boolean) {
           setMeasuredTop(
             Math.max(
               0,
-              metrics.trafficLightCenterY - MAC_CHROME_CONTROLS_HEIGHT / 2,
+              metrics.trafficLightCenterY / (uiScale / 100) - MAC_CHROME_CONTROLS_HEIGHT / 2,
             ),
           );
         }
@@ -73,7 +73,7 @@ export function useMacosChromeControlsTop(enabled: boolean) {
       window.removeEventListener('resize', scheduleMeasurement);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [enabled]);
+  }, [enabled, uiScale]);
 
   return enabled
     ? (measuredTop ?? MAC_CHROME_CONTROLS_FALLBACK_TOP)

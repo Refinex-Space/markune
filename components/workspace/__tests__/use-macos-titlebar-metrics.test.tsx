@@ -35,6 +35,14 @@ describe('useMacosChromeControlsTop', () => {
     expect(getMacosChromeContentTop(result.current)).toBe(46);
   });
 
+  it('converts native points to scaled CSS pixels after changing UI scale', async () => {
+    workspaceApi.getMacosTitlebarMetrics.mockResolvedValue({ trafficLightCenterY: 24 });
+    const { result, rerender } = renderHook(({ scale }) => useMacosChromeControlsTop(true, scale), { initialProps: { scale: 80 } });
+    await waitFor(() => expect(result.current).toBe(14));
+    rerender({ scale: 150 });
+    await waitFor(() => expect(result.current).toBe(0));
+  });
+
   it('remeasures after the window geometry changes', async () => {
     workspaceApi.getMacosTitlebarMetrics
       .mockResolvedValueOnce({ trafficLightCenterY: 24 })

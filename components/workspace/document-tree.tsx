@@ -384,13 +384,13 @@ export function DocumentTree({
     async (node: WorkspaceNode, nextName: string) => {
       const normalized = nextName.trim();
 
-      setEditingNodeId(null);
-
       if (!normalized || isWorkspaceNodeRenameNoop(node, normalized)) {
+        setEditingNodeId(null);
         return;
       }
 
       await onRenameNode(node, normalized);
+      setEditingNodeId(null);
     },
     [onRenameNode],
   );
@@ -1285,9 +1285,11 @@ function RenameInput({
   label: string;
   onActivate?: () => void;
   onCancel: () => void;
-  onSubmit: (value: string) => void;
+  onSubmit: (value: string) => Promise<void>;
 }) {
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const composingRef = React.useRef(false);
+  const finishedRef = React.useRef(false);
   const ignoreInitialBlurRef = React.useRef(true);
   const [value, setValue] = React.useState(initialValue);
 
@@ -1303,6 +1305,16 @@ function RenameInput({
     return () => window.clearTimeout(timer);
   }, [onActivate]);
 
+  const submit = (name: string) => {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
+    void onSubmit(name).catch((error: unknown) => {
+      finishedRef.current = false;
+      toast.error(getDocumentTreeErrorMessage(error, '无法重命名，请重试'));
+      inputRef.current?.focus();
+    });
+  };
+
   return (
     <Input
       ref={inputRef}
@@ -1310,23 +1322,33 @@ function RenameInput({
       className="h-6 min-w-0 flex-1 px-1.5 text-sm"
       data-tree-drag-disabled="true"
       value={value}
-      onBlur={() => {
+      onBlur={(event) => {
         if (ignoreInitialBlurRef.current) {
           return;
         }
 
-        onSubmit(value);
+        submit(event.currentTarget.value);
       }}
+      onCompositionStart={() => { composingRef.current = true; }}
+      onCompositionEnd={() => { composingRef.current = false; }}
       onChange={(event) => setValue(event.target.value)}
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
+        event.stopPropagation();
+        if (
+          composingRef.current ||
+          event.nativeEvent.isComposing ||
+          event.keyCode === 229
+        ) return;
         if (event.key === 'Enter') {
           event.preventDefault();
-          onSubmit(value);
+          submit(event.currentTarget.value);
         }
 
         if (event.key === 'Escape') {
           event.preventDefault();
+          if (finishedRef.current) return;
+          finishedRef.current = true;
           onCancel();
         }
       }}

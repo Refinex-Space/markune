@@ -12,6 +12,8 @@ export const DEFAULT_APPEARANCE_FONTS: AppearanceFontSettings = {
   ui: 'SF Pro Text',
 };
 
+export const UI_SCALE_OPTIONS = [80, 90, 100, 110, 125, 150] as const;
+
 export const MIN_WINDOW_OPACITY = 70;
 export const MAX_WINDOW_OPACITY = 100;
 
@@ -51,6 +53,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
       recentIcons: [],
     },
     windowOpacity: MAX_WINDOW_OPACITY,
+    uiScale: 100,
   },
   calendar: {
     expanded: true,
@@ -72,6 +75,7 @@ export function withDefaultAppSettings(
   },
 ): AppSettings {
   const windowOpacity = settings.appearance?.windowOpacity;
+  const uiScale = settings.appearance?.uiScale;
 
   return {
     ...DEFAULT_APP_SETTINGS,
@@ -79,6 +83,10 @@ export function withDefaultAppSettings(
     appearance: {
       ...DEFAULT_APP_SETTINGS.appearance,
       ...settings.appearance,
+      uiScale:
+        typeof uiScale === 'number' && UI_SCALE_OPTIONS.some((scale) => scale === uiScale)
+          ? uiScale
+          : 100,
       windowOpacity:
         typeof windowOpacity === 'number' &&
         Number.isInteger(windowOpacity) &&

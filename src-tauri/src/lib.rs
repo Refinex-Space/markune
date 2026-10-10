@@ -278,6 +278,7 @@ pub fn run() {
             terminal::terminal_resize,
             terminal::terminal_kill,
             settings::read_app_settings,
+            settings::set_app_ui_scale,
             settings::save_app_settings,
             system_fonts::list_system_fonts,
             window_chrome::get_macos_titlebar_metrics,

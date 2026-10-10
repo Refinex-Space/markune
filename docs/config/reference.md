@@ -1,6 +1,6 @@
 ---
 owner: refinex
-updated: 2026-10-07
+updated: 2026-10-10
 status: active
 referenced_by: AGENTS.md#knowledge-map
 ---
@@ -91,7 +91,7 @@ Markune 图片剪贴板桥接只解析受控 `markune-asset://` 地址，并识�
 
 ## App Settings
 
-`src-tauri/src/settings.rs` 持久化全局设置。当前 schema version 为 `1`，包含 `storage.defaultProvider: local`、`appearance.pageWidthMode`（`standard` 或 `wide`）、`appearance.windowOpacity`（整数百分比 `70`–`100`，默认 `100`）、`appearance.showGitPanelEntry` 与 `appearance.showGitLogEntry`（分别控制工作区右上角 Git 面板和 Git 日志入口，均默认 `false`，不影响 Git Sync 能力）、`appearance.systemNavLayout`（`vertical` 或 `horizontal`，默认 `vertical`）、`appearance.systemNavCollapsed`（默认 `false`）、`appearance.fonts.ui`、`appearance.fonts.document`、`appearance.fonts.code`、`appearance.treeIconPicker.lastTab`（`builtin`、`emoji` 或 `local`，默认 `builtin`）与最多 20 个 `appearance.treeIconPicker.recentIcons`，以及 `calendar.expanded`（默认 `true`）和 `calendar.weekStartsOn`（`monday` 或 `sunday`，默认 `monday`）。
+`src-tauri/src/settings.rs` 持久化全局设置。当前 schema version 为 `1`，包含 `storage.defaultProvider: local`、`appearance.pageWidthMode`（`standard` 或 `wide`）、`appearance.uiScale`（`80`、`90`、`100`、`110`、`125`、`150`，默认 `100`，旧设置缺失时补默认）、`appearance.windowOpacity`（整数百分比 `70`–`100`，默认 `100`）、`appearance.showGitPanelEntry` 与 `appearance.showGitLogEntry`（分别控制工作区右上角 Git 面板和 Git 日志入口，均默认 `false`，不影响 Git Sync 能力）、`appearance.systemNavLayout`（`vertical` 或 `horizontal`，默认 `vertical`）、`appearance.systemNavCollapsed`（默认 `false`）、`appearance.fonts.ui`、`appearance.fonts.document`、`appearance.fonts.code`、`appearance.treeIconPicker.lastTab`（`builtin`、`emoji` 或 `local`，默认 `builtin`）与最多 20 个 `appearance.treeIconPicker.recentIcons`，以及 `calendar.expanded`（默认 `true`）和 `calendar.weekStartsOn`（`monday` 或 `sunday`，默认 `monday`）。
 
 旧设置文件中的未知字段读取时会忽略；用户保存设置后仅写回当前 schema 支持的字段。
 

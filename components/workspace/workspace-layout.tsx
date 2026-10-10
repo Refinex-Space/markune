@@ -1,5 +1,7 @@
 'use client';
 
+import { useUiScale } from './use-ui-scale';
+
 import { remapTreePath } from './workspace-tree-move';
 import type { WorkspaceTreeMoveResult } from './workspace-types';
 
@@ -727,10 +729,6 @@ export function WorkspaceLayout({
   const activeGlobalSearchStatus: GlobalSearchIndexStatus = knowledge.status;
   const isMacRuntime = useIsMacRuntime();
   const isWindowsRuntime = useIsWindowsRuntime();
-  const macChromeControlsTop = useMacosChromeControlsTop(
-    isTauriRuntime && isMacRuntime,
-  );
-  const macChromeContentTop = getMacosChromeContentTop(macChromeControlsTop);
 
   React.useEffect(() => {
     if (!isTauriRuntime) {
@@ -794,6 +792,12 @@ export function WorkspaceLayout({
     );
   const [appSettings, setAppSettings] =
     React.useState<AppSettings>(DEFAULT_APP_SETTINGS);
+  const appliedUiScale = useUiScale(appSettings.appearance.uiScale, isTauriRuntime);
+  const macChromeControlsTop = useMacosChromeControlsTop(
+    isTauriRuntime && isMacRuntime,
+    appliedUiScale,
+  );
+  const macChromeContentTop = getMacosChromeContentTop(macChromeControlsTop);
   const [settingsSessionCache] = React.useState(
     createWorkspaceSettingsSessionCache(),
   );
@@ -2817,9 +2821,14 @@ export function WorkspaceLayout({
 
   const handleRenameWorkspaceNode = React.useCallback(
     async (node: WorkspaceNode, newName: string) => {
-      if (!(await flushActiveMarkdownEditor('document-switch'))) return null;
+      if (!(await flushActiveMarkdownEditor('document-switch'))) {
+        throw new Error('文档尚未保存，请稍后重试改名');
+      }
       const renamed = await workspace.renameNode(node, newName);
-      if (!renamed || renamed.absolutePath === node.absolutePath)
+      if (!renamed) {
+        throw new Error('无法完成重命名，请检查文档保存状态后重试');
+      }
+      if (renamed.absolutePath === node.absolutePath)
         return renamed;
       const updates: Array<{
         oldPath: string;
@@ -3562,6 +3571,7 @@ export function WorkspaceLayout({
         className="relative flex h-screen w-full shrink-0 overflow-hidden bg-sidebar text-foreground antialiased"
         data-chrome="workspace"
         data-testid="workspace-shell"
+        style={!isTauriRuntime ? { height: `calc(100dvh / ${appliedUiScale / 100})` } : undefined}
       >
         {isTauriRuntime && isWindowsRuntime ? (
           <div
@@ -4450,7 +4460,7 @@ function SidebarChromeToggle({
       className={cn(
         'absolute z-50 flex h-8 items-center gap-0',
         !macChromeOffset && 'top-0',
-        windowsChromeInset ? 'left-2' : 'left-[80px]',
+        windowsChromeInset ? 'left-2' : 'left-[calc(80px/var(--app-ui-scale,1))]',
       )}
       data-testid="sidebar-chrome-toggle"
       style={macChromeOffset ? { top: macChromeControlsTop } : undefined}

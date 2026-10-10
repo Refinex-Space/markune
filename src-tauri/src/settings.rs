@@ -54,6 +54,8 @@ pub struct AppearanceSettings {
     pub page_width_mode: String,
     #[serde(default = "default_window_opacity")]
     pub window_opacity: u8,
+    #[serde(default = "default_ui_scale")]
+    pub ui_scale: u16,
     #[serde(default)]
     pub show_git_log_entry: bool,
     #[serde(default)]
@@ -122,6 +124,7 @@ impl Default for AppearanceSettings {
             fonts: AppearanceFontSettings::default(),
             page_width_mode: default_page_width_mode(),
             window_opacity: default_window_opacity(),
+            ui_scale: default_ui_scale(),
             show_git_log_entry: false,
             show_git_panel_entry: false,
             system_nav_collapsed: false,
@@ -194,6 +197,24 @@ fn default_page_width_mode() -> String {
     "wide".to_string()
 }
 
+fn default_ui_scale() -> u16 {
+    100
+}
+
+fn ui_scale_factor(scale: u16) -> Result<f64, String> {
+    if ![80, 90, 100, 110, 125, 150].contains(&scale) {
+        return Err("界面缩放设置无效".into());
+    }
+    Ok(f64::from(scale) / 100.0)
+}
+
+#[tauri::command]
+pub async fn set_app_ui_scale(window: tauri::WebviewWindow, scale: u16) -> Result<(), String> {
+    window
+        .set_zoom(ui_scale_factor(scale)?)
+        .map_err(|_| "无法应用界面缩放".into())
+}
+
 fn default_window_opacity() -> u8 {
     100
 }
@@ -262,6 +283,7 @@ pub(crate) fn validate_app_settings(settings: &AppSettings) -> Result<(), String
     ) {
         return Err("页面宽度设置无效".to_string());
     }
+    ui_scale_factor(settings.appearance.ui_scale)?;
     if !(70..=100).contains(&settings.appearance.window_opacity) {
         return Err("应用透明度设置无效".to_string());
     }
@@ -339,6 +361,26 @@ fn validate_font(value: &str, label: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ui_scale_defaults_validates_and_round_trips() {
+        let legacy = r#"{"schemaVersion":1,"storage":{"defaultProvider":"local"},"appearance":{}}"#;
+        let mut settings: AppSettings = serde_json::from_str(legacy).unwrap();
+        assert_eq!(settings.appearance.ui_scale, 100);
+        for scale in [80, 90, 100, 110, 125, 150] {
+            settings.appearance.ui_scale = scale;
+            validate_app_settings(&settings).unwrap();
+            let restored: AppSettings =
+                serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+            assert_eq!(restored.appearance.ui_scale, scale);
+            assert_eq!(ui_scale_factor(scale).unwrap(), f64::from(scale) / 100.0);
+        }
+        for scale in [0, 79, 95, 151, 200] {
+            settings.appearance.ui_scale = scale;
+            assert!(validate_app_settings(&settings).is_err());
+            assert!(ui_scale_factor(scale).is_err());
+        }
+    }
 
     #[test]
     fn defaults_are_valid() {

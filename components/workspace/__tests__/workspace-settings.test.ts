@@ -6,6 +6,14 @@ import {
 } from '../workspace-settings';
 
 describe('workspace settings defaults', () => {
+  it.each([80, 90, 100, 110, 125, 150])('preserves supported UI scale %s', (uiScale) => {
+    expect(withDefaultAppSettings({ appearance: { uiScale } }).appearance.uiScale).toBe(uiScale);
+  });
+
+  it.each([undefined, 0, 79, 95, 200, NaN])('defaults invalid UI scale %s to 100', (uiScale) => {
+    expect(withDefaultAppSettings({ appearance: { uiScale } }).appearance.uiScale).toBe(100);
+  });
+
   it('fills calendar defaults for legacy settings', () => {
     const settings = withDefaultAppSettings({
       appearance: {
